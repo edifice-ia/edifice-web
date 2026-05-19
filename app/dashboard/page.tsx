@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { LogoMark } from "../components/LogoMark";
+import { logout } from "../login/actions";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const metadata: Metadata = {
   title: "Dashboard - L'Edifice",
@@ -7,30 +10,51 @@ export const metadata: Metadata = {
 };
 
 const modules = [
-  "Cockpit local",
   "Agents IA",
   "Pipelines",
-  "Documentation",
   "Publication API",
-  "Assistant Global",
-  "Notion",
+  "Documentation Notion",
+  "Journaux et suivi",
+  "Integrations : TikTok, YouTube, Instagram/Meta, Pinterest",
 ];
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
   return (
     <div className="mx-auto max-w-7xl px-5 py-14 sm:px-8 lg:py-20">
       <div className="rounded-lg border border-[#223149] bg-[#0F1724] p-6 sm:p-8">
         <LogoMark size="md" priority />
         <p className="mt-6 text-sm font-semibold uppercase tracking-[0.18em] text-[#7DD3FC]">
-          Statut : version privee
+          Session connectee
         </p>
         <h1 className="mt-4 text-4xl font-semibold text-[#F4F7FB] sm:text-5xl">
-          Bienvenue dans L&apos;Edifice
+          Interface L&apos;Edifice
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-[#9EADBF]">
-          Cette interface est en developpement prive. Elle prefigure le futur
-          espace web sans remplacer le Cockpit local.
+          Le Cockpit Web est l&apos;interface privee du portail L&apos;Edifice.
+          Le Cockpit local Streamlit reste l&apos;interface operationnelle interne.
         </p>
+        <div className="mt-6 flex flex-col gap-4 rounded-lg border border-[#223149] bg-[#111D2E] p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.18em] text-[#9EADBF]">
+              Utilisateur connecte
+            </p>
+            <p className="mt-2 font-semibold text-[#F4F7FB]">{user.email}</p>
+          </div>
+          <form action={logout}>
+            <button
+              type="submit"
+              className="rounded-md bg-[#38BDF8] px-5 py-3 text-sm font-semibold text-[#070B12] transition hover:bg-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              Deconnexion
+            </button>
+          </form>
+        </div>
       </div>
 
       <section className="mt-10">

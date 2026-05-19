@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LogoMark } from "./components/LogoMark";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const pillars = [
   {
@@ -35,7 +36,9 @@ const platforms = [
   "ElevenLabs",
 ];
 
-export default function Home() {
+export default async function Home() {
+  const user = await getCurrentUser();
+
   return (
     <div>
       <section className="border-b border-[#223149]">
@@ -55,12 +58,21 @@ export default function Home() {
               des contenus multi-plateformes.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link
-                href="/login"
-                className="rounded-md bg-[#38BDF8] px-5 py-3 text-sm font-semibold text-[#070B12] transition hover:bg-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-              >
-                Connexion
-              </Link>
+              {user ? (
+                <Link
+                  href="/dashboard"
+                  className="rounded-md bg-[#38BDF8] px-5 py-3 text-sm font-semibold text-[#070B12] transition hover:bg-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                >
+                  Ouvrir l&apos;interface
+                </Link>
+              ) : (
+                <Link
+                  href="/login"
+                  className="rounded-md bg-[#38BDF8] px-5 py-3 text-sm font-semibold text-[#070B12] transition hover:bg-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                >
+                  Connexion
+                </Link>
+              )}
               <Link
                 href="/features"
                 className="rounded-md border border-[#223149] px-5 py-3 text-sm font-semibold text-[#F4F7FB] transition hover:border-[#38BDF8] hover:bg-[#111D2E] hover:text-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -184,16 +196,19 @@ export default function Home() {
           </p>
         </div>
         <div className="rounded-lg border border-[#223149] bg-[#0F1724] p-6">
-          <h2 className="text-2xl font-semibold text-[#F4F7FB]">Contact</h2>
+          <h2 className="text-2xl font-semibold text-[#F4F7FB]">
+            Cockpit Web prive
+          </h2>
           <p className="mt-4 leading-7 text-[#9EADBF]">
-            Pour toute demande concernant l&apos;acces, les donnees ou les APIs,
-            la page contact centralise les informations du projet.
+            Le Cockpit Web est l&apos;interface privee du portail L&apos;Edifice.
+            Le Cockpit local Streamlit reste l&apos;interface operationnelle
+            interne.
           </p>
           <Link
-            href="/contact"
+            href={user ? "/dashboard" : "/login"}
             className="mt-6 inline-flex rounded-md bg-[#38BDF8] px-5 py-3 text-sm font-semibold text-[#070B12] transition hover:bg-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
           >
-            Aller au contact
+            {user ? "Ouvrir l'interface" : "Connexion"}
           </Link>
         </div>
       </section>

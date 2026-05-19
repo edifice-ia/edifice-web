@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { LogoMark } from "./components/LogoMark";
+import { logout } from "./login/actions";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -12,8 +14,6 @@ export const metadata: Metadata = {
 const navLinks = [
   { href: "/", label: "Accueil" },
   { href: "/features", label: "Fonctionnalites" },
-  { href: "/login", label: "Connexion" },
-  { href: "/dashboard", label: "Dashboard" },
   { href: "/contact", label: "Contact" },
 ];
 
@@ -25,11 +25,13 @@ const footerLinks = [
   { href: "/contact", label: "Contact" },
 ];
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const user = await getCurrentUser();
+
   return (
     <html lang="fr" className="h-full antialiased">
       <body className="min-h-full bg-[#070B12] text-[#F4F7FB]">
@@ -57,6 +59,31 @@ export default function RootLayout({
                     {link.label}
                   </Link>
                 ))}
+                {user ? (
+                  <>
+                    <Link
+                      href="/dashboard"
+                      className="rounded-md border border-[#223149] px-3 py-2 font-semibold text-[#7DD3FC] transition hover:bg-[#111D2E] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                    >
+                      Interface
+                    </Link>
+                    <form action={logout}>
+                      <button
+                        type="submit"
+                        className="rounded-md bg-[#111D2E] px-3 py-2 font-semibold text-[#F4F7FB] transition hover:bg-[#1E293B] hover:text-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                      >
+                        Deconnexion
+                      </button>
+                    </form>
+                  </>
+                ) : (
+                  <Link
+                    href="/login"
+                    className="rounded-md bg-[#38BDF8] px-3 py-2 font-semibold text-[#070B12] transition hover:bg-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                  >
+                    Connexion
+                  </Link>
+                )}
               </div>
             </nav>
           </header>

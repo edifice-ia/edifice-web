@@ -49,13 +49,13 @@ export default function FeaturesPage() {
   return (
     <div className="mx-auto max-w-7xl px-5 py-14 sm:px-8 lg:py-20">
       <div className="max-w-3xl">
-        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-200">
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#7DD3FC]">
           Modules
         </p>
-        <h1 className="mt-4 text-4xl font-semibold text-white sm:text-5xl">
+        <h1 className="mt-4 text-4xl font-semibold text-[#F4F7FB] sm:text-5xl">
           Fonctionnalites de L&apos;Edifice
         </h1>
-        <p className="mt-5 text-lg leading-8 text-slate-300">
+        <p className="mt-5 text-lg leading-8 text-[#9EADBF]">
           La V1 web presente les capacites du cockpit prive sans ouvrir encore
           les commandes operationnelles. Le pilotage actif reste dans
           l&apos;interface locale.
@@ -66,12 +66,12 @@ export default function FeaturesPage() {
         {features.map((feature) => (
           <article
             key={feature.title}
-            className="rounded-lg border border-white/10 bg-white/[0.035] p-6"
+            className="rounded-lg border border-[#223149] bg-[#0F1724] p-6"
           >
-            <h2 className="text-xl font-semibold text-white">
+            <h2 className="text-xl font-semibold text-[#F4F7FB]">
               {feature.title}
             </h2>
-            <p className="mt-3 leading-7 text-slate-400">{feature.text}</p>
+            <p className="mt-3 leading-7 text-[#9EADBF]">{feature.text}</p>
           </article>
         ))}
       </div>

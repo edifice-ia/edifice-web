@@ -54,13 +54,13 @@ const thirdParties = [
 export default function PrivacyPage() {
   return (
     <div className="mx-auto max-w-5xl px-5 py-14 sm:px-8 lg:py-20">
-      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-200">
+      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#7DD3FC]">
         Legal
       </p>
-      <h1 className="mt-4 text-4xl font-semibold text-white sm:text-5xl">
+      <h1 className="mt-4 text-4xl font-semibold text-[#F4F7FB] sm:text-5xl">
         Politique de confidentialite
       </h1>
-      <p className="mt-5 text-lg leading-8 text-slate-300">
+      <p className="mt-5 text-lg leading-8 text-[#9EADBF]">
         Cette politique decrit les principes applicables a L&apos;Edifice, portail
         officiel et cockpit IA prive en developpement. Elle sera mise a jour au
         fur et a mesure de l&apos;activation des acces utilisateurs et integrations.
@@ -70,19 +70,19 @@ export default function PrivacyPage() {
         {sections.map((section) => (
           <section
             key={section.title}
-            className="rounded-lg border border-white/10 bg-white/[0.035] p-6"
+            className="rounded-lg border border-[#223149] bg-[#0F1724] p-6"
           >
-            <h2 className="text-xl font-semibold text-white">
+            <h2 className="text-xl font-semibold text-[#F4F7FB]">
               {section.title}
             </h2>
-            <p className="mt-3 leading-7 text-slate-400">{section.text}</p>
+            <p className="mt-3 leading-7 text-[#9EADBF]">{section.text}</p>
           </section>
         ))}
       </div>
 
-      <section className="mt-10 rounded-lg border border-white/10 bg-[#0f151c] p-6">
-        <h2 className="text-xl font-semibold text-white">Services tiers</h2>
-        <p className="mt-3 leading-7 text-slate-400">
+      <section className="mt-10 rounded-lg border border-[#223149] bg-[#111D2E] p-6">
+        <h2 className="text-xl font-semibold text-[#F4F7FB]">Services tiers</h2>
+        <p className="mt-3 leading-7 text-[#9EADBF]">
           Selon les modules actives, L&apos;Edifice peut interagir avec les services
           suivants. Chaque service conserve ses propres conditions, politiques
           de confidentialite, permissions API et mecanismes de retrait
@@ -92,7 +92,7 @@ export default function PrivacyPage() {
           {thirdParties.map((service) => (
             <span
               key={service}
-              className="rounded-md border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-100"
+              className="rounded-md border border-[#223149] bg-[#1E293B] px-4 py-2 text-sm text-[#7DD3FC]"
             >
               {service}
             </span>

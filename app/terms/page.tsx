@@ -40,13 +40,13 @@ const terms = [
 export default function TermsPage() {
   return (
     <div className="mx-auto max-w-5xl px-5 py-14 sm:px-8 lg:py-20">
-      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-200">
+      <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#7DD3FC]">
         Legal
       </p>
-      <h1 className="mt-4 text-4xl font-semibold text-white sm:text-5xl">
+      <h1 className="mt-4 text-4xl font-semibold text-[#F4F7FB] sm:text-5xl">
         Conditions d&apos;utilisation
       </h1>
-      <p className="mt-5 text-lg leading-8 text-slate-300">
+      <p className="mt-5 text-lg leading-8 text-[#9EADBF]">
         Ces conditions encadrent l&apos;utilisation de L&apos;Edifice dans sa version
         privee et en developpement.
       </p>
@@ -55,12 +55,12 @@ export default function TermsPage() {
         {terms.map((section) => (
           <section
             key={section.title}
-            className="rounded-lg border border-white/10 bg-white/[0.035] p-6"
+            className="rounded-lg border border-[#223149] bg-[#0F1724] p-6"
           >
-            <h2 className="text-xl font-semibold text-white">
+            <h2 className="text-xl font-semibold text-[#F4F7FB]">
               {section.title}
             </h2>
-            <p className="mt-3 leading-7 text-slate-400">{section.text}</p>
+            <p className="mt-3 leading-7 text-[#9EADBF]">{section.text}</p>
           </section>
         ))}
       </div>

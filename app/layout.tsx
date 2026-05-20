@@ -22,6 +22,7 @@ const footerLinks = [
   { href: "/features", label: "Fonctionnalites" },
   { href: "/privacy", label: "Confidentialite" },
   { href: "/terms", label: "Conditions" },
+  { href: "/data-deletion", label: "Suppression donnees" },
   { href: "/contact", label: "Contact" },
 ];
 

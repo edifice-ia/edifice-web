@@ -60,7 +60,7 @@ export default async function Home() {
             <div className="mt-8 flex flex-wrap gap-3">
               {user ? (
                 <Link
-                  href="/dashboard"
+                  href="/interface"
                   className="rounded-md bg-[#38BDF8] px-5 py-3 text-sm font-semibold text-[#070B12] transition hover:bg-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
                   Ouvrir l&apos;interface
@@ -205,7 +205,7 @@ export default async function Home() {
             interne.
           </p>
           <Link
-            href={user ? "/dashboard" : "/login"}
+            href={user ? "/interface" : "/login"}
             className="mt-6 inline-flex rounded-md bg-[#38BDF8] px-5 py-3 text-sm font-semibold text-[#070B12] transition hover:bg-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
           >
             {user ? "Ouvrir l'interface" : "Connexion"}

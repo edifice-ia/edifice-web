@@ -33,7 +33,7 @@ const terms = [
   },
   {
     title: "Contact",
-    text: "Adresse de contact officielle provisoire : contact.edificeia@gmail.com. Cette adresse sert aux demandes liees aux donnees, a la suppression des donnees, a l'acces API et au contact general.",
+    text: "Adresse de contact officielle : contact@edificeia.com. Cette adresse sert aux demandes liees aux donnees, a la suppression des donnees, a l'acces API et au contact general.",
   },
 ];
 

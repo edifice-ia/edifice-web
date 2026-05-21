@@ -47,7 +47,12 @@ export default function ContactPage() {
               Email
             </dt>
             <dd className="mt-2 text-xl font-semibold text-[#F4F7FB]">
-              contact.edificeia@gmail.com
+              <a
+                href="mailto:contact@edificeia.com"
+                className="text-[#7DD3FC] transition hover:text-[#F4F7FB]"
+              >
+                contact@edificeia.com
+              </a>
             </dd>
           </div>
           <div>
@@ -55,8 +60,8 @@ export default function ContactPage() {
               Message
             </dt>
             <dd className="mt-2 leading-7 text-[#9EADBF]">
-              Adresse de contact officielle provisoire :
-              contact.edificeia@gmail.com. Cette adresse sert aux demandes
+              Adresse de contact officielle :
+              contact@edificeia.com. Cette adresse sert aux demandes
               liees aux donnees, a la suppression des donnees, a l&apos;acces API
               et au contact general.
             </dd>

@@ -103,8 +103,13 @@ export default async function RootLayout({
                   operationnelle.
                 </p>
                 <p className="mt-2 text-sm text-[#9EADBF]">
-                  Adresse de contact officielle provisoire :
-                  contact.edificeia@gmail.com
+                  Adresse de contact officielle :
+                  <a
+                    href="mailto:contact@edificeia.com"
+                    className="ml-1 text-[#7DD3FC] transition hover:text-[#F4F7FB]"
+                  >
+                    contact@edificeia.com
+                  </a>
                 </p>
                 </div>
               </div>

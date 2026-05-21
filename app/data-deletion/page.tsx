@@ -28,7 +28,12 @@ export default function DataDeletionPage() {
             Edifice IA, contactez-nous a l&apos;adresse suivante :
           </p>
           <p className="rounded-md border border-[#223149] bg-[#111D2E] px-4 py-3 font-semibold text-[#7DD3FC]">
-            contact.edificeia@gmail.com
+            <a
+              href="mailto:contact@edificeia.com"
+              className="transition hover:text-[#F4F7FB]"
+            >
+              contact@edificeia.com
+            </a>
           </p>
           <p>Votre demande sera traitee dans les meilleurs delais.</p>
         </div>

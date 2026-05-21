@@ -27,11 +27,19 @@ export function getOAuthConfigState(
 export function getOAuthStatus(provider: OAuthProviderConfig) {
   const state = getOAuthConfigState(provider);
 
+  if (provider.key === "youtube") {
+    return "Validé";
+  }
+
   if (provider.placeholder) {
     return state.configured ? "Placeholder" : "A securiser";
   }
 
   return state.configured ? "Configure" : "A configurer";
+}
+
+export function isTokenExchangeEnabled(provider: OAuthProviderConfig) {
+  return provider.key === "youtube";
 }
 
 export function buildOAuthStartUrl(provider: OAuthProviderConfig) {

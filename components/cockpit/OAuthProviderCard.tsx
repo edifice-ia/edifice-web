@@ -1,6 +1,6 @@
 import { OAuthStatusBadge } from "./OAuthStatusBadge";
 import { RequiredEnvList } from "./RequiredEnvList";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 
 type OAuthProviderCardProps = {
   name: string;
@@ -14,6 +14,7 @@ type OAuthProviderCardProps = {
   envNames: string[];
   note: string;
   disabled?: boolean;
+  actionContent?: ReactNode;
 };
 
 export function OAuthProviderCard({
@@ -28,6 +29,7 @@ export function OAuthProviderCard({
   envNames,
   note,
   disabled = false,
+  actionContent,
 }: OAuthProviderCardProps) {
   return (
     <article className="rounded-lg border border-[#1D2A44] bg-[#0B1420] p-5">
@@ -39,29 +41,35 @@ export function OAuthProviderCard({
         <OAuthStatusBadge status={status} />
       </div>
 
-      <div className="mt-5 flex flex-wrap gap-3">
-        {disabled ? (
-          <button
-            type="button"
-            disabled
-            className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-2 text-sm font-semibold text-[#64748b]"
-          >
-            {actionLabel}
-          </button>
+      <div className="mt-5">
+        {actionContent ? (
+          actionContent
         ) : (
-          <a
-            href={startHref}
-            className="rounded-md border border-[#39E6D0]/50 bg-[#08111A] px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-          >
-            {actionLabel}
-          </a>
+          <div className="flex flex-wrap gap-3">
+            {disabled ? (
+              <button
+                type="button"
+                disabled
+                className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-2 text-sm font-semibold text-[#64748b]"
+              >
+                {actionLabel}
+              </button>
+            ) : (
+              <a
+                href={startHref}
+                className="rounded-md border border-[#39E6D0]/50 bg-[#08111A] px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                {actionLabel}
+              </a>
+            )}
+            <a
+              href={testHref}
+              className="rounded-md border border-[#1D2A44] px-4 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:bg-[#08111A] hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              {secondaryLabel}
+            </a>
+          </div>
         )}
-        <a
-          href={testHref}
-          className="rounded-md border border-[#1D2A44] px-4 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:bg-[#08111A] hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-        >
-          {secondaryLabel}
-        </a>
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">

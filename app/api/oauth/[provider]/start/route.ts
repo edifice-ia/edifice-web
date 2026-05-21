@@ -3,6 +3,7 @@ import { getOAuthProvider, getRequiredEnvNames } from "@/lib/oauth/providers";
 import {
   buildOAuthStartUrl,
   getOAuthConfigState,
+  isTokenExchangeEnabled,
 } from "@/lib/oauth/server";
 
 export async function GET(
@@ -36,6 +37,7 @@ export async function GET(
 
   const authorizationUrl = buildOAuthStartUrl(provider);
   const isTest = request.nextUrl.searchParams.get("mode") === "test";
+  const tokenExchangeEnabled = isTokenExchangeEnabled(provider);
 
   if (isTest) {
     return Response.json({
@@ -43,9 +45,11 @@ export async function GET(
       provider: provider.key,
       configured: true,
       authorizationUrlPrepared: Boolean(authorizationUrl),
-      tokenExchangeEnabled: false,
+      tokenExchangeEnabled,
       tokenStorageEnabled: false,
-      message: "Configuration presente. Aucun token n'est echange ni stocke.",
+      message: tokenExchangeEnabled
+        ? "Configuration presente. Echange de token active cote serveur, stockage des tokens desactive."
+        : "Configuration presente. Aucun token n'est echange ni stocke.",
     });
   }
 
@@ -53,7 +57,7 @@ export async function GET(
     ok: true,
     provider: provider.key,
     authorizationUrl,
-    tokenExchangeEnabled: false,
+    tokenExchangeEnabled,
     tokenStorageEnabled: false,
     message:
       "URL OAuth preparee. Redirection et stockage de state a securiser avant activation reelle.",

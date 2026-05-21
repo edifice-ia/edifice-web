@@ -1,6 +1,16 @@
+import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
-
-const META_TOKEN_URL = "https://graph.facebook.com/v19.0/oauth/access_token";
+import {
+  buildMetaErrorRedirect,
+  buildMetaSuccessRedirect,
+  getMissingMetaEnv,
+  getMetaRedirectUri,
+  META_PERMISSIONS_URL,
+  META_REQUIRED_ENV,
+  META_SCOPES,
+  META_TOKEN_URL,
+  verifyMetaState,
+} from "@/lib/oauth/meta";
 
 type MetaTokenResponse = {
   access_token?: string;
@@ -15,28 +25,46 @@ type MetaTokenResponse = {
   };
 };
 
-function getAppUrl(request: NextRequest) {
-  return process.env.NEXT_PUBLIC_APP_URL?.trim() || request.nextUrl.origin;
-}
+type MetaPermissionsResponse = {
+  data?: Array<{
+    permission?: string;
+    status?: string;
+  }>;
+  error?: {
+    message?: string;
+    type?: string;
+    code?: number;
+  };
+};
 
-function getRedirectUri(request: NextRequest) {
-  const explicitRedirectUri = process.env.META_REDIRECT_URI?.trim();
+async function hasRequiredPermissions(accessToken: string) {
+  const permissionsUrl = new URL(META_PERMISSIONS_URL);
+  permissionsUrl.searchParams.set("access_token", accessToken);
 
-  if (explicitRedirectUri) {
-    return explicitRedirectUri;
+  const response = await fetch(permissionsUrl, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+  const payload = (await response.json()) as MetaPermissionsResponse;
+
+  if (!response.ok) {
+    console.error("[meta-oauth] permissions check rejected", {
+      status: response.status,
+      metaErrorCode: payload.error?.code,
+      metaErrorType: payload.error?.type,
+    });
+    return false;
   }
 
-  return `${getAppUrl(request)}/api/meta/callback`;
-}
-
-function getMissingEnv() {
-  return [
-    ["META_APP_ID", process.env.META_APP_ID],
-    ["META_APP_SECRET", process.env.META_APP_SECRET],
-    ["NEXT_PUBLIC_APP_URL", process.env.NEXT_PUBLIC_APP_URL],
-  ]
-    .filter(([, value]) => !value || value.trim().length === 0)
-    .map(([name]) => name);
+  const granted = new Set(
+    payload.data
+      ?.filter((item) => item.status === "granted")
+      .map((item) => item.permission),
+  );
+  return META_SCOPES.every((scope) => granted.has(scope));
 }
 
 export async function GET(request: NextRequest) {
@@ -56,53 +84,43 @@ export async function GET(request: NextRequest) {
   if (error) {
     console.warn("[meta-oauth] provider returned error", {
       error,
-      hasState: Boolean(state),
+      hasDescription: Boolean(errorDescription),
     });
 
-    return Response.json(
-      {
-        ok: false,
-        error,
-        error_description: errorDescription,
-        state_received: Boolean(state),
-      },
-      { status: 400 },
-    );
+    return Response.redirect(buildMetaErrorRedirect(request, "refused"));
   }
 
   if (!code) {
     return Response.json({ ok: false, error: "missing_code" }, { status: 400 });
   }
 
-  const missingEnv = getMissingEnv();
+  const missingEnv = getMissingMetaEnv();
 
   if (missingEnv.length > 0) {
     console.error("[meta-oauth] missing server configuration", {
       missing: missingEnv,
+      required: META_REQUIRED_ENV,
     });
 
-    return Response.json(
-      {
-        ok: false,
-        error: "missing_meta_oauth_config",
-        missing: missingEnv,
-      },
-      { status: 500 },
-    );
+    return Response.redirect(buildMetaErrorRedirect(request, "missing_env"));
   }
 
-  const redirectUri = getRedirectUri(request);
-  const expectedRedirectUri = `${getAppUrl(request)}/api/meta/callback`;
+  const cookieStore = await cookies();
+  const expectedState = cookieStore.get("meta_oauth_state")?.value;
+  cookieStore.delete("meta_oauth_state");
 
-  if (redirectUri !== expectedRedirectUri) {
-    console.info("[meta-oauth] using explicit META_REDIRECT_URI", {
-      matchesDefaultCallback: false,
+  if (!state || !expectedState || state !== expectedState || !verifyMetaState(state)) {
+    console.warn("[meta-oauth] invalid state", {
+      hasState: Boolean(state),
+      hasCookieState: Boolean(expectedState),
     });
+
+    return Response.redirect(buildMetaErrorRedirect(request, "oauth_error"));
   }
 
   const tokenUrl = new URL(META_TOKEN_URL);
   tokenUrl.searchParams.set("client_id", process.env.META_APP_ID as string);
-  tokenUrl.searchParams.set("redirect_uri", redirectUri);
+  tokenUrl.searchParams.set("redirect_uri", getMetaRedirectUri(request));
   tokenUrl.searchParams.set("client_secret", process.env.META_APP_SECRET as string);
   tokenUrl.searchParams.set("code", code);
 
@@ -124,10 +142,7 @@ export async function GET(request: NextRequest) {
           : "unknown_exchange_error",
     });
 
-    return Response.json(
-      { ok: false, error: "token_exchange_request_failed" },
-      { status: 502 },
-    );
+    return Response.redirect(buildMetaErrorRedirect(request, "oauth_error"));
   }
 
   const tokenPayload = (await tokenResponse.json()) as MetaTokenResponse;
@@ -139,32 +154,22 @@ export async function GET(request: NextRequest) {
       metaErrorType: tokenPayload.error?.type,
     });
 
-    return Response.json(
-      {
-        ok: false,
-        error: "token_exchange_failed",
-        meta_error: tokenPayload.error
-          ? {
-              message: tokenPayload.error.message,
-              type: tokenPayload.error.type,
-              code: tokenPayload.error.code,
-            }
-          : undefined,
-      },
-      { status: 502 },
+    return Response.redirect(buildMetaErrorRedirect(request, "oauth_error"));
+  }
+
+  const permissionsOk = await hasRequiredPermissions(tokenPayload.access_token);
+
+  if (!permissionsOk) {
+    console.warn("[meta-oauth] required permissions are missing");
+    return Response.redirect(
+      buildMetaErrorRedirect(request, "insufficient_permissions"),
     );
   }
 
   console.info("[meta-oauth] token exchange succeeded", {
     tokenType: tokenPayload.token_type,
     expiresIn: tokenPayload.expires_in,
-    hasState: Boolean(state),
   });
 
-  const appUrl = getAppUrl(request);
-  const redirectTarget = new URL("/dashboard", appUrl);
-  redirectTarget.searchParams.set("provider", "meta");
-  redirectTarget.searchParams.set("connected", "1");
-
-  return Response.redirect(redirectTarget);
+  return Response.redirect(buildMetaSuccessRedirect(request));
 }

@@ -1,4 +1,5 @@
 type OAuthStatus =
+  | "Validé"
   | "Configure"
   | "A configurer"
   | "En migration"
@@ -7,6 +8,7 @@ type OAuthStatus =
   | "Placeholder";
 
 const statusClasses: Record<OAuthStatus, string> = {
+  Validé: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
   Configure: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
   "A configurer": "border-[#38BDF8]/40 bg-[#38BDF8]/10 text-[#7DD3FC]",
   "En migration": "border-[#38BDF8]/40 bg-[#38BDF8]/10 text-[#7DD3FC]",

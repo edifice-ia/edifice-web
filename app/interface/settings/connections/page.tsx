@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
+import { MetaConnectionControls } from "@/components/cockpit/MetaConnectionControls";
 import { OAuthProviderCard } from "@/components/cockpit/OAuthProviderCard";
+import { OAuthResultNotice } from "@/components/cockpit/OAuthResultNotice";
 import { RequiredEnvList } from "@/components/cockpit/RequiredEnvList";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { oauthProviders, getRequiredEnvNames } from "@/lib/oauth/providers";
@@ -18,7 +20,17 @@ const allEnvNames = Array.from(
   new Set(oauthProviders.flatMap((provider) => getRequiredEnvNames(provider))),
 );
 
-export default function OAuthConnectionsPage() {
+export default async function OAuthConnectionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    provider?: string;
+    status?: string;
+    connected?: string;
+  }>;
+}) {
+  const result = await searchParams;
+
   return (
     <div>
       <CockpitHeader
@@ -27,11 +39,17 @@ export default function OAuthConnectionsPage() {
         description="Gerer les connexions externes necessaires aux modules de publication et d'automatisation."
         status="A securiser"
       />
+      <OAuthResultNotice
+        provider={result.provider}
+        status={result.status}
+        connected={result.connected}
+      />
 
       <div className="grid gap-6">
         <div className="grid gap-4 xl:grid-cols-2">
           {visibleProviders.map((provider) => {
             const callbackPath = `/api/oauth/${provider.key}/callback`;
+            const isMeta = provider.key === "meta";
 
             return (
               <OAuthProviderCard
@@ -40,13 +58,14 @@ export default function OAuthConnectionsPage() {
                 status={getOAuthStatus(provider)}
                 actionLabel={provider.actionLabel}
                 secondaryLabel={provider.secondaryLabel}
-                startHref={`/api/oauth/${provider.key}/start`}
-                testHref={`/api/oauth/${provider.key}/start?mode=test`}
-                callbackPath={callbackPath}
+                startHref={isMeta ? "/api/meta/start" : `/api/oauth/${provider.key}/start`}
+                testHref={isMeta ? "/api/meta/status" : `/api/oauth/${provider.key}/start?mode=test`}
+                callbackPath={isMeta ? "/api/meta/callback" : callbackPath}
                 scopes={provider.scopes}
                 envNames={getRequiredEnvNames(provider)}
                 note={provider.note}
                 disabled={provider.placeholder}
+                actionContent={isMeta ? <MetaConnectionControls /> : undefined}
               />
             );
           })}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { LogoMark } from "../components/LogoMark";
+import { OAuthResultNotice } from "@/components/cockpit/OAuthResultNotice";
 import { logout } from "../login/actions";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -18,8 +19,17 @@ const modules = [
   "Integrations : TikTok, YouTube, Instagram/Meta, Pinterest",
 ];
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    provider?: string;
+    connected?: string;
+    status?: string;
+  }>;
+}) {
   const user = await getCurrentUser();
+  const result = await searchParams;
 
   if (!user) {
     redirect("/login");
@@ -27,6 +37,11 @@ export default async function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-5 py-14 sm:px-8 lg:py-20">
+      <OAuthResultNotice
+        provider={result.provider}
+        connected={result.connected}
+        status={result.status}
+      />
       <div className="rounded-lg border border-[#223149] bg-[#0F1724] p-6 sm:p-8">
         <LogoMark size="md" priority />
         <p className="mt-6 text-sm font-semibold uppercase tracking-[0.18em] text-[#7DD3FC]">

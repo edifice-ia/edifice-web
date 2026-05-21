@@ -12,8 +12,8 @@ export const metadata: Metadata = {
 const contentTools: CockpitModule[] = [
   {
     id: "post-ideas",
-    title: "Idees de posts",
-    description: "Angles editoriaux, variations et pistes de contenus.",
+    title: "Idées de contenus",
+    description: "Angles éditoriaux, variations et pistes de contenus.",
     href: "/interface/post-creation",
     status: "En migration",
     accent: "jade",
@@ -27,8 +27,8 @@ const contentTools: CockpitModule[] = [
   },
   {
     id: "post-platform-prep",
-    title: "Preparation multi-reseaux",
-    description: "YouTube, Pinterest, TikTok et Instagram sans publication reelle.",
+    title: "Préparation multi-réseaux",
+    description: "YouTube, Pinterest, TikTok et Instagram sans publication réelle.",
     href: "/interface/post-creation",
     status: "En migration",
   },
@@ -36,7 +36,7 @@ const contentTools: CockpitModule[] = [
     id: "post-prompts-audio",
     title: "Prompts et voix",
     description:
-      "Bibliotheque de prompts et placeholders audio ElevenLabs pour plus tard.",
+      "Bibliothèque de prompts et placeholders audio ElevenLabs pour plus tard.",
     href: "/interface/post-creation",
     status: "Plus tard",
   },
@@ -47,16 +47,16 @@ export default function PostCreationPage() {
     <div>
       <CockpitHeader
         eyebrow="Atelier de contenu"
-        title="Preparation des contenus"
-        description="Regroupe les anciens espaces Generation IA et Audio autour du workflow reel: idees, scripts, captions, hooks, prompts et preparation par plateforme."
+        title="Préparation des contenus"
+        description="Un atelier pour poser les idées, écrire les scripts, préparer les formats et garder les publications sous validation."
         status="En migration"
       />
       <SectionContainer>
         <ModuleGrid modules={contentTools} />
         <div className="mt-6">
           <EmptyState
-            title="Execution non branchee"
-            description="Les appels IA, generations vocales et automatisations seront ajoutes plus tard avec validation, quotas, logs et controles de securite."
+            title="Exécution non branchée"
+            description="Les appels IA, générations vocales et automatisations seront ajoutés plus tard avec validation, quotas, signaux et garde-fous."
           />
         </div>
       </SectionContainer>

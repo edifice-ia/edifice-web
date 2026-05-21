@@ -3,11 +3,11 @@ import type { NextRequest } from "next/server";
 import {
   buildMetaErrorRedirect,
   buildMetaSuccessRedirect,
+  getActiveMetaScopes,
   getMissingMetaEnv,
   getMetaRedirectUri,
   META_PERMISSIONS_URL,
   META_REQUIRED_ENV,
-  META_SCOPES,
   META_TOKEN_URL,
   verifyMetaState,
 } from "@/lib/oauth/meta";
@@ -64,7 +64,7 @@ async function hasRequiredPermissions(accessToken: string) {
       ?.filter((item) => item.status === "granted")
       .map((item) => item.permission),
   );
-  return META_SCOPES.every((scope) => granted.has(scope));
+  return getActiveMetaScopes().every((scope) => granted.has(scope));
 }
 
 export async function GET(request: NextRequest) {

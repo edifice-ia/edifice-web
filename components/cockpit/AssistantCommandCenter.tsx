@@ -8,7 +8,7 @@ import { SectionContainer } from "./SectionContainer";
 import { StatusBadge } from "./StatusBadge";
 import type { CockpitLog } from "@/types/cockpit";
 
-type AssistantContext = "Projet" | "Personnel" | "Équilibre";
+type AssistantContext = "Projet" | "Intérieur" | "Équilibre";
 
 const contexts: Record<
   AssistantContext,
@@ -23,82 +23,83 @@ const contexts: Record<
 > = {
   Projet: {
     description:
-      "Pour piloter Édifice IA, les contenus, les publications, les connexions OAuth et le suivi système.",
+      "Pour bâtir Édifice IA, créer du contenu, préparer les publications, suivre les connexions OAuth et garder le cap sur l'œuvre.",
     suggestions: [
       "Créer une idée de contenu",
       "Préparer une publication YouTube",
       "Vérifier les connexions OAuth",
-      "Lire les derniers logs",
+      "Lire les derniers signaux",
     ],
-    sources: [
-      "Publications",
-      "Connexions OAuth",
-      "Logs système",
-      "Atelier de contenu",
-    ],
+    sources: ["Atelier de contenu", "Publications", "Connexions OAuth", "Observatoire"],
     systemMessage:
-      "Assistant Édifice prêt en mode Projet. Les actions sensibles restent bloquées tant que la logique métier n’est pas validée.",
-    userExample: "Aide-moi à préparer la prochaine action utile pour Édifice IA.",
+      "Assistant Édifice prêt en mode Projet. Les actions sensibles restent verrouillées tant que les garde-fous ne sont pas validés.",
+    userExample: "Aide-moi à choisir la prochaine pierre à poser pour Édifice IA.",
     assistantExample:
-      "Je peux structurer une idée, vérifier les connexions ou préparer un brouillon sans publier.",
+      "Je peux clarifier une idée, préparer une publication ou lire les signaux sans déclencher d'action réelle.",
   },
-  Personnel: {
+  Intérieur: {
     description:
-      "Pour organiser les tâches, routines, objectifs, notes rapides et vision du jour.",
+      "Pour organiser le quotidien, les routines, les objectifs, les notes, l'énergie et la vision personnelle.",
     suggestions: [
       "Organiser ma journée",
       "Ajouter une tâche",
       "Revoir mes objectifs",
       "Résumer mes routines",
     ],
-    sources: ["Vision du jour", "Tâches", "Routines", "Objectifs"],
+    sources: ["Vision du jour", "Routines", "Objectifs", "Notes rapides"],
     systemMessage:
-      "Assistant Édifice prêt en mode Personnel. Les données restent locales au cockpit tant qu’aucune logique sécurisée n’est branchée.",
-    userExample: "Aide-moi à clarifier ma journée sans la surcharger.",
+      "Assistant Édifice prêt en mode Intérieur. L'espace reste local et lisible tant que les garde-fous ne sont pas validés.",
+    userExample: "Aide-moi à remettre de l'ordre dans ma journée.",
     assistantExample:
-      "Je peux proposer une organisation simple entre priorités, routines et notes rapides.",
+      "Je peux proposer une structure simple entre tâches, routines, énergie et objectifs.",
   },
   Équilibre: {
     description:
-      "Pour arbitrer entre avancement du projet, énergie personnelle, priorités et organisation globale.",
+      "Pour arbitrer entre ambition, repos, priorités, discipline et charge mentale.",
     suggestions: [
       "Prioriser ma journée",
       "Avancer sans surcharge",
       "Planifier travail + repos",
-      "Identifier l’action essentielle",
+      "Identifier l'action essentielle",
     ],
     sources: [
       "Priorités",
-      "Charge du jour",
-      "Projet + personnel",
+      "Énergie du jour",
+      "Projet + intérieur",
       "Décisions à arbitrer",
     ],
     systemMessage:
-      "Assistant Édifice prêt en mode Équilibre. Le cockpit aide à choisir sans déclencher d’action réelle.",
-    userExample: "Aide-moi à choisir l’action essentielle du moment.",
+      "Assistant Édifice prêt en mode Équilibre. Le cockpit aide à garder le cap sans forcer l'allure.",
+    userExample: "Aide-moi à arbitrer entre avancer et préserver mon énergie.",
     assistantExample:
-      "Je peux mettre en balance l’impact projet, l’énergie disponible et le besoin de repos.",
+      "Je peux mettre en balance l'impact, la charge et le repos avant toute décision.",
   },
 };
 
-const logs: CockpitLog[] = [
+const signals: CockpitLog[] = [
   {
     timestamp: "10:00",
     type: "system",
-    message: "Centre assistant charge en mode local.",
+    message: "Fondations de l'assistant chargées en local.",
     status: "Disponible",
   },
   {
     timestamp: "10:04",
     type: "security",
-    message: "Publication reelle bloquee par defaut.",
+    message: "Garde-fou actif: actions sensibles verrouillées.",
     status: "A securiser",
   },
   {
     timestamp: "10:08",
     type: "assistant",
-    message: "Contextes Projet, Personnel et Equilibre prepares.",
+    message: "Modes Projet, Intérieur et Équilibre prêts.",
     status: "En migration",
+  },
+  {
+    timestamp: "10:12",
+    type: "publication",
+    message: "Publication réelle bloquée sans validation humaine.",
+    status: "A securiser",
   },
 ];
 
@@ -106,8 +107,8 @@ const quickLinks = [
   { href: "/interface/post-creation", label: "Atelier de contenu" },
   { href: "/interface/publishers", label: "Publications" },
   { href: "/interface/settings/connections", label: "Connexions OAuth" },
-  { href: "/interface/monitoring", label: "Suivi système" },
-  { href: "/interface/personnel", label: "Espace personnel" },
+  { href: "/interface/monitoring", label: "Observatoire" },
+  { href: "/interface/personnel", label: "Espace intérieur" },
 ];
 
 export function AssistantCommandCenter() {
@@ -119,7 +120,7 @@ export function AssistantCommandCenter() {
   const placeholder = useMemo(
     () =>
       draft ||
-      `Suggestion prête en mode ${activeContext}. L’envoi reste désactivé.`,
+      `Suggestion prête en mode ${activeContext}. L'envoi reste désactivé.`,
     [activeContext, draft],
   );
 
@@ -130,7 +131,7 @@ export function AssistantCommandCenter() {
           <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
-                Contexte actif
+                Chambre de pilotage
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {(Object.keys(contexts) as AssistantContext[]).map((mode) => (
@@ -192,7 +193,7 @@ export function AssistantCommandCenter() {
               </button>
             </div>
             <p className="mt-3 text-xs text-[#A7B0C0]">
-              Assistant en migration progressive. Aucun appel API réel n’est
+              Assistant en migration progressive. Aucun appel API réel n'est
               déclenché.
             </p>
           </div>
@@ -246,8 +247,9 @@ export function AssistantCommandCenter() {
         </SectionContainer>
 
         <SectionContainer>
-          <h2 className="text-xl font-semibold text-[#F8FAFC]">Sécurité</h2>
+          <h2 className="text-xl font-semibold text-[#F8FAFC]">Garde-fous</h2>
           <div className="mt-4 grid gap-3 text-sm text-[#A7B0C0]">
+            <SafetyLine label="Actions sensibles" value="verrouillées" />
             <SafetyLine label="Publication réelle" value="bloquée" />
             <SafetyLine label="Validation humaine" value="obligatoire" />
             <SafetyLine label="Secrets" value="côté serveur uniquement" />
@@ -269,7 +271,7 @@ export function AssistantCommandCenter() {
           </div>
         </SectionContainer>
 
-        <LogPanel logs={logs} />
+        <LogPanel logs={signals} title="Signaux récents" />
       </aside>
     </div>
   );

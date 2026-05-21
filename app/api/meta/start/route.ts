@@ -3,10 +3,11 @@ import type { NextRequest } from "next/server";
 import {
   buildMetaErrorRedirect,
   createMetaState,
+  getActiveMetaScopes,
   getMissingMetaEnv,
   getMetaRedirectUri,
+  isMetaInstagramScopesEnabled,
   META_AUTH_URL,
-  META_SCOPES,
 } from "@/lib/oauth/meta";
 
 export async function GET(request: NextRequest) {
@@ -25,10 +26,11 @@ export async function GET(request: NextRequest) {
   }
 
   const authUrl = new URL(META_AUTH_URL);
+  const activeScopes = getActiveMetaScopes();
   authUrl.searchParams.set("client_id", process.env.META_APP_ID as string);
   authUrl.searchParams.set("redirect_uri", getMetaRedirectUri(request));
   authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("scope", META_SCOPES.join(","));
+  authUrl.searchParams.set("scope", activeScopes.join(","));
   authUrl.searchParams.set("state", state);
 
   const cookieStore = await cookies();
@@ -41,7 +43,8 @@ export async function GET(request: NextRequest) {
   });
 
   console.info("[meta-oauth] redirecting to Meta authorization", {
-    scopes: META_SCOPES.length,
+    scopes: activeScopes.length,
+    instagramScopesEnabled: isMetaInstagramScopesEnabled(),
     redirectUriConfigured: Boolean(process.env.META_REDIRECT_URI),
   });
 

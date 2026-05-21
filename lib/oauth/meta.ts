@@ -2,12 +2,33 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 export const META_AUTH_URL = "https://www.facebook.com/v19.0/dialog/oauth";
-export const META_TOKEN_URL = "https://graph.facebook.com/v19.0/oauth/access_token";
+export const META_TOKEN_URL =
+  "https://graph.facebook.com/v19.0/oauth/access_token";
 export const META_PERMISSIONS_URL =
   "https://graph.facebook.com/v19.0/me/permissions";
+export const META_ACCOUNTS_URL = "https://graph.facebook.com/v19.0/me/accounts";
+
+export const META_MINIMAL_SCOPES = ["public_profile", "email"];
 
 // TODO: Réactiver scopes Instagram Graph API après validation App Review Meta.
-export const META_SCOPES = ["public_profile", "email"];
+export const META_INSTAGRAM_GRAPH_SCOPES = [
+  "pages_show_list",
+  "pages_read_engagement",
+  "instagram_basic",
+  "instagram_content_publish",
+];
+
+export function isMetaInstagramScopesEnabled() {
+  return process.env.META_ENABLE_INSTAGRAM_SCOPES === "true";
+}
+
+export function getActiveMetaScopes() {
+  return isMetaInstagramScopesEnabled()
+    ? [...META_MINIMAL_SCOPES, ...META_INSTAGRAM_GRAPH_SCOPES]
+    : META_MINIMAL_SCOPES;
+}
+
+export const META_SCOPES = META_MINIMAL_SCOPES;
 
 export const META_REQUIRED_ENV = [
   "META_APP_ID",

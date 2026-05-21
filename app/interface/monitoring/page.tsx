@@ -5,26 +5,26 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { StatusBadge } from "@/components/cockpit/StatusBadge";
 
 export const metadata: Metadata = {
-  title: "Suivi système - L'Edifice",
+  title: "Observatoire - L'Edifice",
 };
 
 const logs = [
   {
     timestamp: "12:00",
     type: "system" as const,
-    message: "Health checks statiques prepares.",
+    message: "Signaux statiques préparés.",
     status: "Experimental" as const,
   },
   {
     timestamp: "12:04",
     type: "agent" as const,
-    message: "Suivi agents live non migre.",
+    message: "Observation live non migrée.",
     status: "Local uniquement" as const,
   },
   {
     timestamp: "12:08",
     type: "api" as const,
-    message: "Cout IA: placeholder sans donnees reelles.",
+    message: "Coûts IA: repère sans données réelles.",
     status: "Plus tard" as const,
   },
 ];
@@ -33,22 +33,22 @@ export default function MonitoringPage() {
   return (
     <div>
       <CockpitHeader
-        eyebrow="Suivi système"
-        title="Logs, sante et suivi"
-        description="Suivi statique de fondation: logs, health checks, statut APIs, statut agents et cout IA placeholder."
+        eyebrow="Observatoire"
+        title="Signaux, alertes et état du système"
+        description="Un observatoire de fondation pour lire l'état du cockpit sans déclencher d'action sensible."
         status="Experimental"
       />
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <SectionContainer>
           <h2 className="text-xl font-semibold text-[#F8FAFC]">
-            Health checks
+            Points de vigilance
           </h2>
           <div className="mt-4 grid gap-3">
             {[
               ["Supabase Auth", "Disponible"],
               ["Agents locaux", "Local uniquement"],
-              ["APIs externes", "A securiser"],
-              ["Couts IA", "Plus tard"],
+              ["Connexions externes", "A securiser"],
+              ["Coûts IA", "Plus tard"],
             ].map(([label, status]) => (
               <div
                 key={label}
@@ -68,7 +68,7 @@ export default function MonitoringPage() {
             ))}
           </div>
         </SectionContainer>
-        <LogPanel logs={logs} />
+        <LogPanel logs={logs} title="Signaux récents" />
       </div>
     </div>
   );

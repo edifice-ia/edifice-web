@@ -12,11 +12,11 @@ export function CockpitTopbar({ userEmail, isOwner }: CockpitTopbarProps) {
     <div className="mb-6 flex flex-col gap-3 rounded-lg border border-[#1D2A44] bg-[#08111A] p-4 md:flex-row md:items-center md:justify-between">
       <div>
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
-          L&apos;Edifice Web Cockpit
+          L&apos;Édifice
         </p>
         <p className="mt-1 text-sm text-[#A7B0C0]">
           Session : <span className="text-[#F8FAFC]">{userEmail}</span>
-          {isOwner ? " · proprietaire" : " · reviewer / utilisateur"}
+          {isOwner ? " · propriétaire" : " · accès cockpit"}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -25,7 +25,7 @@ export function CockpitTopbar({ userEmail, isOwner }: CockpitTopbarProps) {
           href="/dashboard"
           className="rounded-md border border-[#1D2A44] px-4 py-2 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#0B1420] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
         >
-          Dashboard
+          Accueil public
         </Link>
         <form action={logout}>
           <button

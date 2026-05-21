@@ -5,6 +5,10 @@ import { OAuthProviderCard } from "@/components/cockpit/OAuthProviderCard";
 import { OAuthResultNotice } from "@/components/cockpit/OAuthResultNotice";
 import { RequiredEnvList } from "@/components/cockpit/RequiredEnvList";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
+import {
+  getActiveMetaScopes,
+  isMetaInstagramScopesEnabled,
+} from "@/lib/oauth/meta";
 import { oauthProviders, getRequiredEnvNames } from "@/lib/oauth/providers";
 import { getOAuthStatus } from "@/lib/oauth/server";
 
@@ -30,13 +34,14 @@ export default async function OAuthConnectionsPage({
   }>;
 }) {
   const result = await searchParams;
+  const instagramScopesEnabled = isMetaInstagramScopesEnabled();
 
   return (
     <div>
       <CockpitHeader
         eyebrow="Réglages > Connexions"
         title="Connexions OAuth"
-        description="Gerer les connexions externes necessaires aux modules de publication et d'automatisation."
+        description="Gérer les connexions externes nécessaires aux modules de publication et d'automatisation."
         status="A securiser"
       />
       <OAuthResultNotice
@@ -50,6 +55,7 @@ export default async function OAuthConnectionsPage({
           {visibleProviders.map((provider) => {
             const callbackPath = `/api/oauth/${provider.key}/callback`;
             const isMeta = provider.key === "meta";
+            const providerScopes = isMeta ? getActiveMetaScopes() : provider.scopes;
 
             return (
               <OAuthProviderCard
@@ -58,14 +64,29 @@ export default async function OAuthConnectionsPage({
                 status={getOAuthStatus(provider)}
                 actionLabel={provider.actionLabel}
                 secondaryLabel={provider.secondaryLabel}
-                startHref={isMeta ? "/api/meta/start" : `/api/oauth/${provider.key}/start`}
-                testHref={isMeta ? "/api/meta/status" : `/api/oauth/${provider.key}/start?mode=test`}
+                startHref={
+                  isMeta ? "/api/meta/start" : `/api/oauth/${provider.key}/start`
+                }
+                testHref={
+                  isMeta
+                    ? "/api/meta/status"
+                    : `/api/oauth/${provider.key}/start?mode=test`
+                }
                 callbackPath={isMeta ? "/api/meta/callback" : callbackPath}
-                scopes={provider.scopes}
+                scopes={providerScopes}
                 envNames={getRequiredEnvNames(provider)}
                 note={provider.note}
                 disabled={provider.placeholder}
-                actionContent={isMeta ? <MetaConnectionControls /> : undefined}
+                actionContent={
+                  isMeta ? (
+                    <MetaConnectionControls
+                      metaConnected={
+                        result.provider === "meta" && result.connected === "1"
+                      }
+                      instagramScopesEnabled={instagramScopesEnabled}
+                    />
+                  ) : undefined
+                }
               />
             );
           })}
@@ -75,28 +96,28 @@ export default async function OAuthConnectionsPage({
           <CockpitHeader
             eyebrow="Configuration"
             title="Variables requises"
-            description="Seuls les noms des variables attendues sont affiches. Les valeurs ne doivent jamais apparaitre dans l'interface."
+            description="Seuls les noms des variables attendues sont affichés. Les valeurs ne doivent jamais apparaître dans l'interface."
           />
           <RequiredEnvList names={allEnvNames} />
         </SectionContainer>
 
         <SectionContainer>
           <CockpitHeader
-            eyebrow="Securite"
+            eyebrow="Sécurité"
             title="Garde-fous OAuth"
-            description="Base de securite avant tout branchement reel des workflows de publication."
+            description="Base de sécurité avant tout branchement réel des workflows de publication."
             status="A securiser"
           />
           <div className="grid gap-3 leading-7 text-[#A7B0C0]">
-            <p>Les secrets OAuth restent uniquement cote serveur.</p>
+            <p>Les secrets OAuth restent uniquement côté serveur.</p>
             <p>
-              Les client secrets ne doivent jamais etre exposes dans le
+              Les client secrets ne doivent jamais être exposés dans le
               frontend.
             </p>
-            <p>Les tokens doivent etre stockes de maniere securisee.</p>
+            <p>Les tokens doivent être stockés de manière sécurisée.</p>
             <p>
-              La publication reelle reste bloquee tant que les workflows ne
-              sont pas valides.
+              La publication réelle reste bloquée tant que les workflows ne
+              sont pas validés.
             </p>
           </div>
         </SectionContainer>

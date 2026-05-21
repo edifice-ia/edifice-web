@@ -4,18 +4,18 @@ import { EmptyState } from "@/components/cockpit/EmptyState";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 
 export const metadata: Metadata = {
-  title: "Espace personnel - L'Edifice",
+  title: "Espace intérieur - L'Edifice",
 };
 
 export default function PersonnelPage() {
   const blocks = [
     "Vision du jour",
-    "Taches",
+    "Tâches",
     "Routines",
-    "Habitudes",
+    "Énergie",
     "Notes rapides",
     "Objectifs",
-    "Statistiques personnelles simples",
+    "Repères personnels",
     "Calendrier placeholder",
     "Strava placeholder",
   ];
@@ -23,9 +23,9 @@ export default function PersonnelPage() {
   return (
     <div>
       <CockpitHeader
-        eyebrow="Espace personnel"
-        title="Espace personnel leger"
-        description="Version simple pour suivre routines, objectifs et notes rapides sans creer un clone Notion ni backend lourd."
+        eyebrow="Espace intérieur"
+        title="Espace intérieur léger"
+        description="Un espace calme pour suivre routines, objectifs, énergie et notes rapides sans alourdir le cockpit."
         status="Experimental"
       />
       <SectionContainer>
@@ -37,15 +37,15 @@ export default function PersonnelPage() {
             >
               <p className="font-semibold text-[#F8FAFC]">{block}</p>
               <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
-                Placeholder volontairement leger.
+                Placeholder volontairement léger.
               </p>
             </div>
           ))}
         </div>
         <div className="mt-6">
           <EmptyState
-            title="Aucune donnee personnelle connectee"
-            description="Les donnees personnelles resteront simples, explicites et separees des workflows critiques."
+            title="Aucune donnée intérieure connectée"
+            description="Les données intérieures resteront simples, explicites et séparées des workflows critiques."
           />
         </div>
       </SectionContainer>

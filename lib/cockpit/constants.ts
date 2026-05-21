@@ -16,9 +16,9 @@ export const migrationNotes = {
     "YouTube Publisher cote UI",
     "OpenAI tools cote UI",
     "ElevenLabs cote UI",
-    "Suivi systeme statique",
+    "Observatoire statique",
     "Ressources",
-    "Espace personnel simple",
+    "Espace interieur simple",
   ],
   localOnly: [
     "Agents Streamlit critiques",
@@ -37,12 +37,12 @@ export const migrationNotes = {
     "Workflows IA avances",
   ],
   realtimeLater: [
-    "Logs live",
+    "Signaux live",
     "Progression jobs",
     "Generation longue",
     "Publication longue",
     "Suivi agents",
-    "Suivi systeme",
+    "Observatoire",
     "Streaming assistant si necessaire",
   ],
 };

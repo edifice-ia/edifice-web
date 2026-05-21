@@ -8,34 +8,40 @@ const messages: Record<
   string,
   { title: string; description: string; className: string }
 > = {
-  success: {
-    title: "Connexion réussie",
-    description: "Meta a renvoye un code valide et les permissions requises.",
+  meta_success: {
+    title: "Connexion Meta réussie",
+    description: "Meta a renvoyé un code valide et les permissions requises.",
+    className: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
+  },
+  youtube_success: {
+    title: "Connexion YouTube réussie",
+    description:
+      "Google a renvoyé un code valide. Le stockage des tokens reste désactivé.",
     className: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
   },
   refused: {
     title: "Connexion refusée",
-    description: "La connexion Meta a ete annulee ou refusee.",
+    description: "La connexion Meta a été annulée ou refusée.",
     className: "border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#fbbf24]",
   },
   oauth_error: {
     title: "Erreur OAuth",
-    description: "La connexion Meta n'a pas pu etre finalisee.",
+    description: "La connexion n'a pas pu être finalisée.",
     className: "border-[#ef4444]/40 bg-[#ef4444]/10 text-[#fecaca]",
   },
   insufficient_permissions: {
     title: "Permissions insuffisantes",
-    description: "Meta n'a pas accorde toutes les permissions demandees.",
+    description: "Meta n'a pas accordé toutes les permissions demandées.",
     className: "border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#fbbf24]",
   },
   missing_env: {
     title: "Erreur OAuth",
-    description: "Des variables d'environnement Meta sont manquantes.",
+    description: "Des variables d'environnement sont manquantes.",
     className: "border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#fbbf24]",
   },
   callback_inaccessible: {
     title: "Erreur OAuth",
-    description: "Le callback Meta n'est pas accessible depuis l'application.",
+    description: "Le callback n'est pas accessible depuis l'application.",
     className: "border-[#ef4444]/40 bg-[#ef4444]/10 text-[#fecaca]",
   },
 };
@@ -45,11 +51,16 @@ export function OAuthResultNotice({
   status,
   connected,
 }: OAuthResultNoticeProps) {
-  if (provider !== "meta") {
+  if (provider !== "meta" && provider !== "youtube") {
     return null;
   }
 
-  const key = connected === "1" ? "success" : status;
+  const key =
+    connected === "1" && provider === "youtube"
+      ? "youtube_success"
+      : connected === "1" && provider === "meta"
+        ? "meta_success"
+        : status;
 
   if (!key || !messages[key]) {
     return null;

@@ -16,8 +16,8 @@ export default async function SettingsPage() {
     <div>
       <CockpitHeader
         eyebrow="Réglages"
-        title="Compte et preferences cockpit"
-        description="Base de parametres pour preferences d'affichage, statut compte et futures configurations securisees."
+        title="Compte et garde-fous"
+        description="Préférences, connexions et réglages de sécurité du cockpit."
         status="A securiser"
       />
       <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
@@ -26,7 +26,7 @@ export default async function SettingsPage() {
             Statut compte
           </h2>
           <p className="mt-3 text-[#A7B0C0]">
-            Connecte avec : <span className="text-[#F8FAFC]">{user?.email}</span>
+            Connecté avec : <span className="text-[#F8FAFC]">{user?.email}</span>
           </p>
         </SectionContainer>
         <SectionContainer>
@@ -34,8 +34,8 @@ export default async function SettingsPage() {
             Connexions
           </h2>
           <p className="mt-3 leading-7 text-[#A7B0C0]">
-            Preparer les connexions OAuth des publishers sans exposer de
-            secrets ni declencher de publication reelle.
+            Préparer les connexions OAuth des publications sans exposer de
+            secrets ni déclencher de publication réelle.
           </p>
           <Link
             href="/interface/settings/connections"
@@ -46,7 +46,7 @@ export default async function SettingsPage() {
           <div className="mt-6">
             <EmptyState
               title="Secrets hors frontend"
-              description="Les client secrets, tokens et credentials restent exclusivement cote serveur."
+              description="Les client secrets, tokens et credentials restent exclusivement côté serveur."
             />
           </div>
         </SectionContainer>

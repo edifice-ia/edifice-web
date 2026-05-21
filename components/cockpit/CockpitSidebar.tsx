@@ -34,7 +34,7 @@ export function CockpitSidebar() {
               >
                 <span className="flex items-center justify-between gap-3">
                   <span className="font-semibold">{item.label}</span>
-                  <StatusBadge status={item.status} />
+                  {item.showStatus ? <StatusBadge status={item.status} /> : null}
                 </span>
                 <span className="mt-1 block text-sm text-[#A7B0C0]">
                   {item.description}

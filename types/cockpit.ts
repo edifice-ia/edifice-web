@@ -13,6 +13,7 @@ export type CockpitNavItem = {
   label: string;
   description: string;
   status: CockpitStatus;
+  showStatus?: boolean;
 };
 
 export type CockpitModule = {
@@ -26,7 +27,7 @@ export type CockpitModule = {
 
 export type CockpitLog = {
   timestamp: string;
-  type: "system" | "agent" | "assistant" | "api" | "security";
+  type: "system" | "agent" | "assistant" | "api" | "security" | "publication";
   message: string;
   status: CockpitStatus;
 };

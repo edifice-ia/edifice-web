@@ -10,11 +10,11 @@ export const metadata: Metadata = {
 
 const links = [
   { href: "/", label: "Accueil public", description: "Portail officiel" },
-  { href: "/features", label: "Fonctionnalites", description: "Presentation publique" },
-  { href: "/privacy", label: "Confidentialite", description: "Document legal" },
-  { href: "/terms", label: "Conditions", description: "Document legal" },
-  { href: "/data-deletion", label: "Suppression donnees", description: "Meta/Facebook" },
-  { href: "/dashboard", label: "Dashboard", description: "Vue privee existante" },
+  { href: "/features", label: "Fonctionnalités", description: "Présentation publique" },
+  { href: "/privacy", label: "Confidentialité", description: "Document légal" },
+  { href: "/terms", label: "Conditions", description: "Document légal" },
+  { href: "/data-deletion", label: "Suppression données", description: "Meta/Facebook" },
+  { href: "/dashboard", label: "Dashboard", description: "Vue privée existante" },
 ];
 
 export default async function LinksPage() {
@@ -25,8 +25,8 @@ export default async function LinksPage() {
     <div>
       <CockpitHeader
         eyebrow="Ressources"
-        title="Documentation et acces projet"
-        description="Liens internes, outils projet et acces locaux reserves si applicables. Aucun secret n'est expose ici."
+        title="Repères et accès projet"
+        description="Liens internes, documents et accès locaux réservés si applicables. Aucun secret n'est exposé ici."
         status="Disponible"
       />
       <SectionContainer>
@@ -42,7 +42,6 @@ export default async function LinksPage() {
             </Link>
           ))}
           {isOwner ? (
-            // Owner-only local cockpit link
             <a
               href="http://localhost:8501"
               target="_blank"
@@ -53,7 +52,7 @@ export default async function LinksPage() {
                 Interface locale Streamlit
               </p>
               <p className="mt-2 text-sm text-[#A7B0C0]">
-                Disponible uniquement en local pour le proprietaire.
+                Disponible uniquement en local pour le propriétaire.
               </p>
             </a>
           ) : null}

@@ -13,8 +13,8 @@ export default function PublishersPage() {
     <div>
       <CockpitHeader
         eyebrow="Publications"
-        title="Hub de publication"
-        description="Vue principale des publications. YouTube reste conserve, Pinterest est prepare, et TikTok/Instagram sont regroupes dans Reseaux courts avec publication reelle bloquee."
+        title="Préparation des publications"
+        description="Espace de préparation et validation des publications. YouTube reste conservé, Pinterest est préparé, et TikTok/Instagram sont regroupés dans Réseaux courts avec publication réelle bloquée."
         status="En migration"
       />
       <SectionContainer>

@@ -11,7 +11,7 @@ import { getCurrentUser } from "@/src/lib/supabase/server";
 export const metadata: Metadata = {
   title: "Tableau de bord - L'Edifice",
   description:
-    "Tableau de bord du cockpit IA prive pour le portail L'Edifice.",
+    "Tableau de bord du cockpit IA privé pour le portail L'Edifice.",
 };
 
 export default async function OverviewPage() {
@@ -23,15 +23,15 @@ export default async function OverviewPage() {
       <CockpitHeader
         eyebrow="Tableau de bord"
         title="Cockpit Web L'Edifice"
-        description="Vue synthetique du cockpit authentifie. L'Assistant Édifice reste le point d'entree principal, et cette page garde les apercus de migration."
+        description="Vue synthétique des fondations du cockpit. L'Assistant Édifice reste le point d'entrée principal."
         status="En migration"
       />
 
       <div className="mb-6 grid gap-4 md:grid-cols-3">
         {[
           ["Modules principaux", "8", "En migration"],
-          ["Agent reviewer", "Demo securisee", "Disponible"],
-          ["Publication reelle", "Bloquee par defaut", "A securiser"],
+          ["Garde-fous", "Validation requise", "A securiser"],
+          ["Publication réelle", "Bloquée par défaut", "A securiser"],
         ].map(([label, value, status]) => (
           <SectionContainer key={label}>
             <div className="flex items-start justify-between gap-3">
@@ -56,8 +56,8 @@ export default async function OverviewPage() {
           <SectionContainer>
             <CockpitHeader
               eyebrow="Modules"
-              title="Acces rapide"
-              description="Vue resserree par workflows: assistant, atelier de contenu, publications, suivi et ressources."
+              title="Accès rapide"
+              description="Les pièces principales de l'Édifice: assistant, atelier, publications, observatoire et ressources."
             />
             <ModuleGrid modules={cockpitModules} />
           </SectionContainer>
@@ -72,10 +72,10 @@ export default async function OverviewPage() {
                     Interface locale Streamlit
                   </p>
                   <h2 className="mt-3 text-2xl font-semibold text-[#F8FAFC]">
-                    Cockpit local proprietaire
+                    Cockpit local propriétaire
                   </h2>
                   <p className="mt-3 leading-7 text-[#A7B0C0]">
-                    Ouvre le cockpit local Streamlit lorsque celui-ci est lance
+                    Ouvre le cockpit local Streamlit lorsque celui-ci est lancé
                     sur cette machine.
                   </p>
                   <p className="mt-3 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm font-semibold text-[#39E6D0]">
@@ -99,25 +99,25 @@ export default async function OverviewPage() {
         <div className="space-y-6">
           <SectionContainer>
             <CockpitHeader
-              eyebrow="Suivi système"
-              title="Apercu du suivi"
-              description="Premiere base de logs et sante systeme. Les logs live et WebSockets viendront plus tard."
+              eyebrow="Observatoire"
+              title="Signaux, alertes et état"
+              description="Première base d'observation du cockpit. Les signaux live viendront plus tard."
               status="Experimental"
             />
-            <LogPanel logs={overviewLogs} />
+            <LogPanel logs={overviewLogs} title="Signaux récents" />
           </SectionContainer>
 
           <SectionContainer>
             <CockpitHeader
-              eyebrow="Espace personnel"
-              title="Espace personnel"
-              description="Vision du jour, routines, notes et objectifs seront ajoutes en version legere."
+              eyebrow="Espace intérieur"
+              title="Espace intérieur"
+              description="Vision du jour, routines, énergie, notes et objectifs seront ajoutés en version légère."
               status="Experimental"
             />
             <div className="grid gap-3 text-sm text-[#A7B0C0]">
-              <p>Vision du jour : a definir.</p>
-              <p>Taches : pipeline cockpit web.</p>
-              <p>Notes rapides : migration progressive, sans casser Streamlit.</p>
+              <p>Vision du jour : à définir.</p>
+              <p>Tâches : pipeline cockpit web.</p>
+              <p>Notes rapides : progression locale, sans casser les garde-fous.</p>
             </div>
           </SectionContainer>
         </div>

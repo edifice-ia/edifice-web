@@ -5,6 +5,7 @@ import { OAuthProviderCard } from "@/components/cockpit/OAuthProviderCard";
 import { OAuthResultNotice } from "@/components/cockpit/OAuthResultNotice";
 import { RequiredEnvList } from "@/components/cockpit/RequiredEnvList";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
+import { YouTubeConnectionControls } from "@/components/cockpit/YouTubeConnectionControls";
 import {
   getActiveMetaScopes,
   isMetaInstagramScopesEnabled,
@@ -55,7 +56,11 @@ export default async function OAuthConnectionsPage({
           {visibleProviders.map((provider) => {
             const callbackPath = `/api/oauth/${provider.key}/callback`;
             const isMeta = provider.key === "meta";
+            const isYouTube = provider.key === "youtube";
             const providerScopes = isMeta ? getActiveMetaScopes() : provider.scopes;
+            const startHref = isMeta
+              ? "/api/meta/start"
+              : `/api/oauth/${provider.key}/start`;
 
             return (
               <OAuthProviderCard
@@ -64,12 +69,12 @@ export default async function OAuthConnectionsPage({
                 status={getOAuthStatus(provider)}
                 actionLabel={provider.actionLabel}
                 secondaryLabel={provider.secondaryLabel}
-                startHref={
-                  isMeta ? "/api/meta/start" : `/api/oauth/${provider.key}/start`
-                }
+                startHref={startHref}
                 testHref={
                   isMeta
                     ? "/api/meta/status"
+                    : isYouTube
+                      ? "/api/oauth/youtube/status"
                     : `/api/oauth/${provider.key}/start?mode=test`
                 }
                 callbackPath={isMeta ? "/api/meta/callback" : callbackPath}
@@ -85,6 +90,8 @@ export default async function OAuthConnectionsPage({
                       }
                       instagramScopesEnabled={instagramScopesEnabled}
                     />
+                  ) : isYouTube ? (
+                    <YouTubeConnectionControls startHref={startHref} />
                   ) : undefined
                 }
               />

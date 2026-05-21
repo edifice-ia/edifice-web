@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { logout } from "@/app/login/actions";
+import { SafetyModeBadge } from "./SafetyModeBadge";
 
 type CockpitTopbarProps = {
   userEmail?: string | null;
@@ -18,7 +19,8 @@ export function CockpitTopbar({ userEmail, isOwner }: CockpitTopbarProps) {
           {isOwner ? " · proprietaire" : " · reviewer / utilisateur"}
         </p>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <SafetyModeBadge />
         <Link
           href="/dashboard"
           className="rounded-md border border-[#1D2A44] px-4 py-2 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#0B1420] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"

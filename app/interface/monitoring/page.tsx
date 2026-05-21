@@ -5,7 +5,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { StatusBadge } from "@/components/cockpit/StatusBadge";
 
 export const metadata: Metadata = {
-  title: "Monitoring - L'Edifice",
+  title: "Suivi système - L'Edifice",
 };
 
 const logs = [
@@ -33,9 +33,9 @@ export default function MonitoringPage() {
   return (
     <div>
       <CockpitHeader
-        eyebrow="Monitoring"
+        eyebrow="Suivi système"
         title="Logs, sante et suivi"
-        description="Monitoring statique de fondation: logs, health checks, statut APIs, statut agents et cout IA placeholder."
+        description="Suivi statique de fondation: logs, health checks, statut APIs, statut agents et cout IA placeholder."
         status="Experimental"
       />
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">

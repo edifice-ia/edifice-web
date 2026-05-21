@@ -5,16 +5,16 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { publisherModules } from "@/lib/cockpit/modules";
 
 export const metadata: Metadata = {
-  title: "Publishers - L'Edifice",
+  title: "Publications - L'Edifice",
 };
 
 export default function PublishersPage() {
   return (
     <div>
       <CockpitHeader
-        eyebrow="Publishers"
+        eyebrow="Publications"
         title="Hub de publication"
-        description="Vue principale des publishers. YouTube reste conserve, Pinterest est prepare, et TikTok/Instagram sont regroupes dans Reseaux courts avec publication reelle bloquee."
+        description="Vue principale des publications. YouTube reste conserve, Pinterest est prepare, et TikTok/Instagram sont regroupes dans Reseaux courts avec publication reelle bloquee."
         status="En migration"
       />
       <SectionContainer>

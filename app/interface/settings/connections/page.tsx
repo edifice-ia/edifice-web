@@ -22,7 +22,7 @@ export default function OAuthConnectionsPage() {
   return (
     <div>
       <CockpitHeader
-        eyebrow="Parametres > Connexions"
+        eyebrow="Réglages > Connexions"
         title="Connexions OAuth"
         description="Gerer les connexions externes necessaires aux modules de publication et d'automatisation."
         status="A securiser"

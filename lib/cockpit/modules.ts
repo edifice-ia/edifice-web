@@ -2,17 +2,17 @@ import type { CockpitLog, CockpitModule } from "@/types/cockpit";
 
 export const cockpitModules: CockpitModule[] = [
   {
-    id: "assistant-ia",
-    title: "Assistant IA",
+    id: "assistant-edifice",
+    title: "Assistant Édifice",
     description:
-      "Interface conversationnelle future, recherche web lecture seule, outils et logs assistant.",
-    href: "/interface/assistant",
+      "Point central pour piloter le projet, le personnel et l'equilibre.",
+    href: "/interface",
     status: "En migration",
     accent: "jade",
   },
   {
     id: "post-creation",
-    title: "Creation de post",
+    title: "Atelier de contenu",
     description:
       "Idees, scripts courts, captions, hooks, prompts et preparation multi-reseaux.",
     href: "/interface/post-creation",
@@ -20,8 +20,8 @@ export const cockpitModules: CockpitModule[] = [
   },
   {
     id: "publishers-overview",
-    title: "Publishers",
-    description: "Hub de publication avec YouTube, Pinterest et reseaux courts.",
+    title: "Publications",
+    description: "Hub avec YouTube, Pinterest et reseaux courts.",
     href: "/interface/publishers",
     status: "En migration",
   },
@@ -42,21 +42,21 @@ export const cockpitModules: CockpitModule[] = [
   },
   {
     id: "monitoring-static",
-    title: "Monitoring",
+    title: "Suivi système",
     description: "Sante systeme, couts et suivi statique.",
     href: "/interface/monitoring",
     status: "Experimental",
   },
   {
     id: "personnel-light",
-    title: "Personnel",
+    title: "Espace personnel",
     description: "Vision du jour, routines, notes et objectifs.",
     href: "/interface/personnel",
     status: "Experimental",
   },
   {
     id: "links-useful",
-    title: "Liens utiles",
+    title: "Ressources",
     description: "Documentation, outils et reperes de migration.",
     href: "/interface/links",
     status: "Disponible",
@@ -105,8 +105,8 @@ export const overviewLogs: CockpitLog[] = [
   },
   {
     timestamp: "09:10",
-    type: "agent",
-    message: "Agent demo reviewer disponible sans publication reelle.",
-    status: "Disponible",
+    type: "assistant",
+    message: "Assistant Edifice disponible sans action reelle.",
+    status: "En migration",
   },
 ];

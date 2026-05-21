@@ -6,7 +6,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Parametres - L'Edifice",
+  title: "Réglages - L'Edifice",
 };
 
 export default async function SettingsPage() {
@@ -15,7 +15,7 @@ export default async function SettingsPage() {
   return (
     <div>
       <CockpitHeader
-        eyebrow="Parametres"
+        eyebrow="Réglages"
         title="Compte et preferences cockpit"
         description="Base de parametres pour preferences d'affichage, statut compte et futures configurations securisees."
         status="A securiser"

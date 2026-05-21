@@ -19,7 +19,8 @@ export function CockpitSidebar() {
             const active =
               item.href === "/interface"
                 ? pathname === item.href
-                : pathname.startsWith(item.href);
+                : pathname === item.href ||
+                  pathname.startsWith(`${item.href}/`);
 
             return (
               <Link

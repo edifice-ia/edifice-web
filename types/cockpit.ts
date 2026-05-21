@@ -26,7 +26,7 @@ export type CockpitModule = {
 
 export type CockpitLog = {
   timestamp: string;
-  type: "system" | "agent" | "api" | "security";
+  type: "system" | "agent" | "assistant" | "api" | "security";
   message: string;
   status: CockpitStatus;
 };

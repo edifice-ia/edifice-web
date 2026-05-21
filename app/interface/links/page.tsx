@@ -5,7 +5,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Liens utiles - L'Edifice",
+  title: "Ressources - L'Edifice",
 };
 
 const links = [
@@ -24,7 +24,7 @@ export default async function LinksPage() {
   return (
     <div>
       <CockpitHeader
-        eyebrow="Liens utiles"
+        eyebrow="Ressources"
         title="Documentation et acces projet"
         description="Liens internes, outils projet et acces locaux reserves si applicables. Aucun secret n'est expose ici."
         status="Disponible"

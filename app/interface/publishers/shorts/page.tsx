@@ -38,7 +38,7 @@ export default function ShortsPublisherPage() {
       <CockpitHeader
         eyebrow="Reseaux courts"
         title="TikTok, Instagram et Meta"
-        description="Module interne a Publishers. Ces reseaux ne sont pas des modules principaux et aucune publication reelle n'est activee."
+        description="Module interne aux Publications. Ces reseaux ne sont pas des modules principaux et aucune publication reelle n'est activee."
         status="A securiser"
       />
       <SectionContainer>

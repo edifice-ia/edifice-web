@@ -4,7 +4,7 @@ import { EmptyState } from "@/components/cockpit/EmptyState";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 
 export const metadata: Metadata = {
-  title: "Personnel - L'Edifice",
+  title: "Espace personnel - L'Edifice",
 };
 
 export default function PersonnelPage() {
@@ -23,7 +23,7 @@ export default function PersonnelPage() {
   return (
     <div>
       <CockpitHeader
-        eyebrow="Personnel"
+        eyebrow="Espace personnel"
         title="Espace personnel leger"
         description="Version simple pour suivre routines, objectifs et notes rapides sans creer un clone Notion ni backend lourd."
         status="Experimental"

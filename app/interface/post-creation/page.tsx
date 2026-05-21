@@ -6,7 +6,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import type { CockpitModule } from "@/types/cockpit";
 
 export const metadata: Metadata = {
-  title: "Creation de post - L'Edifice",
+  title: "Atelier de contenu - L'Edifice",
 };
 
 const contentTools: CockpitModule[] = [
@@ -46,8 +46,8 @@ export default function PostCreationPage() {
   return (
     <div>
       <CockpitHeader
-        eyebrow="Creation de post"
-        title="Preparation de contenus"
+        eyebrow="Atelier de contenu"
+        title="Preparation des contenus"
         description="Regroupe les anciens espaces Generation IA et Audio autour du workflow reel: idees, scripts, captions, hooks, prompts et preparation par plateforme."
         status="En migration"
       />

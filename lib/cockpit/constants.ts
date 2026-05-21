@@ -11,14 +11,14 @@ export const cockpitTheme = {
 
 export const migrationNotes = {
   immediate: [
-    "Assistant Global cote UI",
+    "Assistant Edifice cote UI",
     "Recherche web controlee cote UI",
     "YouTube Publisher cote UI",
     "OpenAI tools cote UI",
     "ElevenLabs cote UI",
-    "Monitoring statique",
-    "Liens utiles",
-    "Personnel local simple",
+    "Suivi systeme statique",
+    "Ressources",
+    "Espace personnel simple",
   ],
   localOnly: [
     "Agents Streamlit critiques",
@@ -42,7 +42,7 @@ export const migrationNotes = {
     "Generation longue",
     "Publication longue",
     "Suivi agents",
-    "Monitoring systeme",
+    "Suivi systeme",
     "Streaming assistant si necessaire",
   ],
 };

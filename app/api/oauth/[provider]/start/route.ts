@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { getOAuthProvider, getRequiredEnvNames } from "@/lib/oauth/providers";
 import {
   buildOAuthStartUrl,
@@ -37,13 +38,15 @@ export async function GET(
 
   const authorizationUrl = buildOAuthStartUrl(provider);
   const isTest = request.nextUrl.searchParams.get("mode") === "test";
+  const isDebug = request.nextUrl.searchParams.get("debug") === "1";
   const tokenExchangeEnabled = isTokenExchangeEnabled(provider);
 
-  if (isTest) {
+  if (isTest || isDebug) {
     return Response.json({
       ok: true,
       provider: provider.key,
       configured: true,
+      authorizationUrl,
       authorizationUrlPrepared: Boolean(authorizationUrl),
       tokenExchangeEnabled,
       tokenStorageEnabled: false,
@@ -51,6 +54,21 @@ export async function GET(
         ? "Configuration presente. Echange de token active cote serveur, stockage des tokens desactive."
         : "Configuration presente. Aucun token n'est echange ni stocke.",
     });
+  }
+
+  if (provider.key === "youtube") {
+    if (!authorizationUrl) {
+      return Response.json(
+        {
+          ok: false,
+          provider: provider.key,
+          error: "authorization_url_unavailable",
+        },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.redirect(authorizationUrl);
   }
 
   return Response.json({

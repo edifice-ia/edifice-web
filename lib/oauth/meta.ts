@@ -6,14 +6,8 @@ export const META_TOKEN_URL = "https://graph.facebook.com/v19.0/oauth/access_tok
 export const META_PERMISSIONS_URL =
   "https://graph.facebook.com/v19.0/me/permissions";
 
-export const META_SCOPES = [
-  "instagram_basic",
-  "instagram_content_publish",
-  "pages_show_list",
-  "pages_read_engagement",
-  "pages_manage_posts",
-  "business_management",
-];
+// TODO: Réactiver scopes Instagram Graph API après validation App Review Meta.
+export const META_SCOPES = ["public_profile", "email"];
 
 export const META_REQUIRED_ENV = [
   "META_APP_ID",

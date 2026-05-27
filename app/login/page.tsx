@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { LogoMark } from "../components/LogoMark";
+import { isReviewerUser } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 import { LoginForm } from "./LoginForm";
 
@@ -13,6 +14,10 @@ export default async function LoginPage() {
   const user = await getCurrentUser();
 
   if (user) {
+    if (isReviewerUser(user)) {
+      redirect("/demo");
+    }
+
     redirect("/dashboard");
   }
 

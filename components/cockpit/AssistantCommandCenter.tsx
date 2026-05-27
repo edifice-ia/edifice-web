@@ -193,7 +193,7 @@ export function AssistantCommandCenter() {
               </button>
             </div>
             <p className="mt-3 text-xs text-[#A7B0C0]">
-              Assistant en migration progressive. Aucun appel API réel n'est
+              Assistant en migration progressive. Aucun appel API réel n&apos;est
               déclenché.
             </p>
           </div>

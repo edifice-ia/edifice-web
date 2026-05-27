@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { getUserRole } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const logs = [
   "Initialisation de l'agent demo",
@@ -10,6 +12,16 @@ const logs = [
 ];
 
 export async function POST(request: Request) {
+  const user = await getCurrentUser();
+  const role = getUserRole(user);
+
+  if (!user || (role !== "reviewer" && role !== "admin")) {
+    return NextResponse.json(
+      { error: "Accès limité au mode démo reviewer." },
+      { status: 403 },
+    );
+  }
+
   let payload: unknown;
 
   try {
@@ -46,7 +58,7 @@ export async function POST(request: Request) {
     title: "Demo reviewer - L’Édifice",
     description:
       "Publication de test preparee par l'agent demo du Cockpit Web. Ce contenu illustre le workflow sans diffusion reelle.",
-    targetedPlatforms: ["TikTok", "Instagram", "YouTube Shorts", "Pinterest"],
+    targetedPlatforms: ["TikTok démo"],
     logs,
     approximateDurationMs: Date.now() - startedAt,
     finalMessage:

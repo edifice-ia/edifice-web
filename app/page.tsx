@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LogoMark } from "./components/LogoMark";
+import { isReviewerUser } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const pillars = [
@@ -38,6 +39,7 @@ const platforms = [
 
 export default async function Home() {
   const user = await getCurrentUser();
+  const isReviewer = isReviewerUser(user);
 
   return (
     <div>
@@ -60,10 +62,10 @@ export default async function Home() {
             <div className="mt-8 flex flex-wrap gap-3">
               {user ? (
                 <Link
-                  href="/interface"
+                  href={isReviewer ? "/demo" : "/interface"}
                   className="rounded-md bg-[#38BDF8] px-5 py-3 text-sm font-semibold text-[#070B12] transition hover:bg-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
-                  Ouvrir l&apos;interface
+                  {isReviewer ? "Ouvrir la démo" : "Ouvrir l'interface"}
                 </Link>
               ) : (
                 <Link
@@ -205,10 +207,10 @@ export default async function Home() {
             interne.
           </p>
           <Link
-            href={user ? "/interface" : "/login"}
+            href={user ? (isReviewer ? "/demo" : "/interface") : "/login"}
             className="mt-6 inline-flex rounded-md bg-[#38BDF8] px-5 py-3 text-sm font-semibold text-[#070B12] transition hover:bg-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
           >
-            {user ? "Ouvrir l'interface" : "Connexion"}
+            {user ? (isReviewer ? "Ouvrir la démo" : "Ouvrir l'interface") : "Connexion"}
           </Link>
         </div>
       </section>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { LogoMark } from "./components/LogoMark";
 import { logout } from "./login/actions";
+import { isReviewerUser } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 import "./globals.css";
 
@@ -32,6 +33,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const user = await getCurrentUser();
+  const isReviewer = isReviewerUser(user);
 
   return (
     <html lang="fr" className="h-full antialiased">
@@ -63,10 +65,10 @@ export default async function RootLayout({
                 {user ? (
                   <>
                     <Link
-                      href="/interface"
+                      href={isReviewer ? "/demo" : "/interface"}
                       className="rounded-md border border-[#223149] px-3 py-2 font-semibold text-[#7DD3FC] transition hover:bg-[#111D2E] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                     >
-                      Interface
+                      {isReviewer ? "Démo" : "Interface"}
                     </Link>
                     <form action={logout}>
                       <button

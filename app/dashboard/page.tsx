@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { LogoMark } from "../components/LogoMark";
 import { OAuthResultNotice } from "@/components/cockpit/OAuthResultNotice";
 import { logout } from "../login/actions";
-import { getCurrentUser } from "@/src/lib/supabase/server";
+import { requirePrivateCockpitAccess } from "@/src/lib/auth/guards";
 
 export const metadata: Metadata = {
   title: "Dashboard - L’Édifice",
@@ -28,12 +27,8 @@ export default async function DashboardPage({
     status?: string;
   }>;
 }) {
-  const user = await getCurrentUser();
+  const user = await requirePrivateCockpitAccess();
   const result = await searchParams;
-
-  if (!user) {
-    redirect("/login");
-  }
 
   return (
     <div className="mx-auto max-w-7xl px-5 py-14 sm:px-8 lg:py-20">

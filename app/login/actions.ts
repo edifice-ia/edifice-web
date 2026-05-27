@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { isReviewerUser } from "@/src/lib/auth/roles";
 import { createClient } from "@/src/lib/supabase/server";
 
 export type LoginState = {
@@ -126,6 +127,8 @@ export async function login(
 
   let error: unknown = null;
 
+  let redirectTarget = "/dashboard";
+
   try {
     const result = await supabase.auth.signInWithPassword({
       email,
@@ -133,6 +136,10 @@ export async function login(
     });
 
     error = result.error;
+
+    if (result.data.user && isReviewerUser(result.data.user)) {
+      redirectTarget = "/demo";
+    }
   } catch (caughtError) {
     error = caughtError;
   }
@@ -146,7 +153,7 @@ export async function login(
   }
 
   revalidatePath("/", "layout");
-  redirect("/dashboard");
+  redirect(redirectTarget);
 }
 
 export async function logout() {

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { LogoMark } from "../components/LogoMark";
 
 export const metadata: Metadata = {
-  title: "Contact - L'Edifice",
-  description: "Contact pour L'Edifice, version privee en developpement.",
+  title: "Contact - L’Édifice",
+  description: "Contact pour L’Édifice, version privee en developpement.",
 };
 
 export default function ContactPage() {
@@ -15,7 +15,7 @@ export default function ContactPage() {
           Contact
         </p>
         <h1 className="mt-4 text-4xl font-semibold text-[#F4F7FB] sm:text-5xl">
-          L&apos;Edifice
+          L’Édifice
         </h1>
         <p className="mt-5 max-w-xl text-lg leading-8 text-[#9EADBF]">
           Version privee en developpement. Pour toute demande concernant
@@ -31,7 +31,7 @@ export default function ContactPage() {
               Projet
             </dt>
             <dd className="mt-2 text-xl font-semibold text-[#F4F7FB]">
-              L&apos;Edifice
+              L’Édifice
             </dd>
           </div>
           <div>

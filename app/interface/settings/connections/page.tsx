@@ -14,7 +14,7 @@ import { oauthProviders, getRequiredEnvNames } from "@/lib/oauth/providers";
 import { getOAuthStatus } from "@/lib/oauth/server";
 
 export const metadata: Metadata = {
-  title: "Connexions OAuth - L'Edifice",
+  title: "Connexions OAuth - L’Édifice",
 };
 
 const visibleProviders = oauthProviders.filter(

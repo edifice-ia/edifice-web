@@ -6,7 +6,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import type { CockpitModule } from "@/types/cockpit";
 
 export const metadata: Metadata = {
-  title: "Atelier de contenu - L'Edifice",
+  title: "Atelier de contenu - L’Édifice",
 };
 
 const contentTools: CockpitModule[] = [

@@ -9,9 +9,9 @@ import { cockpitModules, overviewLogs } from "@/lib/cockpit/modules";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Tableau de bord - L'Edifice",
+  title: "Tableau de bord - L’Édifice",
   description:
-    "Tableau de bord du cockpit IA privé pour le portail L'Edifice.",
+    "Tableau de bord du cockpit IA privé pour le portail L’Édifice.",
 };
 
 export default async function OverviewPage() {
@@ -22,8 +22,8 @@ export default async function OverviewPage() {
     <div>
       <CockpitHeader
         eyebrow="Tableau de bord"
-        title="Cockpit Web L'Edifice"
-        description="Vue synthétique des fondations du cockpit. L'Assistant Édifice reste le point d'entrée principal."
+        title="Cockpit Web de L’Édifice"
+        description="Vue synthétique des fondations du cockpit. L'Assistant de L’Édifice reste le point d'entrée principal."
         status="En migration"
       />
 
@@ -57,7 +57,7 @@ export default async function OverviewPage() {
             <CockpitHeader
               eyebrow="Modules"
               title="Accès rapide"
-              description="Les pièces principales de l'Édifice: assistant, atelier, publications, observatoire et ressources."
+              description="Les pièces principales de L’Édifice : assistant, atelier, publications, observatoire et ressources."
             />
             <ModuleGrid modules={cockpitModules} />
           </SectionContainer>

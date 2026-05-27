@@ -3,7 +3,7 @@ import type { CockpitLog, CockpitModule } from "@/types/cockpit";
 export const cockpitModules: CockpitModule[] = [
   {
     id: "assistant-edifice",
-    title: "Assistant Édifice",
+    title: "Assistant de L’Édifice",
     description:
       "Point central pour bâtir l'œuvre, organiser l'intérieur et garder le cap.",
     href: "/interface",
@@ -106,7 +106,7 @@ export const overviewLogs: CockpitLog[] = [
   {
     timestamp: "09:10",
     type: "assistant",
-    message: "Assistant Édifice disponible sans action réelle.",
+    message: "Assistant de L’Édifice disponible sans action réelle.",
     status: "En migration",
   },
 ];

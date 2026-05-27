@@ -5,7 +5,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { StatusBadge } from "@/components/cockpit/StatusBadge";
 
 export const metadata: Metadata = {
-  title: "Observatoire - L'Edifice",
+  title: "Observatoire - L’Édifice",
 };
 
 const logs = [

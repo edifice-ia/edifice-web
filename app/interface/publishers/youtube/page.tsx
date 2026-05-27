@@ -5,7 +5,7 @@ import { LogPanel } from "@/components/cockpit/LogPanel";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 
 export const metadata: Metadata = {
-  title: "YouTube Publisher - L'Edifice",
+  title: "YouTube Publisher - L’Édifice",
 };
 
 const logs = [

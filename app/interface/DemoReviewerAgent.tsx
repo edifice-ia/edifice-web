@@ -99,7 +99,7 @@ export function DemoReviewerAgent() {
           </h2>
           <p className="mt-4 leading-7 text-[#9EADBF]">
             Prepare une publication de test sans diffusion reelle, afin de
-            demontrer le fonctionnement du cockpit Edifice IA.
+            demontrer le fonctionnement du cockpit L’Édifice.
           </p>
           <p className="mt-4 rounded-md border border-[#223149] bg-[#111D2E] px-4 py-3 text-sm font-semibold text-[#7DD3FC]">
             Aucune publication reelle n&apos;est envoyee depuis ce mode demo.

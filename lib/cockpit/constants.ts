@@ -11,7 +11,7 @@ export const cockpitTheme = {
 
 export const migrationNotes = {
   immediate: [
-    "Assistant Edifice cote UI",
+    "Assistant de L’Édifice cote UI",
     "Recherche web controlee cote UI",
     "YouTube Publisher cote UI",
     "OpenAI tools cote UI",

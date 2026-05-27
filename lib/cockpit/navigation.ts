@@ -4,7 +4,7 @@ export const cockpitNavigation: CockpitNavItem[] = [
   {
     id: "assistant",
     href: "/interface",
-    label: "Assistant Édifice",
+    label: "Assistant de L’Édifice",
     description: "Projet, intérieur, équilibre",
     status: "En migration",
     showStatus: true,

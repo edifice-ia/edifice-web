@@ -13,7 +13,7 @@ const pillars = [
   },
   {
     title: "Garder le controle",
-    text: "L'Edifice reste une version privee: les automatisations sont pilotees, documentees et verifiees avant toute ouverture utilisateur.",
+    text: "L’Édifice reste une version privee: les automatisations sont pilotees, documentees et verifiees avant toute ouverture utilisateur.",
   },
 ];
 
@@ -51,7 +51,7 @@ export default async function Home() {
               <LogoMark size="lg" priority />
             </div>
             <h1 className="max-w-4xl text-5xl font-semibold tracking-normal text-[#F4F7FB] sm:text-6xl">
-              L&apos;Edifice
+              L’Édifice
             </h1>
             <p className="mt-6 max-w-3xl text-xl leading-8 text-[#9EADBF]">
               Cockpit IA prive pour organiser, generer, planifier et piloter
@@ -122,10 +122,10 @@ export default async function Home() {
       <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8">
         <div className="max-w-3xl">
           <h2 className="text-3xl font-semibold text-[#F4F7FB]">
-            Pourquoi L&apos;Edifice
+            Pourquoi L’Édifice
           </h2>
           <p className="mt-4 text-lg leading-8 text-[#9EADBF]">
-            L&apos;Edifice rassemble les briques d&apos;une production IA serieuse:
+            L’Édifice rassemble les briques d&apos;une production IA serieuse:
             agents, memoire locale, journaux, pipelines, documentation et
             preparation des integrations API. Le site presente ce socle sans
             remplacer le cockpit local operationnel.
@@ -200,7 +200,7 @@ export default async function Home() {
             Cockpit Web prive
           </h2>
           <p className="mt-4 leading-7 text-[#9EADBF]">
-            Le Cockpit Web est l&apos;interface privee du portail L&apos;Edifice.
+            Le Cockpit Web est l&apos;interface privee du portail L’Édifice.
             Le Cockpit local Streamlit reste l&apos;interface operationnelle
             interne.
           </p>

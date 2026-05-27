@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Conditions d'utilisation - L'Edifice",
+  title: "Conditions d'utilisation - L’Édifice",
   description:
-    "Conditions d'utilisation de L'Edifice: usage prive, beta, responsabilite, automatisations et APIs tierces.",
+    "Conditions d'utilisation de L’Édifice : usage prive, beta, responsabilite, automatisations et APIs tierces.",
 };
 
 const terms = [
   {
     title: "Usage prive et beta",
-    text: "L'Edifice est actuellement une version privee en developpement. L'acces peut etre limite, modifie, suspendu ou retire pendant les phases de test, de maintenance ou d'evolution du produit.",
+    text: "L’Édifice est actuellement une version privee en developpement. L'acces peut etre limite, modifie, suspendu ou retire pendant les phases de test, de maintenance ou d'evolution du produit.",
   },
   {
     title: "Responsabilite utilisateur",
@@ -25,7 +25,7 @@ const terms = [
   },
   {
     title: "Limitation de responsabilite",
-    text: "L'Edifice est fourni en l'etat pendant son developpement prive. Aucune garantie n'est donnee sur l'absence d'erreurs, l'accessibilite continue, la validation des APIs tierces ou le resultat des contenus generes.",
+    text: "L’Édifice est fourni en l'etat pendant son developpement prive. Aucune garantie n'est donnee sur l'absence d'erreurs, l'accessibilite continue, la validation des APIs tierces ou le resultat des contenus generes.",
   },
   {
     title: "Suspension ou retrait d'acces",
@@ -47,7 +47,7 @@ export default function TermsPage() {
         Conditions d&apos;utilisation
       </h1>
       <p className="mt-5 text-lg leading-8 text-[#9EADBF]">
-        Ces conditions encadrent l&apos;utilisation de L&apos;Edifice dans sa version
+        Ces conditions encadrent l&apos;utilisation de L’Édifice dans sa version
         privee et en developpement.
       </p>
 

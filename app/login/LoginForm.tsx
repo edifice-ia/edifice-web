@@ -62,7 +62,7 @@ export function LoginForm() {
             Acces prive reserve aux utilisateurs autorises.
           </p>
           <p className="mt-1 text-[#9EADBF]">
-            Le Cockpit Web est l&apos;interface privee du portail L&apos;Edifice.
+            Le Cockpit Web est l&apos;interface privee du portail L’Édifice.
           </p>
         </div>
       </div>

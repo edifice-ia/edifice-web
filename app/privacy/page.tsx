@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Politique de confidentialite - L'Edifice",
+  title: "Politique de confidentialite - L’Édifice",
   description:
-    "Politique de confidentialite de L'Edifice: donnees, tokens API, stockage, suppression et services tiers.",
+    "Politique de confidentialite de L’Édifice : donnees, tokens API, stockage, suppression et services tiers.",
 };
 
 const sections = [
   {
     title: "Donnees de compte",
-    text: "Lorsque l'acces utilisateur sera active, L'Edifice pourra traiter les informations necessaires a l'identification et a la gestion d'un compte prive, comme l'adresse email, le statut d'acces et les parametres associes.",
+    text: "Lorsque l'acces utilisateur sera active, L’Édifice pourra traiter les informations necessaires a l'identification et a la gestion d'un compte prive, comme l'adresse email, le statut d'acces et les parametres associes.",
   },
   {
     title: "Tokens API et identifiants techniques",
@@ -17,7 +17,7 @@ const sections = [
   },
   {
     title: "Donnees de publication",
-    text: "L'Edifice peut manipuler des scripts, descriptions, metadonnees, fichiers de planification, videos, images, sous-titres et statuts de publication afin de preparer ou suivre les contenus multi-plateformes.",
+    text: "L’Édifice peut manipuler des scripts, descriptions, metadonnees, fichiers de planification, videos, images, sous-titres et statuts de publication afin de preparer ou suivre les contenus multi-plateformes.",
   },
   {
     title: "Donnees techniques",
@@ -61,7 +61,7 @@ export default function PrivacyPage() {
         Politique de confidentialite
       </h1>
       <p className="mt-5 text-lg leading-8 text-[#9EADBF]">
-        Cette politique decrit les principes applicables a L&apos;Edifice, portail
+        Cette politique decrit les principes applicables a L’Édifice, portail
         officiel et cockpit IA prive en developpement. Elle sera mise a jour au
         fur et a mesure de l&apos;activation des acces utilisateurs et integrations.
       </p>
@@ -83,7 +83,7 @@ export default function PrivacyPage() {
       <section className="mt-10 rounded-lg border border-[#223149] bg-[#111D2E] p-6">
         <h2 className="text-xl font-semibold text-[#F4F7FB]">Services tiers</h2>
         <p className="mt-3 leading-7 text-[#9EADBF]">
-          Selon les modules actives, L&apos;Edifice peut interagir avec les services
+          Selon les modules actives, L’Édifice peut interagir avec les services
           suivants. Chaque service conserve ses propres conditions, politiques
           de confidentialite, permissions API et mecanismes de retrait
           d&apos;acces.

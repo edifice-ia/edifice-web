@@ -6,7 +6,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Réglages - L'Edifice",
+  title: "Réglages - L’Édifice",
 };
 
 export default async function SettingsPage() {

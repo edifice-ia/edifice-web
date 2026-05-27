@@ -12,7 +12,7 @@ export function CockpitTopbar({ userEmail, isOwner }: CockpitTopbarProps) {
     <div className="mb-6 flex flex-col gap-3 rounded-lg border border-[#1D2A44] bg-[#08111A] p-4 md:flex-row md:items-center md:justify-between">
       <div>
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
-          L&apos;Édifice
+          L’Édifice
         </p>
         <p className="mt-1 text-sm text-[#A7B0C0]">
           Session : <span className="text-[#F8FAFC]">{userEmail}</span>

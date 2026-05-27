@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Fonctionnalites - L'Edifice",
+  title: "Fonctionnalites - L’Édifice",
   description:
-    "Modules principaux de L'Edifice: agents IA, contenus, montage, planification, publication API, Notion, pipelines et Assistant Global.",
+    "Modules principaux de L’Édifice : agents IA, contenus, montage, planification, publication API, Notion, pipelines et Assistant Global.",
 };
 
 const features = [
@@ -53,7 +53,7 @@ export default function FeaturesPage() {
           Modules
         </p>
         <h1 className="mt-4 text-4xl font-semibold text-[#F4F7FB] sm:text-5xl">
-          Fonctionnalites de L&apos;Edifice
+          Fonctionnalites de L’Édifice
         </h1>
         <p className="mt-5 text-lg leading-8 text-[#9EADBF]">
           La V1 web presente les capacites du cockpit prive sans ouvrir encore

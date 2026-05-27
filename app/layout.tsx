@@ -6,9 +6,9 @@ import { getCurrentUser } from "@/src/lib/supabase/server";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "L'Edifice - Cockpit IA prive",
+  title: "L’Édifice - Cockpit IA prive",
   description:
-    "Portail officiel de L'Edifice, cockpit IA prive pour organiser, generer, planifier et piloter des contenus multi-plateformes.",
+    "Portail officiel de L’Édifice, cockpit IA prive pour organiser, generer, planifier et piloter des contenus multi-plateformes.",
 };
 
 const navLinks = [
@@ -43,7 +43,7 @@ export default async function RootLayout({
                 <LogoMark size="sm" priority />
                 <span>
                   <span className="block text-base font-semibold tracking-wide text-[#F4F7FB]">
-                    L&apos;Edifice
+                    L’Édifice
                   </span>
                   <span className="block text-xs text-[#9EADBF]">
                     Cockpit IA prive
@@ -96,7 +96,7 @@ export default async function RootLayout({
               <div className="flex gap-4">
                 <LogoMark size="sm" />
                 <div>
-                <p className="text-sm font-semibold text-[#F4F7FB]">L&apos;Edifice</p>
+                <p className="text-sm font-semibold text-[#F4F7FB]">L’Édifice</p>
                 <p className="mt-1 max-w-xl text-sm leading-6 text-[#9EADBF]">
                   Portail officiel d&apos;une version privee en developpement.
                   Le Cockpit local Streamlit reste l&apos;interface

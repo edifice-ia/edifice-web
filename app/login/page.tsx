@@ -5,8 +5,8 @@ import { getCurrentUser } from "@/src/lib/supabase/server";
 import { LoginForm } from "./LoginForm";
 
 export const metadata: Metadata = {
-  title: "Connexion - L'Edifice",
-  description: "Acces prive en developpement pour L'Edifice.",
+  title: "Connexion - L’Édifice",
+  description: "Acces prive en developpement pour L’Édifice.",
 };
 
 export default async function LoginPage() {
@@ -31,7 +31,7 @@ export default async function LoginPage() {
           ouvrir l&apos;interface web du portail.
         </p>
         <p className="mt-4 max-w-xl text-base leading-7 text-[#9EADBF]">
-          Le Cockpit Web est l&apos;interface privee du portail L&apos;Edifice.
+          Le Cockpit Web est l&apos;interface privee du portail L’Édifice.
           Le Cockpit local Streamlit reste l&apos;interface operationnelle interne.
         </p>
       </div>
@@ -40,7 +40,7 @@ export default async function LoginPage() {
         <div className="mb-4 flex items-center gap-3 rounded-lg border border-[#223149] bg-[#111D2E] p-4">
           <LogoMark size="sm" />
           <div>
-            <p className="font-semibold text-[#F4F7FB]">L&apos;Edifice</p>
+            <p className="font-semibold text-[#F4F7FB]">L’Édifice</p>
             <p className="text-sm text-[#9EADBF]">Portail prive Supabase Auth</p>
           </div>
         </div>

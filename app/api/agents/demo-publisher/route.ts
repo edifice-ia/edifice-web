@@ -43,7 +43,7 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     status: "completed",
-    title: "Demo reviewer - L'Edifice IA",
+    title: "Demo reviewer - L’Édifice",
     description:
       "Publication de test preparee par l'agent demo du Cockpit Web. Ce contenu illustre le workflow sans diffusion reelle.",
     targetedPlatforms: ["TikTok", "Instagram", "YouTube Shorts", "Pinterest"],

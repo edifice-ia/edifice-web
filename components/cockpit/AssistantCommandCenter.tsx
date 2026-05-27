@@ -23,7 +23,7 @@ const contexts: Record<
 > = {
   Projet: {
     description:
-      "Pour bâtir Édifice IA, créer du contenu, préparer les publications, suivre les connexions OAuth et garder le cap sur l'œuvre.",
+      "Pour bâtir L’Édifice, créer du contenu, préparer les publications, suivre les connexions OAuth et garder le cap sur l'œuvre.",
     suggestions: [
       "Créer une idée de contenu",
       "Préparer une publication YouTube",
@@ -32,8 +32,8 @@ const contexts: Record<
     ],
     sources: ["Atelier de contenu", "Publications", "Connexions OAuth", "Observatoire"],
     systemMessage:
-      "Assistant Édifice prêt en mode Projet. Les actions sensibles restent verrouillées tant que les garde-fous ne sont pas validés.",
-    userExample: "Aide-moi à choisir la prochaine pierre à poser pour Édifice IA.",
+      "Assistant de L’Édifice prêt en mode Projet. Les actions sensibles restent verrouillées tant que les garde-fous ne sont pas validés.",
+    userExample: "Aide-moi à choisir la prochaine pierre à poser pour L’Édifice.",
     assistantExample:
       "Je peux clarifier une idée, préparer une publication ou lire les signaux sans déclencher d'action réelle.",
   },
@@ -48,7 +48,7 @@ const contexts: Record<
     ],
     sources: ["Vision du jour", "Routines", "Objectifs", "Notes rapides"],
     systemMessage:
-      "Assistant Édifice prêt en mode Intérieur. L'espace reste local et lisible tant que les garde-fous ne sont pas validés.",
+      "Assistant de L’Édifice prêt en mode Intérieur. L'espace reste local et lisible tant que les garde-fous ne sont pas validés.",
     userExample: "Aide-moi à remettre de l'ordre dans ma journée.",
     assistantExample:
       "Je peux proposer une structure simple entre tâches, routines, énergie et objectifs.",
@@ -69,7 +69,7 @@ const contexts: Record<
       "Décisions à arbitrer",
     ],
     systemMessage:
-      "Assistant Édifice prêt en mode Équilibre. Le cockpit aide à garder le cap sans forcer l'allure.",
+      "Assistant de L’Édifice prêt en mode Équilibre. Le cockpit aide à garder le cap sans forcer l'allure.",
     userExample: "Aide-moi à arbitrer entre avancer et préserver mon énergie.",
     assistantExample:
       "Je peux mettre en balance l'impact, la charge et le repos avant toute décision.",
@@ -167,7 +167,7 @@ export function AssistantCommandCenter() {
               <ChatMessage label="Vous" tone="blue" align="right">
                 {context.userExample}
               </ChatMessage>
-              <ChatMessage label="Assistant Édifice" tone="jade">
+              <ChatMessage label="Assistant de L’Édifice" tone="jade">
                 {context.assistantExample}
               </ChatMessage>
               <div className="rounded-md border border-dashed border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">

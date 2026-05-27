@@ -24,7 +24,7 @@ export function LogoMark({ size = "md", priority = false }: LogoMarkProps) {
     >
       <Image
         src="/edifice-logo-cyan.png"
-        alt="Logo L'Edifice"
+        alt="Logo L’Édifice"
         width={imageSizes[size]}
         height={imageSizes[size]}
         priority={priority}

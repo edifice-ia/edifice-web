@@ -5,7 +5,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { publisherModules } from "@/lib/cockpit/modules";
 
 export const metadata: Metadata = {
-  title: "Publications - L'Edifice",
+  title: "Publications - L’Édifice",
 };
 
 export default function PublishersPage() {

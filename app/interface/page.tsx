@@ -4,9 +4,9 @@ import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
 import { OAuthResultNotice } from "@/components/cockpit/OAuthResultNotice";
 
 export const metadata: Metadata = {
-  title: "Assistant Édifice - L'Edifice",
+  title: "Assistant de L’Édifice - L’Édifice",
   description:
-    "Assistant principal du cockpit L'Edifice pour bâtir l'œuvre, organiser l'intérieur et garder le cap.",
+    "Assistant principal du cockpit de L’Édifice pour bâtir l'œuvre, organiser l'intérieur et garder le cap.",
 };
 
 export default async function InterfacePage({
@@ -23,8 +23,8 @@ export default async function InterfacePage({
   return (
     <div>
       <CockpitHeader
-        eyebrow="Assistant Édifice"
-        title="Assistant Édifice"
+        eyebrow="Assistant de L’Édifice"
+        title="Assistant de L’Édifice"
         description="Un point central pour bâtir l'œuvre, organiser l'intérieur et garder le cap."
         status="En migration"
       />

@@ -4,7 +4,7 @@ import { EmptyState } from "@/components/cockpit/EmptyState";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 
 export const metadata: Metadata = {
-  title: "Espace intérieur - L'Edifice",
+  title: "Espace intérieur - L’Édifice",
 };
 
 export default function PersonnelPage() {

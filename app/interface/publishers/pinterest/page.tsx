@@ -5,7 +5,7 @@ import { LogPanel } from "@/components/cockpit/LogPanel";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 
 export const metadata: Metadata = {
-  title: "Pinterest Publisher - L'Edifice",
+  title: "Pinterest Publisher - L’Édifice",
 };
 
 const logs = [

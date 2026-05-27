@@ -5,7 +5,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import type { CockpitModule } from "@/types/cockpit";
 
 export const metadata: Metadata = {
-  title: "Reseaux courts - L'Edifice",
+  title: "Reseaux courts - L’Édifice",
 };
 
 const shortNetworks: CockpitModule[] = [

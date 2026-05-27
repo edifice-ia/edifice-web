@@ -6,8 +6,8 @@ import { logout } from "../login/actions";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Dashboard - L'Edifice",
-  description: "Dashboard prive minimal de L'Edifice, version en developpement.",
+  title: "Dashboard - L’Édifice",
+  description: "Dashboard prive minimal de L’Édifice, version en developpement.",
 };
 
 const modules = [
@@ -48,10 +48,10 @@ export default async function DashboardPage({
           Session connectee
         </p>
         <h1 className="mt-4 text-4xl font-semibold text-[#F4F7FB] sm:text-5xl">
-          Interface L&apos;Edifice
+          Interface L’Édifice
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-[#9EADBF]">
-          Le Cockpit Web est l&apos;interface privee du portail L&apos;Edifice.
+          Le Cockpit Web est l&apos;interface privee du portail L’Édifice.
           Le Cockpit local Streamlit reste l&apos;interface operationnelle interne.
         </p>
         <div className="mt-6 flex flex-col gap-4 rounded-lg border border-[#223149] bg-[#111D2E] p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -82,7 +82,7 @@ export default async function DashboardPage({
             >
               <p className="font-semibold text-[#F4F7FB]">{module}</p>
               <p className="mt-2 text-sm leading-6 text-[#9EADBF]">
-                Module reference dans l&apos;architecture privee de L&apos;Edifice.
+                Module reference dans l&apos;architecture privee de L’Édifice.
               </p>
             </div>
           ))}

@@ -5,7 +5,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Ressources - L'Edifice",
+  title: "Ressources - L’Édifice",
 };
 
 const links = [

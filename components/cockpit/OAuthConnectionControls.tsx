@@ -33,6 +33,35 @@ type OAuthStatusPayload = {
   };
 };
 
+type InstagramProfilePayload = {
+  ok: boolean;
+  token: {
+    present: boolean;
+    storageEnabled: boolean;
+    storageMode?: "supabase";
+  };
+  graphVersion: string;
+  diagnostic: {
+    accountsRequestSucceeded: boolean;
+    profileRequestSucceeded: boolean;
+    sourcePage: {
+      id: string | null;
+      name: string | null;
+    } | null;
+    instagramBusinessAccount: {
+      id: string | null;
+      username: string | null;
+    } | null;
+    error: Record<string, unknown> | null;
+  };
+  profile: {
+    id: string | null;
+    username: string | null;
+    followers_count: number | null;
+    media_count: number | null;
+  } | null;
+};
+
 type ControlStatus = "idle" | "checking" | "ready" | "incomplete";
 
 const statusClasses: Record<ControlStatus, string> = {
@@ -68,6 +97,8 @@ export function OAuthConnectionControls({
   const [payload, setPayload] = useState<OAuthStatusPayload | null>(null);
   const [instagramPayload, setInstagramPayload] =
     useState<OAuthStatusPayload | null>(null);
+  const [instagramProfile, setInstagramProfile] =
+    useState<InstagramProfilePayload | null>(null);
 
   async function testConfiguration() {
     setStatus("checking");
@@ -97,6 +128,19 @@ export function OAuthConnectionControls({
       setInstagramPayload(result);
     } catch {
       setInstagramPayload(null);
+    }
+  }
+
+  async function testInstagramProfile() {
+    try {
+      const response = await fetch("/api/instagram/profile", {
+        method: "GET",
+        cache: "no-store",
+      });
+      const result = (await response.json()) as InstagramProfilePayload;
+      setInstagramProfile(result);
+    } catch {
+      setInstagramProfile(null);
     }
   }
 
@@ -138,6 +182,15 @@ export function OAuthConnectionControls({
             Tester statut Instagram Graph
           </button>
         ) : null}
+        {showInstagramGraphTest ? (
+          <button
+            type="button"
+            onClick={testInstagramProfile}
+            className="rounded-md border border-[#1D2A44] px-4 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:bg-[#08111A] hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+          >
+            Tester profil Instagram
+          </button>
+        ) : null}
         <span
           className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses[status]}`}
         >
@@ -162,6 +215,70 @@ export function OAuthConnectionControls({
       {payload ? <OAuthDiagnosticPanel payload={payload} /> : null}
       {instagramPayload ? (
         <OAuthDiagnosticPanel payload={instagramPayload} title="Instagram Graph" />
+      ) : null}
+      {instagramProfile ? (
+        <InstagramProfilePanel payload={instagramProfile} />
+      ) : null}
+    </div>
+  );
+}
+
+function InstagramProfilePanel({
+  payload,
+}: {
+  payload: InstagramProfilePayload;
+}) {
+  return (
+    <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-3 text-sm text-[#A7B0C0]">
+      <p className="font-semibold text-[#F8FAFC]">Profil Instagram</p>
+      <div className="mt-3 grid gap-2">
+        <p>
+          Token Meta :{" "}
+          <span className="font-semibold text-[#F8FAFC]">
+            {payload.token.present ? "oui" : "non"}
+          </span>
+        </p>
+        <p>
+          Appel /me/accounts :{" "}
+          <span className="font-semibold text-[#F8FAFC]">
+            {payload.diagnostic.accountsRequestSucceeded ? "oui" : "non"}
+          </span>
+        </p>
+        <p>
+          Appel profil Instagram :{" "}
+          <span className="font-semibold text-[#F8FAFC]">
+            {payload.diagnostic.profileRequestSucceeded ? "oui" : "non"}
+          </span>
+        </p>
+        <p>
+          ID Instagram :{" "}
+          <span className="font-semibold text-[#F8FAFC]">
+            {payload.profile?.id ?? "non"}
+          </span>
+        </p>
+        <p>
+          Username :{" "}
+          <span className="font-semibold text-[#F8FAFC]">
+            {payload.profile?.username ?? "non"}
+          </span>
+        </p>
+        <p>
+          Followers :{" "}
+          <span className="font-semibold text-[#F8FAFC]">
+            {payload.profile?.followers_count ?? "non"}
+          </span>
+        </p>
+        <p>
+          Medias :{" "}
+          <span className="font-semibold text-[#F8FAFC]">
+            {payload.profile?.media_count ?? "non"}
+          </span>
+        </p>
+      </div>
+      {payload.diagnostic.error ? (
+        <pre className="mt-3 overflow-auto rounded-md border border-[#1D2A44] bg-[#0B1420] p-3 text-xs text-[#fbbf24]">
+          {JSON.stringify(payload.diagnostic.error, null, 2)}
+        </pre>
       ) : null}
     </div>
   );

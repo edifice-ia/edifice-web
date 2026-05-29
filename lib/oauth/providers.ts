@@ -82,8 +82,14 @@ export const oauthProviders: OAuthProviderConfig[] = [
       stateSecret: "OAUTH_STATE_SECRET",
     },
     authUrl: "https://www.facebook.com/v19.0/dialog/oauth",
-    // TODO: Réactiver scopes Instagram Graph API après validation App Review Meta.
-    scopes: ["public_profile", "email"],
+    scopes: [
+      "public_profile",
+      "pages_show_list",
+      "pages_read_engagement",
+      "instagram_basic",
+      "instagram_business_basic",
+      "business_management",
+    ],
     actionLabel: "Connecter Meta",
     secondaryLabel: "Tester la configuration",
     note: "Necessite Meta / Instagram Graph API et permissions validees.",

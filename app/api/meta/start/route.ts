@@ -6,7 +6,6 @@ import {
   getActiveMetaScopes,
   getMissingMetaEnv,
   getMetaRedirectUri,
-  isMetaInstagramScopesEnabled,
   META_AUTH_URL,
 } from "@/lib/oauth/meta";
 
@@ -53,7 +52,6 @@ export async function GET(request: NextRequest) {
 
   console.info("[META START] redirecting to Meta authorization", {
     scopes: activeScopes.length,
-    instagramScopesEnabled: isMetaInstagramScopesEnabled(),
     redirectUriConfigured: Boolean(process.env.META_REDIRECT_URI),
   });
 

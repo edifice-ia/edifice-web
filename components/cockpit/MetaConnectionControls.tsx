@@ -53,21 +53,15 @@ export function MetaConnectionControls({
         cache: "no-store",
       });
       const payload = (await response.json()) as {
-        status?: MetaStatus;
-        ok?: boolean;
+        present?: boolean;
       };
 
-      if (payload.ok) {
+      if (response.ok && payload.present) {
         setStatus("ok");
         return;
       }
 
-      setStatus(
-        payload.status === "missing_env" ||
-          payload.status === "callback_inaccessible"
-          ? payload.status
-          : "callback_inaccessible",
-      );
+      setStatus("callback_inaccessible");
     } catch {
       setStatus("callback_inaccessible");
     }

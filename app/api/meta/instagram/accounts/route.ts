@@ -1,14 +1,16 @@
 import { META_ACCOUNTS_URL } from "@/lib/oauth/meta";
+import { getOAuthToken } from "@/lib/server/oauth/token-store";
 
 export async function GET() {
-  const storedMetaToken: string | null = null;
+  const storedMetaToken = await getOAuthToken("meta");
 
-  if (!storedMetaToken) {
+  if (!storedMetaToken?.accessToken) {
     return Response.json(
       {
         ok: false,
         error: "missing_meta_token",
-        tokenStorageEnabled: false,
+        tokenStorageEnabled: true,
+        tokenStorageMode: "supabase",
         futureFlow: [
           `GET ${META_ACCOUNTS_URL}`,
           "Lire le champ instagram_business_account sur les pages connectees.",

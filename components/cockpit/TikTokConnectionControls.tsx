@@ -3,13 +3,11 @@
 import { useState } from "react";
 
 type TikTokStatusPayload = {
-  provider: "tiktok";
-  redirectUri: string;
-  sandbox: boolean;
-  env: Record<string, boolean>;
-  scopes: string[];
-  configured: boolean;
-  warnings: string[];
+  present: boolean;
+  storageEnabled: true;
+  storageMode: "supabase";
+  expiresAt: string | null;
+  updatedAt: string | null;
 };
 
 type TikTokStatus = "idle" | "checking" | "ready" | "incomplete";
@@ -43,7 +41,7 @@ export function TikTokConnectionControls() {
       const result = (await response.json()) as TikTokStatusPayload;
 
       setPayload(result);
-      setStatus(response.ok && result.configured ? "ready" : "incomplete");
+      setStatus(response.ok && result.present ? "ready" : "incomplete");
     } catch {
       setPayload(null);
       setStatus("incomplete");
@@ -80,41 +78,30 @@ export function TikTokConnectionControls() {
         <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-3 text-sm text-[#A7B0C0]">
           <div className="grid gap-2">
             <p>
-              Redirect URI configuree :{" "}
+              Token present :{" "}
               <span className="font-semibold text-[#F8FAFC]">
-                {payload.redirectUri || "absente"}
+                {payload.present ? "oui" : "non"}
               </span>
             </p>
             <p>
-              Mode sandbox :{" "}
+              Stockage :{" "}
               <span className="font-semibold text-[#F8FAFC]">
-                {payload.sandbox ? "actif" : "inactif"}
+                {payload.storageMode}
               </span>
             </p>
             <p>
-              Configuration generale :{" "}
+              Expiration connue :{" "}
               <span className="font-semibold text-[#F8FAFC]">
-                {payload.configured ? "OK" : "incomplete"}
+                {payload.expiresAt ?? "non"}
+              </span>
+            </p>
+            <p>
+              Derniere mise a jour :{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {payload.updatedAt ?? "non"}
               </span>
             </p>
           </div>
-          <div className="mt-3 grid gap-1">
-            {Object.entries(payload.env).map(([name, present]) => (
-              <p key={name}>
-                {name} :{" "}
-                <span className="font-semibold text-[#F8FAFC]">
-                  {present ? "oui" : "non"}
-                </span>
-              </p>
-            ))}
-          </div>
-          {payload.warnings.length > 0 ? (
-            <div className="mt-3 grid gap-1 text-[#fbbf24]">
-              {payload.warnings.map((warning) => (
-                <p key={warning}>{warning}</p>
-              ))}
-            </div>
-          ) : null}
         </div>
       ) : null}
     </div>

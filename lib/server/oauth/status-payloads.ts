@@ -3,14 +3,14 @@ import { getOAuthProvider } from "@/lib/oauth/providers";
 import { buildOAuthStatusFromProvider, buildProviderOAuthStatus } from "./oauth-status";
 import { getOAuthTokenStatus } from "./token-store";
 
-export function getYouTubeOAuthStatusPayload() {
+export async function getYouTubeOAuthStatusPayload() {
   const provider = getOAuthProvider("youtube");
 
   if (!provider) {
     throw new Error("YouTube OAuth provider is not configured.");
   }
 
-  const token = getOAuthTokenStatus("youtube");
+  const token = await getOAuthTokenStatus("youtube");
 
   return buildOAuthStatusFromProvider(provider, {
     mode: "production",
@@ -22,14 +22,14 @@ export function getYouTubeOAuthStatusPayload() {
   });
 }
 
-export function getTikTokOAuthStatusPayload() {
+export async function getTikTokOAuthStatusPayload() {
   const provider = getOAuthProvider("tiktok");
 
   if (!provider) {
     throw new Error("TikTok OAuth provider is not configured.");
   }
 
-  const token = getOAuthTokenStatus("tiktok");
+  const token = await getOAuthTokenStatus("tiktok");
   const redirectUri = process.env.TIKTOK_REDIRECT_URI?.trim();
   const extraWarnings =
     redirectUri && redirectUri !== "https://www.edificeia.com/api/oauth/tiktok/callback"
@@ -49,14 +49,14 @@ export function getTikTokOAuthStatusPayload() {
   });
 }
 
-export function getMetaOAuthStatusPayload() {
+export async function getMetaOAuthStatusPayload() {
   const provider = getOAuthProvider("meta");
 
   if (!provider) {
     throw new Error("Meta OAuth provider is not configured.");
   }
 
-  const token = getOAuthTokenStatus("meta");
+  const token = await getOAuthTokenStatus("meta");
 
   return buildOAuthStatusFromProvider(provider, {
     mode: "review",
@@ -69,14 +69,14 @@ export function getMetaOAuthStatusPayload() {
   });
 }
 
-export function getPinterestOAuthStatusPayload() {
+export async function getPinterestOAuthStatusPayload() {
   const provider = getOAuthProvider("pinterest");
 
   if (!provider) {
     throw new Error("Pinterest OAuth provider is not configured.");
   }
 
-  const token = getOAuthTokenStatus("pinterest");
+  const token = await getOAuthTokenStatus("pinterest");
 
   return buildOAuthStatusFromProvider(provider, {
     mode: "disabled",

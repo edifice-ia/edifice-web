@@ -36,11 +36,10 @@ export function YouTubeConnectionControls({
         cache: "no-store",
       });
       const payload = (await response.json()) as {
-        ok?: boolean;
-        status?: "ready" | "incomplete";
+        present?: boolean;
       };
 
-      setStatus(response.ok && payload.ok ? "ready" : "incomplete");
+      setStatus(response.ok && payload.present ? "ready" : "incomplete");
     } catch {
       setStatus("incomplete");
     }

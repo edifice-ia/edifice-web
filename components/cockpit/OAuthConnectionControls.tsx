@@ -3,20 +3,11 @@
 import { useState } from "react";
 
 type OAuthStatusPayload = {
-  provider: string;
-  configured: boolean;
-  mode: "sandbox" | "production" | "review" | "disabled";
-  redirectUri: string;
-  callbackPath: string;
-  env: Record<string, boolean>;
-  scopes: string[];
-  token: {
-    present: boolean;
-    storageEnabled: boolean;
-    expiresAt: string | null;
-    updatedAt: string | null;
-  };
-  warnings: string[];
+  present: boolean;
+  storageEnabled: true;
+  storageMode: "supabase";
+  expiresAt: string | null;
+  updatedAt: string | null;
 };
 
 type ControlStatus = "idle" | "checking" | "ready" | "incomplete";
@@ -66,7 +57,7 @@ export function OAuthConnectionControls({
       const result = (await response.json()) as OAuthStatusPayload;
 
       setPayload(result);
-      setStatus(response.ok && result.configured ? "ready" : "incomplete");
+      setStatus(response.ok && result.present ? "ready" : "incomplete");
     } catch {
       setPayload(null);
       setStatus("incomplete");
@@ -136,7 +127,7 @@ export function OAuthConnectionControls({
           <p>
             Meta OAuth :{" "}
             <span className="font-semibold text-[#F8FAFC]">
-              {payload?.token.present ? "connecte" : "a connecter"}
+              {payload?.present ? "connecte" : "a connecter"}
             </span>
           </p>
           <p className="mt-1">Instagram Graph depend de Meta OAuth.</p>
@@ -163,76 +154,30 @@ function OAuthDiagnosticPanel({
       <p className="font-semibold text-[#F8FAFC]">{title}</p>
       <div className="mt-3 grid gap-2">
         <p>
-          Configuration :{" "}
-          <span className="font-semibold text-[#F8FAFC]">
-            {payload.configured ? "OK" : "incomplete"}
-          </span>
-        </p>
-        <p>
-          Redirect URI configuree :{" "}
-          <span className="font-semibold text-[#F8FAFC]">
-            {payload.redirectUri || "absente"}
-          </span>
-        </p>
-        <p>
-          Callback attendu :{" "}
-          <span className="font-semibold text-[#F8FAFC]">
-            {payload.callbackPath}
-          </span>
-        </p>
-        <p>
-          Mode :{" "}
-          <span className="font-semibold text-[#F8FAFC]">{payload.mode}</span>
-        </p>
-        <p>
           Token present :{" "}
           <span className="font-semibold text-[#F8FAFC]">
-            {payload.token.present ? "oui" : "non"}
+            {payload.present ? "oui" : "non"}
+          </span>
+        </p>
+        <p>
+          Stockage :{" "}
+          <span className="font-semibold text-[#F8FAFC]">
+            {payload.storageMode}
           </span>
         </p>
         <p>
           Expiration connue :{" "}
           <span className="font-semibold text-[#F8FAFC]">
-            {payload.token.expiresAt ?? "non"}
+            {payload.expiresAt ?? "non"}
           </span>
         </p>
         <p>
           Derniere mise a jour :{" "}
           <span className="font-semibold text-[#F8FAFC]">
-            {payload.token.updatedAt ?? "non"}
+            {payload.updatedAt ?? "non"}
           </span>
         </p>
       </div>
-
-      <div className="mt-3 grid gap-1">
-        {Object.entries(payload.env).map(([name, present]) => (
-          <p key={name}>
-            {name} :{" "}
-            <span className="font-semibold text-[#F8FAFC]">
-              {present ? "oui" : "non"}
-            </span>
-          </p>
-        ))}
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        {payload.scopes.map((scope) => (
-          <span
-            key={scope}
-            className="rounded-md border border-[#1D2A44] bg-[#0B1420] px-2.5 py-1 text-xs text-[#A7B0C0]"
-          >
-            {scope}
-          </span>
-        ))}
-      </div>
-
-      {payload.warnings.length > 0 ? (
-        <div className="mt-3 grid gap-1 text-[#fbbf24]">
-          {payload.warnings.map((warning) => (
-            <p key={warning}>{warning}</p>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }

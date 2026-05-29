@@ -1,5 +1,5 @@
-import { getMetaOAuthStatusPayload } from "@/lib/server/oauth/status-payloads";
+import { getOAuthTokenStatus } from "@/lib/server/oauth/token-store";
 
 export async function GET() {
-  return Response.json(getMetaOAuthStatusPayload());
+  return Response.json(await getOAuthTokenStatus("meta"));
 }

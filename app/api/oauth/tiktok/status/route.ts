@@ -1,5 +1,5 @@
-import { getTikTokOAuthStatusPayload } from "@/lib/server/oauth/status-payloads";
+import { getOAuthTokenStatus } from "@/lib/server/oauth/token-store";
 
 export async function GET() {
-  return Response.json(getTikTokOAuthStatusPayload());
+  return Response.json(await getOAuthTokenStatus("tiktok"));
 }

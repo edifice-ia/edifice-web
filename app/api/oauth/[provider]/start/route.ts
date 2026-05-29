@@ -59,9 +59,9 @@ export async function GET(
       authorizationUrl,
       authorizationUrlPrepared: Boolean(authorizationUrl),
       tokenExchangeEnabled,
-      tokenStorageEnabled: false,
+      tokenStorageEnabled: true,
       message: tokenExchangeEnabled
-        ? "Configuration presente. Echange de token active cote serveur, stockage des tokens desactive."
+        ? "Configuration presente. Echange de token active cote serveur, stockage des tokens active."
         : "Configuration presente. Aucun token n'est echange ni stocke.",
     });
   }
@@ -95,7 +95,7 @@ export async function GET(
     provider: provider.key,
     authorizationUrl,
     tokenExchangeEnabled,
-    tokenStorageEnabled: false,
+    tokenStorageEnabled: true,
     message:
       "URL OAuth preparee. Redirection et stockage de state a securiser avant activation reelle.",
   });

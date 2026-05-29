@@ -12,9 +12,9 @@ import {
   projectStatusOverview,
 } from "@/lib/cockpit/observatory";
 import type {
+  AssistantQuestion,
   CockpitLog,
-  ObservatoryItem,
-  ProjectMemoryEntry,
+  ProjectContext,
 } from "@/types/cockpit";
 
 type AssistantContext = "Projet" | "Intérieur" | "Équilibre";
@@ -121,29 +121,39 @@ const quickLinks = [
 ];
 
 type AssistantCommandCenterProps = {
-  projectMemory?: {
-    cockpitRole: string;
-    safeguards: string[];
-    nextRecommendedAction: string;
-    observatoryItems: ObservatoryItem[];
-    projectMemoryEntries: ProjectMemoryEntry[];
-    overview: typeof projectStatusOverview;
-  };
+  projectContext?: ProjectContext;
 };
 
 export function AssistantCommandCenter({
-  projectMemory,
+  projectContext,
 }: AssistantCommandCenterProps) {
   const [activeContext, setActiveContext] =
     useState<AssistantContext>("Projet");
   const [draft, setDraft] = useState("");
+  const [activeQuestion, setActiveQuestion] = useState<AssistantQuestion>(
+    "Que dois-je faire maintenant ?",
+  );
 
   const context = contexts[activeContext];
-  const memory = projectMemory ?? {
-    ...projectMemoryForAssistant,
+  const memory = projectContext
+    ? {
+        cockpitRole: projectMemoryForAssistant.cockpitRole,
+        safeguards: projectMemoryForAssistant.safeguards,
+        nextRecommendedAction: projectContext.nextPriorityAction,
+        projectMemoryEntries: projectContext.projectMemoryEntries,
+        overview: projectContext.overview,
+      }
+    : {
+        ...projectMemoryForAssistant,
     projectMemoryEntries: [],
     overview: projectStatusOverview,
-  };
+      };
+  const recommendation =
+    projectContext?.recommendations[activeQuestion] ??
+    memory.nextRecommendedAction;
+  const supportedQuestions = projectContext
+    ? (Object.keys(projectContext.recommendations) as AssistantQuestion[])
+    : (["Que dois-je faire maintenant ?"] as AssistantQuestion[]);
   const placeholder = useMemo(
     () =>
       draft ||
@@ -280,14 +290,32 @@ export function AssistantCommandCenter({
 
         <SectionContainer>
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
-            Question assistant
+            Questions assistant
           </p>
-          <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
-            Que dois-je faire maintenant ?
-          </h2>
-          <p className="mt-3 leading-7 text-[#A7B0C0]">
-            {memory.nextRecommendedAction}
-          </p>
+          <div className="mt-4 grid gap-2 md:grid-cols-2">
+            {supportedQuestions.map((question) => (
+              <button
+                key={question}
+                type="button"
+                onClick={() => setActiveQuestion(question)}
+                className={`rounded-md border px-4 py-3 text-left text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                  activeQuestion === question
+                    ? "border-[#39E6D0]/60 bg-[#39E6D0]/10 text-[#F8FAFC]"
+                    : "border-[#1D2A44] bg-[#08111A] text-[#A7B0C0] hover:text-[#F8FAFC]"
+                }`}
+              >
+                {question}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3">
+            <h2 className="text-lg font-semibold text-[#F8FAFC]">
+              {activeQuestion}
+            </h2>
+            <p className="mt-3 leading-7 text-[#A7B0C0]">
+              {recommendation}
+            </p>
+          </div>
           <p className="mt-3 text-sm text-[#A7B0C0]">
             Base de recommandation : {memory.overview.totalModules} statuts
             Observatoire et {memory.projectMemoryEntries.length} entr&eacute;es

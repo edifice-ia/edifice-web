@@ -81,3 +81,29 @@ export type ProjectMemoryCreateInput = {
   priority?: string | null;
   source?: string | null;
 };
+
+export type AssistantQuestion =
+  | "Que dois-je faire maintenant ?"
+  | "Quelle est la prochaine pierre ?"
+  | "Quels sont les blocages ?"
+  | "Où en est le projet ?"
+  | "Qu’est-ce qui est en review ?";
+
+export type ProjectContext = {
+  operationalModules: ObservatoryItem[];
+  blockedModules: ObservatoryItem[];
+  reviewModules: ObservatoryItem[];
+  migratingModules: ObservatoryItem[];
+  nextPriorityAction: string;
+  detectedRisks: string[];
+  siteSummary: string;
+  observatoryItems: ObservatoryItem[];
+  projectMemoryEntries: ProjectMemoryEntry[];
+  recommendations: Record<AssistantQuestion, string>;
+  overview: {
+    totalModules: number;
+    operational: number;
+    blocked: number;
+    nextRecommendedAction: string;
+  };
+};

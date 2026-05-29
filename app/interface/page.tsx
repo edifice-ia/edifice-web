@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { AssistantCommandCenter } from "@/components/cockpit/AssistantCommandCenter";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
 import { OAuthResultNotice } from "@/components/cockpit/OAuthResultNotice";
-import { getLiveProjectMemory } from "@/lib/server/observatory/read-model";
+import { buildProjectContext } from "@/lib/server/assistant/context";
 
 export const metadata: Metadata = {
   title: "Assistant de L’Édifice - L’Édifice",
@@ -20,7 +20,7 @@ export default async function InterfacePage({
   }>;
 }) {
   const result = await searchParams;
-  const projectMemory = await getLiveProjectMemory();
+  const projectContext = await buildProjectContext();
 
   return (
     <div>
@@ -35,7 +35,7 @@ export default async function InterfacePage({
         connected={result.connected}
         status={result.status}
       />
-      <AssistantCommandCenter projectMemory={projectMemory} />
+      <AssistantCommandCenter projectContext={projectContext} />
     </div>
   );
 }

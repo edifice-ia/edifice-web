@@ -3,9 +3,14 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { LogPanel } from "./LogPanel";
+import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { SafetyModeBadge } from "./SafetyModeBadge";
 import { SectionContainer } from "./SectionContainer";
 import { StatusBadge } from "./StatusBadge";
+import {
+  projectMemoryForAssistant,
+  projectStatusOverview,
+} from "@/lib/cockpit/observatory";
 import type { CockpitLog } from "@/types/cockpit";
 
 type AssistantContext = "Projet" | "Intérieur" | "Équilibre";
@@ -216,9 +221,45 @@ export function AssistantCommandCenter() {
             ))}
           </div>
         </SectionContainer>
+
+        <SectionContainer>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
+                Observatoire projet
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
+                Prochaine pierre &agrave; poser
+              </h2>
+              <p className="mt-3 max-w-3xl leading-7 text-[#A7B0C0]">
+                {projectMemoryForAssistant.nextRecommendedAction}
+              </p>
+            </div>
+            <StatusBadge status="En cours" />
+          </div>
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            {[
+              ["Modules suivis", projectStatusOverview.totalModules],
+              ["Op\u00e9rationnels", projectStatusOverview.operational],
+              ["Bloqu\u00e9s", projectStatusOverview.blocked],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3"
+              >
+                <p className="text-sm text-[#A7B0C0]">{label}</p>
+                <p className="mt-2 text-2xl font-semibold text-[#F8FAFC]">
+                  {value}
+                </p>
+              </div>
+            ))}
+          </div>
+        </SectionContainer>
       </div>
 
       <aside className="space-y-6">
+        <ProjectMemoryPanel />
+
         <SectionContainer>
           <div className="flex items-start justify-between gap-3">
             <div>

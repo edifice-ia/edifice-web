@@ -1,74 +1,98 @@
 import type { Metadata } from "next";
+import { ConstructionJournal } from "@/components/cockpit/ConstructionJournal";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
 import { LogPanel } from "@/components/cockpit/LogPanel";
+import { ProjectMemoryPanel } from "@/components/cockpit/ProjectMemoryPanel";
+import { ProjectObservatory } from "@/components/cockpit/ProjectObservatory";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { StatusBadge } from "@/components/cockpit/StatusBadge";
+import {
+  observatoryItems,
+  projectStatusOverview,
+} from "@/lib/cockpit/observatory";
 
 export const metadata: Metadata = {
-  title: "Observatoire - L’Édifice",
+  title: "Observatoire - L'\u00c9difice",
 };
 
 const logs = [
   {
     timestamp: "12:00",
     type: "system" as const,
-    message: "Signaux statiques préparés.",
-    status: "Experimental" as const,
+    message: "M\u00e9moire projet charg\u00e9e dans le cockpit.",
+    status: "En cours" as const,
   },
   {
     timestamp: "12:04",
-    type: "agent" as const,
-    message: "Observation live non migrée.",
-    status: "Local uniquement" as const,
+    type: "security" as const,
+    message: "Garde-fous actifs: aucune publication r\u00e9elle d\u00e9clench\u00e9e.",
+    status: "Operationnel" as const,
   },
   {
     timestamp: "12:08",
-    type: "api" as const,
-    message: "Coûts IA: repère sans données réelles.",
-    status: "Plus tard" as const,
+    type: "assistant" as const,
+    message: "Prochaine pierre disponible depuis la m\u00e9moire projet.",
+    status: "Review" as const,
   },
 ];
 
 export default function MonitoringPage() {
+  const reviewCount = observatoryItems.filter(
+    (item) => item.status === "Review",
+  ).length;
+
   return (
     <div>
       <CockpitHeader
         eyebrow="Observatoire"
-        title="Signaux, alertes et état du système"
-        description="Un observatoire de fondation pour lire l'état du cockpit sans déclencher d'action sensible."
-        status="Experimental"
+        title="Observatoire projet"
+        description={
+          "Le cockpit de suivi de L'\u00c9difice: OAuth, agents, infrastructure, journal de chantier et prochaine pierre a poser."
+        }
+        status="En cours"
       />
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <SectionContainer>
-          <h2 className="text-xl font-semibold text-[#F8FAFC]">
-            Points de vigilance
-          </h2>
-          <div className="mt-4 grid gap-3">
-            {[
-              ["Supabase Auth", "Disponible"],
-              ["Agents locaux", "Local uniquement"],
-              ["Connexions externes", "A securiser"],
-              ["Coûts IA", "Plus tard"],
-            ].map(([label, status]) => (
-              <div
-                key={label}
-                className="flex items-center justify-between rounded-md border border-[#1D2A44] bg-[#08111A] p-3"
-              >
-                <span className="text-[#F8FAFC]">{label}</span>
-                <StatusBadge
-                  status={
-                    status as
-                      | "Disponible"
-                      | "Local uniquement"
-                      | "A securiser"
-                      | "Plus tard"
-                  }
-                />
+
+      <div className="mb-6 grid gap-4 md:grid-cols-4">
+        {[
+          ["Modules suivis", String(projectStatusOverview.totalModules), "En cours"],
+          [
+            "Op\u00e9rationnels",
+            String(projectStatusOverview.operational),
+            "Operationnel",
+          ],
+          ["Bloqu\u00e9s", String(projectStatusOverview.blocked), "Bloque"],
+          ["En review", String(reviewCount), "Review"],
+        ].map(([label, value, status]) => (
+          <SectionContainer key={label}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm text-[#A7B0C0]">{label}</p>
+                <p className="mt-2 text-2xl font-semibold text-[#F8FAFC]">
+                  {value}
+                </p>
               </div>
-            ))}
-          </div>
-        </SectionContainer>
-        <LogPanel logs={logs} title="Signaux récents" />
+              <StatusBadge
+                status={
+                  status as
+                    | "En cours"
+                    | "Operationnel"
+                    | "Bloque"
+                    | "Review"
+                }
+              />
+            </div>
+          </SectionContainer>
+        ))}
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <ProjectObservatory />
+
+        <aside className="space-y-6">
+          <ProjectMemoryPanel />
+          <ConstructionJournal />
+          <LogPanel logs={logs} title={"Signaux r\u00e9cents"} />
+        </aside>
       </div>
     </div>
   );

@@ -5,7 +5,12 @@ export type CockpitStatus =
   | "A securiser"
   | "Plus tard"
   | "Non connecte"
-  | "Experimental";
+  | "Experimental"
+  | "Operationnel"
+  | "En cours"
+  | "Bloque"
+  | "Review"
+  | "A migrer";
 
 export type CockpitNavItem = {
   id: string;
@@ -30,4 +35,24 @@ export type CockpitLog = {
   type: "system" | "agent" | "assistant" | "api" | "security" | "publication";
   message: string;
   status: CockpitStatus;
+};
+
+export type ObservatoryArea = "OAuth" | "Agents" | "Infrastructure";
+
+export type ObservatoryItem = {
+  id: string;
+  area: ObservatoryArea;
+  name: string;
+  status: CockpitStatus;
+  summary: string;
+  nextAction: string;
+};
+
+export type ConstructionJournalEntry = {
+  id: string;
+  date: string;
+  action: string;
+  decision: string;
+  blocker?: string;
+  nextStep: string;
 };

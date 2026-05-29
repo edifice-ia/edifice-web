@@ -26,6 +26,9 @@ export const observatoryItems: ObservatoryItem[] = [
     status: "Review",
     summary: "Route de connexion presente, validation produit a consolider.",
     nextAction: "Revoir les permissions et afficher le statut sans publier.",
+    blockedByExternalReview: true,
+    externalReviewNote:
+      "OAuth Sandbox actif, review produit a consolider avant publication.",
   },
   {
     id: "oauth-meta",
@@ -34,6 +37,9 @@ export const observatoryItems: ObservatoryItem[] = [
     status: "En cours",
     summary: "Flux Meta en place cote API, a stabiliser dans l'interface.",
     nextAction: "Centraliser le retour de statut Meta dans l'Observatoire.",
+    blockedByExternalReview: true,
+    externalReviewNote:
+      "Permissions et review Meta a suivre sans publication automatique.",
   },
   {
     id: "oauth-instagram",
@@ -47,9 +53,13 @@ export const observatoryItems: ObservatoryItem[] = [
     id: "oauth-pinterest",
     area: "OAuth",
     name: "Pinterest",
-    status: "A migrer",
-    summary: "Espace publisher prepare, connexion encore a finaliser.",
-    nextAction: "Definir le parcours OAuth Pinterest avant toute publication.",
+    status: "Review",
+    summary: "Espace publisher prepare, en attente reviewer externe.",
+    nextAction:
+      "Attendre la validation reviewer Pinterest avant toute action OAuth supplementaire.",
+    blockedByExternalReview: true,
+    externalReviewNote:
+      "Attente de validation reviewer Pinterest, aucune action OAuth supplementaire pour l'instant.",
   },
   {
     id: "agent-assistant",

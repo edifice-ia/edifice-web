@@ -22,6 +22,14 @@ type AssistantExchange = {
   id: string;
   role: "user" | "assistant";
   message: string;
+  recommendation?: AssistantRecommendation;
+};
+
+type AssistantRecommendation = {
+  action: string;
+  reason: string;
+  dependency: string | null;
+  feasibleNow: boolean;
 };
 
 const contexts: Record<
@@ -42,7 +50,8 @@ const contexts: Record<
       "Que dois-je faire maintenant ?",
       "Ou en est le projet ?",
       "Quels sont les blocages ?",
-      "Qu'est-ce qui est en review ?",
+      "Qu'est-ce qui depend de moi ?",
+      "Qu'est-ce qui depend d'un service externe ?",
     ],
     sources: ["Project memory", "Observatoire", "OAuth Tokens", "Modules cockpit"],
     systemMessage:
@@ -200,6 +209,7 @@ export function AssistantCommandCenter({
       const payload = (await response.json()) as {
         ok?: boolean;
         answer?: string;
+        recommendation?: AssistantRecommendation;
         error?: string;
       };
 
@@ -215,6 +225,7 @@ export function AssistantCommandCenter({
           id: `assistant-${Date.now()}`,
           role: "assistant",
           message: answer,
+          recommendation: payload.recommendation,
         },
       ]);
     } catch (requestError) {
@@ -288,6 +299,7 @@ export function AssistantCommandCenter({
                   label={exchange.role === "user" ? "Vous" : "Assistant de L'Edifice"}
                   tone={exchange.role === "user" ? "blue" : "jade"}
                   align={exchange.role === "user" ? "right" : "left"}
+                  recommendation={exchange.recommendation}
                 >
                   {exchange.message}
                 </ChatMessage>
@@ -486,11 +498,13 @@ function ChatMessage({
   tone,
   align = "left",
   children,
+  recommendation,
 }: {
   label: string;
   tone: "jade" | "blue";
   align?: "left" | "right";
   children: React.ReactNode;
+  recommendation?: AssistantRecommendation;
 }) {
   const color = tone === "jade" ? "text-[#39E6D0]" : "text-[#38BDF8]";
 
@@ -502,6 +516,32 @@ function ChatMessage({
     >
       <p className={`text-sm font-semibold ${color}`}>{label}</p>
       <p className="mt-2 leading-7 text-[#A7B0C0]">{children}</p>
+      {recommendation ? (
+        <div className="mt-4 grid gap-2 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-sm">
+          <RecommendationLine
+            label="Action recommandee"
+            value={recommendation.action}
+          />
+          <RecommendationLine label="Raison" value={recommendation.reason} />
+          <RecommendationLine
+            label="Dependance"
+            value={recommendation.dependency ?? "aucune"}
+          />
+          <RecommendationLine
+            label="Faisable maintenant"
+            value={recommendation.feasibleNow ? "oui" : "non"}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RecommendationLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1 sm:grid-cols-[150px_1fr]">
+      <span className="font-semibold text-[#F8FAFC]">{label}</span>
+      <span className="text-[#A7B0C0]">{value}</span>
     </div>
   );
 }

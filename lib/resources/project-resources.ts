@@ -1,9 +1,20 @@
-export type ProjectResourceStatus = "actif" | "a configurer" | "review" | "externe";
+export type ProjectResourceLinkStatus =
+  | "accessible"
+  | "inaccessible"
+  | "non testé";
+
+export type ProjectResourceProjectStatus =
+  | "actif"
+  | "review"
+  | "à configurer"
+  | "en migration"
+  | "bloqué"
+  | "externe";
 
 export type ProjectResourceCategory =
-  | "Déploiement & infrastructure"
-  | "Réseaux sociaux / développeurs"
-  | "Domaine & identité"
+  | "Deploiement & infrastructure"
+  | "Reseaux sociaux / developpeurs"
+  | "Domaine & identite"
   | "Projet & documentation";
 
 export type ProjectResource = {
@@ -11,13 +22,16 @@ export type ProjectResource = {
   url: string;
   category: ProjectResourceCategory;
   description: string;
-  status: ProjectResourceStatus;
+  linkStatus: ProjectResourceLinkStatus;
+  projectStatus: ProjectResourceProjectStatus;
+  note: string;
+  blockedByExternalReview?: boolean;
 };
 
 export const projectResourceCategories: ProjectResourceCategory[] = [
-  "Déploiement & infrastructure",
-  "Réseaux sociaux / développeurs",
-  "Domaine & identité",
+  "Deploiement & infrastructure",
+  "Reseaux sociaux / developpeurs",
+  "Domaine & identite",
   "Projet & documentation",
 ];
 
@@ -25,190 +39,257 @@ export const projectResources: ProjectResource[] = [
   {
     name: "Vercel Dashboard",
     url: "https://vercel.com/dashboard",
-    category: "Déploiement & infrastructure",
-    description: "Déploiements, domaines et variables d'environnement.",
-    status: "actif",
+    category: "Deploiement & infrastructure",
+    description: "Deploiements, domaines et variables d'environnement.",
+    linkStatus: "accessible",
+    projectStatus: "actif",
+    note: "Deploiements et variables d'environnement operationnels.",
   },
   {
     name: "Supabase Dashboard",
     url: "https://supabase.com/dashboard/projects",
-    category: "Déploiement & infrastructure",
-    description: "Base de données, auth, tables et logs serveur.",
-    status: "actif",
+    category: "Deploiement & infrastructure",
+    description: "Base de donnees, auth, tables et logs serveur.",
+    linkStatus: "accessible",
+    projectStatus: "actif",
+    note: "Stockage OAuth et memoire projet disponibles cote serveur.",
   },
   {
     name: "GitHub",
     url: "https://github.com/",
-    category: "Déploiement & infrastructure",
+    category: "Deploiement & infrastructure",
     description: "Code source, issues, branches et historique du projet.",
-    status: "actif",
+    linkStatus: "accessible",
+    projectStatus: "actif",
+    note: "Depot et suivi technique accessibles.",
   },
   {
     name: "OVHcloud Manager",
     url: "https://www.ovh.com/manager/",
-    category: "Déploiement & infrastructure",
+    category: "Deploiement & infrastructure",
     description: "Gestion cloud, domaine, DNS et services OVHcloud.",
-    status: "externe",
+    linkStatus: "accessible",
+    projectStatus: "externe",
+    note: "Plateforme externe utile pour domaine, DNS et email.",
   },
   {
     name: "Google Cloud Console",
     url: "https://console.cloud.google.com/",
-    category: "Déploiement & infrastructure",
+    category: "Deploiement & infrastructure",
     description: "Projets Google Cloud, APIs, OAuth et quotas.",
-    status: "review",
+    linkStatus: "accessible",
+    projectStatus: "review",
+    note: "Console accessible, configuration OAuth/API a relire avant production.",
   },
   {
     name: "TikTok for Developers",
     url: "https://developers.tiktok.com/",
-    category: "Réseaux sociaux / développeurs",
+    category: "Reseaux sociaux / developpeurs",
     description: "Apps TikTok, OAuth, scopes et configuration sandbox.",
-    status: "review",
+    linkStatus: "accessible",
+    projectStatus: "review",
+    note: "OAuth Sandbox actif, review produit a consolider avant publication.",
+    blockedByExternalReview: true,
   },
   {
     name: "Meta Developers",
     url: "https://developers.facebook.com/",
-    category: "Réseaux sociaux / développeurs",
+    category: "Reseaux sociaux / developpeurs",
     description: "Applications Meta, permissions, webhooks et Graph API.",
-    status: "review",
+    linkStatus: "accessible",
+    projectStatus: "review",
+    note: "Permissions et review Meta a suivre sans publication automatique.",
+    blockedByExternalReview: true,
   },
   {
     name: "Facebook Developers",
     url: "https://developers.facebook.com/apps/",
-    category: "Réseaux sociaux / développeurs",
-    description: "Accès direct aux apps Facebook et paramètres développeur.",
-    status: "review",
+    category: "Reseaux sociaux / developpeurs",
+    description: "Acces direct aux apps Facebook et parametres developpeur.",
+    linkStatus: "accessible",
+    projectStatus: "review",
+    note: "App Facebook accessible, statut projet depend des validations Meta.",
+    blockedByExternalReview: true,
   },
   {
     name: "Meta Business Suite",
     url: "https://business.facebook.com/",
-    category: "Réseaux sociaux / développeurs",
+    category: "Reseaux sociaux / developpeurs",
     description: "Pages, comptes business, Instagram et assets Meta.",
-    status: "externe",
+    linkStatus: "accessible",
+    projectStatus: "externe",
+    note: "Outil externe de pilotage Meta, distinct de l'etat du module.",
   },
   {
     name: "Pinterest Developers",
     url: "https://developers.pinterest.com/",
-    category: "Réseaux sociaux / développeurs",
+    category: "Reseaux sociaux / developpeurs",
     description: "Apps Pinterest, OAuth, boards et pins API.",
-    status: "a configurer",
+    linkStatus: "accessible",
+    projectStatus: "review",
+    note: "Attente de validation reviewer Pinterest, aucune action OAuth supplementaire pour l'instant.",
+    blockedByExternalReview: true,
   },
   {
     name: "YouTube Studio",
     url: "https://studio.youtube.com/",
-    category: "Réseaux sociaux / développeurs",
-    description: "Chaîne, contenus, analytics et gestion YouTube.",
-    status: "actif",
+    category: "Reseaux sociaux / developpeurs",
+    description: "Chaine, contenus, analytics et gestion YouTube.",
+    linkStatus: "accessible",
+    projectStatus: "actif",
+    note: "Studio accessible, publication reelle toujours gardee par validation humaine.",
   },
   {
     name: "Google API Console",
     url: "https://console.cloud.google.com/apis/dashboard",
-    category: "Réseaux sociaux / développeurs",
+    category: "Reseaux sociaux / developpeurs",
     description: "Activation et suivi des APIs Google.",
-    status: "review",
+    linkStatus: "accessible",
+    projectStatus: "review",
+    note: "APIs accessibles, configuration a relire pour les scopes et quotas.",
   },
   {
     name: "Google Cloud Credentials",
     url: "https://console.cloud.google.com/apis/credentials",
-    category: "Réseaux sociaux / développeurs",
-    description: "Identifiants OAuth, clients et clés API Google.",
-    status: "review",
+    category: "Reseaux sociaux / developpeurs",
+    description: "Identifiants OAuth, clients et cles API Google.",
+    linkStatus: "accessible",
+    projectStatus: "review",
+    note: "Acces aux identifiants; aucune cle ne doit etre affichee dans L'Edifice.",
   },
   {
     name: "Google OAuth Consent Screen",
     url: "https://console.cloud.google.com/apis/credentials/consent",
-    category: "Réseaux sociaux / développeurs",
-    description: "Écran de consentement OAuth et statut de vérification.",
-    status: "review",
+    category: "Reseaux sociaux / developpeurs",
+    description: "Ecran de consentement OAuth et statut de verification.",
+    linkStatus: "accessible",
+    projectStatus: "review",
+    note: "Consent screen a verifier avant ouverture plus large.",
+    blockedByExternalReview: true,
   },
   {
     name: "OVHcloud domaine",
     url: "https://www.ovh.com/manager/#/web/domain",
-    category: "Domaine & identité",
+    category: "Domaine & identite",
     description: "Gestion du domaine, renouvellement et zone DNS.",
-    status: "externe",
+    linkStatus: "accessible",
+    projectStatus: "review",
+    note: "Domaine accessible, DNS et redirections a confirmer.",
   },
   {
     name: "OVHcloud mails",
     url: "https://www.ovh.com/manager/#/web/email",
-    category: "Domaine & identité",
-    description: "Boîtes mail, redirections et configuration email.",
-    status: "a configurer",
+    category: "Domaine & identite",
+    description: "Boites mail, redirections et configuration email.",
+    linkStatus: "accessible",
+    projectStatus: "à configurer",
+    note: "Email professionnel encore a finaliser.",
   },
   {
     name: "DNS",
     url: "https://www.ovh.com/manager/#/web/domain",
-    category: "Domaine & identité",
+    category: "Domaine & identite",
     description: "Zone DNS, enregistrements et redirections.",
-    status: "review",
+    linkStatus: "accessible",
+    projectStatus: "review",
+    note: "Zone DNS accessible, coherence domaine/deploiement a verifier.",
   },
   {
     name: "Email professionnel",
     url: "https://www.ovh.com/manager/#/web/email",
-    category: "Domaine & identité",
-    description: "Accès aux réglages du mail professionnel L'Édifice.",
-    status: "a configurer",
+    category: "Domaine & identite",
+    description: "Acces aux reglages du mail professionnel L'Edifice.",
+    linkStatus: "accessible",
+    projectStatus: "à configurer",
+    note: "Choix et configuration des adresses transactionnelles a poser.",
   },
   {
     name: "GitHub repository",
     url: "https://github.com/",
     category: "Projet & documentation",
-    description: "Dépôt du projet, code et suivi technique.",
-    status: "actif",
+    description: "Depot du projet, code et suivi technique.",
+    linkStatus: "accessible",
+    projectStatus: "actif",
+    note: "Depot accessible pour pilotage technique.",
   },
   {
     name: "Supabase project",
     url: "https://supabase.com/dashboard/projects",
     category: "Projet & documentation",
-    description: "Projet Supabase relié au cockpit.",
-    status: "actif",
+    description: "Projet Supabase relie au cockpit.",
+    linkStatus: "accessible",
+    projectStatus: "actif",
+    note: "Base projet, OAuth tokens et project_memory disponibles cote serveur.",
   },
   {
     name: "Vercel project",
     url: "https://vercel.com/dashboard",
     category: "Projet & documentation",
     description: "Projet Vercel, builds et configuration web.",
-    status: "actif",
+    linkStatus: "accessible",
+    projectStatus: "actif",
+    note: "Projet deployable et variables d'environnement a surveiller.",
   },
   {
-    name: "Documentation interne Édifice",
+    name: "Documentation interne Edifice",
     url: "https://www.notion.so/",
     category: "Projet & documentation",
-    description: "Documentation, décisions et mémoire interne si disponible.",
-    status: "externe",
+    description: "Documentation, decisions et memoire interne si disponible.",
+    linkStatus: "accessible",
+    projectStatus: "externe",
+    note: "Espace externe optionnel pour documentation longue.",
   },
   {
     name: "Notion",
     url: "https://www.notion.so/",
     category: "Projet & documentation",
     description: "Espace de notes et documentation projet.",
-    status: "externe",
+    linkStatus: "accessible",
+    projectStatus: "externe",
+    note: "Outil externe utile, distinct de la memoire persistante Supabase.",
   },
   {
     name: "Observatoire",
     url: "/interface/monitoring",
     category: "Projet & documentation",
-    description: "État global des modules et mémoire de chantier.",
-    status: "actif",
+    description: "Etat global des modules et memoire de chantier.",
+    linkStatus: "accessible",
+    projectStatus: "actif",
+    note: "Cockpit de suivi projet actif dans L'Edifice.",
   },
   {
     name: "Connexions OAuth",
     url: "/interface/settings/connections",
     category: "Projet & documentation",
-    description: "Vue cockpit des connexions externes, sans secret exposé.",
-    status: "review",
+    description: "Vue cockpit des connexions externes, sans secret expose.",
+    linkStatus: "accessible",
+    projectStatus: "review",
+    note: "Interface de lecture/controle OAuth, sans exposition de secrets.",
   },
   {
     name: "ChatGPT",
     url: "https://chatgpt.com/",
     category: "Projet & documentation",
-    description: "Assistance générale, rédaction et réflexion projet.",
-    status: "externe",
+    description: "Assistance generale, redaction et reflexion projet.",
+    linkStatus: "accessible",
+    projectStatus: "externe",
+    note: "Outil externe d'assistance, non indicateur d'etat projet.",
   },
   {
     name: "Codex",
     url: "https://chatgpt.com/codex",
     category: "Projet & documentation",
-    description: "Assistance de développement pour le cockpit.",
-    status: "externe",
+    description: "Assistance de developpement pour le cockpit.",
+    linkStatus: "accessible",
+    projectStatus: "externe",
+    note: "Outil externe de developpement, utile au chantier.",
   },
 ];
+
+export function findProjectResourceByName(name: string) {
+  const normalizedName = name.toLowerCase();
+
+  return projectResources.find((resource) =>
+    resource.name.toLowerCase().includes(normalizedName),
+  );
+}

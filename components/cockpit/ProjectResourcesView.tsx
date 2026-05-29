@@ -3,32 +3,45 @@ import {
   projectResourceCategories,
   projectResources,
   type ProjectResource,
-  type ProjectResourceStatus,
+  type ProjectResourceLinkStatus,
+  type ProjectResourceProjectStatus,
 } from "@/lib/resources/project-resources";
 import { CockpitHeader } from "./CockpitHeader";
 import { SectionContainer } from "./SectionContainer";
 
-const statusClasses: Record<ProjectResourceStatus, string> = {
+const linkStatusClasses: Record<ProjectResourceLinkStatus, string> = {
+  accessible: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
+  inaccessible: "border-[#ef4444]/40 bg-[#ef4444]/10 text-[#fecaca]",
+  "non testé": "border-[#64748b]/40 bg-[#64748b]/10 text-[#cbd5e1]",
+};
+
+const projectStatusClasses: Record<ProjectResourceProjectStatus, string> = {
   actif: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
-  "a configurer": "border-[#64748b]/40 bg-[#64748b]/10 text-[#cbd5e1]",
+  "à configurer": "border-[#64748b]/40 bg-[#64748b]/10 text-[#cbd5e1]",
   review: "border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#fbbf24]",
+  "en migration": "border-[#38BDF8]/40 bg-[#38BDF8]/10 text-[#7DD3FC]",
+  bloqué: "border-[#ef4444]/40 bg-[#ef4444]/10 text-[#fecaca]",
   externe: "border-[#38BDF8]/40 bg-[#38BDF8]/10 text-[#7DD3FC]",
 };
 
-const statusLabels: Record<ProjectResourceStatus, string> = {
+const projectStatusLabels: Record<ProjectResourceProjectStatus, string> = {
   actif: "actif",
-  "a configurer": "à configurer",
+  "à configurer": "à configurer",
   review: "review",
+  "en migration": "en migration",
+  bloqué: "bloqué",
   externe: "externe",
 };
 
 export function ProjectResourcesView() {
+  console.info("[Resources] loaded");
+
   return (
     <div>
       <CockpitHeader
         eyebrow="Ressources"
-        title="Ressources opérationnelles"
-        description="Accès rapide aux plateformes externes nécessaires au pilotage de L'Édifice. Aucun secret, token ou action sensible n'est exposé ici."
+        title="Ressources operationnelles"
+        description="Acces rapide aux plateformes externes necessaires au pilotage de L'Edifice. Le statut du lien est separe de l'etat projet. Aucun secret, token ou action sensible n'est expose ici."
         status="Disponible"
       />
 
@@ -46,7 +59,7 @@ export function ProjectResourcesView() {
                     {category}
                   </p>
                   <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
-                    Accès utiles
+                    Acces utiles
                   </h2>
                 </div>
                 <p className="text-sm text-[#A7B0C0]">
@@ -73,22 +86,30 @@ export function ProjectResourcesView() {
 function ResourceCard({ resource }: { resource: ProjectResource }) {
   const isInternal = resource.url.startsWith("/");
   const className =
-    "group flex min-h-[210px] flex-col justify-between rounded-lg border border-[#1D2A44] bg-[#08111A] p-4 transition hover:border-[#39E6D0]/60 hover:bg-[#0B1420] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
+    "group flex min-h-[260px] flex-col justify-between rounded-lg border border-[#1D2A44] bg-[#08111A] p-4 transition hover:border-[#39E6D0]/60 hover:bg-[#0B1420] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
   const content = (
     <>
       <div>
-        <div className="flex items-start justify-between gap-3">
-          <h3 className="text-base font-semibold text-[#F8FAFC]">
-            {resource.name}
-          </h3>
-          <span
-            className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses[resource.status]}`}
-          >
-            {statusLabels[resource.status]}
-          </span>
-        </div>
+        <h3 className="text-base font-semibold text-[#F8FAFC]">
+          {resource.name}
+        </h3>
         <p className="mt-3 text-sm leading-6 text-[#A7B0C0]">
           {resource.description}
+        </p>
+        <div className="mt-4 grid gap-2">
+          <StatusLine
+            label="Lien"
+            value={resource.linkStatus}
+            className={linkStatusClasses[resource.linkStatus]}
+          />
+          <StatusLine
+            label="Projet"
+            value={projectStatusLabels[resource.projectStatus]}
+            className={projectStatusClasses[resource.projectStatus]}
+          />
+        </div>
+        <p className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs leading-5 text-[#A7B0C0]">
+          {resource.note}
         </p>
         <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-[#64748b]">
           {resource.category}
@@ -117,5 +138,26 @@ function ResourceCard({ resource }: { resource: ProjectResource }) {
     >
       {content}
     </a>
+  );
+}
+
+function StatusLine({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: string;
+  className: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs">
+      <span className="font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
+        {label}
+      </span>
+      <span className={`rounded-md border px-2.5 py-1 font-semibold ${className}`}>
+        {value}
+      </span>
+    </div>
   );
 }

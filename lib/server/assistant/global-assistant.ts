@@ -1,6 +1,9 @@
 import "server-only";
 
-import type { ProjectContext } from "@/types/cockpit";
+import type {
+  AssistantActionablePriority,
+  ProjectContext,
+} from "@/types/cockpit";
 
 export type GlobalAssistantMode = "project" | "interior" | "balance";
 
@@ -23,6 +26,9 @@ type OpenAIResponsePayload = {
 const systemPrompt = [
   "Tu es l'Assistant de L'Edifice, copilote de chantier du projet.",
   "Tu aides Vincent a prioriser, comprendre les blocages, suivre les modules et choisir la prochaine pierre a poser.",
+  "Tu distingues toujours l'acces a un outil externe de l'etat reel du module projet associe.",
+  "Un module en review externe ne doit pas etre propose comme action prioritaire immediate.",
+  "Une action prioritaire doit etre faisable maintenant par Vincent.",
   "Tu ne declenches aucune action reelle.",
   "Tu ne publies rien.",
   "Tu ne modifies aucun OAuth.",
@@ -41,7 +47,7 @@ function formatModuleList(
   modules: Array<{ name?: string; title?: string; nextAction?: string }>,
 ) {
   if (modules.length === 0) {
-    return "Aucun module dans cette catégorie.";
+    return "Aucun module dans cette categorie.";
   }
 
   return modules
@@ -52,16 +58,88 @@ function formatModuleList(
     .join(" ; ");
 }
 
+function getPrimaryRecommendation(
+  context: ProjectContext,
+): AssistantActionablePriority {
+  return (
+    context.actionablePriorities[0] ?? {
+      action: context.nextPriorityAction,
+      reason:
+        "Prochaine action issue de l'Observatoire, sans action sensible automatique.",
+      dependency: null,
+      feasibleNow: true,
+    }
+  );
+}
+
+function formatPriority(priority: AssistantActionablePriority) {
+  return [
+    `Action recommandee: ${priority.action}`,
+    `Raison: ${priority.reason}`,
+    `Dependance eventuelle: ${priority.dependency ?? "aucune"}`,
+    `Faisable maintenant: ${priority.feasibleNow ? "oui" : "non"}`,
+  ].join("\n");
+}
+
+function formatPriorities(priorities: AssistantActionablePriority[]) {
+  if (priorities.length === 0) {
+    return "Aucune action faisable maintenant n'est detectee.";
+  }
+
+  return priorities
+    .map((priority, index) => `${index + 1}. ${formatPriority(priority)}`)
+    .join("\n\n");
+}
+
 function buildProjectAnswer(message: string, context: ProjectContext) {
   const normalized = normalizeMessage(message);
 
   if (
     normalized.includes("que faire") ||
+    normalized.includes("peux faire") ||
     normalized.includes("quoi faire") ||
     normalized.includes("maintenant") ||
     normalized.includes("prochaine pierre")
   ) {
-    return `La prochaine pierre à poser : ${context.nextPriorityAction}`;
+    return formatPriorities(context.actionablePriorities.slice(0, 3));
+  }
+
+  if (
+    normalized.includes("reviewer") ||
+    normalized.includes("service externe") ||
+    normalized.includes("depend d'un service") ||
+    normalized.includes("depend dun service")
+  ) {
+    if (context.externalReviewModules.length === 0) {
+      return "Aucun module n'est marque comme dependant d'un reviewer externe. Acces outil OK reste distinct de module projet OK.";
+    }
+
+    return [
+      "Modules en attente externe:",
+      context.externalReviewModules
+        .map(
+          (module) =>
+            `${module.name}: ${module.externalReviewNote ?? module.nextAction}`,
+        )
+        .join("\n"),
+      "Ces modules restent suivis, mais ils ne sont pas proposes comme priorite active tant que la review externe n'avance pas.",
+    ].join("\n\n");
+  }
+
+  if (
+    normalized.includes("depend de moi") ||
+    normalized.includes("dependant de moi") ||
+    normalized.includes("a ma charge")
+  ) {
+    const feasible = context.actionablePriorities.filter(
+      (priority) => priority.feasibleNow,
+    );
+
+    return feasible.length > 0
+      ? `Ce qui depend de Vincent maintenant:\n\n${formatPriorities(
+          feasible.slice(0, 3),
+        )}`
+      : "Aucune priorite faisable maintenant n'est detectee cote Vincent.";
   }
 
   if (
@@ -70,7 +148,10 @@ function buildProjectAnswer(message: string, context: ProjectContext) {
     normalized.includes("avancement") ||
     normalized.includes("projet")
   ) {
-    return context.projectSummary;
+    return [
+      context.projectSummary,
+      "Note: l'accessibilite des liens externes ne vaut pas validation du module projet.",
+    ].join("\n\n");
   }
 
   if (
@@ -78,35 +159,51 @@ function buildProjectAnswer(message: string, context: ProjectContext) {
     normalized.includes("bloque") ||
     normalized.includes("bloques")
   ) {
-    return `Blocages détectés : ${formatModuleList(context.blockedModules)}`;
+    return [
+      `Blocages actionnables detectes : ${formatModuleList(
+        context.blockedModules,
+      )}`,
+      context.externalReviewModules.length > 0
+        ? `En attente reviewer externe, non prioritaire immediatement : ${formatModuleList(
+            context.externalReviewModules,
+          )}`
+        : "Aucune attente reviewer externe detectee.",
+    ].join("\n\n");
   }
 
   if (normalized.includes("review") || normalized.includes("revue")) {
-    return `En review : ${formatModuleList(context.reviewModules)}`;
+    return [
+      `En review : ${formatModuleList(context.reviewModules)}`,
+      context.externalReviewModules.length > 0
+        ? `Dont attente externe : ${formatModuleList(
+            context.externalReviewModules,
+          )}`
+        : "Aucune review externe prioritaire detectee.",
+    ].join("\n\n");
   }
 
   return [
     context.projectSummary,
-    `Action prioritaire : ${context.nextPriorityAction}`,
+    formatPriority(getPrimaryRecommendation(context)),
     `Garde-fous : ${context.guardrails.join(" ")}`,
   ].join("\n\n");
 }
 
 function buildInteriorAnswer(context: ProjectContext) {
   return [
-    "Je garde la lecture côté chantier, sans déclencher d'action.",
+    "Je garde la lecture cote chantier, sans declencher d'action.",
     `Point d'appui concret : ${context.nextPriorityAction}`,
-    "Pour l'intérieur, je te propose de choisir une seule action utile, puis de revenir au cockpit quand elle est posée.",
+    "Pour l'interieur, je te propose de choisir une seule action utile, puis de revenir au cockpit quand elle est posee.",
   ].join("\n\n");
 }
 
 function buildBalanceAnswer(context: ProjectContext) {
   return [
-    "Équilibre du moment : avancer sans ouvrir de nouveau front sensible.",
-    `La pierre la plus sobre à poser est : ${context.nextPriorityAction}`,
+    "Equilibre du moment : avancer sans ouvrir de nouveau front sensible.",
+    `La pierre la plus sobre a poser est : ${context.nextPriorityAction}`,
     context.detectedRisks.length > 0
-      ? `Risque à garder visible : ${context.detectedRisks[0]}`
-      : "Aucun risque bloquant détecté par l'Observatoire.",
+      ? `Risque a garder visible : ${context.detectedRisks[0]}`
+      : "Aucun risque bloquant detecte par l'Observatoire.",
   ].join("\n\n");
 }
 
@@ -135,6 +232,17 @@ function buildSafeContextForLLM(context: ProjectContext) {
       status: module.status,
       summary: module.summary,
       nextAction: module.nextAction,
+      blockedByExternalReview: module.blockedByExternalReview,
+      externalReviewNote: module.externalReviewNote,
+    })),
+    modulesExternalReview: context.externalReviewModules.map((module) => ({
+      name: module.name,
+      area: module.area,
+      status: module.status,
+      summary: module.summary,
+      nextAction: module.nextAction,
+      blockedByExternalReview: module.blockedByExternalReview,
+      externalReviewNote: module.externalReviewNote,
     })),
     modulesBlocked: context.blockedModules.map((module) => ({
       name: module.name,
@@ -155,6 +263,7 @@ function buildSafeContextForLLM(context: ProjectContext) {
       status: module.status,
       description: module.description,
     })),
+    actionablePriorities: context.actionablePriorities,
     nextActions: context.nextActions,
     risks: context.detectedRisks,
     guardrails: context.guardrails,
@@ -202,6 +311,8 @@ async function generateOpenAIAnswer(input: GlobalAssistantInput) {
     "Contexte projet JSON sans secrets:",
     JSON.stringify(buildSafeContextForLLM(input.context), null, 2),
     "Reponds en francais, de facon concrete. Si la question demande une priorisation, donne 1 a 3 actions numerotees avec une justification courte.",
+    "Pour chaque recommandation, indique: action recommandee, raison, dependance eventuelle, faisable maintenant oui/non.",
+    "Ne confonds jamais lien accessible et module projet operationnel.",
   ].join("\n\n");
 
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -233,6 +344,20 @@ async function generateOpenAIAnswer(input: GlobalAssistantInput) {
   return answer;
 }
 
+function buildResponseContext(context: ProjectContext) {
+  return {
+    modulesOperational: context.operationalModules.map((module) => module.name),
+    modulesReview: context.reviewModules.map((module) => module.name),
+    modulesExternalReview: context.externalReviewModules.map(
+      (module) => module.name,
+    ),
+    modulesBlocked: context.blockedModules.map((module) => module.name),
+    nextAction: context.nextPriorityAction,
+    actionablePriorities: context.actionablePriorities,
+    guardrails: context.guardrails,
+  };
+}
+
 export async function globalAssistant(input: GlobalAssistantInput) {
   let answer: string | null = null;
 
@@ -248,17 +373,13 @@ export async function globalAssistant(input: GlobalAssistantInput) {
   }
 
   const { context } = input;
+  const recommendation = getPrimaryRecommendation(context);
 
   return {
     ok: true,
     answer,
-    context: {
-      modulesOperational: context.operationalModules.map((module) => module.name),
-      modulesReview: context.reviewModules.map((module) => module.name),
-      modulesBlocked: context.blockedModules.map((module) => module.name),
-      nextAction: context.nextPriorityAction,
-      guardrails: context.guardrails,
-    },
+    recommendation,
+    context: buildResponseContext(context),
   };
 }
 
@@ -269,12 +390,7 @@ export function legacyGlobalAssistant(input: GlobalAssistantInput) {
   return {
     ok: true,
     answer,
-    context: {
-      modulesOperational: context.operationalModules.map((module) => module.name),
-      modulesReview: context.reviewModules.map((module) => module.name),
-      modulesBlocked: context.blockedModules.map((module) => module.name),
-      nextAction: context.nextPriorityAction,
-      guardrails: context.guardrails,
-    },
+    recommendation: getPrimaryRecommendation(context),
+    context: buildResponseContext(context),
   };
 }

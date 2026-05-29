@@ -44,6 +44,11 @@ export function ProjectObservatory({
                     </div>
                     <StatusBadge status={item.status} />
                   </div>
+                  {item.blockedByExternalReview ? (
+                    <p className="mt-3 rounded-md border border-[#f59e0b]/30 bg-[#f59e0b]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#fbbf24]">
+                      En attente externe
+                    </p>
+                  ) : null}
                   <div className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#A7B0C0]">
                       Prochaine action recommand&eacute;e
@@ -62,6 +67,11 @@ export function ProjectObservatory({
                       {item.detail ? (
                         <p className="mt-1 text-xs leading-5 text-[#A7B0C0]">
                           {item.detail}
+                        </p>
+                      ) : null}
+                      {item.externalReviewNote ? (
+                        <p className="mt-2 text-xs leading-5 text-[#fbbf24]">
+                          {item.externalReviewNote}
                         </p>
                       ) : null}
                     </div>

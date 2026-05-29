@@ -16,6 +16,7 @@ import {
   getPriorityProjectMemoryAction,
   readProjectMemoryEntries,
 } from "@/lib/server/project-memory";
+import { findProjectResourceByName } from "@/lib/resources/project-resources";
 import type {
   CockpitStatus,
   ObservatoryItem,
@@ -218,8 +219,16 @@ function mergeOAuthItem(
   item: ObservatoryItem,
   payload: OAuthStatusPayload | undefined,
 ): ObservatoryItem {
+  const resource = findProjectResourceByName(item.name);
+  const blockedByExternalReview = Boolean(resource?.blockedByExternalReview);
+
   if (!payload) {
-    return item;
+    return {
+      ...item,
+      blockedByExternalReview:
+        item.blockedByExternalReview ?? blockedByExternalReview,
+      externalReviewNote: item.externalReviewNote ?? resource?.note,
+    };
   }
 
   const warnings = payload.warnings?.length
@@ -228,15 +237,24 @@ function mergeOAuthItem(
 
   return {
     ...item,
-    status: statusFromOAuth(payload),
+    status: blockedByExternalReview ? "Review" : statusFromOAuth(payload),
     source: "Statuts des connexions + OAuth Tokens Supabase",
-    detail: `${describeOAuth(payload)}${warnings}`,
+    detail: blockedByExternalReview
+      ? `${describeOAuth(payload)} En attente externe: ${resource?.note ?? item.externalReviewNote}.${warnings}`
+      : `${describeOAuth(payload)}${warnings}`,
     summary: payload.token?.present
       ? "Connexion lue depuis le stockage OAuth, sans exposer le token."
-      : "Connexion non confirmee par le stockage OAuth.",
-    nextAction: payload.token?.present
+      : blockedByExternalReview
+        ? "Lien outil accessible, module projet en attente de review externe."
+        : "Connexion non confirmee par le stockage OAuth.",
+    nextAction: blockedByExternalReview
+      ? resource?.note ?? item.nextAction
+      : payload.token?.present
       ? "Surveiller l'expiration et garder la validation humaine active."
       : "Finaliser la connexion OAuth depuis l'ecran Connexions, sans publier.",
+    blockedByExternalReview:
+      item.blockedByExternalReview ?? blockedByExternalReview,
+    externalReviewNote: item.externalReviewNote ?? resource?.note,
   };
 }
 
@@ -355,10 +373,12 @@ export async function getLiveProjectMemory() {
   const priorityMemoryAction = getPriorityProjectMemoryAction(
     projectMemoryEntriesResult.entries,
   );
+  const actionableItems = items.filter((item) => !item.blockedByExternalReview);
   const nextRecommendedAction =
     priorityMemoryAction?.nextAction ??
-    items.find((item) => item.status === "Bloque")?.nextAction ??
-    items.find((item) => item.status === "A migrer")?.nextAction ??
+    actionableItems.find((item) => item.status === "Bloque")?.nextAction ??
+    actionableItems.find((item) => item.status === "A migrer")?.nextAction ??
+    actionableItems.find((item) => item.status === "En cours")?.nextAction ??
     overview.nextRecommendedAction;
 
   console.info("[Project Memory] assistant context loaded");

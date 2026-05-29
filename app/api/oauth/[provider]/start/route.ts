@@ -2,6 +2,11 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getOAuthProvider, getRequiredEnvNames } from "@/lib/oauth/providers";
 import {
+  createYouTubeOAuthState,
+  YOUTUBE_STATE_COOKIE,
+  YOUTUBE_STATE_MAX_AGE_SECONDS,
+} from "@/lib/server/oauth/youtube-state";
+import {
   buildOAuthStartUrl,
   getOAuthConfigState,
   isTokenExchangeEnabled,
@@ -36,7 +41,12 @@ export async function GET(
     );
   }
 
-  const authorizationUrl = buildOAuthStartUrl(provider);
+  const youtubeState =
+    provider.key === "youtube" ? createYouTubeOAuthState() : undefined;
+  const authorizationUrl = buildOAuthStartUrl(
+    provider,
+    youtubeState ?? undefined,
+  );
   const isTest = request.nextUrl.searchParams.get("mode") === "test";
   const isDebug = request.nextUrl.searchParams.get("debug") === "1";
   const tokenExchangeEnabled = isTokenExchangeEnabled(provider);
@@ -57,18 +67,27 @@ export async function GET(
   }
 
   if (provider.key === "youtube") {
-    if (!authorizationUrl) {
+    if (!authorizationUrl || !youtubeState) {
       return Response.json(
         {
           ok: false,
           provider: provider.key,
-          error: "authorization_url_unavailable",
+          error: "authorization_url_or_state_unavailable",
         },
         { status: 500 },
       );
     }
 
-    return NextResponse.redirect(authorizationUrl);
+    const response = NextResponse.redirect(authorizationUrl);
+    response.cookies.set(YOUTUBE_STATE_COOKIE, youtubeState, {
+      httpOnly: true,
+      secure: request.nextUrl.protocol === "https:",
+      sameSite: "lax",
+      maxAge: YOUTUBE_STATE_MAX_AGE_SECONDS,
+      path: "/api/oauth/youtube",
+    });
+
+    return response;
   }
 
   return Response.json({

@@ -7,6 +7,7 @@ export type OAuthTokenPayload = {
   expires_in?: number;
   refresh_expires_in?: number;
   expires_at?: string | null;
+  updated_at?: string | null;
   scope?: string;
   open_id?: string;
 };
@@ -56,7 +57,7 @@ export async function saveOAuthToken(
     openId: tokenPayload.open_id ?? null,
     expiresAt: normalizeExpiresAt(tokenPayload),
     refreshExpiresAt: toExpiresAt(tokenPayload.refresh_expires_in),
-    updatedAt: new Date().toISOString(),
+    updatedAt: tokenPayload.updated_at ?? new Date().toISOString(),
   });
 
   console.info(`[OAuth Token Store] save provider=${provider}`, {

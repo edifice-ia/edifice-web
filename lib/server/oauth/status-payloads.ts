@@ -60,7 +60,7 @@ export function getMetaOAuthStatusPayload() {
 
   return buildOAuthStatusFromProvider(provider, {
     mode: "review",
-    callbackPath: "/api/meta/callback",
+    callbackPath: "/api/oauth/meta/callback",
     scopes: getActiveMetaScopes(),
     tokenPresent: token.present,
     tokenStorageEnabled: token.storageEnabled,

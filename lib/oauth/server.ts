@@ -42,7 +42,10 @@ export function isTokenExchangeEnabled(provider: OAuthProviderConfig) {
   return provider.key === "youtube";
 }
 
-export function buildOAuthStartUrl(provider: OAuthProviderConfig) {
+export function buildOAuthStartUrl(
+  provider: OAuthProviderConfig,
+  oauthState = "placeholder-state-not-for-production",
+) {
   if (!provider.authUrl) {
     return null;
   }
@@ -59,7 +62,7 @@ export function buildOAuthStartUrl(provider: OAuthProviderConfig) {
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", provider.scopes.join(" "));
-  url.searchParams.set("state", "placeholder-state-not-for-production");
+  url.searchParams.set("state", oauthState);
 
   if (provider.key === "tiktok") {
     url.searchParams.set("client_key", clientId);

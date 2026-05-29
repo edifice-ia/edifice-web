@@ -14,6 +14,7 @@ type OAuthStatusPayload = {
     present: boolean;
     storageEnabled: boolean;
     expiresAt: string | null;
+    updatedAt: string | null;
   };
   warnings: string[];
 };
@@ -187,6 +188,18 @@ function OAuthDiagnosticPanel({
           Token present :{" "}
           <span className="font-semibold text-[#F8FAFC]">
             {payload.token.present ? "oui" : "non"}
+          </span>
+        </p>
+        <p>
+          Expiration connue :{" "}
+          <span className="font-semibold text-[#F8FAFC]">
+            {payload.token.expiresAt ?? "non"}
+          </span>
+        </p>
+        <p>
+          Derniere mise a jour :{" "}
+          <span className="font-semibold text-[#F8FAFC]">
+            {payload.token.updatedAt ?? "non"}
           </span>
         </p>
       </div>

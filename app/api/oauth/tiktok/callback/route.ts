@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { buildAbsoluteOAuthReturnUrl } from "@/lib/server/oauth/oauth-redirects";
-import { saveTikTokToken } from "@/lib/server/oauth/tiktok-token-store";
+import { saveOAuthToken } from "@/lib/server/oauth/token-store";
 import {
   TIKTOK_STATE_COOKIE,
   verifyTikTokOAuthState,
@@ -144,7 +144,7 @@ export async function GET(request: NextRequest) {
       return redirectToInterface(request, "0", "oauth");
     }
 
-    await saveTikTokToken({
+    await saveOAuthToken("tiktok", {
       access_token: tokenPayload.access_token,
       refresh_token: tokenPayload.refresh_token,
       expires_in: tokenPayload.expires_in,

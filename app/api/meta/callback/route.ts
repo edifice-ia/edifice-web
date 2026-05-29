@@ -11,7 +11,7 @@ import {
   META_TOKEN_URL,
   verifyMetaState,
 } from "@/lib/oauth/meta";
-import { saveMetaToken } from "@/lib/server/oauth/meta-token-store";
+import { saveOAuthToken } from "@/lib/server/oauth/token-store";
 
 type MetaTokenResponse = {
   access_token?: string;
@@ -213,7 +213,7 @@ export async function GET(request: NextRequest) {
     return Response.redirect(redirectTarget);
   }
 
-  await saveMetaToken({
+  await saveOAuthToken("meta", {
     access_token: tokenPayload.access_token,
     token_type: tokenPayload.token_type,
     expires_in: tokenPayload.expires_in,

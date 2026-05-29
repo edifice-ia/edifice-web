@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { buildAbsoluteOAuthReturnUrl } from "@/lib/server/oauth/oauth-redirects";
+import { saveOAuthToken } from "@/lib/server/oauth/token-store";
 import { getOAuthProvider } from "@/lib/oauth/providers";
 import { isTokenExchangeEnabled } from "@/lib/oauth/server";
 
@@ -53,6 +54,10 @@ export async function GET(
       finalRedirect: redirectTarget.toString(),
     });
     return NextResponse.redirect(redirectTarget);
+  }
+
+  if (provider.key === "youtube") {
+    await saveOAuthToken("youtube", {});
   }
 
   const redirectTarget = buildAbsoluteOAuthReturnUrl(request, provider.key, true);

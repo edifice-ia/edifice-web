@@ -18,6 +18,7 @@ type OAuthStatusOptions = {
   tokenPresent?: boolean;
   tokenStorageEnabled?: boolean;
   expiresAt?: string | null;
+  updatedAt?: string | null;
   extraWarnings?: string[];
 };
 
@@ -102,6 +103,7 @@ export function buildProviderOAuthStatus(options: OAuthStatusOptions) {
       present: options.tokenPresent ?? false,
       storageEnabled: options.tokenStorageEnabled ?? false,
       expiresAt: options.expiresAt ?? null,
+      updatedAt: options.updatedAt ?? null,
     },
     warnings,
   };

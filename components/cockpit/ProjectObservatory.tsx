@@ -1,12 +1,17 @@
 import { observatoryAreas, observatoryItems } from "@/lib/cockpit/observatory";
+import type { ObservatoryItem } from "@/types/cockpit";
 import { SectionContainer } from "./SectionContainer";
 import { StatusBadge } from "./StatusBadge";
 
-export function ProjectObservatory() {
+export function ProjectObservatory({
+  items = observatoryItems,
+}: {
+  items?: ObservatoryItem[];
+}) {
   return (
     <div className="space-y-6">
       {observatoryAreas.map((area) => {
-        const items = observatoryItems.filter((item) => item.area === area);
+        const areaItems = items.filter((item) => item.area === area);
 
         return (
           <SectionContainer key={area}>
@@ -19,11 +24,11 @@ export function ProjectObservatory() {
                   &Eacute;tat global
                 </h2>
               </div>
-              <p className="text-sm text-[#A7B0C0]">{items.length} elements</p>
+              <p className="text-sm text-[#A7B0C0]">{areaItems.length} elements</p>
             </div>
 
             <div className="grid gap-3">
-              {items.map((item) => (
+              {areaItems.map((item) => (
                 <article
                   key={item.id}
                   className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4"
@@ -47,6 +52,20 @@ export function ProjectObservatory() {
                       {item.nextAction}
                     </p>
                   </div>
+                  {item.source || item.detail ? (
+                    <div className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">
+                      {item.source ? (
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#A7B0C0]">
+                          Source: {item.source}
+                        </p>
+                      ) : null}
+                      {item.detail ? (
+                        <p className="mt-1 text-xs leading-5 text-[#A7B0C0]">
+                          {item.detail}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </article>
               ))}
             </div>

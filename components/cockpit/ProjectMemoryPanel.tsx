@@ -1,7 +1,17 @@
 import { projectMemoryForAssistant } from "@/lib/cockpit/observatory";
 import { SectionContainer } from "./SectionContainer";
 
-export function ProjectMemoryPanel() {
+type ProjectMemoryPanelProps = {
+  cockpitRole?: string;
+  safeguards?: string[];
+  nextRecommendedAction?: string;
+};
+
+export function ProjectMemoryPanel({
+  cockpitRole = projectMemoryForAssistant.cockpitRole,
+  safeguards = projectMemoryForAssistant.safeguards,
+  nextRecommendedAction = projectMemoryForAssistant.nextRecommendedAction,
+}: ProjectMemoryPanelProps) {
   return (
     <SectionContainer>
       <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
@@ -11,11 +21,11 @@ export function ProjectMemoryPanel() {
         Lisible par l&apos;assistant global
       </h2>
       <p className="mt-3 leading-7 text-[#A7B0C0]">
-        {projectMemoryForAssistant.cockpitRole}
+        {cockpitRole}
       </p>
 
       <div className="mt-5 grid gap-3">
-        {projectMemoryForAssistant.safeguards.map((safeguard) => (
+        {safeguards.map((safeguard) => (
           <div
             key={safeguard}
             className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#F8FAFC]"
@@ -30,7 +40,7 @@ export function ProjectMemoryPanel() {
           Prochaine pierre
         </p>
         <p className="mt-2 text-sm leading-6 text-[#F8FAFC]">
-          {projectMemoryForAssistant.nextRecommendedAction}
+          {nextRecommendedAction}
         </p>
       </div>
     </SectionContainer>

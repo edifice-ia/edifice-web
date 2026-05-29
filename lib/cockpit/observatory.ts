@@ -152,10 +152,13 @@ export const projectMemoryForAssistant = {
   constructionJournalSeed,
 };
 
-export const projectStatusOverview = {
-  totalModules: observatoryItems.length,
-  operational: observatoryItems.filter((item) => item.status === "Operationnel")
-    .length,
-  blocked: observatoryItems.filter((item) => item.status === "Bloque").length,
-  nextRecommendedAction: projectMemoryForAssistant.nextRecommendedAction,
-};
+export function buildProjectStatusOverview(items: ObservatoryItem[]) {
+  return {
+    totalModules: items.length,
+    operational: items.filter((item) => item.status === "Operationnel").length,
+    blocked: items.filter((item) => item.status === "Bloque").length,
+    nextRecommendedAction: projectMemoryForAssistant.nextRecommendedAction,
+  };
+}
+
+export const projectStatusOverview = buildProjectStatusOverview(observatoryItems);

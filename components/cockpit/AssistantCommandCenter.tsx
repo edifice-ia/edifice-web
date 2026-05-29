@@ -11,7 +11,7 @@ import {
   projectMemoryForAssistant,
   projectStatusOverview,
 } from "@/lib/cockpit/observatory";
-import type { CockpitLog } from "@/types/cockpit";
+import type { CockpitLog, ObservatoryItem } from "@/types/cockpit";
 
 type AssistantContext = "Projet" | "Intérieur" | "Équilibre";
 
@@ -116,12 +116,28 @@ const quickLinks = [
   { href: "/interface/personnel", label: "Espace intérieur" },
 ];
 
-export function AssistantCommandCenter() {
+type AssistantCommandCenterProps = {
+  projectMemory?: {
+    cockpitRole: string;
+    safeguards: string[];
+    nextRecommendedAction: string;
+    observatoryItems: ObservatoryItem[];
+    overview: typeof projectStatusOverview;
+  };
+};
+
+export function AssistantCommandCenter({
+  projectMemory,
+}: AssistantCommandCenterProps) {
   const [activeContext, setActiveContext] =
     useState<AssistantContext>("Projet");
   const [draft, setDraft] = useState("");
 
   const context = contexts[activeContext];
+  const memory = projectMemory ?? {
+    ...projectMemoryForAssistant,
+    overview: projectStatusOverview,
+  };
   const placeholder = useMemo(
     () =>
       draft ||
@@ -232,16 +248,16 @@ export function AssistantCommandCenter() {
                 Prochaine pierre &agrave; poser
               </h2>
               <p className="mt-3 max-w-3xl leading-7 text-[#A7B0C0]">
-                {projectMemoryForAssistant.nextRecommendedAction}
+                {memory.nextRecommendedAction}
               </p>
             </div>
             <StatusBadge status="En cours" />
           </div>
           <div className="mt-5 grid gap-3 md:grid-cols-3">
             {[
-              ["Modules suivis", projectStatusOverview.totalModules],
-              ["Op\u00e9rationnels", projectStatusOverview.operational],
-              ["Bloqu\u00e9s", projectStatusOverview.blocked],
+              ["Modules suivis", memory.overview.totalModules],
+              ["Op\u00e9rationnels", memory.overview.operational],
+              ["Bloqu\u00e9s", memory.overview.blocked],
             ].map(([label, value]) => (
               <div
                 key={label}
@@ -258,7 +274,11 @@ export function AssistantCommandCenter() {
       </div>
 
       <aside className="space-y-6">
-        <ProjectMemoryPanel />
+        <ProjectMemoryPanel
+          cockpitRole={memory.cockpitRole}
+          safeguards={memory.safeguards}
+          nextRecommendedAction={memory.nextRecommendedAction}
+        />
 
         <SectionContainer>
           <div className="flex items-start justify-between gap-3">

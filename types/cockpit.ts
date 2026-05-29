@@ -46,6 +46,8 @@ export type ObservatoryItem = {
   status: CockpitStatus;
   summary: string;
   nextAction: string;
+  source?: string;
+  detail?: string;
 };
 
 export type ConstructionJournalEntry = {

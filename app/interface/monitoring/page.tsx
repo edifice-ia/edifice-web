@@ -6,10 +6,7 @@ import { ProjectMemoryPanel } from "@/components/cockpit/ProjectMemoryPanel";
 import { ProjectObservatory } from "@/components/cockpit/ProjectObservatory";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { StatusBadge } from "@/components/cockpit/StatusBadge";
-import {
-  observatoryItems,
-  projectStatusOverview,
-} from "@/lib/cockpit/observatory";
+import { getLiveProjectMemory } from "@/lib/server/observatory/read-model";
 
 export const metadata: Metadata = {
   title: "Observatoire - L'\u00c9difice",
@@ -36,8 +33,9 @@ const logs = [
   },
 ];
 
-export default function MonitoringPage() {
-  const reviewCount = observatoryItems.filter(
+export default async function MonitoringPage() {
+  const projectMemory = await getLiveProjectMemory();
+  const reviewCount = projectMemory.observatoryItems.filter(
     (item) => item.status === "Review",
   ).length;
 
@@ -54,13 +52,17 @@ export default function MonitoringPage() {
 
       <div className="mb-6 grid gap-4 md:grid-cols-4">
         {[
-          ["Modules suivis", String(projectStatusOverview.totalModules), "En cours"],
+          [
+            "Modules suivis",
+            String(projectMemory.overview.totalModules),
+            "En cours",
+          ],
           [
             "Op\u00e9rationnels",
-            String(projectStatusOverview.operational),
+            String(projectMemory.overview.operational),
             "Operationnel",
           ],
-          ["Bloqu\u00e9s", String(projectStatusOverview.blocked), "Bloque"],
+          ["Bloqu\u00e9s", String(projectMemory.overview.blocked), "Bloque"],
           ["En review", String(reviewCount), "Review"],
         ].map(([label, value, status]) => (
           <SectionContainer key={label}>
@@ -86,10 +88,14 @@ export default function MonitoringPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <ProjectObservatory />
+        <ProjectObservatory items={projectMemory.observatoryItems} />
 
         <aside className="space-y-6">
-          <ProjectMemoryPanel />
+          <ProjectMemoryPanel
+            cockpitRole={projectMemory.cockpitRole}
+            safeguards={projectMemory.safeguards}
+            nextRecommendedAction={projectMemory.nextRecommendedAction}
+          />
           <ConstructionJournal />
           <LogPanel logs={logs} title={"Signaux r\u00e9cents"} />
         </aside>

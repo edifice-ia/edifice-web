@@ -58,3 +58,26 @@ export type ConstructionJournalEntry = {
   blocker?: string;
   nextStep: string;
 };
+
+export type ProjectMemoryEntry = {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  category: string | null;
+  status: string | null;
+  title: string;
+  content: string | null;
+  nextAction: string | null;
+  priority: string | null;
+  source: string | null;
+};
+
+export type ProjectMemoryCreateInput = {
+  category?: string | null;
+  status?: string | null;
+  title: string;
+  content?: string | null;
+  nextAction?: string | null;
+  priority?: string | null;
+  source?: string | null;
+};

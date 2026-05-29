@@ -96,7 +96,9 @@ export default async function MonitoringPage() {
             safeguards={projectMemory.safeguards}
             nextRecommendedAction={projectMemory.nextRecommendedAction}
           />
-          <ConstructionJournal />
+          <ConstructionJournal
+            initialEntries={projectMemory.projectMemoryEntries}
+          />
           <LogPanel logs={logs} title={"Signaux r\u00e9cents"} />
         </aside>
       </div>

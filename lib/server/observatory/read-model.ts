@@ -12,6 +12,10 @@ import {
   getTikTokOAuthStatusPayload,
   getYouTubeOAuthStatusPayload,
 } from "@/lib/server/oauth/status-payloads";
+import {
+  getPriorityProjectMemoryAction,
+  readProjectMemoryEntries,
+} from "@/lib/server/project-memory";
 import type {
   CockpitStatus,
   ObservatoryItem,
@@ -270,10 +274,24 @@ function mergeAgentItem(
 }
 
 export async function getLiveProjectMemory() {
-  const [oauthStatuses, publicationTables, supabaseHealth] = await Promise.all([
+  const [
+    oauthStatuses,
+    publicationTables,
+    supabaseHealth,
+    projectMemoryEntriesResult,
+  ] = await Promise.all([
     readOAuthStatuses(),
     readPublicationTables(),
     readSupabaseHealth(),
+    readProjectMemoryEntries()
+      .then((entries) => ({ entries, error: null as string | null }))
+      .catch((error) => ({
+        entries: [],
+        error:
+          error instanceof Error
+            ? error.message
+            : "Lecture memoire projet indisponible.",
+      })),
   ]);
   const vercelStatus = readVercelStatus();
 
@@ -334,19 +352,30 @@ export async function getLiveProjectMemory() {
   });
 
   const overview = buildProjectStatusOverview(items);
+  const priorityMemoryAction = getPriorityProjectMemoryAction(
+    projectMemoryEntriesResult.entries,
+  );
   const nextRecommendedAction =
+    priorityMemoryAction?.nextAction ??
     items.find((item) => item.status === "Bloque")?.nextAction ??
     items.find((item) => item.status === "A migrer")?.nextAction ??
     overview.nextRecommendedAction;
 
+  console.info("[Project Memory] assistant context loaded");
+
   return {
     ...projectMemoryForAssistant,
     observatoryItems: items,
+    projectMemoryEntries: projectMemoryEntriesResult.entries,
     nextRecommendedAction,
     sources: {
       supabase: supabaseHealth,
       vercel: vercelStatus,
       publicationTables,
+      projectMemory: {
+        entries: projectMemoryEntriesResult.entries.length,
+        error: projectMemoryEntriesResult.error,
+      },
     },
     overview: {
       ...overview,

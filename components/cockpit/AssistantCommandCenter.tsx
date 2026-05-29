@@ -11,7 +11,11 @@ import {
   projectMemoryForAssistant,
   projectStatusOverview,
 } from "@/lib/cockpit/observatory";
-import type { CockpitLog, ObservatoryItem } from "@/types/cockpit";
+import type {
+  CockpitLog,
+  ObservatoryItem,
+  ProjectMemoryEntry,
+} from "@/types/cockpit";
 
 type AssistantContext = "Projet" | "Intérieur" | "Équilibre";
 
@@ -122,6 +126,7 @@ type AssistantCommandCenterProps = {
     safeguards: string[];
     nextRecommendedAction: string;
     observatoryItems: ObservatoryItem[];
+    projectMemoryEntries: ProjectMemoryEntry[];
     overview: typeof projectStatusOverview;
   };
 };
@@ -136,6 +141,7 @@ export function AssistantCommandCenter({
   const context = contexts[activeContext];
   const memory = projectMemory ?? {
     ...projectMemoryForAssistant,
+    projectMemoryEntries: [],
     overview: projectStatusOverview,
   };
   const placeholder = useMemo(
@@ -270,6 +276,23 @@ export function AssistantCommandCenter({
               </div>
             ))}
           </div>
+        </SectionContainer>
+
+        <SectionContainer>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
+            Question assistant
+          </p>
+          <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
+            Que dois-je faire maintenant ?
+          </h2>
+          <p className="mt-3 leading-7 text-[#A7B0C0]">
+            {memory.nextRecommendedAction}
+          </p>
+          <p className="mt-3 text-sm text-[#A7B0C0]">
+            Base de recommandation : {memory.overview.totalModules} statuts
+            Observatoire et {memory.projectMemoryEntries.length} entr&eacute;es
+            project_memory lues c&ocirc;t&eacute; serveur.
+          </p>
         </SectionContainer>
       </div>
 

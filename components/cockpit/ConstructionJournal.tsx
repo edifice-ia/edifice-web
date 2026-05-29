@@ -1,11 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { constructionJournalSeed } from "@/lib/cockpit/observatory";
-import type { ConstructionJournalEntry } from "@/types/cockpit";
+import { useMemo, useState } from "react";
+import type { ConstructionJournalEntry, ProjectMemoryEntry } from "@/types/cockpit";
 import { SectionContainer } from "./SectionContainer";
-
-const storageKey = "edifice-construction-journal";
 
 type JournalDraft = Omit<ConstructionJournalEntry, "id">;
 
@@ -17,41 +14,18 @@ const emptyDraft: JournalDraft = {
   nextStep: "",
 };
 
-export function ConstructionJournal() {
-  const [entries, setEntries] = useState<ConstructionJournalEntry[]>(
-    constructionJournalSeed,
-  );
-  const [draft, setDraft] = useState<JournalDraft>(emptyDraft);
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  useEffect(() => {
-    const hydrationTimer = window.setTimeout(() => {
-      const stored = window.localStorage.getItem(storageKey);
-      if (stored) {
-        try {
-          setEntries(JSON.parse(stored) as ConstructionJournalEntry[]);
-        } catch {
-          setEntries(constructionJournalSeed);
-        }
-      }
-
-      setDraft((current) => ({
-        ...current,
-        date: current.date || new Date().toISOString().slice(0, 10),
-      }));
-      setIsHydrated(true);
-    }, 0);
-
-    return () => window.clearTimeout(hydrationTimer);
-  }, []);
-
-  useEffect(() => {
-    if (!isHydrated) {
-      return;
-    }
-
-    window.localStorage.setItem(storageKey, JSON.stringify(entries));
-  }, [entries, isHydrated]);
+export function ConstructionJournal({
+  initialEntries,
+}: {
+  initialEntries: ProjectMemoryEntry[];
+}) {
+  const [entries, setEntries] = useState<ProjectMemoryEntry[]>(initialEntries);
+  const [draft, setDraft] = useState<JournalDraft>({
+    ...emptyDraft,
+    date: new Date().toISOString().slice(0, 10),
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   const canSubmit = useMemo(
     () =>
@@ -66,27 +40,59 @@ export function ConstructionJournal() {
     setDraft((current) => ({ ...current, [field]: value }));
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!canSubmit) {
+    if (!canSubmit || isSaving) {
       return;
     }
 
-    const entry: ConstructionJournalEntry = {
-      id: `journal-${Date.now()}`,
-      date: draft.date,
-      action: draft.action.trim(),
-      decision: draft.decision.trim(),
-      blocker: draft.blocker?.trim(),
-      nextStep: draft.nextStep.trim(),
+    setIsSaving(true);
+    setFeedback(null);
+
+    const content = [
+      `Date: ${draft.date}`,
+      `Action realisee: ${draft.action.trim()}`,
+      `Decision prise: ${draft.decision.trim()}`,
+      draft.blocker?.trim() ? `Blocage eventuel: ${draft.blocker.trim()}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const response = await fetch("/api/project-memory", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        category: "journal",
+        status: draft.blocker?.trim() ? "bloque" : "en cours",
+        title: draft.action.trim(),
+        content,
+        nextAction: draft.nextStep.trim(),
+        priority: draft.blocker?.trim() ? "haute" : "moyenne",
+        source: "Journal de chantier",
+      }),
+    });
+
+    const payload = (await response.json()) as {
+      entry?: ProjectMemoryEntry;
+      error?: string;
     };
 
-    setEntries((current) => [entry, ...current]);
+    if (!response.ok || !payload.entry) {
+      setFeedback(payload.error ?? "Impossible d'ajouter l'entree.");
+      setIsSaving(false);
+      return;
+    }
+
+    setEntries((current) => [payload.entry!, ...current]);
     setDraft({
       ...emptyDraft,
       date: new Date().toISOString().slice(0, 10),
     });
+    setFeedback("Entree ajoutee a la memoire projet.");
+    setIsSaving(false);
   }
 
   return (
@@ -135,32 +141,55 @@ export function ConstructionJournal() {
 
         <button
           type="submit"
-          disabled={!canSubmit}
+          disabled={!canSubmit || isSaving}
           className="mt-1 min-h-11 rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/15 disabled:border-[#1D2A44] disabled:bg-[#08111A] disabled:text-[#64748b]"
         >
-          Ajouter au journal
+          {isSaving ? "Ajout en cours" : "Ajouter au journal"}
         </button>
       </form>
 
+      {feedback ? (
+        <p className="mt-3 rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#A7B0C0]">
+          {feedback}
+        </p>
+      ) : null}
+
       <div className="mt-6 grid gap-3">
+        {entries.length === 0 ? (
+          <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#A7B0C0]">
+            Aucune entree persistante pour le moment.
+          </p>
+        ) : null}
         {entries.map((entry) => (
           <article
             key={entry.id}
             className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4"
           >
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="font-mono text-sm text-[#39E6D0]">{entry.date}</p>
+              <p className="font-mono text-sm text-[#39E6D0]">
+                {new Date(entry.createdAt).toLocaleDateString("fr-FR")}
+              </p>
               <p className="text-xs uppercase tracking-[0.16em] text-[#A7B0C0]">
-                chantier
+                {entry.source ?? "project_memory"}
               </p>
             </div>
             <dl className="mt-4 grid gap-3 text-sm">
-              <JournalLine label="Action" value={entry.action} />
-              <JournalLine label="Decision" value={entry.decision} />
-              {entry.blocker ? (
-                <JournalLine label="Blocage" value={entry.blocker} />
+              <JournalLine label="Titre" value={entry.title} />
+              {entry.content ? (
+                <JournalLine label="Contenu" value={entry.content} />
               ) : null}
-              <JournalLine label={"Prochaine \u00e9tape"} value={entry.nextStep} />
+              {entry.status ? (
+                <JournalLine label="Statut" value={entry.status} />
+              ) : null}
+              {entry.priority ? (
+                <JournalLine label="Priorite" value={entry.priority} />
+              ) : null}
+              {entry.nextAction ? (
+                <JournalLine
+                  label={"Prochaine \u00e9tape"}
+                  value={entry.nextAction}
+                />
+              ) : null}
             </dl>
           </article>
         ))}

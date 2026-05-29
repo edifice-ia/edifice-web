@@ -90,12 +90,18 @@ export type AssistantQuestion =
   | "Qu’est-ce qui est en review ?";
 
 export type ProjectContext = {
+  projectSummary: string;
   operationalModules: ObservatoryItem[];
   blockedModules: ObservatoryItem[];
   reviewModules: ObservatoryItem[];
   migratingModules: ObservatoryItem[];
+  cockpitModules: CockpitModule[];
+  cockpitModulesInMigration: CockpitModule[];
   nextPriorityAction: string;
+  nextActions: string[];
   detectedRisks: string[];
+  guardrails: string[];
+  latestMemoryEntries: ProjectMemoryEntry[];
   siteSummary: string;
   observatoryItems: ObservatoryItem[];
   projectMemoryEntries: ProjectMemoryEntry[];

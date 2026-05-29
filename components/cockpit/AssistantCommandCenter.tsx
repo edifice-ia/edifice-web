@@ -17,7 +17,12 @@ import type {
   ProjectContext,
 } from "@/types/cockpit";
 
-type AssistantContext = "Projet" | "Intérieur" | "Équilibre";
+type AssistantContext = "Projet" | "Interieur" | "Equilibre";
+type AssistantExchange = {
+  id: string;
+  role: "user" | "assistant";
+  message: string;
+};
 
 const contexts: Record<
   AssistantContext,
@@ -32,56 +37,51 @@ const contexts: Record<
 > = {
   Projet: {
     description:
-      "Pour bâtir L’Édifice, créer du contenu, préparer les publications, suivre les connexions OAuth et garder le cap sur l'œuvre.",
+      "Pour batir L'Edifice, creer du contenu, preparer les publications, suivre les connexions OAuth et garder le cap sur l'oeuvre.",
     suggestions: [
-      "Créer une idée de contenu",
-      "Préparer une publication YouTube",
-      "Vérifier les connexions OAuth",
-      "Lire les derniers signaux",
+      "Que dois-je faire maintenant ?",
+      "Ou en est le projet ?",
+      "Quels sont les blocages ?",
+      "Qu'est-ce qui est en review ?",
     ],
-    sources: ["Atelier de contenu", "Publications", "Connexions OAuth", "Observatoire"],
+    sources: ["Project memory", "Observatoire", "OAuth Tokens", "Modules cockpit"],
     systemMessage:
-      "Assistant de L’Édifice prêt en mode Projet. Les actions sensibles restent verrouillées tant que les garde-fous ne sont pas validés.",
-    userExample: "Aide-moi à choisir la prochaine pierre à poser pour L’Édifice.",
+      "Assistant de L'Edifice pret en mode Projet. Les actions sensibles restent verrouillees.",
+    userExample: "Que dois-je faire maintenant ?",
     assistantExample:
-      "Je peux clarifier une idée, préparer une publication ou lire les signaux sans déclencher d'action réelle.",
+      "Je lis l'etat reel du projet et je propose la prochaine pierre sans declencher d'action externe.",
   },
-  Intérieur: {
+  Interieur: {
     description:
-      "Pour organiser le quotidien, les routines, les objectifs, les notes, l'énergie et la vision personnelle.",
+      "Pour organiser le quotidien, les routines, les objectifs, les notes, l'energie et la vision personnelle.",
     suggestions: [
-      "Organiser ma journée",
-      "Ajouter une tâche",
-      "Revoir mes objectifs",
-      "Résumer mes routines",
+      "Aide-moi a clarifier ma prochaine action",
+      "Comment avancer sans surcharge ?",
+      "Resume mon point d'appui du jour",
+      "Quelle action simple garder ?",
     ],
     sources: ["Vision du jour", "Routines", "Objectifs", "Notes rapides"],
     systemMessage:
-      "Assistant de L’Édifice prêt en mode Intérieur. L'espace reste local et lisible tant que les garde-fous ne sont pas validés.",
-    userExample: "Aide-moi à remettre de l'ordre dans ma journée.",
+      "Assistant de L'Edifice pret en mode Interieur. L'espace reste local et sans action sensible.",
+    userExample: "Aide-moi a remettre de l'ordre dans ma journee.",
     assistantExample:
-      "Je peux proposer une structure simple entre tâches, routines, énergie et objectifs.",
+      "Je peux proposer une structure simple entre taches, routines, energie et objectifs.",
   },
-  Équilibre: {
+  Equilibre: {
     description:
-      "Pour arbitrer entre ambition, repos, priorités, discipline et charge mentale.",
+      "Pour arbitrer entre ambition, repos, priorites, discipline et charge mentale.",
     suggestions: [
-      "Prioriser ma journée",
-      "Avancer sans surcharge",
-      "Planifier travail + repos",
-      "Identifier l'action essentielle",
+      "Quelle est l'action sobre ?",
+      "Comment avancer sans ouvrir trop de fronts ?",
+      "Quels risques garder visibles ?",
+      "Aide-moi a prioriser",
     ],
-    sources: [
-      "Priorités",
-      "Énergie du jour",
-      "Projet + intérieur",
-      "Décisions à arbitrer",
-    ],
+    sources: ["Priorites", "Energie du jour", "Projet + interieur", "Decisions"],
     systemMessage:
-      "Assistant de L’Édifice prêt en mode Équilibre. Le cockpit aide à garder le cap sans forcer l'allure.",
-    userExample: "Aide-moi à arbitrer entre avancer et préserver mon énergie.",
+      "Assistant de L'Edifice pret en mode Equilibre. Le cockpit aide a garder le cap sans forcer l'allure.",
+    userExample: "Aide-moi a arbitrer entre avancer et preserver mon energie.",
     assistantExample:
-      "Je peux mettre en balance l'impact, la charge et le repos avant toute décision.",
+      "Je peux mettre en balance l'impact, la charge et le repos avant toute decision.",
   },
 };
 
@@ -89,25 +89,25 @@ const signals: CockpitLog[] = [
   {
     timestamp: "10:00",
     type: "system",
-    message: "Fondations de l'assistant chargées en local.",
+    message: "Contexte assistant charge cote serveur.",
     status: "Disponible",
   },
   {
     timestamp: "10:04",
     type: "security",
-    message: "Garde-fou actif: actions sensibles verrouillées.",
+    message: "Garde-fou actif: actions sensibles verrouillees.",
     status: "A securiser",
   },
   {
     timestamp: "10:08",
     type: "assistant",
-    message: "Modes Projet, Intérieur et Équilibre prêts.",
-    status: "En migration",
+    message: "Copilote de chantier connecte a l'API globale.",
+    status: "En cours",
   },
   {
     timestamp: "10:12",
     type: "publication",
-    message: "Publication réelle bloquée sans validation humaine.",
+    message: "Publication reelle bloquee sans validation humaine.",
     status: "A securiser",
   },
 ];
@@ -117,7 +117,7 @@ const quickLinks = [
   { href: "/interface/publishers", label: "Publications" },
   { href: "/interface/settings/connections", label: "Connexions OAuth" },
   { href: "/interface/monitoring", label: "Observatoire" },
-  { href: "/interface/personnel", label: "Espace intérieur" },
+  { href: "/interface/personnel", label: "Espace interieur" },
   { href: "/interface/resources", label: "Ressources" },
 ];
 
@@ -131,6 +131,9 @@ export function AssistantCommandCenter({
   const [activeContext, setActiveContext] =
     useState<AssistantContext>("Projet");
   const [draft, setDraft] = useState("");
+  const [exchanges, setExchanges] = useState<AssistantExchange[]>([]);
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [activeQuestion, setActiveQuestion] = useState<AssistantQuestion>(
     "Que dois-je faire maintenant ?",
   );
@@ -146,8 +149,8 @@ export function AssistantCommandCenter({
       }
     : {
         ...projectMemoryForAssistant,
-    projectMemoryEntries: [],
-    overview: projectStatusOverview,
+        projectMemoryEntries: [],
+        overview: projectStatusOverview,
       };
   const recommendation =
     projectContext?.recommendations[activeQuestion] ??
@@ -156,11 +159,74 @@ export function AssistantCommandCenter({
     ? (Object.keys(projectContext.recommendations) as AssistantQuestion[])
     : (["Que dois-je faire maintenant ?"] as AssistantQuestion[]);
   const placeholder = useMemo(
-    () =>
-      draft ||
-      `Suggestion prête en mode ${activeContext}. L'envoi reste désactivé.`,
-    [activeContext, draft],
+    () => `Question en mode ${activeContext}. Lecture seule, aucun declenchement.`,
+    [activeContext],
   );
+  const assistantMode =
+    activeContext === "Interieur"
+      ? "interior"
+      : activeContext === "Equilibre"
+        ? "balance"
+        : "project";
+
+  async function handleAssistantSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const message = draft.trim();
+
+    if (!message || isSending) {
+      return;
+    }
+
+    setExchanges((current) => [
+      ...current,
+      { id: `user-${Date.now()}`, role: "user", message },
+    ]);
+    setDraft("");
+    setError(null);
+    setIsSending(true);
+
+    try {
+      const response = await fetch("/api/assistant/global", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message,
+          mode: assistantMode,
+        }),
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        answer?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.ok || !payload.answer) {
+        throw new Error(payload.error ?? "Assistant indisponible.");
+      }
+
+      const answer = payload.answer;
+
+      setExchanges((current) => [
+        ...current,
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          message: answer,
+        },
+      ]);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Assistant indisponible.",
+      );
+    } finally {
+      setIsSending(false);
+    }
+  }
 
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -199,40 +265,62 @@ export function AssistantCommandCenter({
 
           <div className="rounded-lg border border-[#1D2A44] bg-[#03070B] p-4">
             <div className="space-y-4">
-              <ChatMessage label="Système" tone="jade">
+              <ChatMessage label="Systeme" tone="jade">
                 {context.systemMessage}
               </ChatMessage>
-              <ChatMessage label="Vous" tone="blue" align="right">
-                {context.userExample}
-              </ChatMessage>
-              <ChatMessage label="Assistant de L’Édifice" tone="jade">
-                {context.assistantExample}
-              </ChatMessage>
-              <div className="rounded-md border border-dashed border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
-                Historique placeholder. Les échanges réels seront ajoutés après
-                validation de la logique assistant.
-              </div>
+              {exchanges.length === 0 ? (
+                <>
+                  <ChatMessage label="Vous" tone="blue" align="right">
+                    {context.userExample}
+                  </ChatMessage>
+                  <ChatMessage label="Assistant de L'Edifice" tone="jade">
+                    {context.assistantExample}
+                  </ChatMessage>
+                  <div className="rounded-md border border-dashed border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
+                    Pose une question au copilote de chantier. L&apos;historique reste
+                    local dans cette interface.
+                  </div>
+                </>
+              ) : null}
+              {exchanges.map((exchange) => (
+                <ChatMessage
+                  key={exchange.id}
+                  label={exchange.role === "user" ? "Vous" : "Assistant de L'Edifice"}
+                  tone={exchange.role === "user" ? "blue" : "jade"}
+                  align={exchange.role === "user" ? "right" : "left"}
+                >
+                  {exchange.message}
+                </ChatMessage>
+              ))}
             </div>
 
-            <div className="mt-5 grid gap-3 border-t border-[#1D2A44] pt-4 sm:grid-cols-[1fr_auto]">
+            <form
+              onSubmit={handleAssistantSubmit}
+              className="mt-5 grid gap-3 border-t border-[#1D2A44] pt-4 sm:grid-cols-[1fr_auto]"
+            >
               <input
-                disabled
                 aria-label="Message assistant"
-                value={placeholder}
-                readOnly
-                className="min-h-11 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 text-sm text-[#A7B0C0] outline-none"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder={placeholder}
+                className="min-h-11 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 text-sm text-[#F8FAFC] outline-none placeholder:text-[#64748b]"
               />
               <button
-                type="button"
-                disabled
-                className="rounded-md border border-[#1D2A44] bg-[#08111A] px-5 py-2 text-sm font-semibold text-[#64748b]"
+                type="submit"
+                disabled={!draft.trim() || isSending}
+                className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-5 py-2 text-sm font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:border-[#1D2A44] disabled:bg-[#08111A] disabled:text-[#64748b]"
               >
-                Envoyer
+                {isSending ? "Lecture" : "Envoyer"}
               </button>
-            </div>
+            </form>
+            {error ? (
+              <p className="mt-3 rounded-md border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 py-2 text-sm text-[#fecaca]">
+                {error}
+              </p>
+            ) : null}
             <p className="mt-3 text-xs text-[#A7B0C0]">
-              Assistant en migration progressive. Aucun appel API réel n&apos;est
-              déclenché.
+              Copilote en lecture seule. Aucune publication, suppression,
+              modification OAuth ou action sensible n&apos;est declenchee.
             </p>
           </div>
         </SectionContainer>
@@ -262,7 +350,7 @@ export function AssistantCommandCenter({
                 Observatoire projet
               </p>
               <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
-                Prochaine pierre &agrave; poser
+                Prochaine pierre a poser
               </h2>
               <p className="mt-3 max-w-3xl leading-7 text-[#A7B0C0]">
                 {memory.nextRecommendedAction}
@@ -273,8 +361,8 @@ export function AssistantCommandCenter({
           <div className="mt-5 grid gap-3 md:grid-cols-3">
             {[
               ["Modules suivis", memory.overview.totalModules],
-              ["Op\u00e9rationnels", memory.overview.operational],
-              ["Bloqu\u00e9s", memory.overview.blocked],
+              ["Operationnels", memory.overview.operational],
+              ["Bloques", memory.overview.blocked],
             ].map(([label, value]) => (
               <div
                 key={label}
@@ -298,7 +386,10 @@ export function AssistantCommandCenter({
               <button
                 key={question}
                 type="button"
-                onClick={() => setActiveQuestion(question)}
+                onClick={() => {
+                  setActiveQuestion(question);
+                  setDraft(question);
+                }}
                 className={`rounded-md border px-4 py-3 text-left text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
                   activeQuestion === question
                     ? "border-[#39E6D0]/60 bg-[#39E6D0]/10 text-[#F8FAFC]"
@@ -319,8 +410,8 @@ export function AssistantCommandCenter({
           </div>
           <p className="mt-3 text-sm text-[#A7B0C0]">
             Base de recommandation : {memory.overview.totalModules} statuts
-            Observatoire et {memory.projectMemoryEntries.length} entr&eacute;es
-            project_memory lues c&ocirc;t&eacute; serveur.
+            Observatoire et {memory.projectMemoryEntries.length} entrees
+            project_memory lues cote serveur.
           </p>
         </SectionContainer>
       </div>
@@ -345,7 +436,7 @@ export function AssistantCommandCenter({
                 </span>
               </p>
             </div>
-            <StatusBadge status="En migration" />
+            <StatusBadge status="En cours" />
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {context.sources.map((source) => (
@@ -362,10 +453,10 @@ export function AssistantCommandCenter({
         <SectionContainer>
           <h2 className="text-xl font-semibold text-[#F8FAFC]">Garde-fous</h2>
           <div className="mt-4 grid gap-3 text-sm text-[#A7B0C0]">
-            <SafetyLine label="Actions sensibles" value="verrouillées" />
-            <SafetyLine label="Publication réelle" value="bloquée" />
+            <SafetyLine label="Actions sensibles" value="verrouillees" />
+            <SafetyLine label="Publication reelle" value="bloquee" />
             <SafetyLine label="Validation humaine" value="obligatoire" />
-            <SafetyLine label="Secrets" value="côté serveur uniquement" />
+            <SafetyLine label="Secrets" value="cote serveur uniquement" />
           </div>
         </SectionContainer>
 
@@ -384,7 +475,7 @@ export function AssistantCommandCenter({
           </div>
         </SectionContainer>
 
-        <LogPanel logs={signals} title="Signaux récents" />
+        <LogPanel logs={signals} title="Signaux recents" />
       </aside>
     </div>
   );
@@ -405,7 +496,7 @@ function ChatMessage({
 
   return (
     <div
-      className={`max-w-[88%] rounded-lg border border-[#1D2A44] bg-[#08111A] p-4 ${
+      className={`max-w-[88%] whitespace-pre-line rounded-lg border border-[#1D2A44] bg-[#08111A] p-4 ${
         align === "right" ? "ml-auto" : ""
       }`}
     >

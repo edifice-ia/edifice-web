@@ -12,6 +12,7 @@ type MetaGraphError = {
 type MetaPageAccount = {
   id?: string;
   name?: string;
+  tasks?: string[];
   instagram_business_account?: {
     id?: string;
     username?: string;
@@ -24,8 +25,58 @@ type MetaAccountsResponse = {
   paging?: unknown;
 };
 
+type SafePageDiagnostic = {
+  id: string | null;
+  name: string | null;
+  tasks: string[] | null;
+  instagram_business_account_present: boolean;
+  instagram_business_account_id: string | null;
+  instagram_business_account_username: string | null;
+};
+
 function getGraphVersion() {
   return process.env.INSTAGRAM_GRAPH_VERSION?.trim() || "v19.0";
+}
+
+function sanitizeGraphError(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeGraphError(item));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => {
+      const normalizedKey = key.toLowerCase();
+
+      if (
+        normalizedKey.includes("access_token") ||
+        normalizedKey.includes("refresh_token") ||
+        normalizedKey === "token"
+      ) {
+        return [key, "[redacted]"];
+      }
+
+      return [key, sanitizeGraphError(entry)];
+    }),
+  );
+}
+
+function toPageDiagnostic(page: MetaPageAccount): SafePageDiagnostic {
+  return {
+    id: page.id ?? null,
+    name: page.name ?? null,
+    tasks: Array.isArray(page.tasks) ? page.tasks : null,
+    instagram_business_account_present: Boolean(
+      page.instagram_business_account?.id,
+    ),
+    instagram_business_account_id:
+      page.instagram_business_account?.id ?? null,
+    instagram_business_account_username:
+      page.instagram_business_account?.username ?? null,
+  };
 }
 
 function buildDiagnostic(options: {
@@ -34,9 +85,13 @@ function buildDiagnostic(options: {
   facebookPageFound: boolean;
   instagramBusinessAccountFound: boolean;
   graphVersion: string;
-  page?: MetaPageAccount | null;
+  pages?: MetaPageAccount[];
   metaError?: MetaGraphError | null;
+  warnings?: string[];
 }) {
+  const pages = options.pages ?? [];
+  const pagesCount = pages.length;
+
   return {
     provider: "instagram",
     configured: options.metaTokenFound && options.graphApiSucceeded,
@@ -53,20 +108,10 @@ function buildDiagnostic(options: {
       instagramBusinessAccountFound:
         options.instagramBusinessAccountFound,
       graphVersion: options.graphVersion,
-      page: options.page
-        ? {
-            id: options.page.id ?? null,
-            name: options.page.name ?? null,
-          }
-        : null,
-      instagramBusinessAccount: options.page?.instagram_business_account
-        ? {
-            id: options.page.instagram_business_account.id ?? null,
-            username:
-              options.page.instagram_business_account.username ?? null,
-          }
-        : null,
-      metaError: options.metaError ?? null,
+      pages_count: pagesCount,
+      pages: pages.map(toPageDiagnostic),
+      metaError: sanitizeGraphError(options.metaError) ?? null,
+      warnings: options.warnings ?? [],
     },
   };
 }
@@ -102,7 +147,7 @@ export async function GET() {
   );
   graphUrl.searchParams.set(
     "fields",
-    "id,name,instagram_business_account{id,username}",
+    "id,name,tasks,instagram_business_account{id,username}",
   );
   graphUrl.searchParams.set("access_token", metaToken.accessToken);
 
@@ -120,17 +165,28 @@ export async function GET() {
     });
     const payload = (await response.json()) as MetaAccountsResponse;
     const graphApiSucceeded = response.ok && !payload.error;
-    const page =
-      payload.data?.find((item) => item.instagram_business_account) ??
-      payload.data?.[0] ??
-      null;
-    const facebookPageFound = Boolean(page?.id);
-    const instagramBusinessAccountFound = Boolean(
-      page?.instagram_business_account?.id,
+    const pages = payload.data ?? [];
+    const pagesCount = pages.length;
+    const facebookPageFound = pagesCount > 0;
+    const instagramBusinessAccountFound = pages.some((page) =>
+      Boolean(page.instagram_business_account?.id),
     );
+    const warnings = [
+      ...(pagesCount === 0
+        ? [
+            "Aucune page Facebook retournée. Vérifier permissions pages_show_list et compte Facebook utilisé.",
+          ]
+        : []),
+      ...(pagesCount > 0 && !instagramBusinessAccountFound
+        ? [
+            "Page Facebook trouvée mais aucun compte Instagram Business associé.",
+          ]
+        : []),
+    ];
 
     console.info("[Instagram Status] Graph API result", {
       graphApiSucceeded,
+      pagesCount,
       facebookPageFound,
       instagramBusinessAccountFound,
     });
@@ -143,6 +199,7 @@ export async function GET() {
           facebookPageFound: false,
           instagramBusinessAccountFound: false,
           graphVersion,
+          pages: [],
           metaError: payload.error ?? {
             message: "Meta Graph API request failed.",
             type: "graph_api_error",
@@ -160,14 +217,9 @@ export async function GET() {
         facebookPageFound,
         instagramBusinessAccountFound,
         graphVersion,
-        page,
-        metaError: instagramBusinessAccountFound
-          ? null
-          : {
-              message:
-                "No Instagram Business account was associated with the returned Facebook pages.",
-              type: "missing_instagram_business_account",
-            },
+        pages,
+        metaError: null,
+        warnings,
       }),
     );
   } catch (error) {

@@ -19,15 +19,17 @@ type OAuthStatusPayload = {
     facebookPageFound: boolean;
     instagramBusinessAccountFound: boolean;
     graphVersion: string;
-    page: {
+    pages_count?: number;
+    pages?: Array<{
       id: string | null;
       name: string | null;
-    } | null;
-    instagramBusinessAccount: {
-      id: string | null;
-      username: string | null;
-    } | null;
+      tasks: string[] | null;
+      instagram_business_account_present: boolean;
+      instagram_business_account_id: string | null;
+      instagram_business_account_username: string | null;
+    }>;
     metaError: Record<string, unknown> | null;
+    warnings?: string[];
   };
 };
 
@@ -215,6 +217,12 @@ function OAuthDiagnosticPanel({
               </span>
             </p>
             <p>
+              Pages Facebook retournees :{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {payload.diagnostic.pages_count ?? 0}
+              </span>
+            </p>
+            <p>
               Compte Instagram Business associe :{" "}
               <span className="font-semibold text-[#F8FAFC]">
                 {payload.diagnostic.instagramBusinessAccountFound
@@ -228,29 +236,63 @@ function OAuthDiagnosticPanel({
                 {payload.diagnostic.graphVersion}
               </span>
             </p>
-            {payload.diagnostic.page ? (
-              <p>
-                Page :{" "}
-                <span className="font-semibold text-[#F8FAFC]">
-                  {payload.diagnostic.page.name ??
-                    payload.diagnostic.page.id ??
-                    "non"}
-                </span>
-              </p>
-            ) : null}
-            {payload.diagnostic.instagramBusinessAccount ? (
-              <p>
-                Instagram :{" "}
-                <span className="font-semibold text-[#F8FAFC]">
-                  {payload.diagnostic.instagramBusinessAccount.username ??
-                    payload.diagnostic.instagramBusinessAccount.id ??
-                    "non"}
-                </span>
-              </p>
-            ) : null}
           </>
         ) : null}
       </div>
+      {payload.diagnostic?.warnings?.length ? (
+        <div className="mt-3 grid gap-1 text-[#fbbf24]">
+          {payload.diagnostic.warnings.map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
+        </div>
+      ) : null}
+      {payload.diagnostic?.pages?.length ? (
+        <div className="mt-3 grid gap-2">
+          {payload.diagnostic.pages.map((page) => (
+            <div
+              key={`${page.id}-${page.name}`}
+              className="rounded-md border border-[#1D2A44] bg-[#0B1420] p-3"
+            >
+              <p>
+                Page :{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {page.name ?? "sans nom"}
+                </span>
+              </p>
+              <p>
+                ID :{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {page.id ?? "non"}
+                </span>
+              </p>
+              <p>
+                Tasks :{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {page.tasks?.join(", ") ?? "non"}
+                </span>
+              </p>
+              <p>
+                Instagram Business present :{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {page.instagram_business_account_present ? "oui" : "non"}
+                </span>
+              </p>
+              <p>
+                Instagram Business ID :{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {page.instagram_business_account_id ?? "non"}
+                </span>
+              </p>
+              <p>
+                Instagram username :{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {page.instagram_business_account_username ?? "non"}
+                </span>
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {payload.diagnostic?.metaError ? (
         <pre className="mt-3 overflow-auto rounded-md border border-[#1D2A44] bg-[#0B1420] p-3 text-xs text-[#fbbf24]">
           {JSON.stringify(payload.diagnostic.metaError, null, 2)}

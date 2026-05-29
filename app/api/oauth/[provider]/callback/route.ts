@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { buildAbsoluteOAuthReturnUrl } from "@/lib/server/oauth/oauth-redirects";
 import { getOAuthProvider } from "@/lib/oauth/providers";
 import { isTokenExchangeEnabled } from "@/lib/oauth/server";
 
@@ -19,6 +20,7 @@ export async function GET(
 
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
+  const error = request.nextUrl.searchParams.get("error");
   const isDebug = request.nextUrl.searchParams.get("debug") === "1";
   const tokenExchangeEnabled = isTokenExchangeEnabled(provider);
   const payload = {
@@ -37,15 +39,27 @@ export async function GET(
     return Response.json(payload);
   }
 
-  if (provider.key === "youtube" && code) {
-    const appUrl =
-      process.env.NEXT_PUBLIC_APP_URL?.trim() || request.nextUrl.origin;
-    const redirectTarget = new URL("/interface", appUrl);
-    redirectTarget.searchParams.set("provider", "youtube");
-    redirectTarget.searchParams.set("connected", "1");
+  console.info(`[OAuth Callback] provider=${provider.key}`);
 
+  if (error || !code) {
+    const redirectTarget = buildAbsoluteOAuthReturnUrl(
+      request,
+      provider.key,
+      false,
+      "oauth",
+    );
+    console.info(`[OAuth Callback] final redirect=${redirectTarget.toString()}`, {
+      provider: provider.key,
+      finalRedirect: redirectTarget.toString(),
+    });
     return NextResponse.redirect(redirectTarget);
   }
 
-  return Response.json(payload);
+  const redirectTarget = buildAbsoluteOAuthReturnUrl(request, provider.key, true);
+  console.info(`[OAuth Callback] final redirect=${redirectTarget.toString()}`, {
+    provider: provider.key,
+    finalRedirect: redirectTarget.toString(),
+  });
+
+  return NextResponse.redirect(redirectTarget);
 }

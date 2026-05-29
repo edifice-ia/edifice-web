@@ -1,3 +1,5 @@
+import { getInstagramGraphStatusPayload } from "@/lib/server/oauth/status-payloads";
+
 type InstagramAccount = {
   id?: string;
   username?: string;
@@ -30,6 +32,11 @@ export async function GET() {
   const graphVersionPresent = hasEnvValue("INSTAGRAM_GRAPH_VERSION");
   const configured =
     tokenPresent && businessAccountIdPresent && graphVersionPresent;
+  const statusPayload = getInstagramGraphStatusPayload({
+    tokenPresent,
+    businessAccountIdPresent,
+    graphVersionPresent,
+  });
 
   console.info("[Instagram Status] env check", {
     configured,
@@ -44,9 +51,8 @@ export async function GET() {
 
   if (!configured || !accessToken || !businessAccountId || !graphVersion) {
     return Response.json({
-      provider: "instagram",
+      ...statusPayload,
       configured: false,
-      account: null,
       tokenPresent,
       businessAccountIdPresent,
       graphVersion: graphVersion ?? null,
@@ -80,7 +86,7 @@ export async function GET() {
 
       return Response.json(
         {
-          provider: "instagram",
+          ...statusPayload,
           configured: false,
           error: {
             message: payload.error?.message ?? "Instagram Graph API error",
@@ -98,7 +104,11 @@ export async function GET() {
     });
 
     return Response.json({
-      provider: "instagram",
+      ...getInstagramGraphStatusPayload({
+        tokenPresent,
+        businessAccountIdPresent,
+        graphVersionPresent,
+      }),
       configured: true,
       account: {
         id: payload.id ?? null,
@@ -117,9 +127,9 @@ export async function GET() {
           : "Unknown Instagram Graph API error",
     });
 
-    return Response.json(
+      return Response.json(
       {
-        provider: "instagram",
+        ...statusPayload,
         configured: false,
         error: {
           message:

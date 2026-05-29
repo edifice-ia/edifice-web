@@ -1,16 +1,11 @@
 import type { Metadata } from "next";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
-import { MetaConnectionControls } from "@/components/cockpit/MetaConnectionControls";
+import { OAuthConnectionControls } from "@/components/cockpit/OAuthConnectionControls";
 import { OAuthProviderCard } from "@/components/cockpit/OAuthProviderCard";
 import { OAuthResultNotice } from "@/components/cockpit/OAuthResultNotice";
 import { RequiredEnvList } from "@/components/cockpit/RequiredEnvList";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
-import { TikTokConnectionControls } from "@/components/cockpit/TikTokConnectionControls";
-import { YouTubeConnectionControls } from "@/components/cockpit/YouTubeConnectionControls";
-import {
-  getActiveMetaScopes,
-  isMetaInstagramScopesEnabled,
-} from "@/lib/oauth/meta";
+import { getActiveMetaScopes } from "@/lib/oauth/meta";
 import { oauthProviders, getRequiredEnvNames } from "@/lib/oauth/providers";
 import { getOAuthStatus } from "@/lib/oauth/server";
 
@@ -33,10 +28,10 @@ export default async function OAuthConnectionsPage({
     provider?: string;
     status?: string;
     connected?: string;
+    error?: string;
   }>;
 }) {
   const result = await searchParams;
-  const instagramScopesEnabled = isMetaInstagramScopesEnabled();
 
   return (
     <div>
@@ -50,6 +45,7 @@ export default async function OAuthConnectionsPage({
         provider={result.provider}
         status={result.status}
         connected={result.connected}
+        error={result.error}
       />
 
       <div className="grid gap-6">
@@ -59,6 +55,7 @@ export default async function OAuthConnectionsPage({
             const isMeta = provider.key === "meta";
             const isYouTube = provider.key === "youtube";
             const isTikTok = provider.key === "tiktok";
+            const isPinterest = provider.key === "pinterest";
             const providerScopes = isMeta ? getActiveMetaScopes() : provider.scopes;
             const startHref = isMeta
               ? "/api/meta/start"
@@ -74,12 +71,14 @@ export default async function OAuthConnectionsPage({
                 startHref={startHref}
                 testHref={
                   isMeta
-                    ? "/api/meta/status"
+                    ? "/api/oauth/meta/status"
                     : isYouTube
                       ? "/api/oauth/youtube/status"
                       : isTikTok
                         ? "/api/oauth/tiktok/status"
-                        : `/api/oauth/${provider.key}/start?mode=test`
+                        : isPinterest
+                          ? "/api/oauth/pinterest/status"
+                          : `/api/oauth/${provider.key}/start?mode=test`
                 }
                 callbackPath={
                   isMeta
@@ -93,18 +92,23 @@ export default async function OAuthConnectionsPage({
                 note={provider.note}
                 disabled={provider.placeholder}
                 actionContent={
-                  isMeta ? (
-                    <MetaConnectionControls
-                      metaConnected={
-                        result.provider === "meta" && result.connected === "1"
-                      }
-                      instagramScopesEnabled={instagramScopesEnabled}
-                    />
-                  ) : isYouTube ? (
-                    <YouTubeConnectionControls startHref={startHref} />
-                  ) : isTikTok ? (
-                    <TikTokConnectionControls />
-                  ) : undefined
+                  <OAuthConnectionControls
+                    actionLabel={provider.actionLabel}
+                    startHref={startHref}
+                    statusHref={
+                      isMeta
+                        ? "/api/oauth/meta/status"
+                        : isYouTube
+                          ? "/api/oauth/youtube/status"
+                          : isTikTok
+                            ? "/api/oauth/tiktok/status"
+                            : isPinterest
+                              ? "/api/oauth/pinterest/status"
+                              : `/api/oauth/${provider.key}/start?mode=test`
+                    }
+                    disabled={provider.placeholder}
+                    showInstagramGraphTest={isMeta}
+                  />
                 }
               />
             );

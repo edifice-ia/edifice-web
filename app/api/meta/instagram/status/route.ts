@@ -17,12 +17,10 @@ export async function GET(request: NextRequest) {
     const response = await fetch(callbackUrl, {
       method: "GET",
       cache: "no-store",
+      redirect: "manual",
     });
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string }
-      | null;
     callbackAccessible =
-      response.status === 400 && payload?.error === "missing_code";
+      response.status >= 300 && response.status < 400;
   } catch (error) {
     console.error("[meta-instagram] callback status check failed", {
       message: error instanceof Error ? error.message : "unknown_error",

@@ -2,6 +2,7 @@ type OAuthResultNoticeProps = {
   provider?: string;
   status?: string;
   connected?: string;
+  error?: string;
 };
 
 const messages: Record<
@@ -9,40 +10,40 @@ const messages: Record<
   { title: string; description: string; className: string }
 > = {
   meta_success: {
-    title: "Connexion Meta réussie",
-    description: "Meta a renvoyé un code valide et les permissions requises.",
+    title: "Connexion Meta reussie",
+    description: "Meta a renvoye un code valide et les permissions requises.",
     className: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
   },
   youtube_success: {
-    title: "Connexion YouTube réussie",
+    title: "Connexion YouTube reussie",
     description:
-      "Google a renvoyé un code valide. Le stockage des tokens reste désactivé.",
+      "Google a renvoye un code valide. Le stockage des tokens reste desactive.",
     className: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
   },
   tiktok_success: {
-    title: "Connexion TikTok Sandbox réussie",
+    title: "Connexion TikTok Sandbox reussie",
     description:
-      "TikTok a renvoyé un token valide, stocké uniquement côté serveur.",
+      "TikTok a renvoye un token valide, stocke uniquement cote serveur.",
     className: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
   },
   tiktok_error: {
     title: "Erreur OAuth TikTok",
-    description: "La connexion TikTok Sandbox n'a pas pu être finalisée.",
+    description: "La connexion TikTok Sandbox n'a pas pu etre finalisee.",
     className: "border-[#ef4444]/40 bg-[#ef4444]/10 text-[#fecaca]",
   },
   refused: {
-    title: "Connexion refusée",
-    description: "La connexion Meta a été annulée ou refusée.",
+    title: "Connexion refusee",
+    description: "La connexion Meta a ete annulee ou refusee.",
     className: "border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#fbbf24]",
   },
   oauth_error: {
     title: "Erreur OAuth",
-    description: "La connexion n'a pas pu être finalisée.",
+    description: "La connexion n'a pas pu etre finalisee.",
     className: "border-[#ef4444]/40 bg-[#ef4444]/10 text-[#fecaca]",
   },
   insufficient_permissions: {
     title: "Permissions insuffisantes",
-    description: "Meta n'a pas accordé toutes les permissions demandées.",
+    description: "Meta n'a pas accorde toutes les permissions demandees.",
     className: "border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#fbbf24]",
   },
   missing_env: {
@@ -61,21 +62,37 @@ export function OAuthResultNotice({
   provider,
   status,
   connected,
+  error,
 }: OAuthResultNoticeProps) {
-  if (provider !== "meta" && provider !== "youtube" && provider !== "tiktok") {
+  if (!provider) {
     return null;
   }
 
-  const key =
-    connected === "1" && provider === "tiktok"
-      ? "tiktok_success"
-      : connected === "0" && provider === "tiktok"
-        ? "tiktok_error"
-        : connected === "1" && provider === "youtube"
-          ? "youtube_success"
-          : connected === "1" && provider === "meta"
-            ? "meta_success"
-            : status;
+  const normalizedProvider = provider.charAt(0).toUpperCase() + provider.slice(1);
+
+  if (connected === "1") {
+    return (
+      <div className="mb-6 rounded-lg border border-[#39E6D0]/40 bg-[#39E6D0]/10 p-4 text-[#39E6D0]">
+        <p className="font-semibold">Connexion {normalizedProvider} reussie</p>
+        <p className="mt-1 text-sm text-[#A7B0C0]">
+          Le retour OAuth a ete finalise sur la page Connexions.
+        </p>
+      </div>
+    );
+  }
+
+  if (connected === "0") {
+    return (
+      <div className="mb-6 rounded-lg border border-[#ef4444]/40 bg-[#ef4444]/10 p-4 text-[#fecaca]">
+        <p className="font-semibold">Erreur OAuth {normalizedProvider}</p>
+        <p className="mt-1 text-sm text-[#A7B0C0]">
+          La connexion n&apos;a pas pu etre finalisee{error ? ` (${error})` : ""}.
+        </p>
+      </div>
+    );
+  }
+
+  const key = status;
 
   if (!key || !messages[key]) {
     return null;

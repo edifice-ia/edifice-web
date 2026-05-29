@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { buildAbsoluteOAuthReturnUrl } from "@/lib/server/oauth/oauth-redirects";
 import { saveTikTokToken } from "@/lib/server/oauth/tiktok-token-store";
 import {
   TIKTOK_STATE_COOKIE,
@@ -21,27 +22,25 @@ type TikTokTokenResponse = {
   log_id?: string;
 };
 
-function getAppRedirect(path: string, request: NextRequest) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || request.nextUrl.origin;
-  return new URL(path, appUrl);
-}
-
 function redirectToInterface(
   request: NextRequest,
   connected: "0" | "1",
-  error?: "oauth" | "tiktok_oauth",
+  error?: "oauth",
 ) {
-  const redirectTarget = getAppRedirect("/interface", request);
-  redirectTarget.searchParams.set("provider", "tiktok");
-  redirectTarget.searchParams.set("connected", connected);
-
-  if (error) {
-    redirectTarget.searchParams.set("error", error);
-  }
+  const redirectTarget = buildAbsoluteOAuthReturnUrl(
+    request,
+    "tiktok",
+    connected === "1",
+    error,
+  );
 
   console.info("[TikTok OAuth Callback] redirection finale", {
     connected,
     error,
+  });
+  console.info(`[OAuth Callback] final redirect=${redirectTarget.toString()}`, {
+    provider: "tiktok",
+    finalRedirect: redirectTarget.toString(),
   });
 
   const response = NextResponse.redirect(redirectTarget);
@@ -66,6 +65,7 @@ export async function GET(request: NextRequest) {
     Boolean(state && cookieState && state === cookieState) &&
     verifyTikTokOAuthState(state);
 
+  console.info("[OAuth Callback] provider=tiktok");
   console.info("[TikTok OAuth Callback] callback recu");
   console.info("[TikTok OAuth Callback] code present oui/non", {
     present: Boolean(code),
@@ -87,12 +87,12 @@ export async function GET(request: NextRequest) {
 
   if (!code) {
     console.warn("[TikTok OAuth Callback] code OAuth manquant");
-    return redirectToInterface(request, "0", "tiktok_oauth");
+    return redirectToInterface(request, "0", "oauth");
   }
 
   if (!stateValid) {
     console.warn("[TikTok OAuth Callback] state OAuth invalide");
-    return redirectToInterface(request, "0", "tiktok_oauth");
+    return redirectToInterface(request, "0", "oauth");
   }
 
   const clientKey = process.env.TIKTOK_CLIENT_KEY?.trim();
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
 
   if (!clientKey || !clientSecret || !redirectUri) {
     console.warn("[TikTok OAuth Callback] configuration OAuth incomplete");
-    return redirectToInterface(request, "0", "tiktok_oauth");
+    return redirectToInterface(request, "0", "oauth");
   }
 
   try {
@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
         errorDescription: tokenPayload.error_description,
         logId: tokenPayload.log_id,
       });
-      return redirectToInterface(request, "0", "tiktok_oauth");
+      return redirectToInterface(request, "0", "oauth");
     }
 
     await saveTikTokToken({
@@ -163,6 +163,6 @@ export async function GET(request: NextRequest) {
           : "Unknown TikTok token exchange error",
     });
 
-    return redirectToInterface(request, "0", "tiktok_oauth");
+    return redirectToInterface(request, "0", "oauth");
   }
 }

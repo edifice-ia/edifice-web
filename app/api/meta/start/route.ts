@@ -13,12 +13,21 @@ import {
 export async function GET(request: NextRequest) {
   const missing = getMissingMetaEnv();
 
+  console.info("[META START] env check", {
+    configured: missing.length === 0,
+    missing,
+  });
+
   if (missing.length > 0) {
     console.error("[meta-oauth] start blocked by missing env", { missing });
     return Response.redirect(buildMetaErrorRedirect(request, "missing_env"));
   }
 
   const state = createMetaState();
+
+  console.info("[META START] state generated", {
+    generated: Boolean(state),
+  });
 
   if (!state) {
     console.error("[meta-oauth] start blocked by missing state secret");
@@ -42,7 +51,7 @@ export async function GET(request: NextRequest) {
     secure: request.nextUrl.protocol === "https:",
   });
 
-  console.info("[meta-oauth] redirecting to Meta authorization", {
+  console.info("[META START] redirecting to Meta authorization", {
     scopes: activeScopes.length,
     instagramScopesEnabled: isMetaInstagramScopesEnabled(),
     redirectUriConfigured: Boolean(process.env.META_REDIRECT_URI),

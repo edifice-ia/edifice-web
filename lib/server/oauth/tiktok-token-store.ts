@@ -46,3 +46,12 @@ export async function saveTikTokToken(token: {
     savedAt: new Date().toISOString(),
   });
 }
+
+export function getTikTokTokenStatus() {
+  const record = Array.from(tokenStore.values())[0] ?? null;
+
+  return {
+    present: Boolean(record?.accessToken),
+    expiresAt: record?.expiresAt ?? null,
+  };
+}

@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
+import { buildAbsoluteOAuthReturnUrl } from "@/lib/server/oauth/oauth-redirects";
 
 export const META_AUTH_URL = "https://www.facebook.com/v19.0/dialog/oauth";
 export const META_TOKEN_URL =
@@ -112,15 +113,10 @@ export function buildMetaErrorRedirect(
   request: NextRequest,
   status: MetaOAuthStatus,
 ) {
-  const target = new URL("/interface/settings/connections", getAppUrl(request));
-  target.searchParams.set("provider", "meta");
-  target.searchParams.set("status", status);
-  return target;
+  void status;
+  return buildAbsoluteOAuthReturnUrl(request, "meta", false, "oauth");
 }
 
 export function buildMetaSuccessRedirect(request: NextRequest) {
-  const target = new URL("/dashboard", getAppUrl(request));
-  target.searchParams.set("provider", "meta");
-  target.searchParams.set("connected", "1");
-  return target;
+  return buildAbsoluteOAuthReturnUrl(request, "meta", true);
 }

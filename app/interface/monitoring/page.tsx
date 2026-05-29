@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { ConstructionJournal } from "@/components/cockpit/ConstructionJournal";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
 import { LogPanel } from "@/components/cockpit/LogPanel";
@@ -99,6 +100,24 @@ export default async function MonitoringPage() {
           <ConstructionJournal
             initialEntries={projectMemory.projectMemoryEntries}
           />
+          <SectionContainer>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
+              Ressources
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
+              Outils opérationnels
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-[#A7B0C0]">
+              Accéder aux plateformes externes utiles au pilotage sans exposer
+              de secrets ni déclencher d&apos;action.
+            </p>
+            <Link
+              href="/interface/resources"
+              className="mt-4 inline-flex rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              Ouvrir les ressources
+            </Link>
+          </SectionContainer>
           <LogPanel logs={logs} title={"Signaux r\u00e9cents"} />
         </aside>
       </div>

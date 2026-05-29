@@ -55,7 +55,7 @@ export const cockpitNavigation: CockpitNavItem[] = [
   },
   {
     id: "links",
-    href: "/interface/links",
+    href: "/interface/resources",
     label: "Ressources",
     description: "Repères et documents",
     status: "Disponible",

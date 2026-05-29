@@ -58,7 +58,7 @@ export const cockpitModules: CockpitModule[] = [
     id: "links-useful",
     title: "Ressources",
     description: "Documents, repères et liens utiles du cockpit.",
-    href: "/interface/links",
+    href: "/interface/resources",
     status: "Disponible",
   },
 ];

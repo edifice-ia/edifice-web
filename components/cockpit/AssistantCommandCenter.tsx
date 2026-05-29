@@ -118,6 +118,7 @@ const quickLinks = [
   { href: "/interface/settings/connections", label: "Connexions OAuth" },
   { href: "/interface/monitoring", label: "Observatoire" },
   { href: "/interface/personnel", label: "Espace intérieur" },
+  { href: "/interface/resources", label: "Ressources" },
 ];
 
 type AssistantCommandCenterProps = {

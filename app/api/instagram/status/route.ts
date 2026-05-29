@@ -1,145 +1,197 @@
-import { getInstagramGraphStatusPayload } from "@/lib/server/oauth/status-payloads";
+import { getOAuthToken } from "@/lib/server/oauth/token-store";
 
-type InstagramAccount = {
-  id?: string;
-  username?: string;
-  profile_picture_url?: string;
-};
-
-type InstagramGraphError = {
+type MetaGraphError = {
   message?: string;
   type?: string;
   code?: number;
+  error_subcode?: number;
+  fbtrace_id?: string;
+  [key: string]: unknown;
 };
 
-type InstagramGraphResponse = InstagramAccount & {
-  error?: InstagramGraphError;
+type MetaPageAccount = {
+  id?: string;
+  name?: string;
+  instagram_business_account?: {
+    id?: string;
+    username?: string;
+  };
 };
 
-function hasEnvValue(name: string) {
-  const value = process.env[name];
-  return typeof value === "string" && value.trim().length > 0;
+type MetaAccountsResponse = {
+  data?: MetaPageAccount[];
+  error?: MetaGraphError;
+  paging?: unknown;
+};
+
+function getGraphVersion() {
+  return process.env.INSTAGRAM_GRAPH_VERSION?.trim() || "v19.0";
+}
+
+function buildDiagnostic(options: {
+  metaTokenFound: boolean;
+  graphApiSucceeded: boolean;
+  facebookPageFound: boolean;
+  instagramBusinessAccountFound: boolean;
+  graphVersion: string;
+  page?: MetaPageAccount | null;
+  metaError?: MetaGraphError | null;
+}) {
+  return {
+    provider: "instagram",
+    configured: options.metaTokenFound && options.graphApiSucceeded,
+    mode: "review",
+    token: {
+      present: options.metaTokenFound,
+      storageEnabled: true,
+      storageMode: "supabase",
+    },
+    diagnostic: {
+      metaTokenFound: options.metaTokenFound,
+      graphApiSucceeded: options.graphApiSucceeded,
+      facebookPageFound: options.facebookPageFound,
+      instagramBusinessAccountFound:
+        options.instagramBusinessAccountFound,
+      graphVersion: options.graphVersion,
+      page: options.page
+        ? {
+            id: options.page.id ?? null,
+            name: options.page.name ?? null,
+          }
+        : null,
+      instagramBusinessAccount: options.page?.instagram_business_account
+        ? {
+            id: options.page.instagram_business_account.id ?? null,
+            username:
+              options.page.instagram_business_account.username ?? null,
+          }
+        : null,
+      metaError: options.metaError ?? null,
+    },
+  };
 }
 
 export async function GET() {
-  const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN?.trim();
-  const businessAccountId = process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID?.trim();
-  const graphVersion = process.env.INSTAGRAM_GRAPH_VERSION?.trim();
-  const tokenPresent = hasEnvValue("INSTAGRAM_ACCESS_TOKEN");
-  const businessAccountIdPresent = hasEnvValue(
-    "INSTAGRAM_BUSINESS_ACCOUNT_ID",
-  );
-  const graphVersionPresent = hasEnvValue("INSTAGRAM_GRAPH_VERSION");
-  const configured =
-    tokenPresent && businessAccountIdPresent && graphVersionPresent;
-  const statusPayload = getInstagramGraphStatusPayload({
-    tokenPresent,
-    businessAccountIdPresent,
-    graphVersionPresent,
+  const graphVersion = getGraphVersion();
+  const metaToken = await getOAuthToken("meta");
+  const metaTokenFound = Boolean(metaToken?.accessToken);
+
+  console.info("[Instagram Status] Meta token found yes/no", {
+    found: metaTokenFound,
   });
 
-  console.info("[Instagram Status] env check", {
-    configured,
-    graphVersionPresent,
-  });
-  console.info("[Instagram Status] business account id present yes/no", {
-    present: businessAccountIdPresent,
-  });
-  console.info("[Instagram Status] token present yes/no", {
-    present: tokenPresent,
-  });
-
-  if (!configured || !accessToken || !businessAccountId || !graphVersion) {
-    return Response.json({
-      ...statusPayload,
-      configured: false,
-      tokenPresent,
-      businessAccountIdPresent,
-      graphVersion: graphVersion ?? null,
-    });
+  if (!metaToken?.accessToken) {
+    return Response.json(
+      buildDiagnostic({
+        metaTokenFound: false,
+        graphApiSucceeded: false,
+        facebookPageFound: false,
+        instagramBusinessAccountFound: false,
+        graphVersion,
+        metaError: {
+          message: "No Meta OAuth token found in Supabase token store.",
+          type: "missing_meta_token",
+        },
+      }),
+      { status: 401 },
+    );
   }
 
   const graphUrl = new URL(
-    `https://graph.facebook.com/${graphVersion}/${businessAccountId}`,
+    `https://graph.facebook.com/${graphVersion}/me/accounts`,
   );
-  graphUrl.searchParams.set("fields", "id,username,profile_picture_url");
-  graphUrl.searchParams.set("access_token", accessToken);
+  graphUrl.searchParams.set(
+    "fields",
+    "id,name,instagram_business_account{id,username}",
+  );
+  graphUrl.searchParams.set("access_token", metaToken.accessToken);
 
-  console.info("[Instagram Status] graph request started", {
+  console.info("[Instagram Status] Graph API request started", {
     graphVersion,
-    businessAccountIdPresent,
   });
 
   try {
     const response = await fetch(graphUrl, {
       method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
       cache: "no-store",
     });
-    const payload = (await response.json()) as InstagramGraphResponse;
+    const payload = (await response.json()) as MetaAccountsResponse;
+    const graphApiSucceeded = response.ok && !payload.error;
+    const page =
+      payload.data?.find((item) => item.instagram_business_account) ??
+      payload.data?.[0] ??
+      null;
+    const facebookPageFound = Boolean(page?.id);
+    const instagramBusinessAccountFound = Boolean(
+      page?.instagram_business_account?.id,
+    );
 
-    if (!response.ok || payload.error) {
-      console.warn("[Instagram Status] graph request error", {
-        status: response.status,
-        type: payload.error?.type,
-        code: payload.error?.code,
-      });
+    console.info("[Instagram Status] Graph API result", {
+      graphApiSucceeded,
+      facebookPageFound,
+      instagramBusinessAccountFound,
+    });
 
+    if (!graphApiSucceeded) {
       return Response.json(
-        {
-          ...statusPayload,
-          configured: false,
-          error: {
-            message: payload.error?.message ?? "Instagram Graph API error",
-            type: payload.error?.type ?? "GraphAPIException",
-            code: payload.error?.code ?? response.status,
+        buildDiagnostic({
+          metaTokenFound,
+          graphApiSucceeded: false,
+          facebookPageFound: false,
+          instagramBusinessAccountFound: false,
+          graphVersion,
+          metaError: payload.error ?? {
+            message: "Meta Graph API request failed.",
+            type: "graph_api_error",
+            code: response.status,
           },
-        },
+        }),
         { status: response.ok ? 500 : response.status },
       );
     }
 
-    console.info("[Instagram Status] graph request success", {
-      accountPresent: Boolean(payload.id),
-      usernamePresent: Boolean(payload.username),
-    });
-
-    return Response.json({
-      ...getInstagramGraphStatusPayload({
-        tokenPresent,
-        businessAccountIdPresent,
-        graphVersionPresent,
+    return Response.json(
+      buildDiagnostic({
+        metaTokenFound,
+        graphApiSucceeded: true,
+        facebookPageFound,
+        instagramBusinessAccountFound,
+        graphVersion,
+        page,
+        metaError: instagramBusinessAccountFound
+          ? null
+          : {
+              message:
+                "No Instagram Business account was associated with the returned Facebook pages.",
+              type: "missing_instagram_business_account",
+            },
       }),
-      configured: true,
-      account: {
-        id: payload.id ?? null,
-        username: payload.username ?? null,
-        profile_picture_url: payload.profile_picture_url ?? null,
-      },
-      tokenPresent,
-      businessAccountIdPresent,
-      graphVersion,
-    });
+    );
   } catch (error) {
-    console.error("[Instagram Status] graph request error", {
-      message:
-        error instanceof Error
-          ? error.message
-          : "Unknown Instagram Graph API error",
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unknown Instagram Graph API request error";
+
+    console.error("[Instagram Status] Graph API request exception", {
+      message,
     });
 
-      return Response.json(
-      {
-        ...statusPayload,
-        configured: false,
-        error: {
-          message:
-            error instanceof Error
-              ? error.message
-              : "Unknown Instagram Graph API error",
+    return Response.json(
+      buildDiagnostic({
+        metaTokenFound,
+        graphApiSucceeded: false,
+        facebookPageFound: false,
+        instagramBusinessAccountFound: false,
+        graphVersion,
+        metaError: {
+          message,
           type: "request_error",
-          code: 500,
         },
-      },
+      }),
       { status: 500 },
     );
   }

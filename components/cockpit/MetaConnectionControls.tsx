@@ -76,23 +76,22 @@ export function MetaConnectionControls({
         cache: "no-store",
       });
       const payload = (await response.json()) as {
-        ok?: boolean;
-        missing?: string[];
-        callbackAccessible?: boolean;
+        diagnostic?: {
+          graphApiSucceeded: boolean;
+          instagramBusinessAccountFound: boolean;
+        };
       };
 
-      if (payload.ok) {
+      if (
+        response.ok &&
+        payload.diagnostic?.graphApiSucceeded &&
+        payload.diagnostic.instagramBusinessAccountFound
+      ) {
         setInstagramStatus("ok");
         return;
       }
 
-      setInstagramStatus(
-        payload.missing && payload.missing.length > 0
-          ? "missing_env"
-          : payload.callbackAccessible === false
-            ? "callback_inaccessible"
-            : "waiting_permissions",
-      );
+      setInstagramStatus("waiting_permissions");
     } catch {
       setInstagramStatus("callback_inaccessible");
     }

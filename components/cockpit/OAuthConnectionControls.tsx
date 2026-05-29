@@ -3,11 +3,32 @@
 import { useState } from "react";
 
 type OAuthStatusPayload = {
-  present: boolean;
-  storageEnabled: true;
-  storageMode: "supabase";
-  expiresAt: string | null;
-  updatedAt: string | null;
+  present?: boolean;
+  storageEnabled?: true;
+  storageMode?: "supabase";
+  expiresAt?: string | null;
+  updatedAt?: string | null;
+  token?: {
+    present: boolean;
+    storageEnabled: boolean;
+    storageMode?: "supabase";
+  };
+  diagnostic?: {
+    metaTokenFound: boolean;
+    graphApiSucceeded: boolean;
+    facebookPageFound: boolean;
+    instagramBusinessAccountFound: boolean;
+    graphVersion: string;
+    page: {
+      id: string | null;
+      name: string | null;
+    } | null;
+    instagramBusinessAccount: {
+      id: string | null;
+      username: string | null;
+    } | null;
+    metaError: Record<string, unknown> | null;
+  };
 };
 
 type ControlStatus = "idle" | "checking" | "ready" | "incomplete";
@@ -127,7 +148,9 @@ export function OAuthConnectionControls({
           <p>
             Meta OAuth :{" "}
             <span className="font-semibold text-[#F8FAFC]">
-              {payload?.present ? "connecte" : "a connecter"}
+              {payload?.present || payload?.token?.present
+                ? "connecte"
+                : "a connecter"}
             </span>
           </p>
           <p className="mt-1">Instagram Graph depend de Meta OAuth.</p>
@@ -156,13 +179,13 @@ function OAuthDiagnosticPanel({
         <p>
           Token present :{" "}
           <span className="font-semibold text-[#F8FAFC]">
-            {payload.present ? "oui" : "non"}
+            {payload.present || payload.token?.present ? "oui" : "non"}
           </span>
         </p>
         <p>
           Stockage :{" "}
           <span className="font-semibold text-[#F8FAFC]">
-            {payload.storageMode}
+            {payload.storageMode ?? payload.token?.storageMode ?? "supabase"}
           </span>
         </p>
         <p>
@@ -177,7 +200,62 @@ function OAuthDiagnosticPanel({
             {payload.updatedAt ?? "non"}
           </span>
         </p>
+        {payload.diagnostic ? (
+          <>
+            <p>
+              Appel Graph API :{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {payload.diagnostic.graphApiSucceeded ? "oui" : "non"}
+              </span>
+            </p>
+            <p>
+              Page Facebook trouvee :{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {payload.diagnostic.facebookPageFound ? "oui" : "non"}
+              </span>
+            </p>
+            <p>
+              Compte Instagram Business associe :{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {payload.diagnostic.instagramBusinessAccountFound
+                  ? "oui"
+                  : "non"}
+              </span>
+            </p>
+            <p>
+              Version Graph :{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {payload.diagnostic.graphVersion}
+              </span>
+            </p>
+            {payload.diagnostic.page ? (
+              <p>
+                Page :{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {payload.diagnostic.page.name ??
+                    payload.diagnostic.page.id ??
+                    "non"}
+                </span>
+              </p>
+            ) : null}
+            {payload.diagnostic.instagramBusinessAccount ? (
+              <p>
+                Instagram :{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {payload.diagnostic.instagramBusinessAccount.username ??
+                    payload.diagnostic.instagramBusinessAccount.id ??
+                    "non"}
+                </span>
+              </p>
+            ) : null}
+          </>
+        ) : null}
       </div>
+      {payload.diagnostic?.metaError ? (
+        <pre className="mt-3 overflow-auto rounded-md border border-[#1D2A44] bg-[#0B1420] p-3 text-xs text-[#fbbf24]">
+          {JSON.stringify(payload.diagnostic.metaError, null, 2)}
+        </pre>
+      ) : null}
     </div>
   );
 }

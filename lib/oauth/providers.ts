@@ -68,10 +68,9 @@ export const oauthProviders: OAuthProviderConfig[] = [
     },
     authUrl: "https://www.tiktok.com/v2/auth/authorize/",
     scopes: ["user.info.basic", "video.upload"],
-    actionLabel: "Preparer TikTok",
-    secondaryLabel: "Tester la configuration",
-    note: "Publication reelle bloquee par defaut.",
-    placeholder: true,
+    actionLabel: "Connecter TikTok Sandbox",
+    secondaryLabel: "Tester configuration TikTok",
+    note: "Connexion OAuth Sandbox TikTok sans publication automatique.",
   },
   {
     key: "meta",

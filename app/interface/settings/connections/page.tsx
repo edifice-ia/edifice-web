@@ -5,6 +5,7 @@ import { OAuthProviderCard } from "@/components/cockpit/OAuthProviderCard";
 import { OAuthResultNotice } from "@/components/cockpit/OAuthResultNotice";
 import { RequiredEnvList } from "@/components/cockpit/RequiredEnvList";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
+import { TikTokConnectionControls } from "@/components/cockpit/TikTokConnectionControls";
 import { YouTubeConnectionControls } from "@/components/cockpit/YouTubeConnectionControls";
 import {
   getActiveMetaScopes,
@@ -57,6 +58,7 @@ export default async function OAuthConnectionsPage({
             const callbackPath = `/api/oauth/${provider.key}/callback`;
             const isMeta = provider.key === "meta";
             const isYouTube = provider.key === "youtube";
+            const isTikTok = provider.key === "tiktok";
             const providerScopes = isMeta ? getActiveMetaScopes() : provider.scopes;
             const startHref = isMeta
               ? "/api/meta/start"
@@ -75,9 +77,17 @@ export default async function OAuthConnectionsPage({
                     ? "/api/meta/status"
                     : isYouTube
                       ? "/api/oauth/youtube/status"
-                    : `/api/oauth/${provider.key}/start?mode=test`
+                      : isTikTok
+                        ? "/api/oauth/tiktok/status"
+                        : `/api/oauth/${provider.key}/start?mode=test`
                 }
-                callbackPath={isMeta ? "/api/meta/callback" : callbackPath}
+                callbackPath={
+                  isMeta
+                    ? "/api/meta/callback"
+                    : isTikTok
+                      ? "/api/oauth/tiktok/callback"
+                      : callbackPath
+                }
                 scopes={providerScopes}
                 envNames={getRequiredEnvNames(provider)}
                 note={provider.note}
@@ -92,6 +102,8 @@ export default async function OAuthConnectionsPage({
                     />
                   ) : isYouTube ? (
                     <YouTubeConnectionControls startHref={startHref} />
+                  ) : isTikTok ? (
+                    <TikTokConnectionControls />
                   ) : undefined
                 }
               />

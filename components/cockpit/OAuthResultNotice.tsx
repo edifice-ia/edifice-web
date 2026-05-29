@@ -19,6 +19,17 @@ const messages: Record<
       "Google a renvoyé un code valide. Le stockage des tokens reste désactivé.",
     className: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
   },
+  tiktok_success: {
+    title: "Connexion TikTok Sandbox réussie",
+    description:
+      "TikTok a renvoyé un token valide, stocké uniquement côté serveur.",
+    className: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
+  },
+  tiktok_error: {
+    title: "Erreur OAuth TikTok",
+    description: "La connexion TikTok Sandbox n'a pas pu être finalisée.",
+    className: "border-[#ef4444]/40 bg-[#ef4444]/10 text-[#fecaca]",
+  },
   refused: {
     title: "Connexion refusée",
     description: "La connexion Meta a été annulée ou refusée.",
@@ -51,16 +62,20 @@ export function OAuthResultNotice({
   status,
   connected,
 }: OAuthResultNoticeProps) {
-  if (provider !== "meta" && provider !== "youtube") {
+  if (provider !== "meta" && provider !== "youtube" && provider !== "tiktok") {
     return null;
   }
 
   const key =
-    connected === "1" && provider === "youtube"
-      ? "youtube_success"
-      : connected === "1" && provider === "meta"
-        ? "meta_success"
-        : status;
+    connected === "1" && provider === "tiktok"
+      ? "tiktok_success"
+      : connected === "0" && provider === "tiktok"
+        ? "tiktok_error"
+        : connected === "1" && provider === "youtube"
+          ? "youtube_success"
+          : connected === "1" && provider === "meta"
+            ? "meta_success"
+            : status;
 
   if (!key || !messages[key]) {
     return null;

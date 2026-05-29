@@ -55,9 +55,9 @@ export async function POST(request: Request) {
 
   try {
     const context = await buildProjectContext();
-    console.info("[Global Assistant] context loaded");
+    console.info("[Global Assistant] project context loaded");
 
-    return NextResponse.json(globalAssistant({ message, mode, context }));
+    return NextResponse.json(await globalAssistant({ message, mode, context }));
   } catch {
     return NextResponse.json(
       { error: "Assistant global indisponible." },

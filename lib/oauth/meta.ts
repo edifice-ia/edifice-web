@@ -15,21 +15,26 @@ export const META_INSTAGRAM_GRAPH_SCOPES = [
   "pages_show_list",
   "pages_read_engagement",
   "instagram_basic",
-  "instagram_business_basic",
-  "business_management",
 ];
+
+export const META_BUSINESS_MANAGEMENT_SCOPES = ["business_management"];
 
 export function isMetaInstagramScopesEnabled() {
   return true;
 }
 
 export function getActiveMetaScopes() {
-  return [...META_MINIMAL_SCOPES, ...META_INSTAGRAM_GRAPH_SCOPES];
+  return [
+    ...META_MINIMAL_SCOPES,
+    ...META_INSTAGRAM_GRAPH_SCOPES,
+    ...META_BUSINESS_MANAGEMENT_SCOPES,
+  ];
 }
 
 export const META_SCOPES = [
   ...META_MINIMAL_SCOPES,
   ...META_INSTAGRAM_GRAPH_SCOPES,
+  ...META_BUSINESS_MANAGEMENT_SCOPES,
 ];
 
 export const META_REQUIRED_ENV = [

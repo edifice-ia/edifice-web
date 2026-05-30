@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
 import { ModuleGrid } from "@/components/cockpit/ModuleGrid";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
+import { TikTokConnectionControls } from "@/components/cockpit/TikTokConnectionControls";
 import type { CockpitModule } from "@/types/cockpit";
 
 export const metadata: Metadata = {
@@ -43,6 +44,16 @@ export default function ShortsPublisherPage() {
       />
       <SectionContainer>
         <ModuleGrid modules={shortNetworks} />
+      </SectionContainer>
+
+      <SectionContainer className="mt-6">
+        <CockpitHeader
+          eyebrow="TikTok Sandbox"
+          title="Test upload Sandbox"
+          description="Envoie une video de test vers TikTok Sandbox avec le token stocke cote serveur. Aucun token, refresh token ou client secret n'est affiche."
+          status="Review"
+        />
+        <TikTokConnectionControls />
       </SectionContainer>
     </div>
   );

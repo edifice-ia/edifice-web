@@ -38,6 +38,12 @@ export default function YoutubePublisherPage() {
             title="Upload non branche"
             description="Cette zone recevra selection de fichiers, brouillons, validation humaine, puis publication controlee."
           />
+          <a
+            href="/youtube-upload-test"
+            className="mt-5 inline-flex rounded-md border border-[#38BDF8]/50 bg-[#38BDF8]/10 px-4 py-2 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#111D2E] hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+          >
+            Test upload YouTube
+          </a>
         </SectionContainer>
         <LogPanel logs={logs} />
       </div>

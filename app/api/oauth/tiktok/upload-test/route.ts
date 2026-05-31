@@ -80,6 +80,17 @@ async function initUpload(options: {
   });
   const payload = (await response.json()) as TikTokUploadInitPayload;
 
+  console.info("[TikTok Init]", {
+    status: response.status,
+    body: payload,
+    upload_url: payload.data?.upload_url ?? null,
+    publish_id: payload.data?.publish_id ?? null,
+    error: {
+      code: payload.error?.code ?? null,
+      message: payload.error?.message ?? null,
+    },
+  });
+
   if (!response.ok || payload.error?.code || !payload.data?.publish_id) {
     return {
       ok: false as const,

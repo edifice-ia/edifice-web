@@ -91,13 +91,28 @@ async function initUpload(options: {
     },
   });
 
-  if (!response.ok || payload.error?.code || !payload.data?.publish_id) {
+  if (
+    !response.ok ||
+    !payload.data?.publish_id ||
+    !payload.data?.upload_url ||
+    payload.error?.code !== "ok"
+  ) {
     return {
       ok: false as const,
       status: response.status,
       payload,
     };
   }
+
+  console.info("[TikTok Init Success]", {
+    status: response.status,
+    upload_url: payload.data.upload_url,
+    publish_id: payload.data.publish_id,
+    error: {
+      code: payload.error.code,
+      message: payload.error.message ?? null,
+    },
+  });
 
   return {
     ok: true as const,

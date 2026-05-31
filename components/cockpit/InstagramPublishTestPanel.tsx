@@ -19,6 +19,10 @@ type StatusPayload = {
     expected: string[];
     granted: string[];
     missing: string[];
+    isValid?: boolean | null;
+    expiresAt?: string | null;
+    source?: "debug_token" | "stored_scope";
+    error?: { code?: string | number; message?: string } | null;
   };
   logs: string[];
   error?: unknown;
@@ -38,6 +42,10 @@ type PublishPayload = {
     expected: string[];
     granted: string[];
     missing: string[];
+    isValid?: boolean | null;
+    expiresAt?: string | null;
+    source?: "debug_token" | "stored_scope";
+    error?: { code?: string | number; message?: string } | null;
   };
   error?: unknown;
 };
@@ -89,6 +97,10 @@ export function InstagramPublishTestPanel() {
           expected: [],
           granted: [],
           missing: [],
+          isValid: null,
+          expiresAt: null,
+          source: "debug_token",
+          error: null,
         },
         logs: ["Erreur reseau cote interface. Aucun secret expose."],
       });
@@ -276,11 +288,27 @@ function InfoLine({
 function ScopesPanel({
   scopes,
 }: {
-  scopes: { expected: string[]; granted: string[]; missing: string[] };
+  scopes: {
+    expected: string[];
+    granted: string[];
+    missing: string[];
+    isValid?: boolean | null;
+    expiresAt?: string | null;
+    source?: "debug_token" | "stored_scope";
+    error?: { code?: string | number; message?: string } | null;
+  };
 }) {
   return (
     <div className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
       <p className="font-semibold text-[#F8FAFC]">Scopes informatifs</p>
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
+        <InfoLine label="Verification" value={scopes.source ?? "non"} />
+        <InfoLine label="Token valide" value={scopes.isValid ?? "non"} />
+        <InfoLine
+          label="Expiration Debug Token"
+          value={scopes.expiresAt ?? "non"}
+        />
+      </div>
       <p className="mt-2 text-xs uppercase tracking-[0.14em] text-[#64748b]">
         attendus
       </p>
@@ -293,6 +321,17 @@ function ScopesPanel({
         manquants
       </p>
       <p className="mt-1 break-words">{scopes.missing.join(", ") || "aucun"}</p>
+      {scopes.error ? (
+        <p className="mt-3 rounded-md border border-[#f59e0b]/30 bg-[#f59e0b]/10 px-3 py-2 text-[#fbbf24]">
+          Debug Token indisponible: {scopes.error.message ?? scopes.error.code}
+        </p>
+      ) : null}
+      {scopes.missing.includes("instagram_content_publish") ? (
+        <p className="mt-3 rounded-md border border-[#f59e0b]/30 bg-[#f59e0b]/10 px-3 py-2 text-[#fbbf24]">
+          Reconnecte Meta apres avoir ajoute instagram_content_publish dans
+          l&apos;URL OAuth.
+        </p>
+      ) : null}
     </div>
   );
 }

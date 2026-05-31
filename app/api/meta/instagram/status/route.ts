@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getActiveMetaScopes } from "@/lib/oauth/meta";
+import { getMetaTokenScopeDiagnostic } from "@/lib/server/meta/debug-token";
 import { getOAuthToken } from "@/lib/server/oauth/token-store";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -60,10 +60,6 @@ function sanitizeGraphError(value: unknown): unknown {
   );
 }
 
-function splitScopes(scope: string | null) {
-  return scope?.split(/[\s,]+/).filter(Boolean) ?? [];
-}
-
 function toPageDiagnostic(page: MetaPageAccount) {
   return {
     id: page.id ?? null,
@@ -85,11 +81,6 @@ export async function GET() {
   const graphVersion = getGraphVersion();
   const token = await getOAuthToken("meta");
   const tokenPresent = Boolean(token?.accessToken);
-  const grantedScopes = splitScopes(token?.scope ?? null);
-  const expectedScopes = getActiveMetaScopes();
-  const missingScopes = expectedScopes.filter(
-    (scope) => !grantedScopes.includes(scope),
-  );
   const logs = [
     "Token Meta lu cote serveur.",
     "Aucun token ni secret expose dans la reponse.",
@@ -110,9 +101,13 @@ export async function GET() {
         instagramBusinessId: null,
         instagramUsername: null,
         scopes: {
-          expected: expectedScopes,
-          granted: grantedScopes,
-          missing: missingScopes,
+          expected: [],
+          granted: [],
+          missing: [],
+          isValid: null,
+          expiresAt: null,
+          source: "debug_token",
+          error: null,
         },
         logs,
         error: {
@@ -123,6 +118,11 @@ export async function GET() {
       { status: 401 },
     );
   }
+
+  const scopeDiagnostic = await getMetaTokenScopeDiagnostic({
+    userAccessToken: token.accessToken,
+    storedScope: token.scope,
+  });
 
   const accountsUrl = new URL(
     `https://graph.facebook.com/${graphVersion}/me/accounts`,
@@ -164,11 +164,7 @@ export async function GET() {
           instagramBusinessAccountFound: false,
           instagramBusinessId: null,
           instagramUsername: null,
-          scopes: {
-            expected: expectedScopes,
-            granted: grantedScopes,
-            missing: missingScopes,
-          },
+          scopes: scopeDiagnostic,
           logs: [...logs, "Appel Graph API effectue."],
           error: sanitizeGraphError(
             payload.error ?? {
@@ -184,7 +180,11 @@ export async function GET() {
     console.info("[Instagram Publish Test] config ok", {
       pagesCount: pages.length,
       instagramBusinessAccountFound: Boolean(pageWithInstagram),
-      scopePublishPresent: grantedScopes.includes("instagram_content_publish"),
+      scopePublishPresent: scopeDiagnostic.granted.includes(
+        "instagram_content_publish",
+      ),
+      scopeSource: scopeDiagnostic.source,
+      tokenValid: scopeDiagnostic.isValid,
     });
 
     return NextResponse.json({
@@ -203,12 +203,12 @@ export async function GET() {
       instagramUsername:
         pageWithInstagram?.instagram_business_account?.username ?? null,
       pages: pages.map(toPageDiagnostic),
-      scopes: {
-        expected: expectedScopes,
-        granted: grantedScopes,
-        missing: missingScopes,
-      },
-      logs: [...logs, "Configuration Instagram lue via Graph API."],
+      scopes: scopeDiagnostic,
+      logs: [
+        ...logs,
+        "Configuration Instagram lue via Graph API.",
+        "Scopes reels verifies via Meta Debug Token si disponible.",
+      ],
     });
   } catch (error) {
     return NextResponse.json(
@@ -225,11 +225,7 @@ export async function GET() {
         instagramBusinessAccountFound: false,
         instagramBusinessId: null,
         instagramUsername: null,
-        scopes: {
-          expected: expectedScopes,
-          granted: grantedScopes,
-          missing: missingScopes,
-        },
+        scopes: scopeDiagnostic,
         logs,
         error: {
           code: "request_error",

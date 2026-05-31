@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getActiveMetaScopes } from "@/lib/oauth/meta";
+import { getMetaTokenScopeDiagnostic } from "@/lib/server/meta/debug-token";
 import { getOAuthToken } from "@/lib/server/oauth/token-store";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -65,10 +65,6 @@ function getPublicAppUrl() {
 
 function getTestVideoUrl() {
   return `${getPublicAppUrl()}/${TEST_VIDEO_FILENAME}`;
-}
-
-function splitScopes(scope: string | null) {
-  return scope?.split(/[\s,]+/).filter(Boolean) ?? [];
 }
 
 function sanitizeGraphError(value: unknown): unknown {
@@ -378,23 +374,22 @@ export async function POST() {
     );
   }
 
-  const grantedScopes = splitScopes(token.scope);
+  const scopeDiagnostic = await getMetaTokenScopeDiagnostic({
+    userAccessToken: token.accessToken,
+    storedScope: token.scope,
+  });
 
-  if (!grantedScopes.includes("instagram_content_publish")) {
+  if (!scopeDiagnostic.granted.includes("instagram_content_publish")) {
     return NextResponse.json(
       {
         ok: false,
         status: "missing_scope",
         logs,
-        scopes: {
-          expected: getActiveMetaScopes(),
-          granted: grantedScopes,
-          missing: ["instagram_content_publish"],
-        },
+        scopes: scopeDiagnostic,
         error: {
           code: "missing_instagram_content_publish",
           message:
-            "Reconnecte Meta pour obtenir le scope instagram_content_publish.",
+            "Reconnecte Meta apres avoir ajoute instagram_content_publish dans l'URL OAuth.",
         },
       },
       { status: 409 },
@@ -533,6 +528,7 @@ export async function POST() {
       instagramBusinessId: accountResult.instagramBusinessId,
       instagramUsername: accountResult.instagramUsername,
       caption: TEST_CAPTION,
+      scopes: scopeDiagnostic,
       logs: [...logs, "Publication test Instagram terminee."],
     });
   } catch (error) {

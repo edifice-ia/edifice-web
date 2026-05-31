@@ -8,8 +8,8 @@ export const runtime = "nodejs";
 
 const TEST_VIDEO_FILENAME = "tiktok-sandbox-test.mp4";
 const TEST_CAPTION = "Test Instagram Publish depuis L’Édifice IA.";
-const POLL_ATTEMPTS = 8;
-const POLL_DELAY_MS = 3000;
+const POLL_ATTEMPTS = 24;
+const POLL_DELAY_MS = 5000;
 
 type MetaGraphError = {
   message?: string;
@@ -266,6 +266,7 @@ async function waitForContainerFinished(options: {
 
     console.info("[Instagram Publish Test] container status", {
       attempt,
+      maxAttempts: POLL_ATTEMPTS,
       statusCode: statusResult.statusCode,
       status: statusResult.status,
     });
@@ -296,9 +297,10 @@ async function waitForContainerFinished(options: {
   return {
     ok: false as const,
     status: 409,
+    statusCode: "IN_PROGRESS",
     error: {
       code: "container_not_ready",
-      message: "Container Instagram non pret apres polling limite.",
+      message: "Container Instagram encore en traitement apres 120 secondes.",
     },
   };
 }
@@ -489,14 +491,25 @@ export async function POST() {
         {
           ok: false,
           status: "container_not_ready",
+          containerStatusCode:
+            "statusCode" in readyResult ? readyResult.statusCode : "ERROR",
           creationId: containerResult.creationId,
           videoUrl,
-          logs: [...logs, "Container cree mais non pret pour publication."],
+          logs: [
+            ...logs,
+            "Container cree.",
+            "Traitement Instagram en cours...",
+            "Container non pret pour publication apres 120 secondes.",
+          ],
           error: readyResult.error,
         },
         { status: readyResult.status },
       );
     }
+
+    console.info("[Instagram Publish Test] container status FINISHED", {
+      creationId: containerResult.creationId,
+    });
 
     const publishResult = await publishMedia({
       graphVersion,
@@ -528,8 +541,15 @@ export async function POST() {
       instagramBusinessId: accountResult.instagramBusinessId,
       instagramUsername: accountResult.instagramUsername,
       caption: TEST_CAPTION,
+      containerStatusCode: readyResult.statusCode,
       scopes: scopeDiagnostic,
-      logs: [...logs, "Publication test Instagram terminee."],
+      logs: [
+        ...logs,
+        "Container cree.",
+        "Traitement Instagram en cours...",
+        "Publication du Reel...",
+        "Publication reussie.",
+      ],
     });
   } catch (error) {
     return NextResponse.json(

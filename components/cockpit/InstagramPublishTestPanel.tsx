@@ -31,6 +31,7 @@ type StatusPayload = {
 type PublishPayload = {
   ok: boolean;
   status: string;
+  containerStatusCode?: "IN_PROGRESS" | "FINISHED" | "ERROR" | string;
   creationId?: string;
   mediaId?: string;
   videoUrl?: string;
@@ -246,6 +247,10 @@ function PublishPanel({ payload }: { payload: PublishPayload }) {
       <div className="mt-4 grid gap-2 md:grid-cols-2">
         <InfoLine label="Succes" value={payload.ok} />
         <InfoLine label="Statut" value={payload.status} />
+        <InfoLine
+          label="Statut container"
+          value={payload.containerStatusCode ?? "non"}
+        />
         <InfoLine label="Creation ID" value={payload.creationId ?? "non"} />
         <InfoLine label="Media ID" value={payload.mediaId ?? "non"} />
         <InfoLine
@@ -260,6 +265,7 @@ function PublishPanel({ payload }: { payload: PublishPayload }) {
         <InfoLine label="Legende" value={payload.caption ?? "non"} />
       </div>
       {payload.scopes ? <ScopesPanel scopes={payload.scopes} /> : null}
+      <PublicationSteps payload={payload} />
       <LogsPanel logs={payload.logs ?? []} />
       {payload.error ? <SafeJson title="Message Graph API" value={payload.error} /> : null}
     </div>
@@ -281,6 +287,49 @@ function InfoLine({
       <p className="mt-1 break-words font-semibold text-[#F8FAFC]">
         {typeof value === "boolean" ? (value ? "oui" : "non") : value ?? "non"}
       </p>
+    </div>
+  );
+}
+
+function PublicationSteps({ payload }: { payload: PublishPayload }) {
+  const containerCreated = Boolean(payload.creationId);
+  const inProgress =
+    payload.containerStatusCode === "IN_PROGRESS" ||
+    payload.status === "container_not_ready" ||
+    containerCreated;
+  const publishing =
+    payload.containerStatusCode === "FINISHED" ||
+    payload.status === "publish_failed" ||
+    payload.ok;
+  const published = payload.ok && Boolean(payload.mediaId);
+
+  return (
+    <div className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
+      <p className="font-semibold text-[#F8FAFC]">Progression</p>
+      <div className="mt-3 grid gap-2">
+        <StepLine active={containerCreated} label="Container cree" />
+        <StepLine
+          active={inProgress}
+          label="Traitement Instagram en cours..."
+        />
+        <StepLine active={publishing} label="Publication du Reel..." />
+        <StepLine active={published} label="Publication reussie" />
+      </div>
+    </div>
+  );
+}
+
+function StepLine({ active, label }: { active: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span
+        className={`h-2.5 w-2.5 rounded-full ${
+          active ? "bg-[#39E6D0]" : "bg-[#1D2A44]"
+        }`}
+      />
+      <span className={active ? "text-[#F8FAFC]" : "text-[#64748b]"}>
+        {label}
+      </span>
     </div>
   );
 }

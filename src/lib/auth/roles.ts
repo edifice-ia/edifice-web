@@ -2,8 +2,14 @@ import type { User } from "@supabase/supabase-js";
 
 export type UserRole = "admin" | "reviewer" | "user";
 
-const ADMIN_EMAILS = new Set(["contact.edificeia@gmail.com"]);
-const REVIEWER_EMAILS = new Set(["reviewer@edificeia.com"]);
+export const REVIEWER_EMAIL = "reviewer@edificeia.com";
+export const REVIEWER_SANDBOX_PATH = "/tiktok-sandbox-test";
+
+const ADMIN_EMAILS = new Set([
+  "contact@edificeia.com",
+  "contact.edificeia@gmail.com",
+]);
+const REVIEWER_EMAILS = new Set([REVIEWER_EMAIL]);
 
 function readRoleMetadata(user: User | null | undefined) {
   const metadataRole =

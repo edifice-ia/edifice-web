@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
-import { canAccessPrivateCockpit, isReviewerUser } from "./roles";
+import {
+  REVIEWER_SANDBOX_PATH,
+  canAccessPrivateCockpit,
+  isReviewerUser,
+} from "./roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export async function requirePrivateCockpitAccess() {
@@ -10,7 +14,21 @@ export async function requirePrivateCockpitAccess() {
   }
 
   if (isReviewerUser(user) || !canAccessPrivateCockpit(user)) {
-    redirect("/demo?limited=1");
+    redirect(REVIEWER_SANDBOX_PATH);
+  }
+
+  return user;
+}
+
+export async function requireReviewerSandboxAccess() {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (!isReviewerUser(user)) {
+    redirect("/interface");
   }
 
   return user;

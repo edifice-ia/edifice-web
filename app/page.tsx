@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { LogoMark } from "./components/LogoMark";
-import { isReviewerUser } from "@/src/lib/auth/roles";
+import { REVIEWER_SANDBOX_PATH, isReviewerUser } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const pillars = [
@@ -62,10 +62,10 @@ export default async function Home() {
             <div className="mt-8 flex flex-wrap gap-3">
               {user ? (
                 <Link
-                  href={isReviewer ? "/demo" : "/interface"}
+                  href={isReviewer ? REVIEWER_SANDBOX_PATH : "/interface"}
                   className="rounded-md bg-[#38BDF8] px-5 py-3 text-sm font-semibold text-[#070B12] transition hover:bg-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
-                  {isReviewer ? "Ouvrir la démo" : "Ouvrir l'interface"}
+                  {isReviewer ? "Ouvrir la demo TikTok" : "Ouvrir l'interface"}
                 </Link>
               ) : (
                 <Link
@@ -207,10 +207,16 @@ export default async function Home() {
             interne.
           </p>
           <Link
-            href={user ? (isReviewer ? "/demo" : "/interface") : "/login"}
+            href={
+              user ? (isReviewer ? REVIEWER_SANDBOX_PATH : "/interface") : "/login"
+            }
             className="mt-6 inline-flex rounded-md bg-[#38BDF8] px-5 py-3 text-sm font-semibold text-[#070B12] transition hover:bg-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
           >
-            {user ? (isReviewer ? "Ouvrir la démo" : "Ouvrir l'interface") : "Connexion"}
+            {user
+              ? isReviewer
+                ? "Ouvrir la demo TikTok"
+                : "Ouvrir l'interface"
+              : "Connexion"}
           </Link>
         </div>
       </section>

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { LogoMark } from "../components/LogoMark";
-import { isReviewerUser } from "@/src/lib/auth/roles";
+import { REVIEWER_SANDBOX_PATH, isReviewerUser } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 import { LoginForm } from "./LoginForm";
 
@@ -15,7 +15,7 @@ export default async function LoginPage() {
 
   if (user) {
     if (isReviewerUser(user)) {
-      redirect("/demo");
+      redirect(REVIEWER_SANDBOX_PATH);
     }
 
     redirect("/dashboard");

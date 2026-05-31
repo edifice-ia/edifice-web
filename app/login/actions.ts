@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { isReviewerUser } from "@/src/lib/auth/roles";
+import { REVIEWER_SANDBOX_PATH, isReviewerUser } from "@/src/lib/auth/roles";
 import { createClient } from "@/src/lib/supabase/server";
 
 export type LoginState = {
@@ -138,7 +138,7 @@ export async function login(
     error = result.error;
 
     if (result.data.user && isReviewerUser(result.data.user)) {
-      redirectTarget = "/demo";
+      redirectTarget = REVIEWER_SANDBOX_PATH;
     }
   } catch (caughtError) {
     error = caughtError;

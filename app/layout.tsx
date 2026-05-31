@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { LogoMark } from "./components/LogoMark";
 import { logout } from "./login/actions";
-import { isReviewerUser } from "@/src/lib/auth/roles";
+import { REVIEWER_SANDBOX_PATH, isReviewerUser } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 import "./globals.css";
 
@@ -65,10 +65,10 @@ export default async function RootLayout({
                 {user ? (
                   <>
                     <Link
-                      href={isReviewer ? "/demo" : "/interface"}
+                      href={isReviewer ? REVIEWER_SANDBOX_PATH : "/interface"}
                       className="rounded-md border border-[#223149] px-3 py-2 font-semibold text-[#7DD3FC] transition hover:bg-[#111D2E] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                     >
-                      {isReviewer ? "Démo" : "Interface"}
+                      {isReviewer ? "Demo TikTok" : "Interface"}
                     </Link>
                     <form action={logout}>
                       <button

@@ -69,5 +69,10 @@ export function buildOAuthStartUrl(
     url.searchParams.delete("client_id");
   }
 
+  if (provider.key === "youtube") {
+    url.searchParams.set("access_type", "offline");
+    url.searchParams.set("prompt", "consent");
+  }
+
   return url.toString();
 }

@@ -46,15 +46,20 @@ export default function ShortsPublisherPage() {
       <SectionContainer>
         <ModuleGrid modules={shortNetworks} />
         <div className="mt-4 rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
-            Instagram
-          </p>
-          <a
-            href="/instagram-publish-test"
-            className="mt-3 inline-flex rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#111D2E] hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-          >
-            Test publication Instagram
-          </a>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href="/instagram-publish-test"
+              className="inline-flex rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#111D2E] hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              Test publication Instagram
+            </a>
+            <a
+              href="/youtube-upload-test"
+              className="inline-flex rounded-md border border-[#38BDF8]/50 bg-[#38BDF8]/10 px-4 py-2 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#111D2E] hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              Test upload YouTube
+            </a>
+          </div>
         </div>
       </SectionContainer>
 

@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { OAuthResultNotice } from "@/components/cockpit/OAuthResultNotice";
+import { PlatformStatusBadge } from "@/components/cockpit/PlatformStatusBadge";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { StatusBadge } from "@/components/cockpit/StatusBadge";
 import { readCockpitState } from "@/lib/server/cockpit/read-only-state";
 import { logout } from "../login/actions";
 import { requirePrivateCockpitAccess } from "@/src/lib/auth/guards";
 import type {
-  CockpitOAuthState,
   CockpitReadOnlyState,
-  CockpitStatus,
+  PlatformStatusCode,
 } from "@/types/cockpit";
 
 export const metadata: Metadata = {
@@ -19,92 +19,18 @@ export const metadata: Metadata = {
 
 type PlatformCard = {
   name: string;
-  status: CockpitStatus;
+  status: PlatformStatusCode;
   summary: string;
   details: string[];
 };
 
-function getOAuthStatus(
-  state: CockpitReadOnlyState,
-  provider: string,
-): CockpitOAuthState | null {
-  return (
-    state.oauthStatuses.find((status) => status.provider === provider) ?? null
-  );
-}
-
-function hasExternalReview(state: CockpitReadOnlyState, name: string) {
-  const normalized = name.toLowerCase();
-
-  return state.externalReviews.some((review) =>
-    review.name.toLowerCase().includes(normalized),
-  );
-}
-
 function platformCards(state: CockpitReadOnlyState): PlatformCard[] {
-  const tiktok = getOAuthStatus(state, "tiktok");
-  const pinterest = getOAuthStatus(state, "pinterest");
-  const meta = getOAuthStatus(state, "meta");
-  const youtube = getOAuthStatus(state, "youtube");
-
-  return [
-    {
-      name: "TikTok",
-      status: hasExternalReview(state, "TikTok") ? "Review" : "En cours",
-      summary: hasExternalReview(state, "TikTok")
-        ? "Sandbox lisible, review produit en attente."
-        : "Connexion TikTok a verifier.",
-      details: [
-        `OAuth: ${tiktok?.configured ? "configure" : "incomplet"}`,
-        `Token: ${tiktok?.tokenPresent ? "present" : "absent"}`,
-        "Sandbox fonctionnel: suivi en lecture seule",
-        hasExternalReview(state, "TikTok")
-          ? "Review en attente"
-          : "Review externe non signalee",
-      ],
-    },
-    {
-      name: "Pinterest",
-      status: "Review",
-      summary: "Review externe en attente avant activation.",
-      details: [
-        `OAuth: ${pinterest?.configured ? "configure" : "incomplet"}`,
-        `Token: ${pinterest?.tokenPresent ? "present" : "absent"}`,
-        "Publication automatique bloquee",
-        "Review en attente",
-      ],
-    },
-    {
-      name: "Instagram / Meta",
-      status: meta?.tokenPresent ? "Operationnel" : "En cours",
-      summary: meta?.tokenPresent
-        ? "Meta connecte, publication a garder controlee."
-        : "Connexion Meta a finaliser avant publication controlee.",
-      details: [
-        `OAuth Meta: ${meta?.configured ? "configure" : "incomplet"}`,
-        `Token: ${meta?.tokenPresent ? "present" : "absent"}`,
-        meta?.tokenPresent
-          ? "Publication validee: a confirmer dans le test controle"
-          : "Publication validee: non detectee",
-        "Aucune publication depuis ce dashboard",
-      ],
-    },
-    {
-      name: "YouTube",
-      status: youtube?.tokenPresent ? "Operationnel" : "En cours",
-      summary: youtube?.tokenPresent
-        ? "YouTube connecte, upload prive a garder controle."
-        : "Connexion YouTube a verifier.",
-      details: [
-        `OAuth: ${youtube?.configured ? "configure" : "incomplet"}`,
-        `Token: ${youtube?.tokenPresent ? "present" : "absent"}`,
-        youtube?.tokenPresent
-          ? "Upload prive valide: a verifier dans le test controle"
-          : "Upload prive valide: non detecte",
-        "Publication publique non activee",
-      ],
-    },
-  ];
+  return state.platformStatuses.map((platform) => ({
+    name: platform.name,
+    status: platform.status,
+    summary: platform.summary,
+    details: [platform.label, ...platform.details],
+  }));
 }
 
 function buildRecommendations(state: CockpitReadOnlyState) {
@@ -247,7 +173,7 @@ export default async function DashboardPage({
                         {card.summary}
                       </p>
                     </div>
-                    <StatusBadge status={card.status} />
+                    <PlatformStatusBadge status={card.status} />
                   </div>
                   <div className="mt-4 grid gap-2">
                     {card.details.map((detail) => (

@@ -1,4 +1,5 @@
 import type { CockpitReadOnlyState } from "@/types/cockpit";
+import { PlatformStatusBadge } from "./PlatformStatusBadge";
 import { SectionContainer } from "./SectionContainer";
 
 function ListBlock({
@@ -75,15 +76,28 @@ export function CockpitStatePanel({
           empty="Aucun brouillon ready_to_publish."
         />
         <ListBlock
-          title="OAuth"
-          items={state.oauthStatuses.map(
-            (status) =>
-              `${status.provider}: ${
-                status.configured ? "configure" : "incomplet"
-              }, token ${status.tokenPresent ? "present" : "absent"}`,
+          title="Plateformes"
+          items={state.platformStatuses.map(
+            (platform) => `${platform.name}: ${platform.label}`,
           )}
-          empty="Aucun statut OAuth lisible."
+          empty="Aucun statut plateforme lisible."
         />
+        <div className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7DD3FC]">
+            Badges plateformes
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {state.platformStatuses.map((platform) => (
+              <span
+                key={platform.key}
+                className="inline-flex items-center gap-2 rounded-md border border-[#1D2A44] bg-[#03070B] px-2.5 py-2 text-xs text-[#A7B0C0]"
+              >
+                {platform.name}
+                <PlatformStatusBadge status={platform.status} />
+              </span>
+            ))}
+          </div>
+        </div>
         <ListBlock
           title="Modules en migration"
           items={state.modules.migrating.map(

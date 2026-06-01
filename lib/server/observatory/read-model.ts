@@ -7,31 +7,19 @@ import {
   projectMemoryForAssistant,
 } from "@/lib/cockpit/observatory";
 import {
-  getMetaOAuthStatusPayload,
-  getPinterestOAuthStatusPayload,
-  getTikTokOAuthStatusPayload,
-  getYouTubeOAuthStatusPayload,
-} from "@/lib/server/oauth/status-payloads";
+  getCanonicalPlatformStatuses,
+  platformStatusToCockpitStatus,
+} from "@/lib/cockpit/platform-status";
 import {
   getPriorityProjectMemoryAction,
   readProjectMemoryEntries,
 } from "@/lib/server/project-memory";
 import { readCockpitState } from "@/lib/server/cockpit/read-only-state";
-import { findProjectResourceByName } from "@/lib/resources/project-resources";
 import type {
+  CockpitPlatformState,
   CockpitStatus,
   ObservatoryItem,
 } from "@/types/cockpit";
-
-type OAuthStatusPayload = {
-  configured?: boolean;
-  token?: {
-    present?: boolean;
-    expiresAt?: string | null;
-    updatedAt?: string | null;
-  };
-  warnings?: string[];
-};
 
 type PublicationTableProbe = {
   table: string;
@@ -68,68 +56,6 @@ function getSupabaseReadClient() {
       persistSession: false,
     },
   });
-}
-
-function statusFromOAuth(payload: OAuthStatusPayload): CockpitStatus {
-  if (payload.token?.present && payload.configured) {
-    return "Operationnel";
-  }
-
-  if (payload.token?.present) {
-    return "Review";
-  }
-
-  if (payload.configured) {
-    return "En cours";
-  }
-
-  return "Bloque";
-}
-
-function describeOAuth(payload: OAuthStatusPayload) {
-  const tokenState = payload.token?.present
-    ? "token present"
-    : "token absent";
-  const configState = payload.configured
-    ? "configuration presente"
-    : "configuration incomplete";
-  const updatedAt = payload.token?.updatedAt
-    ? `Derniere mise a jour: ${payload.token.updatedAt}.`
-    : "Aucune date de token disponible.";
-
-  return `${configState}, ${tokenState}. ${updatedAt}`;
-}
-
-async function readOAuthStatuses() {
-  const readers = {
-    youtube: getYouTubeOAuthStatusPayload,
-    tiktok: getTikTokOAuthStatusPayload,
-    meta: getMetaOAuthStatusPayload,
-    pinterest: getPinterestOAuthStatusPayload,
-  };
-
-  const entries = await Promise.all(
-    Object.entries(readers).map(async ([provider, reader]) => {
-      try {
-        return [provider, await reader()] as const;
-      } catch (error) {
-        return [
-          provider,
-          {
-            configured: false,
-            token: { present: false },
-            warnings: [
-              error instanceof Error
-                ? error.message
-                : "Lecture OAuth indisponible.",
-            ],
-          },
-        ] as const;
-      }
-    }),
-  );
-
-  return Object.fromEntries(entries) as Record<string, OAuthStatusPayload>;
 }
 
 async function readPublicationTables(): Promise<PublicationTableProbe[]> {
@@ -218,44 +144,24 @@ function readVercelStatus() {
 
 function mergeOAuthItem(
   item: ObservatoryItem,
-  payload: OAuthStatusPayload | undefined,
+  platform: CockpitPlatformState | undefined,
 ): ObservatoryItem {
-  const resource = findProjectResourceByName(item.name);
-  const blockedByExternalReview = Boolean(resource?.blockedByExternalReview);
-
-  if (!payload) {
-    return {
-      ...item,
-      blockedByExternalReview:
-        item.blockedByExternalReview ?? blockedByExternalReview,
-      externalReviewNote: item.externalReviewNote ?? resource?.note,
-    };
+  if (!platform) {
+    return item;
   }
-
-  const warnings = payload.warnings?.length
-    ? ` Alertes: ${payload.warnings.join(" | ")}`
-    : "";
+  const blockedByExternalReview = platform.status === "REVIEW_PENDING";
 
   return {
     ...item,
-    status: blockedByExternalReview ? "Review" : statusFromOAuth(payload),
-    source: "Statuts des connexions + OAuth Tokens Supabase",
-    detail: blockedByExternalReview
-      ? `${describeOAuth(payload)} En attente externe: ${resource?.note ?? item.externalReviewNote}.${warnings}`
-      : `${describeOAuth(payload)}${warnings}`,
-    summary: payload.token?.present
-      ? "Connexion lue depuis le stockage OAuth, sans exposer le token."
-      : blockedByExternalReview
-        ? "Lien outil accessible, module projet en attente de review externe."
-        : "Connexion non confirmee par le stockage OAuth.",
+    status: platformStatusToCockpitStatus(platform.status),
+    source: platform.source,
+    detail: platform.details.join(" "),
+    summary: platform.summary,
     nextAction: blockedByExternalReview
-      ? resource?.note ?? item.nextAction
-      : payload.token?.present
-      ? "Surveiller l'expiration et garder la validation humaine active."
-      : "Finaliser la connexion OAuth depuis l'ecran Connexions, sans publier.",
-    blockedByExternalReview:
-      item.blockedByExternalReview ?? blockedByExternalReview,
-    externalReviewNote: item.externalReviewNote ?? resource?.note,
+      ? "Attendre la review externe et conserver le suivi en lecture seule."
+      : "Garder les tests controles et la validation humaine active.",
+    blockedByExternalReview,
+    externalReviewNote: blockedByExternalReview ? platform.summary : undefined,
   };
 }
 
@@ -294,13 +200,11 @@ function mergeAgentItem(
 
 export async function getLiveProjectMemory() {
   const [
-    oauthStatuses,
     publicationTables,
     supabaseHealth,
     projectMemoryEntriesResult,
     cockpitState,
   ] = await Promise.all([
-    readOAuthStatuses(),
     readPublicationTables(),
     readSupabaseHealth(),
     readProjectMemoryEntries()
@@ -315,6 +219,7 @@ export async function getLiveProjectMemory() {
     readCockpitState(),
   ]);
   const vercelStatus = readVercelStatus();
+  const platformStatuses = getCanonicalPlatformStatuses();
 
   const items = observatoryItems.map((item) => {
     if (item.area === "OAuth") {
@@ -325,13 +230,20 @@ export async function getLiveProjectMemory() {
             ? "tiktok"
             : item.name === "Meta"
               ? "meta"
+              : item.name === "Facebook"
+                ? "facebook"
               : item.name === "Instagram"
-                ? "meta"
+                ? "instagram"
                 : item.name === "Pinterest"
                   ? "pinterest"
                   : undefined;
 
-      return mergeOAuthItem(item, providerKey ? oauthStatuses[providerKey] : undefined);
+      return mergeOAuthItem(
+        item,
+        providerKey
+          ? platformStatuses.find((platform) => platform.key === providerKey)
+          : undefined,
+      );
     }
 
     if (item.area === "Agents") {

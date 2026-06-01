@@ -59,7 +59,7 @@ export async function getMetaOAuthStatusPayload() {
   const token = await getOAuthTokenStatus("meta");
 
   return buildOAuthStatusFromProvider(provider, {
-    mode: "review",
+    mode: "production",
     callbackPath: "/api/oauth/meta/callback",
     scopes: getActiveMetaScopes(),
     tokenPresent: token.present,
@@ -79,13 +79,13 @@ export async function getPinterestOAuthStatusPayload() {
   const token = await getOAuthTokenStatus("pinterest");
 
   return buildOAuthStatusFromProvider(provider, {
-    mode: "disabled",
+    mode: "review",
     callbackPath: "/api/oauth/pinterest/callback",
     tokenPresent: token.present,
     tokenStorageEnabled: token.storageEnabled,
     expiresAt: token.expiresAt,
     updatedAt: token.updatedAt,
-    extraWarnings: ["Connexion Pinterest desactivee pour le moment."],
+    extraWarnings: ["Pinterest en review externe; aucune publication automatique."],
   });
 }
 
@@ -96,7 +96,7 @@ export function getInstagramGraphStatusPayload(options?: {
 }) {
   return buildProviderOAuthStatus({
     provider: "instagram",
-    mode: "review",
+    mode: "production",
     env: {
       clientId: "INSTAGRAM_BUSINESS_ACCOUNT_ID",
       clientSecret: "INSTAGRAM_ACCESS_TOKEN",
@@ -107,7 +107,7 @@ export function getInstagramGraphStatusPayload(options?: {
     tokenPresent: options?.tokenPresent ?? false,
     tokenStorageEnabled: false,
     extraWarnings: [
-      "Instagram Graph depend de Meta OAuth.",
+      "Instagram Graph connecte via Meta OAuth.",
       ...(options?.businessAccountIdPresent === false
         ? ["INSTAGRAM_BUSINESS_ACCOUNT_ID absent"]
         : []),

@@ -289,6 +289,9 @@ export async function buildProjectContext(): Promise<ProjectContext> {
   const siteSummary = [
     `${items.length} modules Observatoire suivis.`,
     `${operationalModules.length} operationnel(s), ${blockedModules.length} bloque(s) actionnable(s), ${reviewModules.length} en review, ${externalReviewModules.length} en attente externe, ${migratingModules.length} en migration.`,
+    `Plateformes: ${cockpitState.platformStatuses
+      .map((platform) => `${platform.name} ${platform.label}`)
+      .join(" ; ")}.`,
     `${cockpitState.contentDrafts.total} brouillon(s) content_drafts lus: ${readyDraftCount} pret(s) a publier, ${inProgressDraftCount} en cours.`,
     `${cockpitModulesInMigration.length} module(s) cockpit existant(s) encore en migration: ${listNames(cockpitModulesInMigration)}.`,
     `${liveMemory.projectMemoryEntries.length} entree(s) project_memory lue(s).`,

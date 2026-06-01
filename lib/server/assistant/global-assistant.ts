@@ -124,11 +124,10 @@ function formatDraftSummary(context: ProjectContext) {
 
 function getPlatformState(context: ProjectContext, provider: string) {
   const normalizedProvider = provider.toLowerCase();
-  const oauth = context.cockpitState.oauthStatuses.find(
-    (status) => status.provider === normalizedProvider,
-  );
-  const externalReview = context.cockpitState.externalReviews.find((review) =>
-    review.name.toLowerCase().includes(normalizedProvider),
+  const platform = context.cockpitState.platformStatuses.find(
+    (status) =>
+      status.key === normalizedProvider ||
+      status.name.toLowerCase().includes(normalizedProvider),
   );
   const dependency = context.cockpitState.dependencies.find((item) =>
     item.name.toLowerCase().includes(normalizedProvider),
@@ -136,32 +135,30 @@ function getPlatformState(context: ProjectContext, provider: string) {
 
   return {
     provider: normalizedProvider,
-    oauth,
-    externalReview,
+    platform,
     dependency,
-    ready: Boolean(oauth?.configured && oauth.tokenPresent && !externalReview),
+    ready: platform?.status === "CONNECTED",
   };
 }
 
 function formatPlatformReadiness(context: ProjectContext, provider: string) {
   const state = getPlatformState(context, provider);
+  const platform = state.platform;
 
   return [
-    `${provider}: ${state.ready ? "pret pour tests controles" : "pas pret pour automation"}.`,
-    `OAuth: ${state.oauth?.configured ? "configure" : "incomplet"}.`,
-    `Token: ${state.oauth?.tokenPresent ? "present" : "absent"}.`,
-    state.externalReview
-      ? `Review externe: ${state.externalReview.note}`
-      : "Review externe: aucune attente explicite detectee.",
-    state.oauth?.warnings.length
-      ? `Alertes: ${state.oauth.warnings.join(" | ")}`
-      : "Alertes: aucune alerte OAuth lue.",
+    `${platform?.name ?? provider}: ${
+      state.ready ? "connecte et fonctionnel" : platform?.label ?? "etat non confirme"
+    }.`,
+    `Statut cockpit: ${platform?.status ?? "ERROR"}.`,
+    platform?.details.length
+      ? `Details: ${platform.details.join(" ; ")}`
+      : "Details: aucune information lisible.",
     state.ready
       ? "Prochaine etape: test controle avec validation humaine, sans publication automatique."
       : `Ce qui manque: ${
-          state.externalReview?.note ??
+          platform?.summary ??
           state.dependency?.note ??
-          "finaliser la configuration OAuth et relire l'Observatoire."
+          "relire l'Observatoire."
         }`,
   ].join("\n");
 }
@@ -207,19 +204,8 @@ function isSteeringQuestion(normalized: string) {
 }
 
 function summarizePlatformStatus(context: ProjectContext) {
-  return context.cockpitState.oauthStatuses
-    .map((status) => {
-      const review = context.cockpitState.externalReviews.find((item) =>
-        item.name.toLowerCase().includes(status.provider),
-      );
-      const state = status.configured && status.tokenPresent
-        ? "connecte"
-        : status.configured
-          ? "configure sans token confirme"
-          : "incomplet";
-
-      return `${status.provider}: ${review ? "review en attente" : state}`;
-    })
+  return context.cockpitState.platformStatuses
+    .map((platform) => `${platform.name}: ${platform.label}`)
     .join(" ; ");
 }
 
@@ -397,13 +383,8 @@ function buildProjectAnswer(message: string, context: ProjectContext) {
       "Etat operationnel de L'Edifice:",
       context.projectSummary,
       `Brouillons: ${context.cockpitState.contentDrafts.total} lus, ${context.cockpitState.contentDrafts.readyToPublish.length} prets a publier, ${context.cockpitState.contentDrafts.inProgress.length} en cours.`,
-      `OAuth: ${context.cockpitState.oauthStatuses
-        .map(
-          (status) =>
-            `${status.provider} ${status.configured ? "configure" : "incomplet"} / token ${
-              status.tokenPresent ? "present" : "absent"
-            }`,
-        )
+      `Plateformes: ${context.cockpitState.platformStatuses
+        .map((platform) => `${platform.name} ${platform.label}`)
         .join(" ; ")}.`,
       `Blocages: ${context.cockpitState.blockers.length ? context.cockpitState.blockers.slice(0, 4).join(" ; ") : "aucun blocage dur detecte"}.`,
       `Prochaines etapes: ${context.actionablePriorities
@@ -575,6 +556,7 @@ function buildSafeContextForLLM(context: ProjectContext) {
     })),
     cockpitState: {
       contentDrafts: context.cockpitState.contentDrafts,
+      platformStatuses: context.cockpitState.platformStatuses,
       oauthStatuses: context.cockpitState.oauthStatuses,
       modules: {
         available: context.cockpitState.modules.available.map((module) => ({
@@ -662,7 +644,7 @@ async function generateOpenAIAnswer(input: GlobalAssistantInput) {
     "Reponds en francais, de facon concrete. Si la question demande une priorisation, donne 1 a 3 actions numerotees avec une justification courte.",
     "Pour chaque recommandation, indique: action recommandee, raison, dependance eventuelle, faisable maintenant oui/non.",
     "Pour les questions sur les brouillons, utilise contentDrafts.byStatus, readyToPublish, inProgress et recent.",
-    "Pour les questions sur TikTok/Pinterest/Instagram/Meta/YouTube, utilise oauthStatuses, externalReviews, dependencies et blockers.",
+    "Pour les questions sur TikTok/Pinterest/Instagram/Meta/Facebook/YouTube, utilise d'abord platformStatuses, puis dependencies et blockers.",
     "Pour les questions de pilotage (ou en est le projet, que faire maintenant, prochaine etape, blocage, prioriser), reponds avec une structure sobre: Point de depart, Objectif, Plan, Action recommandee, Suivi.",
     "Ne nomme pas POPAM sauf si l'utilisateur le demande explicitement.",
     "Ne confonds jamais lien accessible et module projet operationnel.",
@@ -727,6 +709,13 @@ function buildResponseContext(context: ProjectContext) {
         configured: status.configured,
         tokenPresent: status.tokenPresent,
         warnings: status.warnings,
+      })),
+      platformStatuses: context.cockpitState.platformStatuses.map((platform) => ({
+        key: platform.key,
+        name: platform.name,
+        status: platform.status,
+        label: platform.label,
+        summary: platform.summary,
       })),
       modulesAvailable: context.cockpitState.modules.available.map(
         (module) => module.title,

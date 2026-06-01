@@ -2,6 +2,10 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 import { cockpitModules, publisherModules } from "@/lib/cockpit/modules";
+import {
+  getCanonicalPlatformStatuses,
+  isPlatformInReview,
+} from "@/lib/cockpit/platform-status";
 import { projectResources } from "@/lib/resources/project-resources";
 import {
   getMetaOAuthStatusPayload,
@@ -35,6 +39,15 @@ type OAuthStatusPayload = {
   };
   warnings?: string[];
 };
+
+const platformResourceNames = [
+  "Meta Developers",
+  "Facebook Developers",
+  "Pinterest Developers",
+  "TikTok for Developers",
+  "Meta Business Suite",
+  "YouTube Studio",
+];
 
 function getSupabaseReadClient() {
   const supabaseUrl =
@@ -111,9 +124,7 @@ async function readContentDraftState() {
       .filter((draft) => draft.status === "ready_to_publish")
       .slice(0, 12),
     inProgress: drafts
-      .filter((draft) =>
-        ["draft", "approved"].includes(draft.status),
-      )
+      .filter((draft) => ["draft", "approved"].includes(draft.status))
       .slice(0, 12),
     recent: drafts.slice(0, 8),
     byStatus,
@@ -132,7 +143,7 @@ async function readOAuthState(): Promise<CockpitOAuthState[]> {
   return Promise.all(
     readers.map(async ([provider, reader]) => {
       try {
-        const payload = await reader() as OAuthStatusPayload;
+        const payload = (await reader()) as OAuthStatusPayload;
 
         return {
           provider,
@@ -176,43 +187,52 @@ function readModulesState() {
 }
 
 function readExternalReviews(): CockpitDependency[] {
-  return projectResources
-    .filter((resource) => resource.blockedByExternalReview)
-    .map((resource) => ({
-      name: resource.name,
-      status: resource.projectStatus,
-      note: resource.note,
+  return getCanonicalPlatformStatuses()
+    .filter(isPlatformInReview)
+    .map((platform) => ({
+      name: platform.name,
+      status: platform.status,
+      note: platform.summary,
     }));
 }
 
 function readDependencies(): CockpitDependency[] {
-  return projectResources
-    .filter((resource) =>
-      ["review", "externe", "à configurer", "Ã  configurer", "bloqué", "bloquÃ©"].includes(
-        resource.projectStatus,
-      ),
-    )
+  const platformDependencies = getCanonicalPlatformStatuses().map((platform) => ({
+    name: platform.name,
+    status: platform.status,
+    note: platform.summary,
+  }));
+  const resourceDependencies = projectResources
+    .filter((resource) => {
+      const isCanonicalPlatformResource = platformResourceNames.includes(
+        resource.name,
+      );
+
+      return (
+        !isCanonicalPlatformResource &&
+        ["externe", "a configurer", "bloque"].includes(
+          resource.projectStatus
+            .normalize("NFD")
+            .replace(/\p{Diacritic}/gu, "")
+            .toLowerCase(),
+        )
+      );
+    })
     .map((resource) => ({
       name: resource.name,
       status: resource.projectStatus,
       note: resource.note,
     }));
+
+  return [...platformDependencies, ...resourceDependencies];
 }
 
 function buildBlockers(options: {
   drafts: Awaited<ReturnType<typeof readContentDraftState>>;
-  oauth: CockpitOAuthState[];
   externalReviews: CockpitDependency[];
 }) {
   return [
     ...(options.drafts.readError ? [options.drafts.readError] : []),
-    ...options.oauth
-      .filter((status) => !status.configured || status.warnings.length > 0)
-      .map((status) =>
-        `${status.provider}: ${
-          status.configured ? "configuration a surveiller" : "configuration incomplete"
-        }${status.warnings.length ? ` (${status.warnings.join(" | ")})` : ""}`,
-      ),
     ...options.externalReviews.map(
       (review) => `${review.name}: review externe en attente.`,
     ),
@@ -235,7 +255,7 @@ function buildNextActions(options: {
       ? ["Prioriser les modules en migration sans ouvrir de publication automatique."]
       : []),
     ...(options.blockers.length > 0
-      ? ["Lever ou documenter les blocages visibles dans l'Observatoire."]
+      ? ["Documenter les reviews externes visibles dans l'Observatoire."]
       : []),
   ].slice(0, 6);
 }
@@ -246,11 +266,11 @@ export async function readCockpitState(): Promise<CockpitReadOnlyState> {
     readOAuthState(),
   ]);
   const modules = readModulesState();
+  const platformStatuses = getCanonicalPlatformStatuses();
   const externalReviews = readExternalReviews();
   const dependencies = readDependencies();
   const blockers = buildBlockers({
     drafts: contentDrafts,
-    oauth: oauthStatuses,
     externalReviews,
   });
   const nextActions = buildNextActions({
@@ -263,6 +283,7 @@ export async function readCockpitState(): Promise<CockpitReadOnlyState> {
     generatedAt: new Date().toISOString(),
     contentDrafts,
     oauthStatuses,
+    platformStatuses,
     modules,
     externalReviews,
     dependencies,

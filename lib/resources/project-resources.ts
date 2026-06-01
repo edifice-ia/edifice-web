@@ -97,9 +97,8 @@ export const projectResources: ProjectResource[] = [
     category: "Reseaux sociaux / developpeurs",
     description: "Applications Meta, permissions, webhooks et Graph API.",
     linkStatus: "accessible",
-    projectStatus: "review",
-    note: "Permissions et review Meta a suivre sans publication automatique.",
-    blockedByExternalReview: true,
+    projectStatus: "actif",
+    note: "Meta connecte et fonctionnel; aucune publication automatique.",
   },
   {
     name: "Facebook Developers",
@@ -107,9 +106,8 @@ export const projectResources: ProjectResource[] = [
     category: "Reseaux sociaux / developpeurs",
     description: "Acces direct aux apps Facebook et parametres developpeur.",
     linkStatus: "accessible",
-    projectStatus: "review",
-    note: "App Facebook accessible, statut projet depend des validations Meta.",
-    blockedByExternalReview: true,
+    projectStatus: "actif",
+    note: "Facebook connecte et fonctionnel via Meta; aucune publication automatique.",
   },
   {
     name: "Meta Business Suite",

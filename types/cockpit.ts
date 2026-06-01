@@ -121,6 +121,24 @@ export type CockpitOAuthState = {
   warnings: string[];
 };
 
+export type PlatformStatusCode =
+  | "CONNECTED"
+  | "REVIEW_PENDING"
+  | "SANDBOX"
+  | "DISABLED"
+  | "ERROR";
+
+export type CockpitPlatformState = {
+  key: string;
+  name: string;
+  status: PlatformStatusCode;
+  label: string;
+  summary: string;
+  details: string[];
+  source: string;
+  updatedAt: string | null;
+};
+
 export type CockpitDependency = {
   name: string;
   status: string;
@@ -138,6 +156,7 @@ export type CockpitReadOnlyState = {
     readError: string | null;
   };
   oauthStatuses: CockpitOAuthState[];
+  platformStatuses: CockpitPlatformState[];
   modules: {
     available: CockpitModule[];
     migrating: CockpitModule[];

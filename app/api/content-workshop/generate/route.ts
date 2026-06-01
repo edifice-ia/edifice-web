@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  generateContentDraft,
+  generateContentDraftVariants,
   sanitizeContentWorkshopInput,
-  saveContentDraft,
 } from "@/lib/server/content-workshop";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -29,14 +28,9 @@ export async function POST(request: Request) {
 
   try {
     const input = sanitizeContentWorkshopInput(payload);
-    const draft = await generateContentDraft(input);
-    const savedDraft = await saveContentDraft({
-      input,
-      draft,
-      userId: user.id,
-    });
+    const variants = await generateContentDraftVariants(input);
 
-    return NextResponse.json({ draft: savedDraft }, { status: 201 });
+    return NextResponse.json({ variants }, { status: 200 });
   } catch (error) {
     return NextResponse.json(
       {

@@ -47,6 +47,26 @@ export type ContentDraft = {
   };
 };
 
+export type ContentDraftVariant = {
+  id: string;
+  title: string;
+  hook: string;
+  script: string;
+  caption: string;
+  hashtags: string[];
+  mainEmotion: string;
+  mainAngle: string;
+  visualPrompts: string[];
+  visualPrompt: string;
+  voiceStyle: string;
+  score: {
+    emotionalImpact: number;
+    clarity: number;
+    shareability: number;
+    total: number;
+  };
+};
+
 export type SavedContentDraft = ContentDraft & {
   id: string;
   createdAt: string;
@@ -381,22 +401,71 @@ function clampScore(value: unknown) {
   return Number.isFinite(score) ? Math.max(0, Math.min(10, score)) : 0;
 }
 
-function buildVisualPrompt(theme: string, stage: string, angle: string) {
+function fallbackVisualScene(
+  input: ContentWorkshopInput,
+  angle: string,
+  emotion: string,
+  index: number,
+) {
+  const stage = visualStages[index] ?? `scene ${index + 1}`;
+
   return [
-    `${stage} about ${theme}`,
-    angle,
-    "dark cinematic faceless scene",
-    "precise emotional storytelling",
-    "realistic human posture",
-    "psychological tension",
-    "moody atmosphere",
-    "dramatic shadows",
-    "realistic lighting",
-    "vertical 9:16",
+    `Scene ${index + 1}: ${stage} about ${input.theme}`,
+    `main subject expressing ${emotion}`,
+    `setting connected to ${angle}`,
+    "dark cinematic atmosphere",
+    "soft dramatic light",
+    "vertical 9:16 framing",
+    "coherent visual style",
     "no text",
     "no logo",
     "no watermark",
   ].join(", ");
+}
+
+function normalizeVisualPromptScenes(
+  value: unknown,
+  input: ContentWorkshopInput,
+  angle: string,
+  emotion: string,
+) {
+  const rawScenes = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value
+          .split(/(?:\n\s*){2,}|Scene\s+\d+\s*:?/i)
+          .map((scene) => scene.trim())
+          .filter(Boolean)
+      : [];
+  const scenes = rawScenes
+    .map((scene, index) => {
+      const normalized = normalizeText(scene, 520);
+      if (!normalized) {
+        return null;
+      }
+
+      return /^Scene\s+\d+/i.test(normalized)
+        ? normalized
+        : `Scene ${index + 1}: ${normalized}`;
+    })
+    .filter((scene): scene is string => Boolean(scene))
+    .slice(0, 7);
+
+  while (scenes.length < 7) {
+    scenes.push(fallbackVisualScene(input, angle, emotion, scenes.length));
+  }
+
+  return scenes;
+}
+
+function formatVisualPromptScenes(scenes: string[]) {
+  return scenes
+    .slice(0, 7)
+    .map((scene, index) => {
+      const cleaned = scene.replace(/^Scene\s+\d+\s*:?\s*/i, "").trim();
+      return `Scene ${index + 1}\n${cleaned}`;
+    })
+    .join("\n\n");
 }
 
 function limitScriptToWords(script: string, maxWords: number) {
@@ -439,102 +508,141 @@ function normalizeScriptVariant(
   return limitScriptToWords(raw, scriptTargets[format].maxWords);
 }
 
-function getGeneratedScript(data: Record<string, unknown>) {
-  return typeof data.script === "string" && data.script.trim()
-    ? data.script.trim()
-    : null;
-}
-
-function normalizeDraft(data: Record<string, unknown>, input: ContentWorkshopInput) {
-  const score = data.score && typeof data.score === "object"
-    ? data.score as Record<string, unknown>
+function normalizeVariantScore(value: unknown) {
+  const score = value && typeof value === "object"
+    ? value as Record<string, unknown>
     : {};
-  const hashtags = normalizeHashtags(data.hashtags);
-  const angle =
-    normalizeText(data.angle, 220) ??
-    input.angle ??
-    "Une verite emotionnelle simple, humaine et difficile a regarder.";
-  const fallbackVisuals = visualStages.map((stage) =>
-    buildVisualPrompt(input.theme, stage, angle),
+  const emotionalImpact = clampScore(
+    score.emotional_impact ?? score.emotionalImpact ?? score.emotion,
   );
-  const legacyScript = getGeneratedScript(data);
-  const fallbackScript = [
-    "Tu peux faire semblant longtemps.",
-    "Mais ton calme finit par raconter ce que tes mots evitent.",
-    "Le vrai changement commence souvent au moment ou tu arretes de negocier avec l'evidence.",
-  ].join("\n");
-  const scriptUltraShort = normalizeScriptVariant(
-    data.script_ultra_short,
-    legacyScript ?? fallbackScript,
-    "ultra_short",
+  const clarity = clampScore(score.clarity ?? score.clarte);
+  const shareability = clampScore(
+    score.shareability ?? score.partageabilite ?? score.shareability_score,
   );
-  const scriptShort = normalizeScriptVariant(
-    data.script_short,
-    legacyScript ?? scriptUltraShort,
-    "short",
+  const values = [emotionalImpact, clarity, shareability].map((item) =>
+    item > 0 ? item : 7,
   );
-  const scriptMedium = normalizeScriptVariant(
-    data.script_medium,
-    legacyScript ?? scriptShort,
-    "medium",
-  );
-  const scriptLong = normalizeScriptVariant(
-    data.script_long,
-    legacyScript ?? scriptMedium,
-    "long",
-  );
-  const requestedScript = {
-    ultra_short: scriptUltraShort,
-    short: scriptShort,
-    medium: scriptMedium,
-    long: scriptLong,
-  }[input.format];
-  const recommendedScript = normalizeScriptVariant(
-    data.recommended_script,
-    requestedScript,
-    input.format,
+  const total = Number(
+    (values.reduce((sum, item) => sum + item, 0) / values.length).toFixed(1),
   );
 
   return {
-    concept:
-      normalizeText(data.concept, 500) ??
-      `${input.theme}: transformer une tension interieure en brouillon court.`,
+    emotionalImpact: values[0],
+    clarity: values[1],
+    shareability: values[2],
+    total,
+  };
+}
+
+function normalizeGeneratedVariant(
+  value: unknown,
+  input: ContentWorkshopInput,
+  index: number,
+) {
+  const data = value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {};
+  const mainAngle =
+    normalizeText(data.main_angle ?? data.mainAngle ?? data.angle, 240) ??
+    input.angle ??
+    "Transformer une tension interieure en clarification simple.";
+  const mainEmotion =
+    normalizeText(data.main_emotion ?? data.mainEmotion ?? data.emotion, 80) ??
+    input.emotion ??
+    "Lucidite calme";
+  const script = normalizeScriptVariant(
+    data.script,
+    [
+      "Ce que tu gardes en silence finit par changer ta posture.",
+      "Pas parce que tu deviens froid.",
+      "Mais parce que tu redeviens clair.",
+    ].join("\n"),
+    input.format,
+  );
+  const visualPrompts = normalizeVisualPromptScenes(
+    data.visual_prompts ?? data.visualPrompts ?? data.visual_prompt,
+    input,
+    mainAngle,
+    mainEmotion,
+  );
+
+  return {
+    id: normalizeText(data.id, 60) ?? `variant-${index + 1}`,
+    title: normalizeText(data.title, 120) ?? `${input.theme} ${index + 1}`,
     hook:
       normalizeText(data.hook, 240) ??
       "Ce que tu refuses de regarder finit toujours par parler plus fort.",
-    script: recommendedScript,
-    scriptUltraShort,
-    scriptShort,
-    scriptMedium,
-    scriptLong,
-    recommendedScript,
-    title: normalizeText(data.title, 90) ?? input.theme,
+    script,
     caption:
-      normalizeText(data.caption, 150) ??
-      normalizeText(data.description, 150) ??
+      normalizeText(data.caption, 500) ??
       "Certaines verites deviennent legeres quand on arrete de les fuir.",
-    hashtags,
-    visualPrompt:
-      normalizeText(data.visualPrompt, 900) ??
-      normalizeText(data.visual_prompt, 900) ??
-      fallbackVisuals[0],
-    angle,
+    hashtags: normalizeHashtags(data.hashtags),
+    mainEmotion,
+    mainAngle,
+    visualPrompts,
+    visualPrompt: formatVisualPromptScenes(visualPrompts),
     voiceStyle:
-      normalizeText(data.voiceStyle, 160) ??
-      normalizeText(data.voice_style, 160) ??
-      "Voix calme, grave, intime, rythme lent et tension contenue.",
+      normalizeText(data.voice_style ?? data.voiceStyle, 240) ??
+      "Voix calme, grave, intime, rythme oral, tension contenue.",
+    score: normalizeVariantScore(data.score),
+  } satisfies ContentDraftVariant;
+}
+
+function normalizeVariantList(payload: Record<string, unknown>, input: ContentWorkshopInput) {
+  const rawVariants = Array.isArray(payload.variants)
+    ? payload.variants
+    : Array.isArray(payload.drafts)
+      ? payload.drafts
+      : [];
+  const variants = rawVariants
+    .slice(0, 3)
+    .map((variant, index) => normalizeGeneratedVariant(variant, input, index));
+
+  while (variants.length < 3) {
+    variants.push(generateFallbackVariant(input, variants.length));
+  }
+
+  return variants
+    .map((variant, index) => ({ ...variant, id: `variant-${index + 1}` }))
+    .sort((a, b) => b.score.total - a.score.total);
+}
+
+export function contentDraftFromVariant(
+  input: ContentWorkshopInput,
+  variant: ContentDraftVariant,
+) {
+  return {
+    concept: `${input.theme}: ${variant.mainAngle}`,
+    hook: variant.hook,
+    script: variant.script,
+    scriptUltraShort: "",
+    scriptShort: "",
+    scriptMedium: "",
+    scriptLong: "",
+    recommendedScript: variant.script,
+    title: variant.title,
+    caption: variant.caption,
+    hashtags: variant.hashtags,
+    visualPrompt: formatVisualPromptScenes(variant.visualPrompts),
+    angle: variant.mainAngle,
+    voiceStyle: variant.voiceStyle,
     score: {
-      viral: clampScore(score.viral ?? score.viral_score),
-      hook: clampScore(score.hook ?? score.hook_score),
-      emotion: clampScore(score.emotion ?? score.emotion_score),
-      retention: clampScore(score.retention ?? score.retention_score),
-      clarity: clampScore(score.clarity ?? score.clarity_score),
-      total: clampScore(score.total ?? score.total_score),
-      reason:
-        normalizeText(score.reason, 400) ??
-        "Brouillon coherent pour valider le ton avant toute production.",
+      viral: variant.score.shareability,
+      hook: variant.score.clarity,
+      emotion: variant.score.emotionalImpact,
+      retention: variant.score.clarity,
+      clarity: variant.score.clarity,
+      total: variant.score.total,
+      reason: "Score editorial calcule avant sauvegarde, non stocke dans content_drafts.",
     },
   } satisfies ContentDraft;
+}
+
+export function sanitizeSelectedContentVariant(
+  input: ContentWorkshopInput,
+  value: unknown,
+) {
+  return normalizeGeneratedVariant(value, input, 0);
 }
 
 function buildPrompt(input: ContentWorkshopInput) {
@@ -546,28 +654,28 @@ function buildPrompt(input: ContentWorkshopInput) {
     `Plateforme: ${input.platform}`,
     `Format souhaite: ${input.format} (${scriptTargets[input.format].label})`,
     "",
-    "Genere un brouillon complet pour L'Edifice, en francais, avec 4 variantes de script avant generation media.",
+    "Genere 3 variantes de brouillon pour L'Edifice, en francais.",
     "Style: sombre, humain, psychologique, introspectif, socialement lucide.",
-    "Contraintes reprises de l'ancien atelier local:",
+    "Contraintes editoriales:",
+    "- les 3 variantes restent sur le meme sujet",
+    "- chaque variante explore un angle different et une emotion differente",
+    "- eviter les doublons de titre, hook, script et legende",
     "- hook direct et comprehensible en moins de 2 secondes",
-    "- scripts oraux avec progression: observation, tension psychologique, verite emotionnelle, phrase finale memorable",
+    "- script oral avec progression: observation, tension psychologique, verite emotionnelle, phrase finale memorable",
     "- aucun script ne doit depasser 60 secondes",
     "- phrases courtes, rythme oral, une seule idee centrale",
     "- adapte a TikTok, Instagram Reels et YouTube Shorts",
-    "- script_ultra_short: 10-15 secondes",
-    "- script_short: 20-30 secondes",
-    "- script_medium: 35-45 secondes",
-    "- script_long: 50-60 secondes maximum",
-    "- recommended_script doit reprendre la variante la plus adaptee au format souhaite",
     "- titre court, humain, non abstrait",
-    "- legende: 1 phrase maximum, 150 caracteres maximum",
+    "- legende: 1 phrase maximum, 500 caracteres maximum",
     "- exactement 5 hashtags courts et pertinents",
-    "- visual_prompt en anglais, sombre, narratif, vertical 9:16, no text, no logo, no watermark",
+    "- generer exactement 7 visual_prompts par variante, de Scene 1 a Scene 7",
+    "- chaque prompt visuel est en anglais et decrit sujet, decor, ambiance, lumiere et cadrage",
+    "- coherence entre les 7 scenes, format vertical 9:16, style coherent, no text, no logo, no watermark",
     "- aucune publication, aucun planning, aucune generation video",
     "",
     "Reponds uniquement en JSON valide avec ces cles:",
-    "{ title, angle, hook, script_ultra_short, script_short, script_medium, script_long, recommended_script, caption, hashtags, visual_prompt, voice_style, score }",
-    "score contient: viral, hook, emotion, retention, clarity, total, reason.",
+    "{ variants: [ { title, hook, script, caption, hashtags, main_emotion, main_angle, visual_prompts, voice_style, score } ] }",
+    "score contient: emotional_impact, clarity, shareability. Chaque score est sur 10.",
   ].join("\n");
 }
 
@@ -603,104 +711,99 @@ async function generateWithOpenAI(input: ContentWorkshopInput) {
   }
 
   const text = extractOpenAIText(await response.json() as OpenAIResponsePayload);
-  return normalizeDraft(extractJsonObject(text), input);
+  return normalizeVariantList(extractJsonObject(text), input);
 }
 
-function generateFallbackDraft(input: ContentWorkshopInput) {
-  const angle =
+function generateFallbackVariant(input: ContentWorkshopInput, index: number) {
+  const fallbackAngles = [
     input.angle ??
-    "Ce qu'on evite de regarder finit par devenir le vrai point de depart.";
-  const title = input.theme.length > 58 ? input.theme.slice(0, 55).trim() : input.theme;
-  const hook = `Le plus dur, ce n'est pas ${input.theme.toLowerCase()}. C'est ce que ca revele.`;
-  const visualPromptSeries = visualStages.map((stage) =>
-    buildVisualPrompt(input.theme, stage, angle),
-  );
-  const scriptUltraShort = normalizeScriptVariant(
+      "Montrer comment le calme change le rapport de force sans bruit.",
+    "Raconter le moment ou l'on cesse de convaincre et ou la posture revient.",
+    "Transformer une blessure discrete en clarification interieure.",
+  ];
+  const fallbackEmotions = [
+    input.emotion ?? "Lucidite calme",
+    "Fierte silencieuse",
+    "Detachement doux",
+  ];
+  const angle = fallbackAngles[index] ?? fallbackAngles[0];
+  const emotion = fallbackEmotions[index] ?? fallbackEmotions[0];
+  const hooks = [
+    `Le plus dur, ce n'est pas ${input.theme.toLowerCase()}. C'est ce que ca revele.`,
+    "Tu ne changes pas quand tu parles plus fort. Tu changes quand tu arretes de negocier avec l'evidence.",
+    "Il y a des silences qui ne fuient rien. Ils remettent simplement les choses a leur place.",
+  ];
+  const scripts = [
     [
-      hook,
-      "Ce detail que tu caches parle deja pour toi.",
-      "Et parfois, c'est lui qui remet tout en ordre.",
-    ].join("\n"),
-    hook,
-    "ultra_short",
-  );
-  const scriptShort = normalizeScriptVariant(
-    [
-      hook,
-      "Au debut, tu crois que c'est juste une pensee qui passe.",
-      "Puis tu remarques qu'elle revient quand tout devient silencieux.",
+      hooks[0],
+      "Au debut, tu crois que c'est juste un detail.",
+      "Puis tu remarques qu'il revient quand tout devient silencieux.",
       "Ce n'est pas un hasard.",
-      "C'est souvent la partie de toi que tu as repoussee trop longtemps.",
-    ].join("\n"),
-    scriptUltraShort,
-    "short",
-  );
-  const scriptMedium = normalizeScriptVariant(
+      "C'est souvent la partie de toi qui a compris avant tes mots.",
+    ],
     [
-      scriptShort,
-      "Tu n'as pas besoin de la dramatiser.",
-      "Tu as juste besoin de l'entendre sans te mentir.",
-      "Parce qu'une verite regardee calmement perd deja une partie de son pouvoir.",
-    ].join("\n"),
-    scriptShort,
-    "medium",
-  );
-  const scriptLong = normalizeScriptVariant(
+      hooks[1],
+      "Tu peux expliquer longtemps.",
+      "Mais certaines personnes ne respectent que ce qu'elles sentent partir.",
+      "Alors tu deviens plus simple.",
+      "Moins disponible. Plus clair.",
+    ],
     [
-      scriptMedium,
-      "C'est souvent la que le respect revient.",
-      "Pas parce que tu forces quelque chose.",
-      "Mais parce que tu redeviens clair avec toi-meme.",
-      "Et cette clarte change toute ta posture.",
-    ].join("\n"),
-    scriptMedium,
-    "long",
+      hooks[2],
+      "Tu ne cherches plus a prouver.",
+      "Tu observes.",
+      "Et dans cette distance, quelque chose se reconstruit.",
+      "Pas une durete. Une dignite.",
+    ],
+  ];
+  const script = normalizeScriptVariant(
+    (scripts[index] ?? scripts[0]).join("\n"),
+    hooks[index] ?? hooks[0],
+    input.format,
   );
-  const recommendedScript = {
-    ultra_short: scriptUltraShort,
-    short: scriptShort,
-    medium: scriptMedium,
-    long: scriptLong,
-  }[input.format];
+  const visualPrompts = normalizeVisualPromptScenes([], input, angle, emotion);
+  const score = [
+    { emotionalImpact: 8.4, clarity: 8.1, shareability: 7.8, total: 8.1 },
+    { emotionalImpact: 7.9, clarity: 8.5, shareability: 8.2, total: 8.2 },
+    { emotionalImpact: 8.2, clarity: 7.8, shareability: 7.7, total: 7.9 },
+  ][index] ?? { emotionalImpact: 7.5, clarity: 7.5, shareability: 7.5, total: 7.5 };
 
   return {
-    concept: `${input.theme}: partir d'une verite intime et la transformer en format court, clair, sans forcer la morale.`,
-    hook,
-    script: recommendedScript,
-    scriptUltraShort,
-    scriptShort,
-    scriptMedium,
-    scriptLong,
-    recommendedScript,
-    title,
+    id: `variant-${index + 1}`,
+    title: index === 0
+      ? input.theme
+      : `${input.theme} - angle ${index + 1}`,
+    hook: hooks[index] ?? hooks[0],
+    script,
     caption: "Certaines verites ne crient jamais, elles attendent juste ton silence.",
     hashtags: normalizeHashtags(["#psychologie", "#silence", "#stoicisme", "#lucidite", "#shorts"]),
-    visualPrompt: visualPromptSeries[0],
-    angle,
-    voiceStyle: "Voix calme, grave, intime, rythme lent et tension contenue.",
-    score: {
-      viral: 7,
-      hook: 7,
-      emotion: 8,
-      retention: 7,
-      clarity: 8,
-      total: 7.4,
-      reason: "Fallback local: structure claire pour valider le brouillon sans appel externe.",
-    },
-  } satisfies ContentDraft;
+    mainEmotion: emotion,
+    mainAngle: angle,
+    visualPrompts,
+    visualPrompt: formatVisualPromptScenes(visualPrompts),
+    voiceStyle: "Voix calme, grave, intime, rythme oral, tension contenue.",
+    score,
+  } satisfies ContentDraftVariant;
 }
 
 export async function generateContentDraft(input: ContentWorkshopInput) {
+  const variants = await generateContentDraftVariants(input);
+  return contentDraftFromVariant(input, variants[0]);
+}
+
+export async function generateContentDraftVariants(input: ContentWorkshopInput) {
   try {
-    const draft = await generateWithOpenAI(input);
-    if (draft) {
-      return draft;
+    const variants = await generateWithOpenAI(input);
+    if (variants) {
+      return variants;
     }
   } catch {
     // The workshop must remain usable even before the LLM key is configured.
   }
 
-  return generateFallbackDraft(input);
+  return [0, 1, 2]
+    .map((index) => generateFallbackVariant(input, index))
+    .sort((a, b) => b.score.total - a.score.total);
 }
 
 function validateContentDraftInsertPayload(
@@ -839,7 +942,7 @@ export function sanitizeContentDraftUpdateInput(input: unknown) {
     title: requireText(record.title, 120, "Le titre"),
     caption: requireText(record.caption, 500, "La legende"),
     hashtags: sanitizeHashtagList(record.hashtags),
-    visual_prompt: requireText(record.visualPrompt ?? record.visual_prompt, 1400, "Le prompt visuel"),
+    visual_prompt: requireText(record.visualPrompt ?? record.visual_prompt, 5000, "Le prompt visuel"),
     voice_style: requireText(record.voiceStyle ?? record.voice_style, 240, "Le style voix"),
     status,
     source: requireText(record.source, 120, "La source"),

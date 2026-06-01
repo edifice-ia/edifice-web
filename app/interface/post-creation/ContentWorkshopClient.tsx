@@ -38,6 +38,30 @@ type ContentDraft = {
   };
 };
 
+type GeneratedVariant = {
+  id: string;
+  title: string;
+  hook: string;
+  script: string;
+  caption: string;
+  hashtags: string[];
+  mainEmotion: string;
+  mainAngle: string;
+  visualPrompts: string[];
+  visualPrompt: string;
+  voiceStyle: string;
+  score: {
+    emotionalImpact: number;
+    clarity: number;
+    shareability: number;
+    total: number;
+  };
+};
+
+type SelectedVariantEditorState = {
+  visualPrompts: string[];
+};
+
 type ContentAsset = {
   id: string;
   createdAt: string;
@@ -250,6 +274,16 @@ function buildUpdatePayload(editor: DraftEditorState) {
   };
 }
 
+function formatVisualPromptScenes(scenes: string[]) {
+  return scenes
+    .slice(0, 7)
+    .map((scene, index) => {
+      const cleaned = scene.replace(/^Scene\s+\d+\s*:?\s*/i, "").trim();
+      return `Scene ${index + 1}\n${cleaned}`;
+    })
+    .join("\n\n");
+}
+
 function getStatusLabel(status: string) {
   return statusOptions.find((option) => option.value === status)?.label ?? status;
 }
@@ -314,6 +348,10 @@ export function ContentWorkshopClient() {
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [editor, setEditor] = useState<DraftEditorState | null>(null);
+  const [generatedVariants, setGeneratedVariants] = useState<GeneratedVariant[]>([]);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [variantEditor, setVariantEditor] =
+    useState<SelectedVariantEditorState | null>(null);
   const [assets, setAssets] = useState<ContentAsset[]>([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [error, setError] = useState<string | null>(null);
@@ -323,12 +361,28 @@ export function ContentWorkshopClient() {
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
   const [isUploadingAsset, setIsUploadingAsset] = useState(false);
+  const [isSavingVariant, setIsSavingVariant] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const selectedDraft = useMemo(
     () => drafts.find((draft) => draft.id === selectedDraftId) ?? null,
     [drafts, selectedDraftId],
+  );
+
+  const recommendedVariantId = useMemo(() => {
+    if (generatedVariants.length === 0) {
+      return null;
+    }
+
+    return generatedVariants.reduce((best, variant) =>
+      variant.score.total > best.score.total ? variant : best,
+    ).id;
+  }, [generatedVariants]);
+
+  const selectedVariant = useMemo(
+    () => generatedVariants.find((variant) => variant.id === selectedVariantId) ?? null,
+    [generatedVariants, selectedVariantId],
   );
 
   const scoreItems = useMemo(() => {
@@ -454,6 +508,9 @@ export function ContentWorkshopClient() {
   function openDraft(draft: ContentDraft) {
     setSelectedDraftId(draft.id);
     setEditor(toEditorState(draft));
+    setGeneratedVariants([]);
+    setSelectedVariantId(null);
+    setVariantEditor(null);
     setAssets([]);
     setNotice(null);
     setError(null);
@@ -528,17 +585,21 @@ export function ContentWorkshopClient() {
         }),
       });
       const payload = await response.json() as {
-        draft?: ContentDraft;
+        variants?: GeneratedVariant[];
         error?: string;
       };
 
-      if (!response.ok || !payload.draft) {
+      if (!response.ok || !payload.variants || payload.variants.length === 0) {
         throw new Error(payload.error ?? "Generation indisponible.");
       }
 
-      setDrafts((current) => [payload.draft as ContentDraft, ...current]);
-      openDraft(payload.draft);
-      setNotice("Brouillon genere et sauvegarde.");
+      setGeneratedVariants(payload.variants);
+      setSelectedVariantId(null);
+      setVariantEditor(null);
+      setSelectedDraftId(null);
+      setEditor(null);
+      setAssets([]);
+      setNotice("3 variantes generees. Choisis une variante avant sauvegarde.");
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -547,6 +608,96 @@ export function ContentWorkshopClient() {
       );
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  function handleSelectVariant(variant: GeneratedVariant) {
+    setSelectedVariantId(variant.id);
+    setVariantEditor({
+      visualPrompts:
+        variant.visualPrompts.length === 7
+          ? variant.visualPrompts
+          : Array.from({ length: 7 }, (_, index) =>
+              variant.visualPrompts[index] ?? `Scene ${index + 1}:`,
+            ),
+    });
+    setSelectedDraftId(null);
+    setEditor(null);
+    setAssets([]);
+    setNotice("Variante choisie. Les 7 prompts visuels peuvent etre ajustes avant sauvegarde.");
+    setError(null);
+  }
+
+  function updateVariantScene(index: number, value: string) {
+    setVariantEditor((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const visualPrompts = [...current.visualPrompts];
+      visualPrompts[index] = value;
+      return { visualPrompts };
+    });
+  }
+
+  async function handleSaveSelectedVariant() {
+    if (!selectedVariant || !variantEditor) {
+      return;
+    }
+
+    setIsSavingVariant(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const visualPrompts = variantEditor.visualPrompts.map((scene, index) => {
+        const trimmed = scene.trim();
+        return trimmed.length > 0 ? trimmed : `Scene ${index + 1}:`;
+      });
+      const response = await fetch("/api/content-workshop/drafts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          input: {
+            theme,
+            angle: selectedVariant.mainAngle,
+            emotion: selectedVariant.mainEmotion,
+            objective,
+            platform,
+            format,
+          },
+          variant: {
+            ...selectedVariant,
+            visualPrompts,
+            visualPrompt: formatVisualPromptScenes(visualPrompts),
+          },
+        }),
+      });
+      const payload = await response.json() as {
+        draft?: ContentDraft;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.draft) {
+        throw new Error(payload.error ?? "Sauvegarde indisponible.");
+      }
+
+      setDrafts((current) => [payload.draft as ContentDraft, ...current]);
+      setGeneratedVariants([]);
+      setSelectedVariantId(null);
+      setVariantEditor(null);
+      openDraft(payload.draft);
+      setNotice("Variante sauvegardee en brouillon Supabase.");
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Sauvegarde indisponible.",
+      );
+    } finally {
+      setIsSavingVariant(false);
     }
   }
 
@@ -716,12 +867,12 @@ export function ContentWorkshopClient() {
                 Chambre d&apos;idee
               </p>
               <h2 className="mt-3 text-2xl font-semibold text-[#F8FAFC]">
-                Generer un brouillon complet
+                Generer 3 variantes de brouillon
               </h2>
               <p className="mt-3 max-w-3xl leading-7 text-[#A7B0C0]">
-                Cette brique genere un brouillon texte et l&apos;ajoute a
-                l&apos;atelier editorial. Aucun montage, planning ou publication
-                n&apos;est lance.
+                Cette brique prepare trois options editoriales. Une seule
+                variante est choisie puis sauvegardee. Aucun montage, planning
+                ou publication n&apos;est lance.
               </p>
             </div>
             <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
@@ -836,7 +987,7 @@ export function ContentWorkshopClient() {
               disabled={isGenerating}
               className="inline-flex w-fit rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
             >
-              {isGenerating ? "Generation en cours..." : "Generer et sauvegarder"}
+              {isGenerating ? "Generation en cours..." : "Generer 3 variantes"}
             </button>
           </form>
         </SectionContainer>
@@ -871,6 +1022,153 @@ export function ContentWorkshopClient() {
             <p className="mt-5 rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-4 py-3 text-sm font-semibold text-[#39E6D0]">
               {notice}
             </p>
+          ) : null}
+
+          {generatedVariants.length > 0 ? (
+            <div className="mt-6 grid gap-6">
+              <div className="rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+                      Variantes de brouillon
+                    </p>
+                    <h3 className="mt-2 text-lg font-semibold text-[#F8FAFC]">
+                      Choisir une seule variante
+                    </h3>
+                  </div>
+                  <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
+                    Aucune sauvegarde automatique
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-4">
+                  {generatedVariants.map((variant) => {
+                    const isRecommended = variant.id === recommendedVariantId;
+                    const isSelected = variant.id === selectedVariantId;
+
+                    return (
+                      <article
+                        key={variant.id}
+                        className={`rounded-lg border p-4 transition ${
+                          isSelected
+                            ? "border-[#39E6D0]/60 bg-[#39E6D0]/10"
+                            : "border-[#1D2A44] bg-[#03070B]"
+                        }`}
+                      >
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div>
+                            {isRecommended ? (
+                              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#FACC15]">
+                                🥇 Variante recommandee
+                              </p>
+                            ) : null}
+                            <h4 className="mt-2 text-lg font-semibold text-[#F8FAFC]">
+                              {variant.title}
+                            </h4>
+                            <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+                              {variant.hook}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectVariant(variant)}
+                            className="shrink-0 rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC]"
+                          >
+                            {isSelected ? "Variante choisie" : "Utiliser cette variante"}
+                          </button>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <div className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7DD3FC]">
+                              Angle principal
+                            </p>
+                            <p className="mt-2 text-sm leading-6 text-[#F8FAFC]">
+                              {variant.mainAngle}
+                            </p>
+                          </div>
+                          <div className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-3">
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7DD3FC]">
+                              Emotion principale
+                            </p>
+                            <p className="mt-2 text-sm leading-6 text-[#F8FAFC]">
+                              {variant.mainEmotion}
+                            </p>
+                          </div>
+                        </div>
+
+                        <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#A7B0C0]">
+                          {variant.script}
+                        </p>
+                        <p className="mt-4 text-sm leading-6 text-[#F8FAFC]">
+                          {variant.caption}
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-[#7DD3FC]">
+                          {variant.hashtags.join(" ")}
+                        </p>
+
+                        <div className="mt-4 grid gap-2 sm:grid-cols-4">
+                          {[
+                            ["Impact emotionnel", variant.score.emotionalImpact],
+                            ["Clarte", variant.score.clarity],
+                            ["Partageabilite", variant.score.shareability],
+                            ["Score global", variant.score.total],
+                          ].map(([label, value]) => (
+                            <div
+                              key={label}
+                              className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm"
+                            >
+                              <p className="text-xs uppercase tracking-[0.12em] text-[#64748B]">
+                                {label}
+                              </p>
+                              <p className="mt-1 font-semibold text-[#F8FAFC]">
+                                {Number(value).toFixed(1)}/10
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {selectedVariant && variantEditor ? (
+                <div className="rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+                        Prompts visuels
+                      </p>
+                      <h3 className="mt-2 text-lg font-semibold text-[#F8FAFC]">
+                        7 scenes a preparer pour les futurs modules Images et Voix
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isSavingVariant}
+                      onClick={() => void handleSaveSelectedVariant()}
+                      className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {isSavingVariant ? "Sauvegarde..." : "Sauvegarder cette variante"}
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid gap-4">
+                    {variantEditor.visualPrompts.map((scene, index) => (
+                      <Field key={index} label={`Scene ${index + 1}`}>
+                        <TextArea
+                          value={scene}
+                          onChange={(value) => updateVariantScene(index, value)}
+                          minHeight="min-h-24"
+                          maxLength={700}
+                        />
+                      </Field>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           {editor ? (
@@ -1025,7 +1323,7 @@ export function ContentWorkshopClient() {
                     value={editor.visualPrompt}
                     onChange={(value) => updateEditor("visualPrompt", value)}
                     minHeight="min-h-40"
-                    maxLength={1400}
+                    maxLength={5000}
                   />
                 </Field>
                 <Field label="Style voix">
@@ -1155,12 +1453,12 @@ export function ContentWorkshopClient() {
                 </div>
               </div>
             </div>
-          ) : (
+          ) : generatedVariants.length === 0 ? (
             <p className="mt-6 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-4 leading-7 text-[#A7B0C0]">
               Choisis un brouillon dans la liste pour l&apos;ouvrir et le
               modifier.
             </p>
-          )}
+          ) : null}
         </SectionContainer>
       </div>
 

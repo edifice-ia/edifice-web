@@ -215,11 +215,13 @@ function TextArea({
   onChange,
   minHeight = "min-h-28",
   maxLength,
+  required = true,
 }: {
   value: string;
   onChange: (value: string) => void;
   minHeight?: string;
   maxLength?: number;
+  required?: boolean;
 }) {
   return (
     <textarea
@@ -227,7 +229,7 @@ function TextArea({
       onChange={(event) => onChange(event.target.value)}
       className={`mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm leading-6 text-[#F8FAFC] outline-none ${minHeight}`}
       maxLength={maxLength}
-      required
+      required={required}
     />
   );
 }
@@ -278,10 +280,29 @@ function formatVisualPromptScenes(scenes: string[]) {
   return scenes
     .slice(0, 7)
     .map((scene, index) => {
-      const cleaned = scene.replace(/^Scene\s+\d+\s*:?\s*/i, "").trim();
-      return `Scene ${index + 1}\n${cleaned}`;
+      const cleaned = scene
+        .replace(/^(?:Scene|Prompt)\s+\d+\s*(?:[-:])?\s*/i, "")
+        .trim();
+      return `Prompt ${index + 1}\n${cleaned}`;
     })
     .join("\n\n");
+}
+
+function parseVisualPromptScenes(value: string) {
+  const chunks = value
+    .split(/\n\s*\n(?=Prompt\s+\d+)/i)
+    .map((chunk) =>
+      chunk.replace(/^Prompt\s+\d+\s*(?:[-:])?.*\n?/i, "").trim(),
+    )
+    .filter(Boolean);
+
+  if (chunks.length >= 7) {
+    return chunks.slice(0, 7);
+  }
+
+  return Array.from({ length: 7 }, (_, index) =>
+    chunks[index] ?? (index === 0 ? value.trim() : ""),
+  );
 }
 
 function getStatusLabel(status: string) {
@@ -430,6 +451,14 @@ export function ContentWorkshopClient() {
 
     return variants.filter((variant) => variant.value.trim().length > 0);
   }, [selectedDraft]);
+
+  const editorVisualPrompts = useMemo(() => {
+    if (!editor) {
+      return [];
+    }
+
+    return parseVisualPromptScenes(editor.visualPrompt);
+  }, [editor]);
 
   async function loadDrafts(filter = statusFilter) {
     setIsLoadingDrafts(true);
@@ -618,7 +647,7 @@ export function ContentWorkshopClient() {
         variant.visualPrompts.length === 7
           ? variant.visualPrompts
           : Array.from({ length: 7 }, (_, index) =>
-              variant.visualPrompts[index] ?? `Scene ${index + 1}:`,
+              variant.visualPrompts[index] ?? `Prompt ${index + 1}:`,
             ),
     });
     setSelectedDraftId(null);
@@ -640,6 +669,16 @@ export function ContentWorkshopClient() {
     });
   }
 
+  async function handleCopyVisualPrompt(index: number, value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setNotice(`Prompt ${index + 1} copie.`);
+      setError(null);
+    } catch {
+      setError("Copie du prompt indisponible dans ce navigateur.");
+    }
+  }
+
   async function handleSaveSelectedVariant() {
     if (!selectedVariant || !variantEditor) {
       return;
@@ -652,7 +691,7 @@ export function ContentWorkshopClient() {
     try {
       const visualPrompts = variantEditor.visualPrompts.map((scene, index) => {
         const trimmed = scene.trim();
-        return trimmed.length > 0 ? trimmed : `Scene ${index + 1}:`;
+        return trimmed.length > 0 ? trimmed : `Prompt ${index + 1}:`;
       });
       const response = await fetch("/api/content-workshop/drafts", {
         method: "POST",
@@ -773,6 +812,12 @@ export function ContentWorkshopClient() {
     updateEditor("script", variant.value);
     setNotice(`${variant.label} copiee dans le champ Script.`);
     setError(null);
+  }
+
+  function updateEditorVisualPrompt(index: number, value: string) {
+    const visualPrompts = [...editorVisualPrompts];
+    visualPrompts[index] = value;
+    updateEditor("visualPrompt", formatVisualPromptScenes(visualPrompts));
   }
 
   async function handleDelete() {
@@ -1141,8 +1186,12 @@ export function ContentWorkshopClient() {
                         Prompts visuels
                       </p>
                       <h3 className="mt-2 text-lg font-semibold text-[#F8FAFC]">
-                        7 scenes a preparer pour les futurs modules Images et Voix
+                        7 prompts narratifs pour le pipeline visuel
                       </h3>
+                      <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+                        Anglais, photorealiste, vertical 9:16, meme personnage,
+                        meme decor et meme histoire. Rien ne genere d&apos;image ici.
+                      </p>
                     </div>
                     <button
                       type="button"
@@ -1156,14 +1205,29 @@ export function ContentWorkshopClient() {
 
                   <div className="mt-4 grid gap-4">
                     {variantEditor.visualPrompts.map((scene, index) => (
-                      <Field key={index} label={`Scene ${index + 1}`}>
+                      <div
+                        key={index}
+                        className="rounded-md border border-[#1D2A44] bg-[#03070B] p-3"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-[#F8FAFC]">
+                            Prompt {index + 1}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void handleCopyVisualPrompt(index, scene)}
+                            className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-xs font-semibold text-[#7DD3FC] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
+                          >
+                            Copier
+                          </button>
+                        </div>
                         <TextArea
                           value={scene}
                           onChange={(value) => updateVariantScene(index, value)}
-                          minHeight="min-h-24"
-                          maxLength={700}
+                          minHeight="min-h-40"
+                          maxLength={1800}
                         />
-                      </Field>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -1318,14 +1382,46 @@ export function ContentWorkshopClient() {
                     maxLength={240}
                   />
                 </Field>
-                <Field label="Prompt visuel">
-                  <TextArea
-                    value={editor.visualPrompt}
-                    onChange={(value) => updateEditor("visualPrompt", value)}
-                    minHeight="min-h-40"
-                    maxLength={5000}
-                  />
-                </Field>
+                <div className="rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+                    Pipeline visuel
+                  </p>
+                  <h3 className="mt-2 text-lg font-semibold text-[#F8FAFC]">
+                    Prompts sauvegardes
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+                    Ces prompts restent du texte editorial. Ils sont editables,
+                    copiables et sauvegardes dans `visual_prompt`.
+                  </p>
+                  <div className="mt-4 grid gap-4">
+                    {editorVisualPrompts.map((prompt, index) => (
+                      <div
+                        key={index}
+                        className="rounded-md border border-[#1D2A44] bg-[#03070B] p-3"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-[#F8FAFC]">
+                            Prompt {index + 1}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void handleCopyVisualPrompt(index, prompt)}
+                            className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-xs font-semibold text-[#7DD3FC] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
+                          >
+                            Copier
+                          </button>
+                        </div>
+                        <TextArea
+                          value={prompt}
+                          onChange={(value) => updateEditorVisualPrompt(index, value)}
+                          minHeight="min-h-40"
+                          maxLength={1800}
+                          required={false}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 <Field label="Style voix">
                   <TextArea
                     value={editor.voiceStyle}

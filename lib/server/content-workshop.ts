@@ -108,13 +108,48 @@ const hashtagBuckets = [
 ];
 
 const visualStages = [
-  "strong visual hook",
-  "isolated character",
-  "emotional close-up",
-  "inner tension",
-  "symbolic environment",
-  "moment of revelation",
-  "memorable final image",
+  {
+    label: "Hook visuel",
+    englishLabel: "Visual hook",
+    narrativeBeat:
+      "open with an immediately striking image that makes the viewer stop scrolling",
+  },
+  {
+    label: "Mise en situation",
+    englishLabel: "Situation setup",
+    narrativeBeat:
+      "establish the main character, the place, and the emotional context",
+  },
+  {
+    label: "Developpement",
+    englishLabel: "Development",
+    narrativeBeat:
+      "show the central situation growing with clear visual continuity",
+  },
+  {
+    label: "Tension",
+    englishLabel: "Tension",
+    narrativeBeat:
+      "increase emotional pressure without changing character, location, or style",
+  },
+  {
+    label: "Revelation",
+    englishLabel: "Revelation",
+    narrativeBeat:
+      "make the internal truth visible through a subtle photorealistic moment",
+  },
+  {
+    label: "Conclusion",
+    englishLabel: "Conclusion",
+    narrativeBeat:
+      "resolve the story with calm, dignity, and emotional clarity",
+  },
+  {
+    label: "Derniere image memorable",
+    englishLabel: "Memorable final image",
+    narrativeBeat:
+      "finish with a symbolic final frame that remains in memory",
+  },
 ];
 
 const contentFormats = [
@@ -407,20 +442,21 @@ function fallbackVisualScene(
   emotion: string,
   index: number,
 ) {
-  const stage = visualStages[index] ?? `scene ${index + 1}`;
+  const stage = visualStages[index] ?? visualStages[0];
+  const protagonist =
+    "the same solitary adult protagonist, understated dark clothing, expressive but restrained face";
+  const setting =
+    "the same quiet urban apartment at night, rain on the window, muted blue gray walls, a wooden table, one warm practical lamp";
 
   return [
-    `Scene ${index + 1}: ${stage} about ${input.theme}`,
-    `main subject expressing ${emotion}`,
-    `setting connected to ${angle}`,
-    "dark cinematic atmosphere",
-    "soft dramatic light",
-    "vertical 9:16 framing",
-    "coherent visual style",
-    "no text",
-    "no logo",
-    "no watermark",
-  ].join(", ");
+    `${stage.englishLabel}. Create a photorealistic vertical 9:16 image prompt for an AI image generator.`,
+    `It continues one coherent story about ${input.theme}, seen through ${angle}.`,
+    `Keep ${protagonist}. Keep ${setting}.`,
+    `This beat must ${stage.narrativeBeat}.`,
+    `The emotional tone is ${emotion}: contained, intimate, cinematic, human, never theatrical.`,
+    "Describe subject, environment, atmosphere, light, lens, framing, composition, and subtle body language.",
+    "Use realistic skin texture, natural proportions, cinematic shallow depth of field, soft contrast, no text, no logo, no watermark.",
+  ].join(" ");
 }
 
 function normalizeVisualPromptScenes(
@@ -433,20 +469,20 @@ function normalizeVisualPromptScenes(
     ? value
     : typeof value === "string"
       ? value
-          .split(/(?:\n\s*){2,}|Scene\s+\d+\s*:?/i)
+          .split(/(?:\n\s*){2,}|(?:Scene|Prompt)\s+\d+\s*(?:[-:])?/i)
           .map((scene) => scene.trim())
           .filter(Boolean)
       : [];
   const scenes = rawScenes
     .map((scene, index) => {
-      const normalized = normalizeText(scene, 520);
+      const normalized = normalizeText(scene, 1400);
       if (!normalized) {
         return null;
       }
 
-      return /^Scene\s+\d+/i.test(normalized)
+      return /^(?:Scene|Prompt)\s+\d+/i.test(normalized)
         ? normalized
-        : `Scene ${index + 1}: ${normalized}`;
+        : `Prompt ${index + 1}: ${normalized}`;
     })
     .filter((scene): scene is string => Boolean(scene))
     .slice(0, 7);
@@ -462,8 +498,11 @@ function formatVisualPromptScenes(scenes: string[]) {
   return scenes
     .slice(0, 7)
     .map((scene, index) => {
-      const cleaned = scene.replace(/^Scene\s+\d+\s*:?\s*/i, "").trim();
-      return `Scene ${index + 1}\n${cleaned}`;
+      const stage = visualStages[index] ?? visualStages[0];
+      const cleaned = scene
+        .replace(/^(?:Scene|Prompt)\s+\d+\s*(?:[-:])?\s*/i, "")
+        .trim();
+      return `Prompt ${index + 1} - ${stage.label}\n${cleaned}`;
     })
     .join("\n\n");
 }
@@ -668,9 +707,15 @@ function buildPrompt(input: ContentWorkshopInput) {
     "- titre court, humain, non abstrait",
     "- legende: 1 phrase maximum, 500 caracteres maximum",
     "- exactement 5 hashtags courts et pertinents",
-    "- generer exactement 7 visual_prompts par variante, de Scene 1 a Scene 7",
-    "- chaque prompt visuel est en anglais et decrit sujet, decor, ambiance, lumiere et cadrage",
-    "- coherence entre les 7 scenes, format vertical 9:16, style coherent, no text, no logo, no watermark",
+    "- generer exactement 7 visual_prompts par variante",
+    "- structure obligatoire des visual_prompts: 1 Hook visuel, 2 Mise en situation, 3 Developpement, 4 Tension, 5 Revelation, 6 Conclusion, 7 Derniere image memorable",
+    "- tous les prompts visuels racontent la meme histoire",
+    "- conserver le meme personnage principal, le meme decor et la meme coherence emotionnelle sur les 7 prompts",
+    "- chaque prompt visuel est en anglais, photorealiste, vertical 9:16, optimise generation IA",
+    "- chaque prompt visuel contient 80 a 150 mots",
+    "- chaque prompt visuel decrit sujet, decor, ambiance, lumiere, cadrage, composition et langage corporel",
+    "- aucun prompt ne declenche de generation image; texte uniquement",
+    "- no text, no logo, no watermark",
     "- aucune publication, aucun planning, aucune generation video",
     "",
     "Reponds uniquement en JSON valide avec ces cles:",
@@ -702,7 +747,7 @@ async function generateWithOpenAI(input: ContentWorkshopInput) {
         "Tu reponds uniquement en JSON valide.",
       ].join("\n"),
       input: buildPrompt(input),
-      max_output_tokens: 3600,
+      max_output_tokens: 7200,
     }),
   });
 
@@ -942,7 +987,7 @@ export function sanitizeContentDraftUpdateInput(input: unknown) {
     title: requireText(record.title, 120, "Le titre"),
     caption: requireText(record.caption, 500, "La legende"),
     hashtags: sanitizeHashtagList(record.hashtags),
-    visual_prompt: requireText(record.visualPrompt ?? record.visual_prompt, 5000, "Le prompt visuel"),
+    visual_prompt: requireText(record.visualPrompt ?? record.visual_prompt, 14000, "Le prompt visuel"),
     voice_style: requireText(record.voiceStyle ?? record.voice_style, 240, "Le style voix"),
     status,
     source: requireText(record.source, 120, "La source"),

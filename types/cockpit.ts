@@ -133,6 +133,7 @@ export type CockpitReadOnlyState = {
     total: number;
     readyToPublish: CockpitDraftState[];
     inProgress: CockpitDraftState[];
+    recent: CockpitDraftState[];
     byStatus: Record<string, number>;
     readError: string | null;
   };

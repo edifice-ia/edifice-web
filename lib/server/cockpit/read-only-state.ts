@@ -74,6 +74,7 @@ async function readContentDraftState() {
       total: 0,
       readyToPublish: [],
       inProgress: [],
+      recent: [],
       byStatus: {},
       readError: "Configuration Supabase serveur absente.",
     };
@@ -92,6 +93,7 @@ async function readContentDraftState() {
       total: 0,
       readyToPublish: [],
       inProgress: [],
+      recent: [],
       byStatus: {},
       readError: `Lecture content_drafts impossible: ${error.message}`,
     };
@@ -113,6 +115,7 @@ async function readContentDraftState() {
         ["draft", "approved"].includes(draft.status),
       )
       .slice(0, 12),
+    recent: drafts.slice(0, 8),
     byStatus,
     readError: null,
   };

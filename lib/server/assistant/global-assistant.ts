@@ -26,6 +26,7 @@ type OpenAIResponsePayload = {
 const systemPrompt = [
   "Tu es l'Assistant de L'Edifice, copilote de chantier du projet.",
   "Tu aides Vincent a prioriser, comprendre les blocages, suivre les modules et choisir la prochaine pierre a poser.",
+  "Tu lis l'etat reel du cockpit: content_drafts, statuts OAuth, reviews externes, Observatoire et memoire projet.",
   "Tu distingues toujours l'acces a un outil externe de l'etat reel du module projet associe.",
   "Un module en review externe ne doit pas etre propose comme action prioritaire immediate.",
   "Une action prioritaire doit etre faisable maintenant par Vincent.",
@@ -87,6 +88,8 @@ function formatDrafts(
     theme: string;
     status: string;
     platformTargets: string[];
+    createdAt?: string;
+    updatedAt?: string | null;
   }>,
 ) {
   if (drafts.length === 0) {
@@ -98,9 +101,67 @@ function formatDrafts(
       (draft) =>
         `${draft.title} (${draft.status}) - ${draft.theme} - plateformes: ${
           draft.platformTargets.join(", ") || "non renseignees"
-        }`,
+        }${draft.updatedAt ?? draft.createdAt ? ` - maj: ${draft.updatedAt ?? draft.createdAt}` : ""}`,
     )
     .join("\n");
+}
+
+function countDraftStatus(context: ProjectContext, status: string) {
+  return context.cockpitState.contentDrafts.byStatus[status] ?? 0;
+}
+
+function formatDraftSummary(context: ProjectContext) {
+  return [
+    `Total: ${context.cockpitState.contentDrafts.total}`,
+    `Draft: ${countDraftStatus(context, "draft")}`,
+    `Approved: ${countDraftStatus(context, "approved")}`,
+    `Ready_to_publish: ${countDraftStatus(context, "ready_to_publish")}`,
+    `Published: ${countDraftStatus(context, "published")}`,
+  ].join("\n");
+}
+
+function getPlatformState(context: ProjectContext, provider: string) {
+  const normalizedProvider = provider.toLowerCase();
+  const oauth = context.cockpitState.oauthStatuses.find(
+    (status) => status.provider === normalizedProvider,
+  );
+  const externalReview = context.cockpitState.externalReviews.find((review) =>
+    review.name.toLowerCase().includes(normalizedProvider),
+  );
+  const dependency = context.cockpitState.dependencies.find((item) =>
+    item.name.toLowerCase().includes(normalizedProvider),
+  );
+
+  return {
+    provider: normalizedProvider,
+    oauth,
+    externalReview,
+    dependency,
+    ready: Boolean(oauth?.configured && oauth.tokenPresent && !externalReview),
+  };
+}
+
+function formatPlatformReadiness(context: ProjectContext, provider: string) {
+  const state = getPlatformState(context, provider);
+
+  return [
+    `${provider}: ${state.ready ? "pret pour tests controles" : "pas pret pour automation"}.`,
+    `OAuth: ${state.oauth?.configured ? "configure" : "incomplet"}.`,
+    `Token: ${state.oauth?.tokenPresent ? "present" : "absent"}.`,
+    state.externalReview
+      ? `Review externe: ${state.externalReview.note}`
+      : "Review externe: aucune attente explicite detectee.",
+    state.oauth?.warnings.length
+      ? `Alertes: ${state.oauth.warnings.join(" | ")}`
+      : "Alertes: aucune alerte OAuth lue.",
+    state.ready
+      ? "Prochaine etape: test controle avec validation humaine, sans publication automatique."
+      : `Ce qui manque: ${
+          state.externalReview?.note ??
+          state.dependency?.note ??
+          "finaliser la configuration OAuth et relire l'Observatoire."
+        }`,
+  ].join("\n");
 }
 
 function formatDependencies(
@@ -129,13 +190,72 @@ function buildProjectAnswer(message: string, context: ProjectContext) {
   const normalized = normalizeMessage(message);
 
   if (
+    normalized.includes("tiktok") &&
+    (normalized.includes("pret") ||
+      normalized.includes("pre t") ||
+      normalized.includes("manque") ||
+      normalized.includes("etat"))
+  ) {
+    return formatPlatformReadiness(context, "tiktok");
+  }
+
+  if (
+    normalized.includes("pinterest") &&
+    (normalized.includes("pret") ||
+      normalized.includes("manque") ||
+      normalized.includes("etat"))
+  ) {
+    return formatPlatformReadiness(context, "pinterest");
+  }
+
+  if (
+    (normalized.includes("meta") || normalized.includes("instagram")) &&
+    (normalized.includes("pret") ||
+      normalized.includes("manque") ||
+      normalized.includes("etat"))
+  ) {
+    return formatPlatformReadiness(context, "meta");
+  }
+
+  if (
+    normalized.includes("youtube") &&
+    (normalized.includes("pret") ||
+      normalized.includes("manque") ||
+      normalized.includes("etat"))
+  ) {
+    return formatPlatformReadiness(context, "youtube");
+  }
+
+  if (
+    normalized.includes("combien") &&
+    (normalized.includes("brouillon") || normalized.includes("draft"))
+  ) {
+    return `Etat des brouillons content_drafts:\n\n${formatDraftSummary(context)}`;
+  }
+
+  if (
+    (normalized.includes("plus recent") ||
+      normalized.includes("plus recents") ||
+      normalized.includes("recents") ||
+      normalized.includes("derniers")) &&
+    (normalized.includes("brouillon") || normalized.includes("draft"))
+  ) {
+    return `Brouillons les plus recents:\n\n${formatDrafts(
+      context.cockpitState.contentDrafts.recent,
+    )}`;
+  }
+
+  if (
     normalized.includes("que faire") ||
     normalized.includes("peux faire") ||
     normalized.includes("quoi faire") ||
     normalized.includes("maintenant") ||
     normalized.includes("prochaine pierre")
   ) {
-    return formatPriorities(context.actionablePriorities.slice(0, 3));
+    return [
+      "Priorites classees par impact:",
+      formatPriorities(context.actionablePriorities.slice(0, 3)),
+    ].join("\n\n");
   }
 
   if (
@@ -184,6 +304,7 @@ function buildProjectAnswer(message: string, context: ProjectContext) {
     normalized.includes("projet")
   ) {
     return [
+      "Etat operationnel de L'Edifice:",
       context.projectSummary,
       `Brouillons: ${context.cockpitState.contentDrafts.total} lus, ${context.cockpitState.contentDrafts.readyToPublish.length} prets a publier, ${context.cockpitState.contentDrafts.inProgress.length} en cours.`,
       `OAuth: ${context.cockpitState.oauthStatuses
@@ -194,6 +315,11 @@ function buildProjectAnswer(message: string, context: ProjectContext) {
             }`,
         )
         .join(" ; ")}.`,
+      `Blocages: ${context.cockpitState.blockers.length ? context.cockpitState.blockers.slice(0, 4).join(" ; ") : "aucun blocage dur detecte"}.`,
+      `Prochaines etapes: ${context.actionablePriorities
+        .slice(0, 3)
+        .map((priority) => priority.action)
+        .join(" ; ")}.`,
       "Note: l'accessibilite des liens externes ne vaut pas validation du module projet.",
     ].join("\n\n");
   }
@@ -201,6 +327,8 @@ function buildProjectAnswer(message: string, context: ProjectContext) {
   if (
     normalized.includes("pret a publier") ||
     normalized.includes("prets a publier") ||
+    normalized.includes("brouillons sont prets") ||
+    normalized.includes("brouillons prets") ||
     normalized.includes("ready_to_publish")
   ) {
     return `Brouillons prets a publier, sans publication automatique:\n\n${formatDrafts(
@@ -216,6 +344,22 @@ function buildProjectAnswer(message: string, context: ProjectContext) {
     return `Brouillons en cours:\n\n${formatDrafts(
       context.cockpitState.contentDrafts.inProgress,
     )}`;
+  }
+
+  if (
+    normalized.includes("que manque") ||
+    normalized.includes("qu'est-ce qui manque") ||
+    normalized.includes("ce qui manque")
+  ) {
+    return [
+      "Ce qui manque ou bloque:",
+      context.cockpitState.blockers.length > 0
+        ? context.cockpitState.blockers.join("\n")
+        : "Aucun blocage technique dur detecte.",
+      context.cockpitState.externalReviews.length > 0
+        ? `Reviews externes:\n${formatDependencies(context.cockpitState.externalReviews)}`
+        : "Aucune review externe visible.",
+    ].join("\n\n");
   }
 
   if (
@@ -379,6 +523,17 @@ function buildSafeContextForLLM(context: ProjectContext) {
       priority: entry.priority,
       source: entry.source,
     })),
+    instructions: {
+      capabilities: [
+        "resumer l'etat du projet",
+        "classer 3 actions par impact",
+        "compter et lister les brouillons",
+        "evaluer TikTok, Pinterest, Meta/Instagram et YouTube",
+        "signaler ce qui manque",
+      ],
+      safety:
+        "lecture seule stricte: aucune publication, suppression, modification OAuth ou exposition de secrets",
+    },
   };
 }
 
@@ -414,6 +569,8 @@ async function generateOpenAIAnswer(input: GlobalAssistantInput) {
     JSON.stringify(buildSafeContextForLLM(input.context), null, 2),
     "Reponds en francais, de facon concrete. Si la question demande une priorisation, donne 1 a 3 actions numerotees avec une justification courte.",
     "Pour chaque recommandation, indique: action recommandee, raison, dependance eventuelle, faisable maintenant oui/non.",
+    "Pour les questions sur les brouillons, utilise contentDrafts.byStatus, readyToPublish, inProgress et recent.",
+    "Pour les questions sur TikTok/Pinterest/Instagram/Meta/YouTube, utilise oauthStatuses, externalReviews, dependencies et blockers.",
     "Ne confonds jamais lien accessible et module projet operationnel.",
     "Les donnees cockpit sont en lecture seule: n'annonce jamais une action d'ecriture, de suppression ou de publication.",
   ].join("\n\n");
@@ -464,6 +621,9 @@ function buildResponseContext(context: ProjectContext) {
           (draft) => draft.title,
         ),
         inProgress: context.cockpitState.contentDrafts.inProgress.map(
+          (draft) => draft.title,
+        ),
+        recent: context.cockpitState.contentDrafts.recent.map(
           (draft) => draft.title,
         ),
         byStatus: context.cockpitState.contentDrafts.byStatus,

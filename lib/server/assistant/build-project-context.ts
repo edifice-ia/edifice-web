@@ -203,6 +203,28 @@ export async function buildProjectContext(): Promise<ProjectContext> {
   );
   const actionableItems = items.filter((item) => !item.blockedByExternalReview);
   const actionablePriorities = [
+    ...(cockpitState.contentDrafts.readyToPublish.length > 0
+      ? [
+          {
+            action:
+              "Finaliser les brouillons ready_to_publish dans l'Atelier de contenu.",
+            reason: `${cockpitState.contentDrafts.readyToPublish.length} brouillon(s) sont prets et peuvent passer en validation humaine avant media.`,
+            dependency: "Validation humaine obligatoire",
+            feasibleNow: true,
+          },
+        ]
+      : []),
+    ...(cockpitState.contentDrafts.inProgress.length > 0
+      ? [
+          {
+            action:
+              "Relire et stabiliser les brouillons draft/approved avant de produire des assets.",
+            reason: `${cockpitState.contentDrafts.inProgress.length} brouillon(s) restent en cours dans content_drafts.`,
+            dependency: null,
+            feasibleNow: true,
+          },
+        ]
+      : []),
     ...(priorityMemoryEntry?.nextAction
       ? [
           {
@@ -217,7 +239,7 @@ export async function buildProjectContext(): Promise<ProjectContext> {
       ? [
           {
             action:
-              "Consolider l'Assistant global, l'Observatoire et la memoire projet pendant les reviews externes.",
+              "Documenter les reviews externes et eviter d'en faire des priorites actives.",
             reason:
               "Les modules sociaux en review externe ne sont pas des priorites immediates faisables par Vincent.",
             dependency: "Reviews externes en attente",

@@ -32,6 +32,21 @@ type ContentDraft = {
   };
 };
 
+type ContentAsset = {
+  id: string;
+  createdAt: string;
+  draftId: string;
+  assetType: "image" | "audio" | "video";
+  bucket: string;
+  storagePath: string;
+  publicUrl: string;
+  originalFilename: string | null;
+  contentType: string | null;
+  sizeBytes: number | null;
+  status: string;
+  source: string;
+};
+
 type DraftEditorState = {
   project: string;
   platformTargets: string;
@@ -182,11 +197,14 @@ export function ContentWorkshopClient() {
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [editor, setEditor] = useState<DraftEditorState | null>(null);
+  const [assets, setAssets] = useState<ContentAsset[]>([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
+  const [isLoadingAssets, setIsLoadingAssets] = useState(false);
+  const [isUploadingAsset, setIsUploadingAsset] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -235,6 +253,7 @@ export function ContentWorkshopClient() {
       if (selectedDraftId && !payload.drafts.some((draft) => draft.id === selectedDraftId)) {
         setSelectedDraftId(null);
         setEditor(null);
+        setAssets([]);
       }
     } catch (caughtError) {
       setError(
@@ -256,11 +275,40 @@ export function ContentWorkshopClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function loadAssets(draftId: string) {
+    setIsLoadingAssets(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/content-workshop/drafts/${draftId}/assets`);
+      const payload = await response.json() as {
+        assets?: ContentAsset[];
+        error?: string;
+      };
+
+      if (!response.ok || !payload.assets) {
+        throw new Error(payload.error ?? "Lecture des assets indisponible.");
+      }
+
+      setAssets(payload.assets);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Lecture des assets indisponible.",
+      );
+    } finally {
+      setIsLoadingAssets(false);
+    }
+  }
+
   function openDraft(draft: ContentDraft) {
     setSelectedDraftId(draft.id);
     setEditor(toEditorState(draft));
+    setAssets([]);
     setNotice(null);
     setError(null);
+    void loadAssets(draft.id);
   }
 
   function updateEditor<K extends keyof DraftEditorState>(
@@ -380,6 +428,7 @@ export function ContentWorkshopClient() {
       setDrafts((current) => current.filter((draft) => draft.id !== selectedDraft.id));
       setSelectedDraftId(null);
       setEditor(null);
+      setAssets([]);
       setNotice("Brouillon supprime.");
     } catch (caughtError) {
       setError(
@@ -395,6 +444,48 @@ export function ContentWorkshopClient() {
   async function handleFilterChange(value: string) {
     setStatusFilter(value);
     await loadDrafts(value);
+  }
+
+  async function handleAssetUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!selectedDraft || !file) {
+      return;
+    }
+
+    setIsUploadingAsset(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const formData = new FormData();
+      formData.set("file", file);
+
+      const response = await fetch(`/api/content-workshop/drafts/${selectedDraft.id}/assets`, {
+        method: "POST",
+        body: formData,
+      });
+      const payload = await response.json() as {
+        asset?: ContentAsset;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.asset) {
+        throw new Error(payload.error ?? "Upload asset indisponible.");
+      }
+
+      setAssets((current) => [payload.asset as ContentAsset, ...current]);
+      setNotice("Asset stocke dans content-assets et trace dans Supabase.");
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Upload asset indisponible.",
+      );
+    } finally {
+      setIsUploadingAsset(false);
+    }
   }
 
   return (
@@ -505,126 +596,196 @@ export function ContentWorkshopClient() {
           ) : null}
 
           {editor ? (
-            <form onSubmit={handleSave} className="mt-6 grid gap-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Projet">
-                  <TextInput
-                    value={editor.project}
-                    onChange={(value) => updateEditor("project", value)}
-                    maxLength={120}
+            <div className="mt-6 grid gap-6">
+              <form onSubmit={handleSave} className="grid gap-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="Projet">
+                    <TextInput
+                      value={editor.project}
+                      onChange={(value) => updateEditor("project", value)}
+                      maxLength={120}
+                    />
+                  </Field>
+                  <Field label="Statut">
+                    <select
+                      value={editor.status}
+                      onChange={(event) => updateEditor("status", event.target.value)}
+                      className="mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm text-[#F8FAFC] outline-none"
+                    >
+                      {editableStatuses.map((status) => (
+                        <option key={status}>{status}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Plateformes ciblees">
+                    <TextInput
+                      value={editor.platformTargets}
+                      onChange={(value) => updateEditor("platformTargets", value)}
+                      maxLength={240}
+                    />
+                  </Field>
+                  <Field label="Source">
+                    <TextInput
+                      value={editor.source}
+                      onChange={(value) => updateEditor("source", value)}
+                      maxLength={120}
+                    />
+                  </Field>
+                  <Field label="Theme">
+                    <TextInput
+                      value={editor.theme}
+                      onChange={(value) => updateEditor("theme", value)}
+                      maxLength={180}
+                    />
+                  </Field>
+                  <Field label="Titre">
+                    <TextInput
+                      value={editor.title}
+                      onChange={(value) => updateEditor("title", value)}
+                      maxLength={120}
+                    />
+                  </Field>
+                  <Field label="Angle">
+                    <TextArea
+                      value={editor.angle}
+                      onChange={(value) => updateEditor("angle", value)}
+                      maxLength={240}
+                    />
+                  </Field>
+                  <Field label="Hook">
+                    <TextArea
+                      value={editor.hook}
+                      onChange={(value) => updateEditor("hook", value)}
+                      maxLength={240}
+                    />
+                  </Field>
+                </div>
+
+                <Field label="Script">
+                  <TextArea
+                    value={editor.script}
+                    onChange={(value) => updateEditor("script", value)}
+                    minHeight="min-h-48"
+                    maxLength={4000}
                   />
                 </Field>
-                <Field label="Statut">
-                  <select
-                    value={editor.status}
-                    onChange={(event) => updateEditor("status", event.target.value)}
-                    className="mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm text-[#F8FAFC] outline-none"
+                <Field label="Legende">
+                  <TextArea
+                    value={editor.caption}
+                    onChange={(value) => updateEditor("caption", value)}
+                    maxLength={500}
+                  />
+                </Field>
+                <Field label="Hashtags">
+                  <TextInput
+                    value={editor.hashtags}
+                    onChange={(value) => updateEditor("hashtags", value)}
+                    maxLength={240}
+                  />
+                </Field>
+                <Field label="Prompt visuel">
+                  <TextArea
+                    value={editor.visualPrompt}
+                    onChange={(value) => updateEditor("visualPrompt", value)}
+                    minHeight="min-h-40"
+                    maxLength={1400}
+                  />
+                </Field>
+                <Field label="Style voix">
+                  <TextArea
+                    value={editor.voiceStyle}
+                    onChange={(value) => updateEditor("voiceStyle", value)}
+                    maxLength={240}
+                  />
+                </Field>
+
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
                   >
-                    {editableStatuses.map((status) => (
-                      <option key={status}>{status}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Plateformes ciblees">
-                  <TextInput
-                    value={editor.platformTargets}
-                    onChange={(value) => updateEditor("platformTargets", value)}
-                    maxLength={240}
-                  />
-                </Field>
-                <Field label="Source">
-                  <TextInput
-                    value={editor.source}
-                    onChange={(value) => updateEditor("source", value)}
-                    maxLength={120}
-                  />
-                </Field>
-                <Field label="Theme">
-                  <TextInput
-                    value={editor.theme}
-                    onChange={(value) => updateEditor("theme", value)}
-                    maxLength={180}
-                  />
-                </Field>
-                <Field label="Titre">
-                  <TextInput
-                    value={editor.title}
-                    onChange={(value) => updateEditor("title", value)}
-                    maxLength={120}
-                  />
-                </Field>
-                <Field label="Angle">
-                  <TextArea
-                    value={editor.angle}
-                    onChange={(value) => updateEditor("angle", value)}
-                    maxLength={240}
-                  />
-                </Field>
-                <Field label="Hook">
-                  <TextArea
-                    value={editor.hook}
-                    onChange={(value) => updateEditor("hook", value)}
-                    maxLength={240}
-                  />
-                </Field>
-              </div>
+                    {isSaving ? "Sauvegarde..." : "Sauvegarder les modifications"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isDeleting}
+                    onClick={handleDelete}
+                    className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-4 py-2.5 text-sm font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {isDeleting ? "Suppression..." : "Supprimer le brouillon"}
+                  </button>
+                </div>
+              </form>
 
-              <Field label="Script">
-                <TextArea
-                  value={editor.script}
-                  onChange={(value) => updateEditor("script", value)}
-                  minHeight="min-h-48"
-                  maxLength={4000}
-                />
-              </Field>
-              <Field label="Legende">
-                <TextArea
-                  value={editor.caption}
-                  onChange={(value) => updateEditor("caption", value)}
-                  maxLength={500}
-                />
-              </Field>
-              <Field label="Hashtags">
-                <TextInput
-                  value={editor.hashtags}
-                  onChange={(value) => updateEditor("hashtags", value)}
-                  maxLength={240}
-                />
-              </Field>
-              <Field label="Prompt visuel">
-                <TextArea
-                  value={editor.visualPrompt}
-                  onChange={(value) => updateEditor("visualPrompt", value)}
-                  minHeight="min-h-40"
-                  maxLength={1400}
-                />
-              </Field>
-              <Field label="Style voix">
-                <TextArea
-                  value={editor.voiceStyle}
-                  onChange={(value) => updateEditor("voiceStyle", value)}
-                  maxLength={240}
-                />
-              </Field>
+              <div className="rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+                      Assets stockes
+                    </p>
+                    <h3 className="mt-2 text-lg font-semibold text-[#F8FAFC]">
+                      Images, audios et videos
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+                      Upload automatique vers `content-assets`; les URLs
+                      publiques sont tracees dans Supabase.
+                    </p>
+                  </div>
+                  <label className="inline-flex cursor-pointer rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC]">
+                    {isUploadingAsset ? "Upload..." : "Ajouter un asset"}
+                    <input
+                      type="file"
+                      accept="image/*,audio/*,video/*"
+                      onChange={handleAssetUpload}
+                      disabled={isUploadingAsset}
+                      className="sr-only"
+                    />
+                  </label>
+                </div>
 
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                >
-                  {isSaving ? "Sauvegarde..." : "Sauvegarder les modifications"}
-                </button>
-                <button
-                  type="button"
-                  disabled={isDeleting}
-                  onClick={handleDelete}
-                  className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-4 py-2.5 text-sm font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                >
-                  {isDeleting ? "Suppression..." : "Supprimer le brouillon"}
-                </button>
+                <div className="mt-4 grid gap-3">
+                  {isLoadingAssets ? (
+                    <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-3 text-sm text-[#A7B0C0]">
+                      Chargement des assets...
+                    </p>
+                  ) : null}
+                  {!isLoadingAssets && assets.length === 0 ? (
+                    <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-3 text-sm text-[#A7B0C0]">
+                      Aucun asset stocke pour ce brouillon.
+                    </p>
+                  ) : null}
+                  {assets.map((asset) => (
+                    <article
+                      key={asset.id}
+                      className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-3"
+                    >
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-[#F8FAFC]">
+                            {asset.originalFilename ?? asset.storagePath}
+                          </p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[#7DD3FC]">
+                            {asset.assetType} · {asset.status}
+                          </p>
+                          <p className="mt-2 break-all text-xs text-[#A7B0C0]">
+                            {asset.storagePath}
+                          </p>
+                        </div>
+                        <a
+                          href={asset.publicUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-md border border-[#1D2A44] px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
+                        >
+                          URL publique
+                        </a>
+                      </div>
+                    </article>
+                  ))}
+                </div>
               </div>
-            </form>
+            </div>
           ) : (
             <p className="mt-6 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-4 leading-7 text-[#A7B0C0]">
               Choisis un brouillon dans la liste pour l&apos;ouvrir et le

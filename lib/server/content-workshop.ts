@@ -18,12 +18,18 @@ export type ContentWorkshopInput = {
   emotion: string | null;
   objective: string | null;
   platform: string;
+  format: ContentFormat;
 };
 
 export type ContentDraft = {
   concept: string;
   hook: string;
   script: string;
+  scriptUltraShort: string;
+  scriptShort: string;
+  scriptMedium: string;
+  scriptLong: string;
+  recommendedScript: string;
   title: string;
   caption: string;
   hashtags: string[];
@@ -90,6 +96,22 @@ const visualStages = [
   "moment of revelation",
   "memorable final image",
 ];
+
+const contentFormats = [
+  "ultra_short",
+  "short",
+  "medium",
+  "long",
+] as const;
+
+type ContentFormat = typeof contentFormats[number];
+
+const scriptTargets: Record<ContentFormat, { label: string; maxWords: number }> = {
+  ultra_short: { label: "10-15 secondes", maxWords: 38 },
+  short: { label: "20-30 secondes", maxWords: 75 },
+  medium: { label: "35-45 secondes", maxWords: 112 },
+  long: { label: "50-60 secondes maximum", maxWords: 150 },
+};
 
 type ContentDraftInsertColumn =
   | "project"
@@ -203,14 +225,34 @@ function requireText(value: unknown, maxLength: number, label: string) {
   return normalized;
 }
 
+function requireScript(value: unknown, maxLength: number, label: string) {
+  const script = requireText(value, maxLength, label);
+  const wordCount = script.split(/\s+/).filter(Boolean).length;
+
+  if (wordCount > scriptTargets.long.maxWords) {
+    throw new Error(
+      `${label} ne doit pas depasser 60 secondes environ (${scriptTargets.long.maxWords} mots maximum).`,
+    );
+  }
+
+  return script;
+}
+
 export function sanitizeContentWorkshopInput(
   input: unknown,
 ): ContentWorkshopInput {
   const record = input && typeof input === "object" ? input as Record<string, unknown> : {};
   const theme = normalizeText(record.theme, 180);
+  const format = normalizeText(record.format, 40) ?? "short";
 
   if (!theme) {
     throw new Error("Le sujet de depart est obligatoire.");
+  }
+
+  if (!contentFormats.includes(format as ContentFormat)) {
+    throw new Error(
+      `Format souhaite invalide. Formats attendus: ${contentFormats.join(", ")}.`,
+    );
   }
 
   return {
@@ -219,6 +261,7 @@ export function sanitizeContentWorkshopInput(
     emotion: normalizeText(record.emotion, 80),
     objective: normalizeText(record.objective, 180),
     platform: normalizeText(record.platform, 80) ?? "Multi-plateforme",
+    format: format as ContentFormat,
   };
 }
 
@@ -356,6 +399,52 @@ function buildVisualPrompt(theme: string, stage: string, angle: string) {
   ].join(", ");
 }
 
+function limitScriptToWords(script: string, maxWords: number) {
+  const lines = script
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const words: string[] = [];
+  const finalLines: string[] = [];
+
+  for (const line of lines) {
+    const nextWords = line.split(/\s+/).filter(Boolean);
+
+    if (words.length + nextWords.length > maxWords) {
+      const remaining = maxWords - words.length;
+      if (remaining > 0) {
+        finalLines.push(nextWords.slice(0, remaining).join(" "));
+      }
+      break;
+    }
+
+    words.push(...nextWords);
+    finalLines.push(line);
+  }
+
+  const limited = finalLines.join("\n").trim();
+  return limited || script.split(/\s+/).slice(0, maxWords).join(" ").trim();
+}
+
+function normalizeScriptVariant(
+  value: unknown,
+  fallback: string,
+  format: ContentFormat,
+) {
+  const raw =
+    typeof value === "string" && value.trim()
+      ? value.trim()
+      : fallback;
+
+  return limitScriptToWords(raw, scriptTargets[format].maxWords);
+}
+
+function getGeneratedScript(data: Record<string, unknown>) {
+  return typeof data.script === "string" && data.script.trim()
+    ? data.script.trim()
+    : null;
+}
+
 function normalizeDraft(data: Record<string, unknown>, input: ContentWorkshopInput) {
   const score = data.score && typeof data.score === "object"
     ? data.score as Record<string, unknown>
@@ -368,6 +457,43 @@ function normalizeDraft(data: Record<string, unknown>, input: ContentWorkshopInp
   const fallbackVisuals = visualStages.map((stage) =>
     buildVisualPrompt(input.theme, stage, angle),
   );
+  const legacyScript = getGeneratedScript(data);
+  const fallbackScript = [
+    "Tu peux faire semblant longtemps.",
+    "Mais ton calme finit par raconter ce que tes mots evitent.",
+    "Le vrai changement commence souvent au moment ou tu arretes de negocier avec l'evidence.",
+  ].join("\n");
+  const scriptUltraShort = normalizeScriptVariant(
+    data.script_ultra_short,
+    legacyScript ?? fallbackScript,
+    "ultra_short",
+  );
+  const scriptShort = normalizeScriptVariant(
+    data.script_short,
+    legacyScript ?? scriptUltraShort,
+    "short",
+  );
+  const scriptMedium = normalizeScriptVariant(
+    data.script_medium,
+    legacyScript ?? scriptShort,
+    "medium",
+  );
+  const scriptLong = normalizeScriptVariant(
+    data.script_long,
+    legacyScript ?? scriptMedium,
+    "long",
+  );
+  const requestedScript = {
+    ultra_short: scriptUltraShort,
+    short: scriptShort,
+    medium: scriptMedium,
+    long: scriptLong,
+  }[input.format];
+  const recommendedScript = normalizeScriptVariant(
+    data.recommended_script,
+    requestedScript,
+    input.format,
+  );
 
   return {
     concept:
@@ -376,14 +502,12 @@ function normalizeDraft(data: Record<string, unknown>, input: ContentWorkshopInp
     hook:
       normalizeText(data.hook, 240) ??
       "Ce que tu refuses de regarder finit toujours par parler plus fort.",
-    script:
-      typeof data.script === "string" && data.script.trim()
-        ? data.script.trim().slice(0, 3000)
-        : [
-            "Tu peux faire semblant longtemps.",
-            "Mais ton calme finit par raconter ce que tes mots evitent.",
-            "Le vrai changement commence souvent au moment ou tu arretes de negocier avec l'evidence.",
-          ].join("\n"),
+    script: recommendedScript,
+    scriptUltraShort,
+    scriptShort,
+    scriptMedium,
+    scriptLong,
+    recommendedScript,
     title: normalizeText(data.title, 90) ?? input.theme,
     caption:
       normalizeText(data.caption, 150) ??
@@ -420,20 +544,29 @@ function buildPrompt(input: ContentWorkshopInput) {
     `Emotion recherchee: ${input.emotion ?? "lucidite calme"}`,
     `Objectif: ${input.objective ?? "brouillon complet a valider"}`,
     `Plateforme: ${input.platform}`,
+    `Format souhaite: ${input.format} (${scriptTargets[input.format].label})`,
     "",
-    "Genere un seul brouillon complet pour L'Edifice, en francais.",
+    "Genere un brouillon complet pour L'Edifice, en francais, avec 4 variantes de script avant generation media.",
     "Style: sombre, humain, psychologique, introspectif, socialement lucide.",
     "Contraintes reprises de l'ancien atelier local:",
     "- hook direct et comprehensible en moins de 2 secondes",
-    "- script oral avec progression: observation, tension psychologique, verite emotionnelle, phrase finale memorable",
+    "- scripts oraux avec progression: observation, tension psychologique, verite emotionnelle, phrase finale memorable",
+    "- aucun script ne doit depasser 60 secondes",
+    "- phrases courtes, rythme oral, une seule idee centrale",
+    "- adapte a TikTok, Instagram Reels et YouTube Shorts",
+    "- script_ultra_short: 10-15 secondes",
+    "- script_short: 20-30 secondes",
+    "- script_medium: 35-45 secondes",
+    "- script_long: 50-60 secondes maximum",
+    "- recommended_script doit reprendre la variante la plus adaptee au format souhaite",
     "- titre court, humain, non abstrait",
     "- legende: 1 phrase maximum, 150 caracteres maximum",
     "- exactement 5 hashtags courts et pertinents",
-    "- exactement 7 prompts visuels en anglais, sombres, narratifs, vertical 9:16, no text, no logo, no watermark",
+    "- visual_prompt en anglais, sombre, narratif, vertical 9:16, no text, no logo, no watermark",
     "- aucune publication, aucun planning, aucune generation video",
     "",
     "Reponds uniquement en JSON valide avec ces cles:",
-    "{ concept, angle, hook, script, title, caption, hashtags, visualPrompt, voiceStyle, score }",
+    "{ title, angle, hook, script_ultra_short, script_short, script_medium, script_long, recommended_script, caption, hashtags, visual_prompt, voice_style, score }",
     "score contient: viral, hook, emotion, retention, clarity, total, reason.",
   ].join("\n");
 }
@@ -461,7 +594,7 @@ async function generateWithOpenAI(input: ContentWorkshopInput) {
         "Tu reponds uniquement en JSON valide.",
       ].join("\n"),
       input: buildPrompt(input),
-      max_output_tokens: 2200,
+      max_output_tokens: 3600,
     }),
   });
 
@@ -482,18 +615,63 @@ function generateFallbackDraft(input: ContentWorkshopInput) {
   const visualPromptSeries = visualStages.map((stage) =>
     buildVisualPrompt(input.theme, stage, angle),
   );
-
-  return {
-    concept: `${input.theme}: partir d'une verite intime et la transformer en format court, clair, sans forcer la morale.`,
+  const scriptUltraShort = normalizeScriptVariant(
+    [
+      hook,
+      "Ce detail que tu caches parle deja pour toi.",
+      "Et parfois, c'est lui qui remet tout en ordre.",
+    ].join("\n"),
     hook,
-    script: [
+    "ultra_short",
+  );
+  const scriptShort = normalizeScriptVariant(
+    [
       hook,
       "Au debut, tu crois que c'est juste une pensee qui passe.",
       "Puis tu remarques qu'elle revient quand tout devient silencieux.",
       "Ce n'est pas un hasard.",
       "C'est souvent la partie de toi que tu as repoussee trop longtemps.",
-      "Et le jour ou tu l'ecoutes vraiment, quelque chose cesse de te tenir a distance de toi-meme.",
     ].join("\n"),
+    scriptUltraShort,
+    "short",
+  );
+  const scriptMedium = normalizeScriptVariant(
+    [
+      scriptShort,
+      "Tu n'as pas besoin de la dramatiser.",
+      "Tu as juste besoin de l'entendre sans te mentir.",
+      "Parce qu'une verite regardee calmement perd deja une partie de son pouvoir.",
+    ].join("\n"),
+    scriptShort,
+    "medium",
+  );
+  const scriptLong = normalizeScriptVariant(
+    [
+      scriptMedium,
+      "C'est souvent la que le respect revient.",
+      "Pas parce que tu forces quelque chose.",
+      "Mais parce que tu redeviens clair avec toi-meme.",
+      "Et cette clarte change toute ta posture.",
+    ].join("\n"),
+    scriptMedium,
+    "long",
+  );
+  const recommendedScript = {
+    ultra_short: scriptUltraShort,
+    short: scriptShort,
+    medium: scriptMedium,
+    long: scriptLong,
+  }[input.format];
+
+  return {
+    concept: `${input.theme}: partir d'une verite intime et la transformer en format court, clair, sans forcer la morale.`,
+    hook,
+    script: recommendedScript,
+    scriptUltraShort,
+    scriptShort,
+    scriptMedium,
+    scriptLong,
+    recommendedScript,
     title,
     caption: "Certaines verites ne crient jamais, elles attendent juste ton silence.",
     hashtags: normalizeHashtags(["#psychologie", "#silence", "#stoicisme", "#lucidite", "#shorts"]),
@@ -619,6 +797,11 @@ function mapContentDraftRow(row: ContentDraftRow): SavedContentDraft {
     angle,
     hook: row.hook ?? "",
     script: row.script ?? "",
+    scriptUltraShort: "",
+    scriptShort: "",
+    scriptMedium: "",
+    scriptLong: "",
+    recommendedScript: row.script ?? "",
     title: row.title ?? theme,
     caption: row.caption ?? "",
     hashtags: row.hashtags ?? [],
@@ -652,7 +835,7 @@ export function sanitizeContentDraftUpdateInput(input: unknown) {
     theme: requireText(record.theme, 180, "Le theme"),
     angle: requireText(record.angle, 240, "L'angle"),
     hook: requireText(record.hook, 240, "Le hook"),
-    script: requireText(record.script, 4000, "Le script"),
+    script: requireScript(record.script, 4000, "Le script"),
     title: requireText(record.title, 120, "Le titre"),
     caption: requireText(record.caption, 500, "La legende"),
     hashtags: sanitizeHashtagList(record.hashtags),

@@ -14,6 +14,11 @@ type ContentDraft = {
   angle: string;
   hook: string;
   script: string;
+  scriptUltraShort: string;
+  scriptShort: string;
+  scriptMedium: string;
+  scriptLong: string;
+  recommendedScript: string;
   title: string;
   caption: string;
   hashtags: string[];
@@ -69,12 +74,31 @@ type StatusOption = {
   label: string;
 };
 
+type FormatOption = {
+  value: "ultra_short" | "short" | "medium" | "long";
+  label: string;
+  help: string;
+};
+
+type ScriptVariant = {
+  key: "scriptUltraShort" | "scriptShort" | "scriptMedium" | "scriptLong";
+  label: string;
+  value: string;
+};
+
 const platforms = [
   "Multi-plateforme",
   "YouTube Shorts",
   "TikTok",
   "Instagram Reels",
   "Pinterest",
+];
+
+const formatOptions: FormatOption[] = [
+  { value: "ultra_short", label: "Ultra short", help: "10-15 secondes" },
+  { value: "short", label: "Short", help: "20-30 secondes" },
+  { value: "medium", label: "Medium", help: "35-45 secondes" },
+  { value: "long", label: "Long", help: "50-60 secondes maximum" },
 ];
 
 const statusOptions: StatusOption[] = [
@@ -224,6 +248,7 @@ export function ContentWorkshopClient() {
     "Generer un brouillon complet a relire avant toute production.",
   );
   const [platform, setPlatform] = useState(platforms[0]);
+  const [format, setFormat] = useState<FormatOption["value"]>("short");
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [editor, setEditor] = useState<DraftEditorState | null>(null);
@@ -256,6 +281,37 @@ export function ContentWorkshopClient() {
       ["Clarte", selectedDraft.score.clarity],
       ["Total", selectedDraft.score.total],
     ];
+  }, [selectedDraft]);
+
+  const scriptVariants = useMemo<ScriptVariant[]>(() => {
+    if (!selectedDraft) {
+      return [];
+    }
+
+    const variants: ScriptVariant[] = [
+      {
+        key: "scriptUltraShort",
+        label: "Ultra short - 10-15 secondes",
+        value: selectedDraft.scriptUltraShort,
+      },
+      {
+        key: "scriptShort",
+        label: "Short - 20-30 secondes",
+        value: selectedDraft.scriptShort,
+      },
+      {
+        key: "scriptMedium",
+        label: "Medium - 35-45 secondes",
+        value: selectedDraft.scriptMedium,
+      },
+      {
+        key: "scriptLong",
+        label: "Long - 50-60 secondes maximum",
+        value: selectedDraft.scriptLong,
+      },
+    ];
+
+    return variants.filter((variant) => variant.value.trim().length > 0);
   }, [selectedDraft]);
 
   async function loadDrafts(filter = statusFilter) {
@@ -366,6 +422,7 @@ export function ContentWorkshopClient() {
           emotion,
           objective,
           platform,
+          format,
         }),
       });
       const payload = await response.json() as {
@@ -425,11 +482,20 @@ export function ContentWorkshopClient() {
         throw new Error(payload.error ?? "Mise a jour indisponible.");
       }
 
+      const updatedDraft: ContentDraft = {
+        ...payload.draft,
+        scriptUltraShort: selectedDraft.scriptUltraShort,
+        scriptShort: selectedDraft.scriptShort,
+        scriptMedium: selectedDraft.scriptMedium,
+        scriptLong: selectedDraft.scriptLong,
+        recommendedScript: payload.draft.script,
+      };
+
       setDrafts((current) =>
-        current.map((draft) => draft.id === payload.draft?.id ? payload.draft : draft),
+        current.map((draft) => draft.id === updatedDraft.id ? updatedDraft : draft),
       );
-      setSelectedDraftId(payload.draft.id);
-      setEditor(toEditorState(payload.draft));
+      setSelectedDraftId(updatedDraft.id);
+      setEditor(toEditorState(updatedDraft));
       setNotice(
         statusOverride
           ? `Statut mis a jour: ${getStatusLabel(statusOverride)}.`
@@ -448,6 +514,12 @@ export function ContentWorkshopClient() {
 
   async function handleStatusAction(status: StatusOption["value"]) {
     await saveEditorChanges(status);
+  }
+
+  function handleUseScriptVariant(variant: ScriptVariant) {
+    updateEditor("script", variant.value);
+    setNotice(`${variant.label} copiee dans le champ Script.`);
+    setError(null);
   }
 
   async function handleDelete() {
@@ -571,6 +643,21 @@ export function ContentWorkshopClient() {
                   ))}
                 </select>
               </Field>
+              <Field label="Format souhaite">
+                <select
+                  value={format}
+                  onChange={(event) =>
+                    setFormat(event.target.value as FormatOption["value"])
+                  }
+                  className="mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm text-[#F8FAFC] outline-none"
+                >
+                  {formatOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.value} - {option.help}
+                    </option>
+                  ))}
+                </select>
+              </Field>
               <Field label="Angle">
                 <TextArea value={angle} onChange={setAngle} maxLength={240} />
               </Field>
@@ -669,6 +756,44 @@ export function ContentWorkshopClient() {
                           {value || "A completer"}
                         </p>
                       </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {scriptVariants.length > 0 ? (
+                <div className="rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+                    Variantes de script
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+                    Les variantes ne creent aucune colonne Supabase. Choisis
+                    celle qui doit alimenter le champ `script`, puis sauvegarde.
+                  </p>
+                  <div className="mt-4 grid gap-3">
+                    {scriptVariants.map((variant) => (
+                      <article
+                        key={variant.key}
+                        className="rounded-md border border-[#1D2A44] bg-[#03070B] p-3"
+                      >
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-[#F8FAFC]">
+                              {variant.label}
+                            </p>
+                            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#A7B0C0]">
+                              {variant.value}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleUseScriptVariant(variant)}
+                            className="shrink-0 rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC]"
+                          >
+                            Utiliser cette variante
+                          </button>
+                        </div>
+                      </article>
                     ))}
                   </div>
                 </div>

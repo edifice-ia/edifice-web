@@ -131,6 +131,19 @@ const formatOptions: FormatOption[] = [
   { value: "long", label: "Long", help: "50-60 secondes maximum" },
 ];
 
+const generationStatusMessages = [
+  "Analyse du sujet...",
+  "Recherche de l'angle editorial...",
+  "Construction du hook...",
+  "Ecriture du script court...",
+  "Creation des variantes...",
+  "Preparation de la legende...",
+  "Selection des hashtags...",
+  "Construction des 7 scenes visuelles...",
+  "Harmonisation du style...",
+  "Finalisation du brouillon...",
+];
+
 const statusOptions: StatusOption[] = [
   { value: "draft", label: "Brouillon" },
   { value: "approved", label: "Approuve" },
@@ -378,6 +391,8 @@ export function ContentWorkshopClient() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationStatusIndex, setGenerationStatusIndex] = useState(0);
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
@@ -405,6 +420,11 @@ export function ContentWorkshopClient() {
     () => generatedVariants.find((variant) => variant.id === selectedVariantId) ?? null,
     [generatedVariants, selectedVariantId],
   );
+
+  const generationStatus =
+    generationStatusMessages[
+      Math.min(generationStatusIndex, generationStatusMessages.length - 1)
+    ];
 
   const scoreItems = useMemo(() => {
     if (!selectedDraft) {
@@ -507,6 +527,29 @@ export function ContentWorkshopClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!isGenerating) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setGenerationProgress((current) => {
+        if (current < 35) {
+          return Math.min(current + 8, 35);
+        }
+        if (current < 70) {
+          return Math.min(current + 5, 70);
+        }
+        return Math.min(current + 2, 94);
+      });
+      setGenerationStatusIndex((current) =>
+        Math.min(current + 1, generationStatusMessages.length - 1),
+      );
+    }, 1100);
+
+    return () => window.clearInterval(intervalId);
+  }, [isGenerating]);
+
   async function loadAssets(draftId: string) {
     setIsLoadingAssets(true);
     setError(null);
@@ -597,6 +640,11 @@ export function ContentWorkshopClient() {
     setError(null);
     setNotice(null);
     setIsGenerating(true);
+    setGenerationProgress(6);
+    setGenerationStatusIndex(0);
+    setGeneratedVariants([]);
+    setSelectedVariantId(null);
+    setVariantEditor(null);
 
     try {
       const response = await fetch("/api/content-workshop/generate", {
@@ -636,6 +684,8 @@ export function ContentWorkshopClient() {
           : "Generation indisponible.",
       );
     } finally {
+      setGenerationProgress(100);
+      setGenerationStatusIndex(generationStatusMessages.length - 1);
       setIsGenerating(false);
     }
   }
@@ -1034,6 +1084,32 @@ export function ContentWorkshopClient() {
             >
               {isGenerating ? "Generation en cours..." : "Generer 3 variantes"}
             </button>
+
+            {isGenerating ? (
+              <div
+                className="rounded-lg border border-[#39E6D0]/25 bg-[#03070B] p-4 shadow-[0_0_28px_rgba(57,230,208,0.08)]"
+                role="status"
+                aria-live="polite"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-[#F8FAFC]">
+                    Generation du brouillon
+                  </p>
+                  <span className="text-xs font-semibold tabular-nums text-[#39E6D0]">
+                    {generationProgress}%
+                  </span>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full border border-[#1D2A44] bg-[#08111A]">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#38BDF8] via-[#39E6D0] to-[#A7F3D0] shadow-[0_0_18px_rgba(57,230,208,0.55)] transition-all duration-700 ease-out"
+                    style={{ width: `${generationProgress}%` }}
+                  />
+                </div>
+                <p className="mt-3 text-sm text-[#A7B0C0]">
+                  {generationStatus}
+                </p>
+              </div>
+            ) : null}
           </form>
         </SectionContainer>
 

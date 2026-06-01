@@ -34,6 +34,8 @@ const systemPrompt = [
   "Tu ne publies rien.",
   "Tu ne modifies aucun OAuth.",
   "Tu respectes les garde-fous.",
+  "Pour les questions de pilotage, tu structures sobrement: point de depart, objectif immediat, plan court, action recommandee, suivi.",
+  "L'objectif doit etre mesurable, accessible, logique, individualise, negocie et suivi, sans citer cette methode de facon scolaire.",
   "Tu reponds precisement a la question posee en utilisant le contexte projet.",
 ].join("\n");
 
@@ -186,6 +188,103 @@ function formatPriorities(priorities: AssistantActionablePriority[]) {
     .join("\n\n");
 }
 
+function isSteeringQuestion(normalized: string) {
+  return (
+    normalized.includes("ou en est") ||
+    normalized.includes("que faire") ||
+    normalized.includes("peux faire") ||
+    normalized.includes("quoi faire") ||
+    normalized.includes("maintenant") ||
+    normalized.includes("prochaine etape") ||
+    normalized.includes("prochaine pierre") ||
+    normalized.includes("blocage") ||
+    normalized.includes("bloque") ||
+    normalized.includes("bloques") ||
+    normalized.includes("prioriser") ||
+    normalized.includes("priorisation") ||
+    normalized.includes("comment prioriser")
+  );
+}
+
+function summarizePlatformStatus(context: ProjectContext) {
+  return context.cockpitState.oauthStatuses
+    .map((status) => {
+      const review = context.cockpitState.externalReviews.find((item) =>
+        item.name.toLowerCase().includes(status.provider),
+      );
+      const state = status.configured && status.tokenPresent
+        ? "connecte"
+        : status.configured
+          ? "configure sans token confirme"
+          : "incomplet";
+
+      return `${status.provider}: ${review ? "review en attente" : state}`;
+    })
+    .join(" ; ");
+}
+
+function buildSteeringObjective(context: ProjectContext) {
+  if (context.cockpitState.contentDrafts.readyToPublish.length > 0) {
+    return `Stabiliser aujourd'hui ${context.cockpitState.contentDrafts.readyToPublish.length} brouillon(s) pret(s) a publier, dans un cadre accessible et verifiable, sans publication automatique.`;
+  }
+
+  if (context.cockpitState.contentDrafts.inProgress.length > 0) {
+    return `Faire avancer ${context.cockpitState.contentDrafts.inProgress.length} brouillon(s) en cours vers un statut clair, avec une verification simple dans content_drafts.`;
+  }
+
+  return "Clarifier la prochaine action du cockpit a partir des donnees reelles, avec un resultat mesurable et suivi dans l'Observatoire.";
+}
+
+function buildFollowUpMeasure(priority: AssistantActionablePriority) {
+  const normalizedAction = normalizeMessage(priority.action);
+
+  if (normalizedAction.includes("brouillon")) {
+    return "C'est termine quand l'Atelier affiche le bon nombre de brouillons dans le statut vise, notamment ready_to_publish si c'est l'objectif.";
+  }
+
+  if (normalizedAction.includes("oauth") || normalizedAction.includes("review")) {
+    return "C'est termine quand l'Observatoire indique clairement le statut OAuth/review et ce qui reste externe.";
+  }
+
+  if (normalizedAction.includes("assistant")) {
+    return "C'est termine quand l'assistant repond precisement a une question comme: Combien ai-je de brouillons prets a publier ?";
+  }
+
+  return "C'est termine quand l'Observatoire et l'assistant donnent la meme prochaine action, sans alerte de lecture.";
+}
+
+function buildSteeringAnswer(context: ProjectContext) {
+  const priorities = context.actionablePriorities.slice(0, 3);
+  const recommendation = getPrimaryRecommendation(context);
+  const blockers = context.cockpitState.blockers.slice(0, 3);
+  const activeModules = context.cockpitState.modules.available
+    .map((module) => module.title)
+    .join(", ") || "aucun module disponible confirme";
+
+  return [
+    "Point de depart :",
+    `${context.cockpitState.contentDrafts.total} brouillon(s) lus, dont ${context.cockpitState.contentDrafts.readyToPublish.length} pret(s) a publier et ${context.cockpitState.contentDrafts.inProgress.length} en cours. Plateformes: ${summarizePlatformStatus(context)}. Modules actifs: ${activeModules}. Blocages: ${
+      blockers.length > 0 ? blockers.join(" ; ") : "aucun blocage dur detecte"
+    }.`,
+    "",
+    "Objectif :",
+    buildSteeringObjective(context),
+    "",
+    "Plan :",
+    priorities.length > 0
+      ? priorities
+          .map((priority, index) => `${index + 1}. ${priority.action}`)
+          .join("\n")
+      : "1. Relire l'Observatoire\n2. Verifier content_drafts\n3. Choisir une seule action faisable",
+    "",
+    "Action recommandee :",
+    recommendation.action,
+    "",
+    "Suivi :",
+    buildFollowUpMeasure(recommendation),
+  ].join("\n");
+}
+
 function buildProjectAnswer(message: string, context: ProjectContext) {
   const normalized = normalizeMessage(message);
 
@@ -245,17 +344,8 @@ function buildProjectAnswer(message: string, context: ProjectContext) {
     )}`;
   }
 
-  if (
-    normalized.includes("que faire") ||
-    normalized.includes("peux faire") ||
-    normalized.includes("quoi faire") ||
-    normalized.includes("maintenant") ||
-    normalized.includes("prochaine pierre")
-  ) {
-    return [
-      "Priorites classees par impact:",
-      formatPriorities(context.actionablePriorities.slice(0, 3)),
-    ].join("\n\n");
+  if (isSteeringQuestion(normalized)) {
+    return buildSteeringAnswer(context);
   }
 
   if (
@@ -531,6 +621,8 @@ function buildSafeContextForLLM(context: ProjectContext) {
         "evaluer TikTok, Pinterest, Meta/Instagram et YouTube",
         "signaler ce qui manque",
       ],
+      steeringFormat:
+        "Pour les questions de pilotage: Point de depart, Objectif, Plan, Action recommandee, Suivi. Ton sobre, pas scolaire.",
       safety:
         "lecture seule stricte: aucune publication, suppression, modification OAuth ou exposition de secrets",
     },
@@ -571,6 +663,8 @@ async function generateOpenAIAnswer(input: GlobalAssistantInput) {
     "Pour chaque recommandation, indique: action recommandee, raison, dependance eventuelle, faisable maintenant oui/non.",
     "Pour les questions sur les brouillons, utilise contentDrafts.byStatus, readyToPublish, inProgress et recent.",
     "Pour les questions sur TikTok/Pinterest/Instagram/Meta/YouTube, utilise oauthStatuses, externalReviews, dependencies et blockers.",
+    "Pour les questions de pilotage (ou en est le projet, que faire maintenant, prochaine etape, blocage, prioriser), reponds avec une structure sobre: Point de depart, Objectif, Plan, Action recommandee, Suivi.",
+    "Ne nomme pas POPAM sauf si l'utilisateur le demande explicitement.",
     "Ne confonds jamais lien accessible et module projet operationnel.",
     "Les donnees cockpit sont en lecture seule: n'annonce jamais une action d'ecriture, de suppression ou de publication.",
   ].join("\n\n");

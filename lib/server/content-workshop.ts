@@ -88,6 +88,21 @@ const visualStages = [
   "memorable final image",
 ];
 
+type ContentDraftInsertColumn =
+  | "user_id"
+  | "status"
+  | "theme"
+  | "angle"
+  | "platform"
+  | "idea"
+  | "hook"
+  | "script"
+  | "title"
+  | "caption"
+  | "hashtags"
+  | "visual_prompt"
+  | "score";
+
 let contentDraftsClient: SupabaseClient | null = null;
 
 function getContentDraftsClient() {
@@ -433,27 +448,25 @@ export async function saveContentDraft({
 
   console.info("[Content Workshop] save draft");
 
+  const insertPayload: Record<ContentDraftInsertColumn, unknown> = {
+    user_id: userId,
+    status: "draft",
+    theme: input.theme,
+    angle: draft.emotionalAngle,
+    platform: input.platform,
+    idea: draft.idea,
+    hook: draft.hook,
+    script: draft.script,
+    title: draft.title,
+    caption: draft.caption,
+    hashtags: draft.hashtags,
+    visual_prompt: draft.visualPrompt,
+    score: draft.score,
+  };
+
   const { data, error } = await supabase
     .from("content_drafts")
-    .insert({
-      user_id: userId,
-      status: "draft",
-      theme: input.theme,
-      angle: input.angle,
-      platform: input.platform,
-      idea: draft.idea,
-      hook: draft.hook,
-      script: draft.script,
-      title: draft.title,
-      caption: draft.caption,
-      hashtags: draft.hashtags,
-      visual_prompt: draft.visualPrompt,
-      visual_prompts: draft.visualPrompts,
-      emotional_angle: draft.emotionalAngle,
-      estimated_duration: draft.estimatedDuration,
-      score: draft.score,
-      source_summary: sourceSummary,
-    })
+    .insert(insertPayload)
     .select("id, created_at")
     .single<{ id: string; created_at: string }>();
 

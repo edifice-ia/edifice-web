@@ -6,16 +6,15 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 type ContentDraft = {
   id: string;
   createdAt: string;
-  idea: string;
+  concept: string;
   hook: string;
   script: string;
   title: string;
   caption: string;
   hashtags: string[];
   visualPrompt: string;
-  visualPrompts: string[];
-  emotionalAngle: string;
-  estimatedDuration: string;
+  angle: string;
+  voiceStyle: string;
   score: {
     viral: number;
     hook: number;
@@ -264,12 +263,13 @@ export function ContentWorkshopClient() {
                 </p>
               </div>
               <span className="rounded-md border border-[#38BDF8]/35 bg-[#38BDF8]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#7DD3FC]">
-                {draft.estimatedDuration}
+                Brouillon
               </span>
             </div>
 
             <div className="mt-6 grid gap-4">
-              <OutputBlock label="Idee">{draft.idea}</OutputBlock>
+              <OutputBlock label="Idee">{draft.concept}</OutputBlock>
+              <OutputBlock label="Angle">{draft.angle}</OutputBlock>
               <OutputBlock label="Hook">{draft.hook}</OutputBlock>
               <OutputBlock label="Script">{draft.script}</OutputBlock>
               <div className="grid gap-4 lg:grid-cols-2">
@@ -290,16 +290,7 @@ export function ContentWorkshopClient() {
               <OutputBlock label="Prompt visuel principal">
                 {draft.visualPrompt}
               </OutputBlock>
-              <OutputBlock label="Prompts visuels 1-7">
-                {draft.visualPrompts.map((prompt, index) => (
-                  <p key={`${prompt}-${index}`} className="mb-4 last:mb-0">
-                    <span className="font-semibold text-[#F8FAFC]">
-                      Image {index + 1}:
-                    </span>{" "}
-                    {prompt}
-                  </p>
-                ))}
-              </OutputBlock>
+              <OutputBlock label="Style voix">{draft.voiceStyle}</OutputBlock>
             </div>
           </SectionContainer>
         ) : null}

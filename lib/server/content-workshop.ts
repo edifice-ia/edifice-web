@@ -21,16 +21,15 @@ export type ContentWorkshopInput = {
 };
 
 export type ContentDraft = {
-  idea: string;
+  concept: string;
   hook: string;
   script: string;
   title: string;
   caption: string;
   hashtags: string[];
   visualPrompt: string;
-  visualPrompts: string[];
-  emotionalAngle: string;
-  estimatedDuration: string;
+  angle: string;
+  voiceStyle: string;
   score: {
     viral: number;
     hook: number;
@@ -46,29 +45,6 @@ export type SavedContentDraft = ContentDraft & {
   id: string;
   createdAt: string;
 };
-
-const sourceSummary = [
-  {
-    file: "D:\\Edifice_IA\\agents\\lignes_interieures\\shared\\prompts.py",
-    use: "Regles editoriales, descriptions, hashtags et prompts visuels.",
-  },
-  {
-    file: "D:\\Edifice_IA\\agents\\lignes_interieures\\ideation_agent\\ideation_agent.py",
-    use: "Generation de variantes avec profils de duree.",
-  },
-  {
-    file: "D:\\Edifice_IA\\agents\\lignes_interieures\\scoring_agent\\scoring_agent.py",
-    use: "Critere de scoring froid et selection editoriale.",
-  },
-  {
-    file: "D:\\Edifice_IA\\agents\\lignes_interieures\\creation_agent\\creation_agent.py",
-    use: "Format final post.txt: titre, hook, script, description, hashtags, prompts.",
-  },
-  {
-    file: "D:\\Edifice_IA\\agents\\lignes_interieures\\shared\\config.py",
-    use: "Reperes de dossiers A_TRAITER et ready_to_schedule, non actives ici.",
-  },
-];
 
 const hashtagBuckets = [
   ["#psychologie", "#mindset"],
@@ -89,19 +65,37 @@ const visualStages = [
 ];
 
 type ContentDraftInsertColumn =
-  | "user_id"
-  | "status"
+  | "project"
+  | "platform_targets"
   | "theme"
   | "angle"
-  | "platform"
-  | "idea"
   | "hook"
   | "script"
   | "title"
   | "caption"
   | "hashtags"
   | "visual_prompt"
-  | "score";
+  | "voice_style"
+  | "status"
+  | "source"
+  | "user_id";
+
+const contentDraftInsertColumns: ContentDraftInsertColumn[] = [
+  "project",
+  "platform_targets",
+  "theme",
+  "angle",
+  "hook",
+  "script",
+  "title",
+  "caption",
+  "hashtags",
+  "visual_prompt",
+  "voice_style",
+  "status",
+  "source",
+  "user_id",
+];
 
 let contentDraftsClient: SupabaseClient | null = null;
 
@@ -235,6 +229,14 @@ function normalizeHashtags(value: unknown) {
   return finalTags.slice(0, 5);
 }
 
+function normalizePlatformTargets(platform: string) {
+  if (platform === "Multi-plateforme") {
+    return ["YouTube Shorts", "TikTok", "Instagram Reels", "Pinterest"];
+  }
+
+  return [platform];
+}
+
 function clampScore(value: unknown) {
   const score = Number(value);
   return Number.isFinite(score) ? Math.max(0, Math.min(10, score)) : 0;
@@ -262,15 +264,9 @@ function normalizeDraft(data: Record<string, unknown>, input: ContentWorkshopInp
   const score = data.score && typeof data.score === "object"
     ? data.score as Record<string, unknown>
     : {};
-  const visualPrompts = Array.isArray(data.visualPrompts)
-    ? data.visualPrompts.map((prompt) => String(prompt).trim()).filter(Boolean)
-    : Array.isArray(data.visual_prompts)
-      ? data.visual_prompts.map((prompt) => String(prompt).trim()).filter(Boolean)
-      : [];
   const hashtags = normalizeHashtags(data.hashtags);
   const angle =
-    normalizeText(data.emotionalAngle, 220) ??
-    normalizeText(data.emotional_angle, 220) ??
+    normalizeText(data.angle, 220) ??
     input.angle ??
     "Une verite emotionnelle simple, humaine et difficile a regarder.";
   const fallbackVisuals = visualStages.map((stage) =>
@@ -278,8 +274,8 @@ function normalizeDraft(data: Record<string, unknown>, input: ContentWorkshopInp
   );
 
   return {
-    idea:
-      normalizeText(data.idea, 500) ??
+    concept:
+      normalizeText(data.concept, 500) ??
       `${input.theme}: transformer une tension interieure en brouillon court.`,
     hook:
       normalizeText(data.hook, 240) ??
@@ -302,12 +298,11 @@ function normalizeDraft(data: Record<string, unknown>, input: ContentWorkshopInp
       normalizeText(data.visualPrompt, 900) ??
       normalizeText(data.visual_prompt, 900) ??
       fallbackVisuals[0],
-    visualPrompts: [...visualPrompts, ...fallbackVisuals].slice(0, 7),
-    emotionalAngle: angle,
-    estimatedDuration:
-      normalizeText(data.estimatedDuration, 80) ??
-      normalizeText(data.estimated_duration, 80) ??
-      "25 a 35 secondes",
+    angle,
+    voiceStyle:
+      normalizeText(data.voiceStyle, 160) ??
+      normalizeText(data.voice_style, 160) ??
+      "Voix calme, grave, intime, rythme lent et tension contenue.",
     score: {
       viral: clampScore(score.viral ?? score.viral_score),
       hook: clampScore(score.hook ?? score.hook_score),
@@ -342,7 +337,7 @@ function buildPrompt(input: ContentWorkshopInput) {
     "- aucune publication, aucun planning, aucune generation video",
     "",
     "Reponds uniquement en JSON valide avec ces cles:",
-    "{ idea, hook, script, title, caption, hashtags, visualPrompt, visualPrompts, emotionalAngle, estimatedDuration, score }",
+    "{ concept, angle, hook, script, title, caption, hashtags, visualPrompt, voiceStyle, score }",
     "score contient: viral, hook, emotion, retention, clarity, total, reason.",
   ].join("\n");
 }
@@ -388,12 +383,12 @@ function generateFallbackDraft(input: ContentWorkshopInput) {
     "Ce qu'on evite de regarder finit par devenir le vrai point de depart.";
   const title = input.theme.length > 58 ? input.theme.slice(0, 55).trim() : input.theme;
   const hook = `Le plus dur, ce n'est pas ${input.theme.toLowerCase()}. C'est ce que ca revele.`;
-  const visualPrompts = visualStages.map((stage) =>
+  const visualPromptSeries = visualStages.map((stage) =>
     buildVisualPrompt(input.theme, stage, angle),
   );
 
   return {
-    idea: `${input.theme}: partir d'une verite intime et la transformer en format court, clair, sans forcer la morale.`,
+    concept: `${input.theme}: partir d'une verite intime et la transformer en format court, clair, sans forcer la morale.`,
     hook,
     script: [
       hook,
@@ -406,10 +401,9 @@ function generateFallbackDraft(input: ContentWorkshopInput) {
     title,
     caption: "Certaines verites ne crient jamais, elles attendent juste ton silence.",
     hashtags: normalizeHashtags(["#psychologie", "#silence", "#stoicisme", "#lucidite", "#shorts"]),
-    visualPrompt: visualPrompts[0],
-    visualPrompts,
-    emotionalAngle: angle,
-    estimatedDuration: "25 a 35 secondes",
+    visualPrompt: visualPromptSeries[0],
+    angle,
+    voiceStyle: "Voix calme, grave, intime, rythme lent et tension contenue.",
     score: {
       viral: 7,
       hook: 7,
@@ -435,6 +429,44 @@ export async function generateContentDraft(input: ContentWorkshopInput) {
   return generateFallbackDraft(input);
 }
 
+function validateContentDraftInsertPayload(
+  payload: Record<ContentDraftInsertColumn, unknown>,
+) {
+  const payloadColumns = Object.keys(payload);
+  const missingColumns = contentDraftInsertColumns.filter(
+    (column) => !(column in payload),
+  );
+  const unexpectedColumns = payloadColumns.filter(
+    (column) => !contentDraftInsertColumns.includes(column as ContentDraftInsertColumn),
+  );
+  const emptyColumns = contentDraftInsertColumns.filter((column) => {
+    const value = payload[column];
+
+    return (
+      value === null ||
+      value === undefined ||
+      (typeof value === "string" && value.trim().length === 0) ||
+      (Array.isArray(value) && value.length === 0)
+    );
+  });
+
+  if (
+    missingColumns.length > 0 ||
+    unexpectedColumns.length > 0 ||
+    emptyColumns.length > 0
+  ) {
+    throw new Error(
+      [
+        "Payload content_drafts invalide avant insertion.",
+        `Colonnes attendues: ${contentDraftInsertColumns.join(", ")}.`,
+        `Colonnes manquantes: ${missingColumns.length ? missingColumns.join(", ") : "aucune"}.`,
+        `Colonnes inattendues: ${unexpectedColumns.length ? unexpectedColumns.join(", ") : "aucune"}.`,
+        `Colonnes vides: ${emptyColumns.length ? emptyColumns.join(", ") : "aucune"}.`,
+      ].join(" "),
+    );
+  }
+}
+
 export async function saveContentDraft({
   input,
   draft,
@@ -449,20 +481,23 @@ export async function saveContentDraft({
   console.info("[Content Workshop] save draft");
 
   const insertPayload: Record<ContentDraftInsertColumn, unknown> = {
-    user_id: userId,
-    status: "draft",
+    project: "Lignes Interieures",
+    platform_targets: normalizePlatformTargets(input.platform),
     theme: input.theme,
-    angle: draft.emotionalAngle,
-    platform: input.platform,
-    idea: draft.idea,
+    angle: draft.angle,
     hook: draft.hook,
     script: draft.script,
     title: draft.title,
     caption: draft.caption,
     hashtags: draft.hashtags,
     visual_prompt: draft.visualPrompt,
-    score: draft.score,
+    voice_style: draft.voiceStyle,
+    status: "draft",
+    source: "content_workshop",
+    user_id: userId,
   };
+
+  validateContentDraftInsertPayload(insertPayload);
 
   const { data, error } = await supabase
     .from("content_drafts")
@@ -479,8 +514,4 @@ export async function saveContentDraft({
     id: data.id,
     createdAt: data.created_at,
   };
-}
-
-export function getContentWorkshopSourceSummary() {
-  return sourceSummary;
 }

@@ -16,6 +16,7 @@ import {
   getPriorityProjectMemoryAction,
   readProjectMemoryEntries,
 } from "@/lib/server/project-memory";
+import { readCockpitState } from "@/lib/server/cockpit/read-only-state";
 import { findProjectResourceByName } from "@/lib/resources/project-resources";
 import type {
   CockpitStatus,
@@ -297,6 +298,7 @@ export async function getLiveProjectMemory() {
     publicationTables,
     supabaseHealth,
     projectMemoryEntriesResult,
+    cockpitState,
   ] = await Promise.all([
     readOAuthStatuses(),
     readPublicationTables(),
@@ -310,6 +312,7 @@ export async function getLiveProjectMemory() {
             ? error.message
             : "Lecture memoire projet indisponible.",
       })),
+    readCockpitState(),
   ]);
   const vercelStatus = readVercelStatus();
 
@@ -387,6 +390,7 @@ export async function getLiveProjectMemory() {
     ...projectMemoryForAssistant,
     observatoryItems: items,
     projectMemoryEntries: projectMemoryEntriesResult.entries,
+    cockpitState,
     nextRecommendedAction,
     sources: {
       supabase: supabaseHealth,

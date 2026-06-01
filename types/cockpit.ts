@@ -102,6 +102,52 @@ export type AssistantActionablePriority = {
   feasibleNow: boolean;
 };
 
+export type CockpitDraftState = {
+  id: string;
+  title: string;
+  theme: string;
+  status: string;
+  platformTargets: string[];
+  createdAt: string;
+  updatedAt: string | null;
+};
+
+export type CockpitOAuthState = {
+  provider: string;
+  configured: boolean;
+  tokenPresent: boolean;
+  expiresAt: string | null;
+  updatedAt: string | null;
+  warnings: string[];
+};
+
+export type CockpitDependency = {
+  name: string;
+  status: string;
+  note: string;
+};
+
+export type CockpitReadOnlyState = {
+  generatedAt: string;
+  contentDrafts: {
+    total: number;
+    readyToPublish: CockpitDraftState[];
+    inProgress: CockpitDraftState[];
+    byStatus: Record<string, number>;
+    readError: string | null;
+  };
+  oauthStatuses: CockpitOAuthState[];
+  modules: {
+    available: CockpitModule[];
+    migrating: CockpitModule[];
+  };
+  externalReviews: CockpitDependency[];
+  dependencies: CockpitDependency[];
+  blockers: string[];
+  nextActions: string[];
+  guardrails: string[];
+};
+
 export type ProjectContext = {
   projectSummary: string;
   operationalModules: ObservatoryItem[];
@@ -121,6 +167,7 @@ export type ProjectContext = {
   observatoryItems: ObservatoryItem[];
   projectMemoryEntries: ProjectMemoryEntry[];
   recommendations: Record<AssistantQuestion, string>;
+  cockpitState: CockpitReadOnlyState;
   overview: {
     totalModules: number;
     operational: number;

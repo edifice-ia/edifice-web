@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ConstructionJournal } from "@/components/cockpit/ConstructionJournal";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
+import { CockpitStatePanel } from "@/components/cockpit/CockpitStatePanel";
 import { LogPanel } from "@/components/cockpit/LogPanel";
 import { ProjectMemoryPanel } from "@/components/cockpit/ProjectMemoryPanel";
 import { ProjectObservatory } from "@/components/cockpit/ProjectObservatory";
@@ -92,6 +93,7 @@ export default async function MonitoringPage() {
         <ProjectObservatory items={projectMemory.observatoryItems} />
 
         <aside className="space-y-6">
+          <CockpitStatePanel state={projectMemory.cockpitState} />
           <ProjectMemoryPanel
             cockpitRole={projectMemory.cockpitRole}
             safeguards={projectMemory.safeguards}

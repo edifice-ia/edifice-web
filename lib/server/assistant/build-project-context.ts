@@ -176,6 +176,7 @@ function buildRecommendations(context: Omit<ProjectContext, "recommendations">) 
 
 export async function buildProjectContext(): Promise<ProjectContext> {
   const liveMemory = await getLiveProjectMemory();
+  const cockpitState = liveMemory.cockpitState;
   const items = liveMemory.observatoryItems;
   const operationalModules = items.filter((item) =>
     ["Operationnel", "Disponible"].includes(item.status),
@@ -261,9 +262,12 @@ export async function buildProjectContext(): Promise<ProjectContext> {
     publicationTablesMissing,
     projectMemoryError: liveMemory.sources.projectMemory.error,
   });
+  const readyDraftCount = cockpitState.contentDrafts.readyToPublish.length;
+  const inProgressDraftCount = cockpitState.contentDrafts.inProgress.length;
   const siteSummary = [
     `${items.length} modules Observatoire suivis.`,
     `${operationalModules.length} operationnel(s), ${blockedModules.length} bloque(s) actionnable(s), ${reviewModules.length} en review, ${externalReviewModules.length} en attente externe, ${migratingModules.length} en migration.`,
+    `${cockpitState.contentDrafts.total} brouillon(s) content_drafts lus: ${readyDraftCount} pret(s) a publier, ${inProgressDraftCount} en cours.`,
     `${cockpitModulesInMigration.length} module(s) cockpit existant(s) encore en migration: ${listNames(cockpitModulesInMigration)}.`,
     `${liveMemory.projectMemoryEntries.length} entree(s) project_memory lue(s).`,
     `Prochaine pierre: ${nextPriorityAction}`,
@@ -292,6 +296,7 @@ export async function buildProjectContext(): Promise<ProjectContext> {
     siteSummary,
     observatoryItems: items,
     projectMemoryEntries: liveMemory.projectMemoryEntries,
+    cockpitState,
     overview: {
       ...liveMemory.overview,
       nextRecommendedAction: nextPriorityAction,

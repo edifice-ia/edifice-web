@@ -81,6 +81,40 @@ function formatPriority(priority: AssistantActionablePriority) {
   ].join("\n");
 }
 
+function formatDrafts(
+  drafts: Array<{
+    title: string;
+    theme: string;
+    status: string;
+    platformTargets: string[];
+  }>,
+) {
+  if (drafts.length === 0) {
+    return "Aucun brouillon dans cette categorie.";
+  }
+
+  return drafts
+    .map(
+      (draft) =>
+        `${draft.title} (${draft.status}) - ${draft.theme} - plateformes: ${
+          draft.platformTargets.join(", ") || "non renseignees"
+        }`,
+    )
+    .join("\n");
+}
+
+function formatDependencies(
+  dependencies: Array<{ name: string; status: string; note: string }>,
+) {
+  if (dependencies.length === 0) {
+    return "Aucune dependance externe visible.";
+  }
+
+  return dependencies
+    .map((dependency) => `${dependency.name} (${dependency.status}): ${dependency.note}`)
+    .join("\n");
+}
+
 function formatPriorities(priorities: AssistantActionablePriority[]) {
   if (priorities.length === 0) {
     return "Aucune action faisable maintenant n'est detectee.";
@@ -145,13 +179,43 @@ function buildProjectAnswer(message: string, context: ProjectContext) {
   if (
     normalized.includes("ou en est") ||
     normalized.includes("etat") ||
+    normalized.includes("cockpit") ||
     normalized.includes("avancement") ||
     normalized.includes("projet")
   ) {
     return [
       context.projectSummary,
+      `Brouillons: ${context.cockpitState.contentDrafts.total} lus, ${context.cockpitState.contentDrafts.readyToPublish.length} prets a publier, ${context.cockpitState.contentDrafts.inProgress.length} en cours.`,
+      `OAuth: ${context.cockpitState.oauthStatuses
+        .map(
+          (status) =>
+            `${status.provider} ${status.configured ? "configure" : "incomplet"} / token ${
+              status.tokenPresent ? "present" : "absent"
+            }`,
+        )
+        .join(" ; ")}.`,
       "Note: l'accessibilite des liens externes ne vaut pas validation du module projet.",
     ].join("\n\n");
+  }
+
+  if (
+    normalized.includes("pret a publier") ||
+    normalized.includes("prets a publier") ||
+    normalized.includes("ready_to_publish")
+  ) {
+    return `Brouillons prets a publier, sans publication automatique:\n\n${formatDrafts(
+      context.cockpitState.contentDrafts.readyToPublish,
+    )}`;
+  }
+
+  if (
+    normalized.includes("brouillon") ||
+    normalized.includes("en cours") ||
+    normalized.includes("draft")
+  ) {
+    return `Brouillons en cours:\n\n${formatDrafts(
+      context.cockpitState.contentDrafts.inProgress,
+    )}`;
   }
 
   if (
@@ -179,6 +243,23 @@ function buildProjectAnswer(message: string, context: ProjectContext) {
             context.externalReviewModules,
           )}`
         : "Aucune review externe prioritaire detectee.",
+    ].join("\n\n");
+  }
+
+  if (
+    normalized.includes("dependance") ||
+    normalized.includes("dependencies") ||
+    normalized.includes("module disponible") ||
+    normalized.includes("modules disponibles")
+  ) {
+    return [
+      `Modules disponibles: ${context.cockpitState.modules.available
+        .map((module) => module.title)
+        .join(", ") || "aucun"}.`,
+      `Modules en migration: ${context.cockpitState.modules.migrating
+        .map((module) => module.title)
+        .join(", ") || "aucun"}.`,
+      `Dependances:\n${formatDependencies(context.cockpitState.dependencies)}`,
     ].join("\n\n");
   }
 
@@ -258,6 +339,27 @@ function buildSafeContextForLLM(context: ProjectContext) {
       summary: module.summary,
       nextAction: module.nextAction,
     })),
+    cockpitState: {
+      contentDrafts: context.cockpitState.contentDrafts,
+      oauthStatuses: context.cockpitState.oauthStatuses,
+      modules: {
+        available: context.cockpitState.modules.available.map((module) => ({
+          title: module.title,
+          status: module.status,
+          description: module.description,
+        })),
+        migrating: context.cockpitState.modules.migrating.map((module) => ({
+          title: module.title,
+          status: module.status,
+          description: module.description,
+        })),
+      },
+      externalReviews: context.cockpitState.externalReviews,
+      dependencies: context.cockpitState.dependencies,
+      blockers: context.cockpitState.blockers,
+      nextActions: context.cockpitState.nextActions,
+      guardrails: context.cockpitState.guardrails,
+    },
     cockpitModulesInMigration: context.cockpitModulesInMigration.map((module) => ({
       title: module.title,
       status: module.status,
@@ -313,6 +415,7 @@ async function generateOpenAIAnswer(input: GlobalAssistantInput) {
     "Reponds en francais, de facon concrete. Si la question demande une priorisation, donne 1 a 3 actions numerotees avec une justification courte.",
     "Pour chaque recommandation, indique: action recommandee, raison, dependance eventuelle, faisable maintenant oui/non.",
     "Ne confonds jamais lien accessible et module projet operationnel.",
+    "Les donnees cockpit sont en lecture seule: n'annonce jamais une action d'ecriture, de suppression ou de publication.",
   ].join("\n\n");
 
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -354,6 +457,34 @@ function buildResponseContext(context: ProjectContext) {
     modulesBlocked: context.blockedModules.map((module) => module.name),
     nextAction: context.nextPriorityAction,
     actionablePriorities: context.actionablePriorities,
+    cockpitState: {
+      contentDrafts: {
+        total: context.cockpitState.contentDrafts.total,
+        readyToPublish: context.cockpitState.contentDrafts.readyToPublish.map(
+          (draft) => draft.title,
+        ),
+        inProgress: context.cockpitState.contentDrafts.inProgress.map(
+          (draft) => draft.title,
+        ),
+        byStatus: context.cockpitState.contentDrafts.byStatus,
+      },
+      oauthStatuses: context.cockpitState.oauthStatuses.map((status) => ({
+        provider: status.provider,
+        configured: status.configured,
+        tokenPresent: status.tokenPresent,
+        warnings: status.warnings,
+      })),
+      modulesAvailable: context.cockpitState.modules.available.map(
+        (module) => module.title,
+      ),
+      modulesMigrating: context.cockpitState.modules.migrating.map(
+        (module) => module.title,
+      ),
+      externalReviews: context.cockpitState.externalReviews,
+      dependencies: context.cockpitState.dependencies,
+      blockers: context.cockpitState.blockers,
+      nextActions: context.cockpitState.nextActions,
+    },
     guardrails: context.guardrails,
   };
 }

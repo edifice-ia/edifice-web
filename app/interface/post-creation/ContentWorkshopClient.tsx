@@ -86,6 +86,12 @@ type ScriptVariant = {
   value: string;
 };
 
+type WorkshopSuggestions = {
+  themes: string[];
+  angles: string[];
+  emotions: string[];
+};
+
 const platforms = [
   "Multi-plateforme",
   "YouTube Shorts",
@@ -118,6 +124,30 @@ const presets = [
   "Verite tardive",
   "Force calme",
 ];
+
+const defaultSuggestions: WorkshopSuggestions = {
+  themes: [
+    "Quand le silence devient une reponse",
+    "La dignite apres une deception",
+    "Pourquoi certaines absences changent tout",
+    "Le respect qu'on ne reclame plus",
+    "Ce que ton calme revele aux autres",
+  ],
+  angles: [
+    "Montrer que la retenue peut devenir une force visible.",
+    "Transformer une blessure discrete en clarification interieure.",
+    "Expliquer pourquoi ne plus reagir change le rapport de force.",
+    "Faire sentir le moment ou l'on cesse de convaincre.",
+    "Raconter la difference entre fuir et se proteger.",
+  ],
+  emotions: [
+    "Lucidite calme",
+    "Fierte silencieuse",
+    "Soulagement froid",
+    "Detachement doux",
+    "Respect retrouve",
+  ],
+};
 
 function Field({
   label,
@@ -238,6 +268,36 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function SuggestionChips({
+  label,
+  items,
+  onSelect,
+}: {
+  label: string;
+  items: string[];
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7DD3FC]">
+        {label}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {items.map((item) => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => onSelect(item)}
+            className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-1.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
+          >
+            {item}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function ContentWorkshopClient() {
   const [theme, setTheme] = useState("Pouvoir discret");
   const [angle, setAngle] = useState(
@@ -249,6 +309,8 @@ export function ContentWorkshopClient() {
   );
   const [platform, setPlatform] = useState(platforms[0]);
   const [format, setFormat] = useState<FormatOption["value"]>("short");
+  const [suggestions, setSuggestions] =
+    useState<WorkshopSuggestions>(defaultSuggestions);
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [editor, setEditor] = useState<DraftEditorState | null>(null);
@@ -257,6 +319,7 @@ export function ContentWorkshopClient() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
   const [isUploadingAsset, setIsUploadingAsset] = useState(false);
@@ -402,6 +465,45 @@ export function ContentWorkshopClient() {
     value: DraftEditorState[K],
   ) {
     setEditor((current) => current ? { ...current, [key]: value } : current);
+  }
+
+  async function handleGenerateSuggestions() {
+    setIsGeneratingSuggestions(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch("/api/content-workshop/suggestions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          theme,
+          angle,
+          emotion,
+        }),
+      });
+      const payload = await response.json() as {
+        suggestions?: WorkshopSuggestions;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.suggestions) {
+        throw new Error(payload.error ?? "Suggestions indisponibles.");
+      }
+
+      setSuggestions(payload.suggestions);
+      setNotice("Suggestions generees sans sauvegarde.");
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Suggestions indisponibles.",
+      );
+    } finally {
+      setIsGeneratingSuggestions(false);
+    }
   }
 
   async function handleGenerate(event: React.FormEvent<HTMLFormElement>) {
@@ -625,6 +727,51 @@ export function ContentWorkshopClient() {
             <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
               Brouillons Supabase
             </span>
+          </div>
+
+          <div className="mt-6 rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+                  Ideation
+                </p>
+                <h3 className="mt-2 text-lg font-semibold text-[#F8FAFC]">
+                  Suggestions avant generation
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+                  Les chips remplissent les champs de depart. Rien n&apos;est
+                  sauvegarde tant que tu ne generes pas un brouillon.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleGenerateSuggestions()}
+                disabled={isGeneratingSuggestions}
+                className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+              >
+                {isGeneratingSuggestions
+                  ? "Generation des suggestions..."
+                  : "✨ Generer des suggestions"}
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-4">
+              <SuggestionChips
+                label="Suggestions de sujets"
+                items={suggestions.themes}
+                onSelect={setTheme}
+              />
+              <SuggestionChips
+                label="Suggestions d'angles"
+                items={suggestions.angles}
+                onSelect={setAngle}
+              />
+              <SuggestionChips
+                label="Suggestions d'emotions"
+                items={suggestions.emotions}
+                onSelect={setEmotion}
+              />
+            </div>
           </div>
 
           <form onSubmit={handleGenerate} className="mt-6 grid gap-4">

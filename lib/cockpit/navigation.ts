@@ -2,6 +2,14 @@ import type { CockpitNavItem } from "@/types/cockpit";
 
 export const cockpitNavigation: CockpitNavItem[] = [
   {
+    id: "cockpit-home",
+    href: "/dashboard",
+    label: "Accueil cockpit",
+    description: "Resume operationnel du jour",
+    status: "Operationnel",
+    showStatus: true,
+  },
+  {
     id: "assistant",
     href: "/interface",
     label: "Assistant de L’Édifice",

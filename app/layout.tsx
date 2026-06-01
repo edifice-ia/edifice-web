@@ -65,11 +65,19 @@ export default async function RootLayout({
                 {user ? (
                   <>
                     <Link
-                      href={isReviewer ? REVIEWER_SANDBOX_PATH : "/interface"}
+                      href={isReviewer ? REVIEWER_SANDBOX_PATH : "/dashboard"}
                       className="rounded-md border border-[#223149] px-3 py-2 font-semibold text-[#7DD3FC] transition hover:bg-[#111D2E] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                     >
-                      {isReviewer ? "Demo TikTok" : "Interface"}
+                      {isReviewer ? "Demo TikTok" : "Accueil cockpit"}
                     </Link>
+                    {!isReviewer ? (
+                      <Link
+                        href="/interface"
+                        className="rounded-md border border-[#223149] px-3 py-2 font-semibold text-[#F4F7FB] transition hover:bg-[#111D2E] hover:text-[#7DD3FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                      >
+                        Interface
+                      </Link>
+                    ) : null}
                     <form action={logout}>
                       <button
                         type="submit"

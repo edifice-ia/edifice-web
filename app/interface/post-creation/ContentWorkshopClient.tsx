@@ -6,6 +6,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 type ContentDraft = {
   id: string;
   createdAt: string;
+  updatedAt: string | null;
   project: string;
   platformTargets: string[];
   theme: string;
@@ -63,6 +64,11 @@ type DraftEditorState = {
   source: string;
 };
 
+type StatusOption = {
+  value: "draft" | "approved" | "rejected" | "ready_to_publish";
+  label: string;
+};
+
 const platforms = [
   "Multi-plateforme",
   "YouTube Shorts",
@@ -71,8 +77,14 @@ const platforms = [
   "Pinterest",
 ];
 
-const statusFilters = ["all", "draft", "review", "ready", "archived"];
-const editableStatuses = ["draft", "review", "ready", "archived"];
+const statusOptions: StatusOption[] = [
+  { value: "draft", label: "Brouillon" },
+  { value: "approved", label: "Approuve" },
+  { value: "rejected", label: "Rejete" },
+  { value: "ready_to_publish", label: "Pret a publier" },
+];
+
+const statusFilters = ["all", ...statusOptions.map((status) => status.value)];
 
 const presets = [
   "Pouvoir discret",
@@ -182,6 +194,24 @@ function buildUpdatePayload(editor: DraftEditorState) {
     status: editor.status,
     source: editor.source,
   };
+}
+
+function getStatusLabel(status: string) {
+  return statusOptions.find((option) => option.value === status)?.label ?? status;
+}
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return "Date inconnue";
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 export function ContentWorkshopClient() {
@@ -363,7 +393,10 @@ export function ContentWorkshopClient() {
 
   async function handleSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    await saveEditorChanges();
+  }
 
+  async function saveEditorChanges(statusOverride?: string) {
     if (!selectedDraft || !editor) {
       return;
     }
@@ -378,7 +411,10 @@ export function ContentWorkshopClient() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(buildUpdatePayload(editor)),
+        body: JSON.stringify({
+          ...buildUpdatePayload(editor),
+          status: statusOverride ?? editor.status,
+        }),
       });
       const payload = await response.json() as {
         draft?: ContentDraft;
@@ -394,7 +430,11 @@ export function ContentWorkshopClient() {
       );
       setSelectedDraftId(payload.draft.id);
       setEditor(toEditorState(payload.draft));
-      setNotice("Brouillon modifie.");
+      setNotice(
+        statusOverride
+          ? `Statut mis a jour: ${getStatusLabel(statusOverride)}.`
+          : "Brouillon modifie.",
+      );
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -404,6 +444,10 @@ export function ContentWorkshopClient() {
     } finally {
       setIsSaving(false);
     }
+  }
+
+  async function handleStatusAction(status: StatusOption["value"]) {
+    await saveEditorChanges(status);
   }
 
   async function handleDelete() {
@@ -579,7 +623,7 @@ export function ContentWorkshopClient() {
             </div>
             {selectedDraft ? (
               <span className="rounded-md border border-[#38BDF8]/35 bg-[#38BDF8]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#7DD3FC]">
-                {selectedDraft.status}
+                {getStatusLabel(selectedDraft.status)}
               </span>
             ) : null}
           </div>
@@ -597,23 +641,51 @@ export function ContentWorkshopClient() {
 
           {editor ? (
             <div className="mt-6 grid gap-6">
+              {selectedDraft ? (
+                <div className="rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+                    Resultat sauvegarde
+                  </p>
+                  <div className="mt-4 grid gap-3">
+                    {[
+                      ["Titre", selectedDraft.title],
+                      ["Idee", selectedDraft.theme],
+                      ["Angle", selectedDraft.angle],
+                      ["Hook", selectedDraft.hook],
+                      ["Script", selectedDraft.script],
+                      ["Legende", selectedDraft.caption],
+                      ["Hashtags", selectedDraft.hashtags.join(" ")],
+                      ["Prompt visuel", selectedDraft.visualPrompt],
+                      ["Style voix", selectedDraft.voiceStyle],
+                    ].map(([label, value]) => (
+                      <div
+                        key={label}
+                        className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-3"
+                      >
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7DD3FC]">
+                          {label}
+                        </p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#F8FAFC]">
+                          {value || "A completer"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               <form onSubmit={handleSave} className="grid gap-4">
                 <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="Projet">
-                    <TextInput
-                      value={editor.project}
-                      onChange={(value) => updateEditor("project", value)}
-                      maxLength={120}
-                    />
-                  </Field>
                   <Field label="Statut">
                     <select
                       value={editor.status}
                       onChange={(event) => updateEditor("status", event.target.value)}
                       className="mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm text-[#F8FAFC] outline-none"
                     >
-                      {editableStatuses.map((status) => (
-                        <option key={status}>{status}</option>
+                      {statusOptions.map((status) => (
+                        <option key={status.value} value={status.value}>
+                          {status.label}
+                        </option>
                       ))}
                     </select>
                   </Field>
@@ -624,14 +696,7 @@ export function ContentWorkshopClient() {
                       maxLength={240}
                     />
                   </Field>
-                  <Field label="Source">
-                    <TextInput
-                      value={editor.source}
-                      onChange={(value) => updateEditor("source", value)}
-                      maxLength={120}
-                    />
-                  </Field>
-                  <Field label="Theme">
+                  <Field label="Idee / theme">
                     <TextInput
                       value={editor.theme}
                       onChange={(value) => updateEditor("theme", value)}
@@ -706,6 +771,38 @@ export function ContentWorkshopClient() {
                     className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
                   >
                     {isSaving ? "Sauvegarde..." : "Sauvegarder les modifications"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => void handleStatusAction("draft")}
+                    className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                  >
+                    Brouillon
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => void handleStatusAction("approved")}
+                    className="rounded-md border border-[#22C55E]/45 bg-[#22C55E]/10 px-4 py-2.5 text-sm font-semibold text-[#86EFAC] transition hover:bg-[#14532D]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                  >
+                    Approuver
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => void handleStatusAction("rejected")}
+                    className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-4 py-2.5 text-sm font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                  >
+                    Rejeter
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => void handleStatusAction("ready_to_publish")}
+                    className="rounded-md border border-[#38BDF8]/45 bg-[#38BDF8]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#0C4A6E]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                  >
+                    Marquer pret a publier
                   </button>
                   <button
                     type="button"
@@ -826,7 +923,7 @@ export function ContentWorkshopClient() {
             >
               {statusFilters.map((status) => (
                 <option key={status} value={status}>
-                  {status === "all" ? "Tous" : status}
+                  {status === "all" ? "Tous" : getStatusLabel(status)}
                 </option>
               ))}
             </select>
@@ -862,9 +959,12 @@ export function ContentWorkshopClient() {
                 <span className="mt-2 block text-sm leading-6 text-[#A7B0C0]">
                   {draft.theme}
                 </span>
+                <span className="mt-2 block text-xs font-semibold uppercase tracking-[0.12em] text-[#64748B]">
+                  {formatDate(draft.createdAt)}
+                </span>
                 <span className="mt-3 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.12em]">
                   <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-2 py-1 text-[#7DD3FC]">
-                    {draft.status}
+                    {getStatusLabel(draft.status)}
                   </span>
                   <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-2 py-1 text-[#A7B0C0]">
                     {draft.platformTargets.join(", ") || "Sans plateforme"}

@@ -44,6 +44,7 @@ export type ContentDraft = {
 export type SavedContentDraft = ContentDraft & {
   id: string;
   createdAt: string;
+  updatedAt: string | null;
   project: string;
   platformTargets: string[];
   theme: string;
@@ -55,6 +56,7 @@ export type SavedContentDraft = ContentDraft & {
 type ContentDraftRow = {
   id: string;
   created_at: string;
+  updated_at: string | null;
   project: string | null;
   platform_targets: string[] | null;
   theme: string | null;
@@ -140,9 +142,17 @@ const contentDraftUpdateColumns: ContentDraftUpdateColumn[] = [
   "source",
 ];
 
+const contentDraftStatuses = [
+  "draft",
+  "approved",
+  "rejected",
+  "ready_to_publish",
+] as const;
+
 const contentDraftSelectColumns = [
   "id",
   "created_at",
+  "updated_at",
   ...contentDraftInsertColumns,
 ].join(", ");
 
@@ -598,6 +608,7 @@ function mapContentDraftRow(row: ContentDraftRow): SavedContentDraft {
   return {
     id: row.id,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
     project: row.project ?? "Lignes Interieures",
     platformTargets: row.platform_targets ?? [],
     theme,
@@ -627,6 +638,14 @@ function mapContentDraftRow(row: ContentDraftRow): SavedContentDraft {
 
 export function sanitizeContentDraftUpdateInput(input: unknown) {
   const record = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const status = requireText(record.status, 80, "Le statut");
+
+  if (!contentDraftStatuses.includes(status as typeof contentDraftStatuses[number])) {
+    throw new Error(
+      `Statut invalide. Statuts attendus: ${contentDraftStatuses.join(", ")}.`,
+    );
+  }
+
   const payload: Record<ContentDraftUpdateColumn, unknown> = {
     project: requireText(record.project, 120, "Le projet"),
     platform_targets: sanitizePlatformTargets(record.platformTargets ?? record.platform_targets),
@@ -639,7 +658,7 @@ export function sanitizeContentDraftUpdateInput(input: unknown) {
     hashtags: sanitizeHashtagList(record.hashtags),
     visual_prompt: requireText(record.visualPrompt ?? record.visual_prompt, 1400, "Le prompt visuel"),
     voice_style: requireText(record.voiceStyle ?? record.voice_style, 240, "Le style voix"),
-    status: requireText(record.status, 80, "Le statut"),
+    status,
     source: requireText(record.source, 120, "La source"),
   };
 
@@ -765,8 +784,8 @@ export async function saveContentDraft({
   const { data, error } = await supabase
     .from("content_drafts")
     .insert(insertPayload)
-    .select("id, created_at")
-    .single<{ id: string; created_at: string }>();
+    .select("id, created_at, updated_at")
+    .single<{ id: string; created_at: string; updated_at: string | null }>();
 
   if (error) {
     throw new Error(`Failed to save content draft: ${error.message}`);
@@ -776,6 +795,7 @@ export async function saveContentDraft({
     ...draft,
     id: data.id,
     createdAt: data.created_at,
+    updatedAt: data.updated_at,
     project: String(insertPayload.project),
     platformTargets: insertPayload.platform_targets as string[],
     theme: String(insertPayload.theme),

@@ -44,6 +44,31 @@ export type ContentDraft = {
 export type SavedContentDraft = ContentDraft & {
   id: string;
   createdAt: string;
+  project: string;
+  platformTargets: string[];
+  theme: string;
+  status: string;
+  source: string;
+  userId: string | null;
+};
+
+type ContentDraftRow = {
+  id: string;
+  created_at: string;
+  project: string | null;
+  platform_targets: string[] | null;
+  theme: string | null;
+  angle: string | null;
+  hook: string | null;
+  script: string | null;
+  title: string | null;
+  caption: string | null;
+  hashtags: string[] | null;
+  visual_prompt: string | null;
+  voice_style: string | null;
+  status: string | null;
+  source: string | null;
+  user_id: string | null;
 };
 
 const hashtagBuckets = [
@@ -80,6 +105,8 @@ type ContentDraftInsertColumn =
   | "source"
   | "user_id";
 
+type ContentDraftUpdateColumn = Exclude<ContentDraftInsertColumn, "user_id">;
+
 const contentDraftInsertColumns: ContentDraftInsertColumn[] = [
   "project",
   "platform_targets",
@@ -96,6 +123,28 @@ const contentDraftInsertColumns: ContentDraftInsertColumn[] = [
   "source",
   "user_id",
 ];
+
+const contentDraftUpdateColumns: ContentDraftUpdateColumn[] = [
+  "project",
+  "platform_targets",
+  "theme",
+  "angle",
+  "hook",
+  "script",
+  "title",
+  "caption",
+  "hashtags",
+  "visual_prompt",
+  "voice_style",
+  "status",
+  "source",
+];
+
+const contentDraftSelectColumns = [
+  "id",
+  "created_at",
+  ...contentDraftInsertColumns,
+].join(", ");
 
 let contentDraftsClient: SupabaseClient | null = null;
 
@@ -132,6 +181,16 @@ function normalizeText(value: unknown, maxLength: number) {
 
   const normalized = value.trim().replace(/\s+/g, " ");
   return normalized.length > 0 ? normalized.slice(0, maxLength) : null;
+}
+
+function requireText(value: unknown, maxLength: number, label: string) {
+  const normalized = normalizeText(value, maxLength);
+
+  if (!normalized) {
+    throw new Error(`${label} est obligatoire.`);
+  }
+
+  return normalized;
 }
 
 export function sanitizeContentWorkshopInput(
@@ -229,12 +288,39 @@ function normalizeHashtags(value: unknown) {
   return finalTags.slice(0, 5);
 }
 
+function sanitizeHashtagList(value: unknown) {
+  const hashtags = normalizeHashtags(value);
+
+  if (hashtags.length === 0) {
+    throw new Error("Les hashtags sont obligatoires.");
+  }
+
+  return hashtags;
+}
+
 function normalizePlatformTargets(platform: string) {
   if (platform === "Multi-plateforme") {
     return ["YouTube Shorts", "TikTok", "Instagram Reels", "Pinterest"];
   }
 
   return [platform];
+}
+
+function sanitizePlatformTargets(value: unknown) {
+  const targets = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  const normalized = targets
+    .map((target) => normalizeText(target, 80))
+    .filter((target): target is string => Boolean(target));
+
+  if (normalized.length === 0) {
+    throw new Error("Au moins une plateforme cible est obligatoire.");
+  }
+
+  return [...new Set(normalized)];
 }
 
 function clampScore(value: unknown) {
@@ -467,6 +553,183 @@ function validateContentDraftInsertPayload(
   }
 }
 
+function validateContentDraftUpdatePayload(
+  payload: Record<ContentDraftUpdateColumn, unknown>,
+) {
+  const payloadColumns = Object.keys(payload);
+  const missingColumns = contentDraftUpdateColumns.filter(
+    (column) => !(column in payload),
+  );
+  const unexpectedColumns = payloadColumns.filter(
+    (column) => !contentDraftUpdateColumns.includes(column as ContentDraftUpdateColumn),
+  );
+  const emptyColumns = contentDraftUpdateColumns.filter((column) => {
+    const value = payload[column];
+
+    return (
+      value === null ||
+      value === undefined ||
+      (typeof value === "string" && value.trim().length === 0) ||
+      (Array.isArray(value) && value.length === 0)
+    );
+  });
+
+  if (
+    missingColumns.length > 0 ||
+    unexpectedColumns.length > 0 ||
+    emptyColumns.length > 0
+  ) {
+    throw new Error(
+      [
+        "Payload content_drafts invalide avant mise a jour.",
+        `Colonnes attendues: ${contentDraftUpdateColumns.join(", ")}.`,
+        `Colonnes manquantes: ${missingColumns.length ? missingColumns.join(", ") : "aucune"}.`,
+        `Colonnes inattendues: ${unexpectedColumns.length ? unexpectedColumns.join(", ") : "aucune"}.`,
+        `Colonnes vides: ${emptyColumns.length ? emptyColumns.join(", ") : "aucune"}.`,
+      ].join(" "),
+    );
+  }
+}
+
+function mapContentDraftRow(row: ContentDraftRow): SavedContentDraft {
+  const theme = row.theme ?? "Brouillon sans theme";
+  const angle = row.angle ?? "Angle a preciser";
+
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    project: row.project ?? "Lignes Interieures",
+    platformTargets: row.platform_targets ?? [],
+    theme,
+    status: row.status ?? "draft",
+    source: row.source ?? "content_workshop",
+    userId: row.user_id,
+    concept: `${theme}: ${angle}`,
+    angle,
+    hook: row.hook ?? "",
+    script: row.script ?? "",
+    title: row.title ?? theme,
+    caption: row.caption ?? "",
+    hashtags: row.hashtags ?? [],
+    visualPrompt: row.visual_prompt ?? "",
+    voiceStyle: row.voice_style ?? "",
+    score: {
+      viral: 0,
+      hook: 0,
+      emotion: 0,
+      retention: 0,
+      clarity: 0,
+      total: 0,
+      reason: "Score non stocke dans le schema actuel content_drafts.",
+    },
+  };
+}
+
+export function sanitizeContentDraftUpdateInput(input: unknown) {
+  const record = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const payload: Record<ContentDraftUpdateColumn, unknown> = {
+    project: requireText(record.project, 120, "Le projet"),
+    platform_targets: sanitizePlatformTargets(record.platformTargets ?? record.platform_targets),
+    theme: requireText(record.theme, 180, "Le theme"),
+    angle: requireText(record.angle, 240, "L'angle"),
+    hook: requireText(record.hook, 240, "Le hook"),
+    script: requireText(record.script, 4000, "Le script"),
+    title: requireText(record.title, 120, "Le titre"),
+    caption: requireText(record.caption, 500, "La legende"),
+    hashtags: sanitizeHashtagList(record.hashtags),
+    visual_prompt: requireText(record.visualPrompt ?? record.visual_prompt, 1400, "Le prompt visuel"),
+    voice_style: requireText(record.voiceStyle ?? record.voice_style, 240, "Le style voix"),
+    status: requireText(record.status, 80, "Le statut"),
+    source: requireText(record.source, 120, "La source"),
+  };
+
+  validateContentDraftUpdatePayload(payload);
+  return payload;
+}
+
+export async function readContentDrafts({
+  status,
+  userId,
+}: {
+  status?: string | null;
+  userId: string;
+}) {
+  const supabase = getContentDraftsClient();
+  const statusFilter = normalizeText(status, 80);
+
+  console.info("[Content Workshop] read drafts");
+
+  let query = supabase
+    .from("content_drafts")
+    .select(contentDraftSelectColumns)
+    .eq("user_id", userId);
+
+  if (statusFilter && statusFilter !== "all") {
+    query = query.eq("status", statusFilter);
+  }
+
+  const { data, error } = await query
+    .order("created_at", { ascending: false })
+    .limit(100)
+    .returns<ContentDraftRow[]>();
+
+  if (error) {
+    throw new Error(`Failed to read content drafts: ${error.message}`);
+  }
+
+  return (data ?? []).map(mapContentDraftRow);
+}
+
+export async function updateContentDraft({
+  draftId,
+  input,
+  userId,
+}: {
+  draftId: string;
+  input: Record<ContentDraftUpdateColumn, unknown>;
+  userId: string;
+}) {
+  const supabase = getContentDraftsClient();
+
+  console.info("[Content Workshop] update draft");
+
+  const { data, error } = await supabase
+    .from("content_drafts")
+    .update(input)
+    .eq("id", draftId)
+    .eq("user_id", userId)
+    .select(contentDraftSelectColumns)
+    .single<ContentDraftRow>();
+
+  if (error) {
+    throw new Error(`Failed to update content draft: ${error.message}`);
+  }
+
+  return mapContentDraftRow(data);
+}
+
+export async function deleteContentDraft({
+  draftId,
+  userId,
+}: {
+  draftId: string;
+  userId: string;
+}) {
+  const supabase = getContentDraftsClient();
+
+  console.info("[Content Workshop] delete draft");
+
+  const { error } = await supabase
+    .from("content_drafts")
+    .delete()
+    .eq("id", draftId)
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(`Failed to delete content draft: ${error.message}`);
+  }
+}
+
 export async function saveContentDraft({
   input,
   draft,
@@ -513,5 +776,11 @@ export async function saveContentDraft({
     ...draft,
     id: data.id,
     createdAt: data.created_at,
+    project: String(insertPayload.project),
+    platformTargets: insertPayload.platform_targets as string[],
+    theme: String(insertPayload.theme),
+    status: String(insertPayload.status),
+    source: String(insertPayload.source),
+    userId,
   };
 }

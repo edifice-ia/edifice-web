@@ -5,7 +5,6 @@ import { PlatformStatusBadge } from "@/components/cockpit/PlatformStatusBadge";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { StatusBadge } from "@/components/cockpit/StatusBadge";
 import { readCockpitState } from "@/lib/server/cockpit/read-only-state";
-import { logout } from "../login/actions";
 import { requirePrivateCockpitAccess } from "@/src/lib/auth/guards";
 import type {
   CockpitReadOnlyState,
@@ -96,14 +95,6 @@ export default async function DashboardPage({
             aucun token modifie.
           </p>
         </div>
-        <form action={logout}>
-          <button
-            type="submit"
-            className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
-          >
-            Deconnexion
-          </button>
-        </form>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">

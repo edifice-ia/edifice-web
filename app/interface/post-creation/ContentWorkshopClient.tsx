@@ -65,9 +65,10 @@ type SelectedVariantEditorState = {
 type ContentAsset = {
   id: string;
   createdAt: string;
-  draftId: string;
-  assetType: "image" | "audio" | "video";
+  draftId: string | null;
+  assetType: "image" | "audio" | "video" | "subtitle";
   bucket: string;
+  fileName: string;
   storagePath: string;
   publicUrl: string;
   originalFilename: string | null;
@@ -75,6 +76,8 @@ type ContentAsset = {
   sizeBytes: number | null;
   status: string;
   source: string;
+  metadata: Record<string, unknown>;
+  usageCount: number;
 };
 
 type DraftEditorState = {

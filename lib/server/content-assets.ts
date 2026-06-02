@@ -2,33 +2,32 @@ import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const CONTENT_ASSETS_BUCKET = "content-assets";
+export const CONTENT_ASSETS_BUCKET = "content-assets";
 
-type ContentAssetType = "image" | "audio" | "video";
+type ContentAssetType = "image" | "audio" | "video" | "subtitle";
 
 type ContentAssetRow = {
   id: string;
   created_at: string;
-  draft_id: string;
-  user_id: string | null;
   asset_type: ContentAssetType;
-  bucket: string;
+  file_name: string;
+  bucket_name: string;
   storage_path: string;
   public_url: string;
-  original_filename: string | null;
-  content_type: string | null;
-  size_bytes: number | null;
   status: string;
   source: string;
+  metadata: Record<string, unknown>;
+  usage_count: number;
+  linked_draft_id: string | null;
 };
 
 export type ContentAsset = {
   id: string;
   createdAt: string;
-  draftId: string;
-  userId: string | null;
+  draftId: string | null;
   assetType: ContentAssetType;
   bucket: string;
+  fileName: string;
   storagePath: string;
   publicUrl: string;
   originalFilename: string | null;
@@ -36,6 +35,8 @@ export type ContentAsset = {
   sizeBytes: number | null;
   status: string;
   source: string;
+  metadata: Record<string, unknown>;
+  usageCount: number;
 };
 
 let contentAssetsClient: SupabaseClient | null = null;
@@ -67,20 +68,35 @@ function getContentAssetsClient() {
 }
 
 function mapAssetRow(row: ContentAssetRow): ContentAsset {
+  const originalFilename =
+    typeof row.metadata.original_filename === "string"
+      ? row.metadata.original_filename
+      : row.file_name;
+  const contentType =
+    typeof row.metadata.content_type === "string"
+      ? row.metadata.content_type
+      : null;
+  const sizeBytes =
+    typeof row.metadata.size_bytes === "number"
+      ? row.metadata.size_bytes
+      : null;
+
   return {
     id: row.id,
     createdAt: row.created_at,
-    draftId: row.draft_id,
-    userId: row.user_id,
+    draftId: row.linked_draft_id,
     assetType: row.asset_type,
-    bucket: row.bucket,
+    bucket: row.bucket_name,
+    fileName: row.file_name,
     storagePath: row.storage_path,
     publicUrl: row.public_url,
-    originalFilename: row.original_filename,
-    contentType: row.content_type,
-    sizeBytes: row.size_bytes,
+    originalFilename,
+    contentType,
+    sizeBytes,
     status: row.status,
     source: row.source,
+    metadata: row.metadata,
+    usageCount: row.usage_count,
   };
 }
 
@@ -97,8 +113,16 @@ function getAssetType(contentType: string): ContentAssetType {
     return "video";
   }
 
+  if (
+    contentType === "text/vtt" ||
+    contentType === "application/x-subrip" ||
+    contentType === "text/plain"
+  ) {
+    return "subtitle";
+  }
+
   throw new Error(
-    "Type de fichier non supporte. Images, audios et videos uniquement.",
+    "Type de fichier non supporte. Images, audios, videos et sous-titres uniquement.",
   );
 }
 
@@ -109,6 +133,10 @@ function getAssetFolder(assetType: ContentAssetType) {
 
   if (assetType === "audio") {
     return "audio";
+  }
+
+  if (assetType === "subtitle") {
+    return "subtitles";
   }
 
   return "videos";
@@ -163,10 +191,9 @@ export async function readContentAssets({
   const { data, error } = await supabase
     .from("content_assets")
     .select(
-      "id, created_at, draft_id, user_id, asset_type, bucket, storage_path, public_url, original_filename, content_type, size_bytes, status, source",
+      "id, created_at, asset_type, file_name, bucket_name, storage_path, public_url, status, source, metadata, usage_count, linked_draft_id",
     )
-    .eq("draft_id", draftId)
-    .eq("user_id", userId)
+    .eq("linked_draft_id", draftId)
     .order("created_at", { ascending: false })
     .returns<ContentAssetRow[]>();
 
@@ -227,20 +254,23 @@ export async function uploadContentAsset({
   const { data, error } = await supabase
     .from("content_assets")
     .insert({
-      draft_id: draftId,
-      user_id: userId,
       asset_type: assetType,
-      bucket: CONTENT_ASSETS_BUCKET,
+      file_name: filename,
+      bucket_name: CONTENT_ASSETS_BUCKET,
       storage_path: storagePath,
       public_url: publicUrl,
-      original_filename: file.name,
-      content_type: contentType,
-      size_bytes: file.size,
-      status: "stored",
+      metadata: {
+        content_type: contentType,
+        original_filename: file.name,
+        size_bytes: file.size,
+        uploaded_by: userId,
+      },
+      status: "available",
       source: "content_workshop_upload",
+      linked_draft_id: draftId,
     })
     .select(
-      "id, created_at, draft_id, user_id, asset_type, bucket, storage_path, public_url, original_filename, content_type, size_bytes, status, source",
+      "id, created_at, asset_type, file_name, bucket_name, storage_path, public_url, status, source, metadata, usage_count, linked_draft_id",
     )
     .single<ContentAssetRow>();
 

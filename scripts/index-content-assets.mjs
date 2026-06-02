@@ -2,7 +2,6 @@ import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-const DEFAULT_BUCKET = "content-assets";
 const DEFAULT_FOLDER = "lignes-interieures/elite";
 const IMAGE_EXTENSIONS = new Set([
   ".avif",
@@ -137,15 +136,17 @@ async function listFiles({ supabase, bucket, folder }) {
 async function main() {
   loadEnvFile(".env.local");
 
-  const bucket = getArgValue("bucket", DEFAULT_BUCKET);
+  const bucket = getArgValue(
+    "bucket",
+    process.env.SUPABASE_BUCKET_CONTENT_ASSETS,
+  );
   const folder = normalizeStoragePath(getArgValue("folder", DEFAULT_FOLDER));
-  const supabaseUrl =
-    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseUrl = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  if (!supabaseUrl || !serviceRoleKey || !bucket) {
     throw new Error(
-      "Variables requises: NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_URL, et SUPABASE_SERVICE_ROLE_KEY.",
+      "Variables requises dans .env.local: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_BUCKET_CONTENT_ASSETS.",
     );
   }
 
@@ -158,6 +159,42 @@ async function main() {
   const files = await listFiles({ supabase, bucket, folder });
   const imageFiles = files.filter((file) =>
     IMAGE_EXTENSIONS.has(path.extname(file.name).toLowerCase()),
+  );
+
+  if (imageFiles.length === 0) {
+    console.log(
+      JSON.stringify(
+        {
+          bucket,
+          folder,
+          filesFound: files.length,
+          imagesFound: 0,
+          rowsInserted: 0,
+          rowsAlreadyExisting: 0,
+          errors: [],
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  const imagePaths = imageFiles.map((file) => `${folder}/${file.name}`);
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from("content_assets")
+    .select("storage_path")
+    .in("storage_path", imagePaths);
+
+  if (existingError) {
+    throw new Error(
+      `Verification des doublons impossible: ${existingError.message}`,
+    );
+  }
+
+  const existingPaths = new Set(
+    (existingRows ?? []).map((row) => row.storage_path),
   );
 
   const rows = imageFiles.map((file) => {
@@ -191,14 +228,30 @@ async function main() {
     };
   });
 
-  if (rows.length === 0) {
-    console.log(`Aucune image trouvee dans ${bucket}/${folder}.`);
+  const rowsToInsert = rows.filter((row) => !existingPaths.has(row.storage_path));
+
+  if (rowsToInsert.length === 0) {
+    console.log(
+      JSON.stringify(
+        {
+          bucket,
+          folder,
+          filesFound: files.length,
+          imagesFound: imageFiles.length,
+          rowsInserted: 0,
+          rowsAlreadyExisting: imageFiles.length,
+          errors: [],
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
   const { data, error } = await supabase
     .from("content_assets")
-    .upsert(rows, {
+    .upsert(rowsToInsert, {
       onConflict: "storage_path",
       ignoreDuplicates: true,
     })
@@ -213,9 +266,12 @@ async function main() {
       {
         bucket,
         folder,
+        filesFound: files.length,
         imagesFound: imageFiles.length,
         rowsInserted: data?.length ?? 0,
-        duplicatesIgnored: imageFiles.length - (data?.length ?? 0),
+        rowsAlreadyExisting:
+          imageFiles.length - (data?.length ?? 0),
+        errors: [],
       },
       null,
       2,
@@ -224,6 +280,18 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
+  console.error(
+    JSON.stringify(
+      {
+        filesFound: 0,
+        imagesFound: 0,
+        rowsInserted: 0,
+        rowsAlreadyExisting: 0,
+        errors: [error instanceof Error ? error.message : String(error)],
+      },
+      null,
+      2,
+    ),
+  );
   process.exit(1);
 });

@@ -144,6 +144,51 @@ const generationStatusMessages = [
   "Finalisation du brouillon...",
 ];
 
+function getGenerationStatus(progress: number) {
+  if (progress >= 100) {
+    return "Brouillon pret.";
+  }
+  if (progress >= 97) {
+    return "Preparation de l'ouverture dans l'editeur...";
+  }
+  if (progress >= 94) {
+    return "Assemblage du brouillon complet...";
+  }
+  if (progress >= 90) {
+    return "Verification de la coherence editoriale...";
+  }
+
+  const messageIndex = Math.min(
+    generationStatusMessages.length - 1,
+    Math.floor((progress / 90) * generationStatusMessages.length),
+  );
+
+  return generationStatusMessages[Math.max(0, messageIndex)];
+}
+
+function getNextGenerationProgress(current: number) {
+  if (current < 75) {
+    return Math.min(current + 6, 75);
+  }
+  if (current < 92) {
+    return Math.min(current + 3, 92);
+  }
+  if (current < 98) {
+    return current + 1;
+  }
+  return 99;
+}
+
+function getGenerationProgressDelay(progress: number) {
+  if (progress < 75) {
+    return 850;
+  }
+  if (progress < 92) {
+    return 900;
+  }
+  return 650;
+}
+
 const statusOptions: StatusOption[] = [
   { value: "draft", label: "Brouillon" },
   { value: "approved", label: "Approuve" },
@@ -392,7 +437,6 @@ export function ContentWorkshopClient() {
   const [notice, setNotice] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
-  const [generationStatusIndex, setGenerationStatusIndex] = useState(0);
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
@@ -421,10 +465,7 @@ export function ContentWorkshopClient() {
     [generatedVariants, selectedVariantId],
   );
 
-  const generationStatus =
-    generationStatusMessages[
-      Math.min(generationStatusIndex, generationStatusMessages.length - 1)
-    ];
+  const generationStatus = getGenerationStatus(generationProgress);
 
   const scoreItems = useMemo(() => {
     if (!selectedDraft) {
@@ -528,27 +569,18 @@ export function ContentWorkshopClient() {
   }, []);
 
   useEffect(() => {
-    if (!isGenerating) {
+    if (!isGenerating || generationProgress >= 99) {
       return;
     }
 
-    const intervalId = window.setInterval(() => {
-      setGenerationProgress((current) => {
-        if (current < 35) {
-          return Math.min(current + 8, 35);
-        }
-        if (current < 70) {
-          return Math.min(current + 5, 70);
-        }
-        return Math.min(current + 2, 94);
-      });
-      setGenerationStatusIndex((current) =>
-        Math.min(current + 1, generationStatusMessages.length - 1),
+    const timeoutId = window.setTimeout(() => {
+      setGenerationProgress((current) =>
+        Math.max(current, getNextGenerationProgress(current)),
       );
-    }, 1100);
+    }, getGenerationProgressDelay(generationProgress));
 
-    return () => window.clearInterval(intervalId);
-  }, [isGenerating]);
+    return () => window.clearTimeout(timeoutId);
+  }, [generationProgress, isGenerating]);
 
   async function loadAssets(draftId: string) {
     setIsLoadingAssets(true);
@@ -640,8 +672,7 @@ export function ContentWorkshopClient() {
     setError(null);
     setNotice(null);
     setIsGenerating(true);
-    setGenerationProgress(6);
-    setGenerationStatusIndex(0);
+    setGenerationProgress(1);
     setGeneratedVariants([]);
     setSelectedVariantId(null);
     setVariantEditor(null);
@@ -670,6 +701,9 @@ export function ContentWorkshopClient() {
         throw new Error(payload.error ?? "Generation indisponible.");
       }
 
+      setGenerationProgress(100);
+      await new Promise((resolve) => window.setTimeout(resolve, 650));
+
       setGeneratedVariants(payload.variants);
       setSelectedVariantId(null);
       setVariantEditor(null);
@@ -684,8 +718,6 @@ export function ContentWorkshopClient() {
           : "Generation indisponible.",
       );
     } finally {
-      setGenerationProgress(100);
-      setGenerationStatusIndex(generationStatusMessages.length - 1);
       setIsGenerating(false);
     }
   }

@@ -17,7 +17,7 @@ alter table public.content_assets enable row level security;
 
 revoke all on table public.content_assets from anon;
 revoke all on table public.content_assets from authenticated;
-grant select, insert, update, delete on table public.content_assets to authenticated;
+grant select, insert, update on table public.content_assets to authenticated;
 
 create unique index if not exists content_assets_storage_path_key
 on public.content_assets (storage_path);
@@ -61,9 +61,3 @@ for update
 to authenticated
 using (true)
 with check (true);
-
-create policy content_assets_authenticated_delete
-on public.content_assets
-for delete
-to authenticated
-using (true);

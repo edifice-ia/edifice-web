@@ -80,6 +80,54 @@ type ContentAsset = {
   usageCount: number;
 };
 
+type VisualAsset = {
+  id: string;
+  assetType: "image" | "audio" | "video" | "subtitle";
+  fileName: string;
+  bucketName: string;
+  storagePath: string;
+  publicUrl: string;
+  source: string;
+  status: string;
+  metadata: Record<string, unknown>;
+  usageCount: number;
+  linkedDraftId: string | null;
+  createdAt: string;
+  score: number;
+  scoreReason: string;
+};
+
+type SelectedDraftAsset = VisualAsset & {
+  linkId: string;
+  assetSource: "library" | "generated";
+  usageOrder: number;
+};
+
+type VisualDecision = {
+  mode: "reuse_existing" | "generate_new";
+  reason: string;
+  confidence: number;
+  matched_assets: Array<{
+    asset_id: string;
+    file_name: string;
+    score: number;
+    reason: string;
+  }>;
+  missing_visual_needs: string[];
+};
+
+type MediaPipelineState = {
+  mediaPipelineStatus:
+    | "draft"
+    | "validated"
+    | "media_preparing"
+    | "media_ready"
+    | "ready_to_publish";
+  visualDecision: VisualDecision | null;
+  selectedAssets: SelectedDraftAsset[];
+  suggestedAssets: VisualAsset[];
+};
+
 type DraftEditorState = {
   project: string;
   platformTargets: string;
@@ -370,6 +418,18 @@ function getStatusLabel(status: string) {
   return statusOptions.find((option) => option.value === status)?.label ?? status;
 }
 
+function getMediaPipelineStatusLabel(status: MediaPipelineState["mediaPipelineStatus"]) {
+  const labels: Record<MediaPipelineState["mediaPipelineStatus"], string> = {
+    draft: "Brouillon",
+    validated: "Valide",
+    media_preparing: "Preparation media",
+    media_ready: "Medias prets",
+    ready_to_publish: "Pret a publier",
+  };
+
+  return labels[status];
+}
+
 function formatDate(value: string | null) {
   if (!value) {
     return "Date inconnue";
@@ -435,6 +495,8 @@ export function ContentWorkshopClient() {
   const [variantEditor, setVariantEditor] =
     useState<SelectedVariantEditorState | null>(null);
   const [assets, setAssets] = useState<ContentAsset[]>([]);
+  const [mediaPipeline, setMediaPipeline] =
+    useState<MediaPipelineState | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -443,6 +505,8 @@ export function ContentWorkshopClient() {
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
+  const [isLoadingMedia, setIsLoadingMedia] = useState(false);
+  const [isPreparingMedia, setIsPreparingMedia] = useState(false);
   const [isUploadingAsset, setIsUploadingAsset] = useState(false);
   const [isSavingVariant, setIsSavingVariant] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -467,6 +531,8 @@ export function ContentWorkshopClient() {
     () => generatedVariants.find((variant) => variant.id === selectedVariantId) ?? null,
     [generatedVariants, selectedVariantId],
   );
+
+  const canPrepareMedia = selectedDraft?.status === "approved";
 
   const generationStatus = getGenerationStatus(generationProgress);
 
@@ -550,6 +616,7 @@ export function ContentWorkshopClient() {
         setSelectedDraftId(null);
         setEditor(null);
         setAssets([]);
+        setMediaPipeline(null);
       }
     } catch (caughtError) {
       setError(
@@ -612,6 +679,36 @@ export function ContentWorkshopClient() {
     }
   }
 
+  async function loadMediaPipeline(draftId: string, includeSuggestions = false) {
+    setIsLoadingMedia(true);
+    setError(null);
+
+    try {
+      const suffix = includeSuggestions ? "?suggestions=1" : "";
+      const response = await fetch(
+        `/api/content-workshop/drafts/${draftId}/media${suffix}`,
+      );
+      const payload = await response.json() as {
+        media?: MediaPipelineState;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.media) {
+        throw new Error(payload.error ?? "Lecture du pipeline media indisponible.");
+      }
+
+      setMediaPipeline(payload.media);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Lecture du pipeline media indisponible.",
+      );
+    } finally {
+      setIsLoadingMedia(false);
+    }
+  }
+
   function openDraft(draft: ContentDraft) {
     setSelectedDraftId(draft.id);
     setEditor(toEditorState(draft));
@@ -619,9 +716,11 @@ export function ContentWorkshopClient() {
     setSelectedVariantId(null);
     setVariantEditor(null);
     setAssets([]);
+    setMediaPipeline(null);
     setNotice(null);
     setError(null);
     void loadAssets(draft.id);
+    void loadMediaPipeline(draft.id);
   }
 
   function updateEditor<K extends keyof DraftEditorState>(
@@ -713,6 +812,7 @@ export function ContentWorkshopClient() {
       setSelectedDraftId(null);
       setEditor(null);
       setAssets([]);
+      setMediaPipeline(null);
       setNotice("3 variantes generees. Choisis une variante avant sauvegarde.");
     } catch (caughtError) {
       setError(
@@ -738,6 +838,7 @@ export function ContentWorkshopClient() {
     setSelectedDraftId(null);
     setEditor(null);
     setAssets([]);
+    setMediaPipeline(null);
     setNotice("Variante choisie. Les 7 prompts visuels peuvent etre ajustes avant sauvegarde.");
     setError(null);
   }
@@ -832,7 +933,7 @@ export function ContentWorkshopClient() {
 
   async function saveEditorChanges(statusOverride?: string) {
     if (!selectedDraft || !editor) {
-      return;
+      return null;
     }
 
     setIsSaving(true);
@@ -873,24 +974,34 @@ export function ContentWorkshopClient() {
       );
       setSelectedDraftId(updatedDraft.id);
       setEditor(toEditorState(updatedDraft));
+      void loadMediaPipeline(updatedDraft.id);
       setNotice(
         statusOverride
           ? `Statut mis a jour: ${getStatusLabel(statusOverride)}.`
           : "Brouillon modifie.",
       );
+      return updatedDraft;
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
           ? caughtError.message
           : "Mise a jour indisponible.",
       );
+      return null;
     } finally {
       setIsSaving(false);
     }
   }
 
   async function handleStatusAction(status: StatusOption["value"]) {
-    await saveEditorChanges(status);
+    const updatedDraft = await saveEditorChanges(status);
+
+    if (status === "approved" && updatedDraft) {
+      await runMediaAction("prepare_media", {
+        draftId: updatedDraft.id,
+        forceAllowed: true,
+      });
+    }
   }
 
   function handleUseScriptVariant(variant: ScriptVariant) {
@@ -928,6 +1039,7 @@ export function ContentWorkshopClient() {
       setSelectedDraftId(null);
       setEditor(null);
       setAssets([]);
+      setMediaPipeline(null);
       setNotice("Brouillon supprime.");
     } catch (caughtError) {
       setError(
@@ -985,6 +1097,92 @@ export function ContentWorkshopClient() {
     } finally {
       setIsUploadingAsset(false);
     }
+  }
+
+  async function runMediaAction(
+    action: "prepare_media" | "refresh_suggestions" | "select_asset" | "replace_asset",
+    options?: {
+      assetId?: string;
+      draftId?: string;
+      forceAllowed?: boolean;
+      usageOrder?: number;
+    },
+  ) {
+    const targetDraftId = options?.draftId ?? selectedDraft?.id;
+
+    if (!targetDraftId) {
+      return;
+    }
+
+    if (!options?.forceAllowed && selectedDraft?.status !== "approved") {
+      setError("Valide le brouillon pour preparer les medias.");
+      setNotice(null);
+      return;
+    }
+
+    setIsPreparingMedia(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch(
+        `/api/content-workshop/drafts/${targetDraftId}/media`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action,
+            assetId: options?.assetId,
+            usageOrder: options?.usageOrder,
+          }),
+        },
+      );
+      const payload = await response.json() as {
+        media?: MediaPipelineState;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.media) {
+        throw new Error(payload.error ?? "Preparation media indisponible.");
+      }
+
+      setMediaPipeline(payload.media);
+      setNotice(
+        action === "prepare_media"
+          ? "Pipeline media preparee. Aucun media externe n'a ete genere."
+          : "Bibliotheque visuelle mise a jour.",
+      );
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Preparation media indisponible.",
+      );
+    } finally {
+      setIsPreparingMedia(false);
+    }
+  }
+
+  function handleSelectSuggestedAsset(asset: VisualAsset) {
+    const nextOrder = Math.min(
+      7,
+      (mediaPipeline?.selectedAssets.length ?? 0) + 1,
+    );
+    void runMediaAction("select_asset", {
+      assetId: asset.id,
+      usageOrder: nextOrder,
+    });
+  }
+
+  function handleReplaceSuggestedAsset(asset: VisualAsset) {
+    const firstSelectedOrder =
+      mediaPipeline?.selectedAssets[0]?.usageOrder ?? 1;
+    void runMediaAction("replace_asset", {
+      assetId: asset.id,
+      usageOrder: firstSelectedOrder,
+    });
   }
 
   return (
@@ -1591,6 +1789,167 @@ export function ContentWorkshopClient() {
                   </button>
                 </div>
               </form>
+
+              <div className="rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+                      Bibliotheque visuelle
+                    </p>
+                    <h3 className="mt-2 text-lg font-semibold text-[#F8FAFC]">
+                      Visuels suggeres
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+                      Le brouillon reste texte. Les medias sont prepares
+                      uniquement apres validation explicite.
+                    </p>
+                  </div>
+                  <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
+                    {mediaPipeline
+                      ? getMediaPipelineStatusLabel(mediaPipeline.mediaPipelineStatus)
+                      : "Non prepare"}
+                  </span>
+                </div>
+
+                {!canPrepareMedia ? (
+                  <p className="mt-4 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-3 text-sm font-semibold text-[#FDBA74]">
+                    Valide le brouillon pour preparer les medias.
+                  </p>
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    disabled={isPreparingMedia || !canPrepareMedia}
+                    onClick={() => void runMediaAction("prepare_media")}
+                    className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    {isPreparingMedia ? "Preparation..." : "Preparer les medias"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isPreparingMedia || !canPrepareMedia}
+                    onClick={() => void runMediaAction("refresh_suggestions")}
+                    className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    Actualiser suggestions
+                  </button>
+                </div>
+
+                {isLoadingMedia ? (
+                  <p className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-3 text-sm text-[#A7B0C0]">
+                    Lecture du pipeline media...
+                  </p>
+                ) : null}
+
+                {mediaPipeline?.visualDecision ? (
+                  <div className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7DD3FC]">
+                      {mediaPipeline.visualDecision.mode === "reuse_existing"
+                        ? "Visuels existants utilises"
+                        : "Nouveaux visuels recommandes"}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-[#F8FAFC]">
+                      {mediaPipeline.visualDecision.reason}
+                    </p>
+                    <p className="mt-2 text-xs text-[#A7B0C0]">
+                      Confiance: {Math.round(mediaPipeline.visualDecision.confidence * 100)}%
+                    </p>
+                    {mediaPipeline.visualDecision.missing_visual_needs.length > 0 ? (
+                      <div className="mt-3 grid gap-2">
+                        {mediaPipeline.visualDecision.missing_visual_needs.map((need) => (
+                          <p
+                            key={need}
+                            className="rounded-md border border-[#F97316]/30 bg-[#F97316]/10 px-3 py-2 text-xs text-[#FDBA74]"
+                          >
+                            {need}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {mediaPipeline?.selectedAssets.length ? (
+                  <div className="mt-4">
+                    <p className="text-sm font-semibold text-[#F8FAFC]">
+                      Visuels selectionnes
+                    </p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {mediaPipeline.selectedAssets.map((asset) => (
+                        <article
+                          key={asset.linkId}
+                          className="overflow-hidden rounded-md border border-[#1D2A44] bg-[#03070B]"
+                        >
+                          <div
+                            aria-label={asset.fileName}
+                            className="aspect-[9/16] w-full bg-[#08111A] bg-cover bg-center"
+                            role="img"
+                            style={{ backgroundImage: `url(${asset.publicUrl})` }}
+                          />
+                          <div className="p-3">
+                            <p className="text-sm font-semibold text-[#F8FAFC]">
+                              {asset.usageOrder}. {asset.fileName}
+                            </p>
+                            <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[#7DD3FC]">
+                              {asset.assetSource} · score {Math.round(asset.score)}
+                            </p>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {mediaPipeline?.suggestedAssets.length ? (
+                  <div className="mt-5">
+                    <p className="text-sm font-semibold text-[#F8FAFC]">
+                      Suggestions de la bibliotheque
+                    </p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {mediaPipeline.suggestedAssets.slice(0, 9).map((asset) => (
+                        <article
+                          key={asset.id}
+                          className="overflow-hidden rounded-md border border-[#1D2A44] bg-[#03070B]"
+                        >
+                          <div
+                            aria-label={asset.fileName}
+                            className="aspect-[9/16] w-full bg-[#08111A] bg-cover bg-center"
+                            role="img"
+                            style={{ backgroundImage: `url(${asset.publicUrl})` }}
+                          />
+                          <div className="p-3">
+                            <p className="text-sm font-semibold text-[#F8FAFC]">
+                              {asset.fileName}
+                            </p>
+                            <p className="mt-1 text-xs text-[#A7B0C0]">
+                              Score {Math.round(asset.score)} · {asset.scoreReason}
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={isPreparingMedia}
+                                onClick={() => handleSelectSuggestedAsset(asset)}
+                                className="rounded-md border border-[#39E6D0]/45 bg-[#39E6D0]/10 px-3 py-1.5 text-xs font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                              >
+                                Selectionner
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isPreparingMedia}
+                                onClick={() => handleReplaceSuggestedAsset(asset)}
+                                className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-xs font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                              >
+                                Remplacer
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
 
               <div className="rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">

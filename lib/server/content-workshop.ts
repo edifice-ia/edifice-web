@@ -226,6 +226,8 @@ const contentDraftStatuses = [
   "ready_to_publish",
 ] as const;
 
+type ContentDraftStatus = typeof contentDraftStatuses[number];
+
 const contentDraftSelectColumns = [
   "id",
   "created_at",
@@ -997,6 +999,19 @@ export function sanitizeContentDraftUpdateInput(input: unknown) {
   return payload;
 }
 
+export function sanitizeContentDraftStatusInput(input: unknown) {
+  const record = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const status = requireText(record.status, 80, "Le statut");
+
+  if (!contentDraftStatuses.includes(status as ContentDraftStatus)) {
+    throw new Error(
+      `Statut invalide. Statuts attendus: ${contentDraftStatuses.join(", ")}.`,
+    );
+  }
+
+  return status as ContentDraftStatus;
+}
+
 export async function readContentDrafts({
   status,
   userId,
@@ -1053,6 +1068,37 @@ export async function updateContentDraft({
 
   if (error) {
     throw new Error(`Failed to update content draft: ${error.message}`);
+  }
+
+  return mapContentDraftRow(data);
+}
+
+export async function updateContentDraftStatus({
+  draftId,
+  status,
+  userId,
+}: {
+  draftId: string;
+  status: ContentDraftStatus;
+  userId: string;
+}) {
+  const supabase = getContentDraftsClient();
+
+  console.info("[Content Workshop] update draft status", {
+    draftId,
+    status,
+  });
+
+  const { data, error } = await supabase
+    .from("content_drafts")
+    .update({ status })
+    .eq("id", draftId)
+    .eq("user_id", userId)
+    .select(contentDraftSelectColumns)
+    .single<ContentDraftRow>();
+
+  if (error) {
+    throw new Error(`Failed to update content draft status: ${error.message}`);
   }
 
   return mapContentDraftRow(data);

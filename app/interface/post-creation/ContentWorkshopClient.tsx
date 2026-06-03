@@ -128,6 +128,11 @@ type MediaPipelineState = {
   suggestedAssets: VisualAsset[];
 };
 
+type ApiErrorPayload = {
+  error?: string;
+  details?: Record<string, unknown>;
+};
+
 type DraftEditorState = {
   project: string;
   platformTargets: string;
@@ -430,6 +435,28 @@ function getMediaPipelineStatusLabel(status: MediaPipelineState["mediaPipelineSt
   return labels[status];
 }
 
+function formatApiError(payload: ApiErrorPayload, fallback: string) {
+  const details = payload.details ?? {};
+  const detailParts = [
+    typeof details.validation === "string" ? `validation=${details.validation}` : null,
+    typeof details.draftId === "string" ? `draft_id=${details.draftId}` : null,
+    typeof details.draftStatus === "string" ? `status=${details.draftStatus}` : null,
+    typeof details.mediaPipelineStatus === "string"
+      ? `media_pipeline_status=${details.mediaPipelineStatus}`
+      : null,
+    typeof details.visualDecisionMode === "string"
+      ? `visual_decision=${details.visualDecisionMode}`
+      : null,
+  ].filter(Boolean);
+
+  return [
+    payload.error ?? fallback,
+    detailParts.length > 0 ? `(${detailParts.join(" | ")})` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function formatDate(value: string | null) {
   if (!value) {
     return "Date inconnue";
@@ -690,11 +717,10 @@ export function ContentWorkshopClient() {
       );
       const payload = await response.json() as {
         media?: MediaPipelineState;
-        error?: string;
-      };
+      } & ApiErrorPayload;
 
       if (!response.ok || !payload.media) {
-        throw new Error(payload.error ?? "Lecture du pipeline media indisponible.");
+        throw new Error(formatApiError(payload, "Lecture du pipeline media indisponible."));
       }
 
       setMediaPipeline(payload.media);
@@ -953,11 +979,10 @@ export function ContentWorkshopClient() {
       });
       const payload = await response.json() as {
         draft?: ContentDraft;
-        error?: string;
-      };
+      } & ApiErrorPayload;
 
       if (!response.ok || !payload.draft) {
-        throw new Error(payload.error ?? "Mise a jour indisponible.");
+        throw new Error(formatApiError(payload, "Mise a jour indisponible."));
       }
 
       const updatedDraft: ContentDraft = {
@@ -994,13 +1019,59 @@ export function ContentWorkshopClient() {
   }
 
   async function handleStatusAction(status: StatusOption["value"]) {
-    const updatedDraft = await saveEditorChanges(status);
+    if (!selectedDraft) {
+      return;
+    }
 
-    if (status === "approved" && updatedDraft) {
-      await runMediaAction("prepare_media", {
-        draftId: updatedDraft.id,
-        forceAllowed: true,
+    setIsSaving(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch(`/api/content-workshop/drafts/${selectedDraft.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "update_status",
+          status,
+        }),
       });
+      const payload = await response.json() as {
+        draft?: ContentDraft;
+      } & ApiErrorPayload;
+
+      if (!response.ok || !payload.draft) {
+        throw new Error(formatApiError(payload, "Mise a jour du statut indisponible."));
+      }
+
+      const updatedDraft: ContentDraft = {
+        ...payload.draft,
+        scriptUltraShort: selectedDraft.scriptUltraShort,
+        scriptShort: selectedDraft.scriptShort,
+        scriptMedium: selectedDraft.scriptMedium,
+        scriptLong: selectedDraft.scriptLong,
+        recommendedScript: payload.draft.script,
+      };
+
+      setDrafts((current) =>
+        current.map((draft) => draft.id === updatedDraft.id ? updatedDraft : draft),
+      );
+      setSelectedDraftId(updatedDraft.id);
+      setEditor((current) =>
+        current ? { ...current, status: updatedDraft.status } : current,
+      );
+      void loadMediaPipeline(updatedDraft.id);
+      setNotice(`Statut mis a jour: ${getStatusLabel(status)}.`);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Mise a jour du statut indisponible.",
+      );
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -1141,11 +1212,10 @@ export function ContentWorkshopClient() {
       );
       const payload = await response.json() as {
         media?: MediaPipelineState;
-        error?: string;
-      };
+      } & ApiErrorPayload;
 
       if (!response.ok || !payload.media) {
-        throw new Error(payload.error ?? "Preparation media indisponible.");
+        throw new Error(formatApiError(payload, "Preparation media indisponible."));
       }
 
       setMediaPipeline(payload.media);

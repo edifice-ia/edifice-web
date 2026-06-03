@@ -27,6 +27,25 @@ type DraftRow = {
   status: string | null;
 };
 
+type MediaPipelineErrorContext = {
+  draftId?: string;
+  draftStatus?: string | null;
+  contentAssetsCount?: number;
+  mediaPipelineStatus?: MediaPipelineStatus;
+  visualDecisionMode?: VisualDecisionMode;
+  validation?: string;
+};
+
+export class MediaPipelineError extends Error {
+  context: MediaPipelineErrorContext;
+
+  constructor(message: string, context: MediaPipelineErrorContext = {}) {
+    super(message);
+    this.name = "MediaPipelineError";
+    this.context = context;
+  }
+}
+
 type ContentAssetRow = {
   id: string;
   asset_type: "image" | "audio" | "video" | "subtitle";
@@ -251,11 +270,20 @@ async function readDraft(draftId: string, userId: string) {
     .maybeSingle<DraftRow>();
 
   if (error) {
-    throw new Error(`Lecture du brouillon impossible: ${error.message}`);
+    throw new MediaPipelineError(
+      `Lecture du brouillon impossible: ${error.message}`,
+      {
+        draftId,
+        validation: "content_drafts.select",
+      },
+    );
   }
 
   if (!data) {
-    throw new Error("Brouillon introuvable ou non autorise.");
+    throw new MediaPipelineError("Brouillon introuvable ou non autorise.", {
+      draftId,
+      validation: "content_drafts.missing",
+    });
   }
 
   return data;
@@ -276,7 +304,12 @@ async function readLibraryAssets() {
     .returns<ContentAssetRow[]>();
 
   if (error) {
-    throw new Error(`Lecture de la bibliotheque visuelle impossible: ${error.message}`);
+    throw new MediaPipelineError(
+      `Lecture de la bibliotheque visuelle impossible: ${error.message}`,
+      {
+        validation: "content_assets.select",
+      },
+    );
   }
 
   return data ?? [];
@@ -304,7 +337,13 @@ async function readPlan(draftId: string) {
     .maybeSingle<MediaPlanRow>();
 
   if (error) {
-    throw new Error(`Lecture du plan media impossible: ${error.message}`);
+    throw new MediaPipelineError(
+      `Lecture du plan media impossible: ${error.message}`,
+      {
+        draftId,
+        validation: "content_draft_media_plans.select",
+      },
+    );
   }
 
   return data;
@@ -320,7 +359,13 @@ async function readSelectedAssets(draftId: string) {
     .returns<AssetLinkRow[]>();
 
   if (error) {
-    throw new Error(`Lecture des visuels selectionnes impossible: ${error.message}`);
+    throw new MediaPipelineError(
+      `Lecture des visuels selectionnes impossible: ${error.message}`,
+      {
+        draftId,
+        validation: "content_draft_asset_links.select",
+      },
+    );
   }
 
   const assetIds = (links ?? [])
@@ -340,7 +385,13 @@ async function readSelectedAssets(draftId: string) {
     .returns<ContentAssetRow[]>();
 
   if (assetError) {
-    throw new Error(`Lecture des assets selectionnes impossible: ${assetError.message}`);
+    throw new MediaPipelineError(
+      `Lecture des assets selectionnes impossible: ${assetError.message}`,
+      {
+        draftId,
+        validation: "content_assets.selected_assets",
+      },
+    );
   }
 
   const assetById = new Map((assets ?? []).map((asset) => [asset.id, asset]));
@@ -381,7 +432,15 @@ async function savePlan({
     });
 
   if (error) {
-    throw new Error(`Sauvegarde du plan media impossible: ${error.message}`);
+    throw new MediaPipelineError(
+      `Sauvegarde du plan media impossible: ${error.message}`,
+      {
+        draftId,
+        mediaPipelineStatus,
+        visualDecisionMode: visualDecision.mode,
+        validation: "content_draft_media_plans.upsert",
+      },
+    );
   }
 }
 
@@ -399,7 +458,13 @@ async function replaceSelectedAssets({
     .eq("draft_id", draftId);
 
   if (deleteError) {
-    throw new Error(`Reset des visuels impossible: ${deleteError.message}`);
+    throw new MediaPipelineError(
+      `Reset des visuels impossible: ${deleteError.message}`,
+      {
+        draftId,
+        validation: "content_draft_asset_links.delete",
+      },
+    );
   }
 
   if (assets.length === 0) {
@@ -417,7 +482,13 @@ async function replaceSelectedAssets({
   );
 
   if (error) {
-    throw new Error(`Selection des visuels impossible: ${error.message}`);
+    throw new MediaPipelineError(
+      `Selection des visuels impossible: ${error.message}`,
+      {
+        draftId,
+        validation: "content_draft_asset_links.insert",
+      },
+    );
   }
 }
 
@@ -456,7 +527,11 @@ export async function prepareDraftMedia({
   const draft = await readDraft(draftId, userId);
 
   if (draft.status !== "approved") {
-    throw new Error("Valide le brouillon pour preparer les medias.");
+    throw new MediaPipelineError("Valide le brouillon pour preparer les medias.", {
+      draftId,
+      draftStatus: draft.status,
+      validation: "draft.status",
+    });
   }
 
   const suggestedAssets = await scoreLibraryForDraft(draft);
@@ -510,7 +585,11 @@ export async function refreshDraftMediaSuggestions({
   const draft = await readDraft(draftId, userId);
 
   if (draft.status !== "approved") {
-    throw new Error("Valide le brouillon pour preparer les medias.");
+    throw new MediaPipelineError("Valide le brouillon pour preparer les medias.", {
+      draftId,
+      draftStatus: draft.status,
+      validation: "draft.status",
+    });
   }
 
   return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
@@ -530,7 +609,11 @@ export async function selectDraftVisualAsset({
   const draft = await readDraft(draftId, userId);
 
   if (draft.status !== "approved") {
-    throw new Error("Valide le brouillon pour preparer les medias.");
+    throw new MediaPipelineError("Valide le brouillon pour preparer les medias.", {
+      draftId,
+      draftStatus: draft.status,
+      validation: "draft.status",
+    });
   }
 
   const suggestedAssets = await scoreLibraryForDraft(draft);
@@ -558,7 +641,10 @@ export async function selectDraftVisualAsset({
     );
 
   if (error) {
-    throw new Error(`Selection manuelle impossible: ${error.message}`);
+    throw new MediaPipelineError(`Selection manuelle impossible: ${error.message}`, {
+      draftId,
+      validation: "content_draft_asset_links.upsert",
+    });
   }
 
   const currentState = await readMediaPipelineState({
@@ -588,11 +674,15 @@ async function readAssetById(assetId: string) {
     .maybeSingle<ContentAssetRow>();
 
   if (error) {
-    throw new Error(`Lecture du visuel impossible: ${error.message}`);
+    throw new MediaPipelineError(`Lecture du visuel impossible: ${error.message}`, {
+      validation: "content_assets.asset_by_id",
+    });
   }
 
   if (!data) {
-    throw new Error("Visuel introuvable dans la bibliotheque.");
+    throw new MediaPipelineError("Visuel introuvable dans la bibliotheque.", {
+      validation: "content_assets.asset_missing",
+    });
   }
 
   return data;

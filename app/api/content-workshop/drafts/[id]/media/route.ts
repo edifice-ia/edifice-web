@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  MediaPipelineError,
   prepareDraftMedia,
   readMediaPipelineState,
   refreshDraftMediaSuggestions,
@@ -9,6 +10,45 @@ import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const runtime = "nodejs";
+
+function summarizeMediaBody(body: unknown) {
+  if (!body || typeof body !== "object") {
+    return body;
+  }
+
+  const payload = body as Record<string, unknown>;
+  return {
+    keys: Object.keys(payload),
+    action: payload.action,
+    assetId: payload.assetId,
+    usageOrder: payload.usageOrder,
+    missing: [
+      payload.action === "select_asset" || payload.action === "replace_asset"
+        ? "assetId"
+        : null,
+    ].filter((field): field is string => Boolean(field && !(field in payload))),
+  };
+}
+
+function mediaErrorPayload(error: unknown, body?: unknown) {
+  const message =
+    error instanceof Error ? error.message : "Pipeline media indisponible.";
+  const context =
+    error instanceof MediaPipelineError ? error.context : undefined;
+
+  return {
+    error: message,
+    details: {
+      body: summarizeMediaBody(body),
+      validation: context?.validation ?? "media_pipeline",
+      draftId: context?.draftId,
+      draftStatus: context?.draftStatus,
+      contentAssetsCount: context?.contentAssetsCount,
+      mediaPipelineStatus: context?.mediaPipelineStatus,
+      visualDecisionMode: context?.visualDecisionMode,
+    },
+  };
+}
 
 async function authorizeMediaAccess() {
   const user = await getCurrentUser();
@@ -33,6 +73,10 @@ export async function GET(
   try {
     const { id } = await context.params;
     const { searchParams } = new URL(request.url);
+    console.info("[Media Pipeline API] GET received", {
+      draftId: id,
+      suggestions: searchParams.get("suggestions") === "1",
+    });
     const media = await readMediaPipelineState({
       draftId: id,
       userId: user.id,
@@ -41,13 +85,9 @@ export async function GET(
 
     return NextResponse.json({ media });
   } catch (error) {
+    console.error("[Media Pipeline API] GET failed", mediaErrorPayload(error));
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Lecture du pipeline media indisponible.",
-      },
+      mediaErrorPayload(error),
       { status: 400 },
     );
   }
@@ -67,9 +107,20 @@ export async function POST(
 
   try {
     body = await request.json();
-  } catch {
+  } catch (error) {
+    const { id } = await context.params;
+    console.error("[Media Pipeline API] POST invalid JSON", {
+      draftId: id,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
-      { error: "Requete invalide: JSON attendu." },
+      {
+        error: "Requete invalide: JSON attendu.",
+        details: {
+          draftId: id,
+          validation: "request.json",
+        },
+      },
       { status: 400 },
     );
   }
@@ -81,6 +132,10 @@ export async function POST(
 
   try {
     const { id } = await context.params;
+    console.info("[Media Pipeline API] POST received", {
+      draftId: id,
+      body: summarizeMediaBody(payload),
+    });
 
     if (action === "prepare_media") {
       const media = await prepareDraftMedia({
@@ -107,8 +162,20 @@ export async function POST(
         typeof payload.usageOrder === "number" ? payload.usageOrder : 1;
 
       if (!assetId) {
+        console.error("[Media Pipeline API] POST validation failed", {
+          draftId: id,
+          body: summarizeMediaBody(payload),
+          validation: "assetId.required",
+        });
         return NextResponse.json(
-          { error: "assetId est requis." },
+          {
+            error: "assetId est requis.",
+            details: {
+              body: summarizeMediaBody(payload),
+              validation: "assetId.required",
+              draftId: id,
+            },
+          },
           { status: 400 },
         );
       }
@@ -124,17 +191,19 @@ export async function POST(
     }
 
     return NextResponse.json(
-      { error: "Action media inconnue." },
+      {
+        error: "Action media inconnue.",
+        details: {
+          body: summarizeMediaBody(payload),
+          validation: "action.unknown",
+        },
+      },
       { status: 400 },
     );
   } catch (error) {
+    console.error("[Media Pipeline API] POST failed", mediaErrorPayload(error, payload));
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Pipeline media indisponible.",
-      },
+      mediaErrorPayload(error, payload),
       { status: 400 },
     );
   }

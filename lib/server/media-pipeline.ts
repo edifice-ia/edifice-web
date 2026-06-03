@@ -467,16 +467,25 @@ async function savePlan({
   visualDecision: VisualDecision;
 }) {
   const supabase = getMediaPipelineClient();
+  console.log(
+    "[MEDIA PLAN UPSERT]",
+    draftId,
+    mediaPipelineStatus,
+    visualDecision.mode,
+  );
   const { error } = await supabase
     .from("content_draft_media_plans")
-    .upsert({
-      draft_id: draftId,
-      action: "prepare_media",
-      media_pipeline_status: mediaPipelineStatus,
-      visual_decision_mode: visualDecision.mode,
-      visual_decision: visualDecision,
-      missing_visual_needs: visualDecision.missing_visual_needs,
-    });
+    .upsert(
+      {
+        draft_id: draftId,
+        action: "prepare_media",
+        media_pipeline_status: mediaPipelineStatus,
+        visual_decision_mode: visualDecision.mode,
+        visual_decision: visualDecision,
+        missing_visual_needs: visualDecision.missing_visual_needs,
+      },
+      { onConflict: "draft_id" },
+    );
 
   if (error) {
     if (isMissingTableError(error)) {

@@ -15,8 +15,10 @@ Prompt 7 - Derniere image memorable
 The final frame stays quiet, symbolic, and unforgettable.
 `;
 
+const inlineVisualPrompt = "Prompt 1 - One. Prompt 2 - Two. Prompt 3 - Three. Prompt 4 - Four. Prompt 5 - Five. Prompt 6 - Six. Prompt 7 - Seven.";
+
 function parseVisualPrompts(raw) {
-  const markerPattern = /(?:^|\n)\s*Prompt\s+([1-7])\s*(?:[-:])?[^\n]*\n?/gi;
+  const markerPattern = /Prompt\s+([1-7])\s*(?:[-:])?\s*/gi;
   const trimmed = raw.trim();
   const matches = [...trimmed.matchAll(markerPattern)]
     .map((match) => ({
@@ -38,12 +40,21 @@ function parseVisualPrompts(raw) {
 }
 
 const parsed = parseVisualPrompts(rawVisualPrompt);
+const inlineParsed = parseVisualPrompts(inlineVisualPrompt);
 const failures = parsed
   .map((prompt, index) => ({ index: index + 1, prompt }))
   .filter(({ prompt }) => !prompt || /Prompt\s+[1-7]/i.test(prompt));
+const inlineFailures = inlineParsed
+  .map((prompt, index) => ({ index: index + 1, prompt }))
+  .filter(({ prompt }) => !prompt || /Prompt\s+[1-7]/i.test(prompt));
 
-console.log(JSON.stringify({ prompts: parsed, failures }, null, 2));
+console.log(JSON.stringify({ prompts: parsed, inlinePrompts: inlineParsed, failures, inlineFailures }, null, 2));
 
-if (parsed.length !== 7 || failures.length > 0) {
+if (
+  parsed.length !== 7 ||
+  failures.length > 0 ||
+  inlineParsed.length !== 7 ||
+  inlineFailures.length > 0
+) {
   process.exit(1);
 }

@@ -258,6 +258,10 @@ function defaultVisualDecision(): VisualDecision {
   };
 }
 
+function isDraftValidatedForMedia(status: string | null) {
+  return status === "approved" || status === "validated" || status === "ready_to_publish";
+}
+
 async function readDraft(draftId: string, userId: string) {
   const supabase = getMediaPipelineClient();
   const { data, error } = await supabase
@@ -510,7 +514,7 @@ export async function readMediaPipelineState({
   return {
     mediaPipelineStatus:
       plan?.media_pipeline_status ??
-      (draft.status === "approved" ? "validated" : "draft"),
+      (isDraftValidatedForMedia(draft.status) ? "validated" : "draft"),
     visualDecision: plan?.visual_decision ?? null,
     selectedAssets,
     suggestedAssets: includeSuggestions ? await scoreLibraryForDraft(draft) : [],
@@ -526,13 +530,13 @@ export async function prepareDraftMedia({
 }) {
   const draft = await readDraft(draftId, userId);
 
-  if (draft.status !== "approved") {
+  if (!isDraftValidatedForMedia(draft.status)) {
     console.error("[Media Pipeline] prepare blocked", {
       draftId,
       draftStatus: draft.status,
       validation: "draft.status",
     });
-    throw new MediaPipelineError("Valide le brouillon pour preparer les medias.", {
+    throw new MediaPipelineError("Valide le brouillon avant de preparer les medias.", {
       draftId,
       draftStatus: draft.status,
       validation: "draft.status",
@@ -601,8 +605,8 @@ export async function refreshDraftMediaSuggestions({
 }) {
   const draft = await readDraft(draftId, userId);
 
-  if (draft.status !== "approved") {
-    throw new MediaPipelineError("Valide le brouillon pour preparer les medias.", {
+  if (!isDraftValidatedForMedia(draft.status)) {
+    throw new MediaPipelineError("Valide le brouillon avant de preparer les medias.", {
       draftId,
       draftStatus: draft.status,
       validation: "draft.status",
@@ -625,8 +629,8 @@ export async function selectDraftVisualAsset({
 }) {
   const draft = await readDraft(draftId, userId);
 
-  if (draft.status !== "approved") {
-    throw new MediaPipelineError("Valide le brouillon pour preparer les medias.", {
+  if (!isDraftValidatedForMedia(draft.status)) {
+    throw new MediaPipelineError("Valide le brouillon avant de preparer les medias.", {
       draftId,
       draftStatus: draft.status,
       validation: "draft.status",

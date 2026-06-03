@@ -1,6 +1,6 @@
 export const VISUAL_PROMPT_COUNT = 7;
 
-const promptMarkerPattern = /(?:^|\n)\s*Prompt\s+([1-7])\s*(?:[-:])?[^\n]*\n?/gi;
+const promptMarkerPattern = /Prompt\s+([1-7])\s*(?:[-:])?\s*/gi;
 
 export function parseVisualPrompts(rawVisualPrompt: string) {
   const raw = rawVisualPrompt.trim();
@@ -35,6 +35,22 @@ export function parseVisualPrompts(rawVisualPrompt: string) {
   return prompts;
 }
 
+export function normalizeVisualPrompts(input: string | string[]) {
+  const raw = Array.isArray(input) ? input.join("\n\n") : input;
+  const parsed = parseVisualPrompts(raw);
+  const parsedNonEmptyCount = parsed.filter(Boolean).length;
+
+  if (parsedNonEmptyCount > 1 || !Array.isArray(input)) {
+    return parsed;
+  }
+
+  return Array.from({ length: VISUAL_PROMPT_COUNT }, (_, index) =>
+    (input[index] ?? "")
+      .replace(/^(?:Scene|Prompt)\s+\d+\s*(?:[-:])?\s*/i, "")
+      .trim(),
+  );
+}
+
 export function formatVisualPrompts(prompts: string[]) {
   return Array.from({ length: VISUAL_PROMPT_COUNT }, (_, index) => {
     const cleaned = (prompts[index] ?? "")
@@ -44,4 +60,3 @@ export function formatVisualPrompts(prompts: string[]) {
     return `Prompt ${index + 1}\n${cleaned}`;
   }).join("\n\n");
 }
-

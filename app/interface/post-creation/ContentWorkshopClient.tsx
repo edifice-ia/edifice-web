@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import {
   formatVisualPrompts,
+  normalizeVisualPrompts,
   parseVisualPrompts,
 } from "@/lib/content/visual-prompts";
 
@@ -398,6 +399,10 @@ function getStatusLabel(status: string) {
   return statusOptions.find((option) => option.value === status)?.label ?? status;
 }
 
+function isDraftValidatedForMedia(status: string | null | undefined) {
+  return status === "approved" || status === "validated" || status === "ready_to_publish";
+}
+
 function getMediaPipelineStatusLabel(status: MediaPipelineState["mediaPipelineStatus"]) {
   const labels: Record<MediaPipelineState["mediaPipelineStatus"], string> = {
     draft: "Brouillon",
@@ -534,7 +539,7 @@ export function ContentWorkshopClient() {
     [generatedVariants, selectedVariantId],
   );
 
-  const canPrepareMedia = selectedDraft?.status === "approved";
+  const canPrepareMedia = isDraftValidatedForMedia(selectedDraft?.status);
 
   const generationStatus = getGenerationStatus(generationProgress);
 
@@ -827,14 +832,15 @@ export function ContentWorkshopClient() {
   }
 
   function handleSelectVariant(variant: GeneratedVariant) {
+    const visualPrompts = normalizeVisualPrompts(
+      variant.visualPrompts.length > 0
+        ? variant.visualPrompts
+        : variant.visualPrompt,
+    );
+
     setSelectedVariantId(variant.id);
     setVariantEditor({
-      visualPrompts:
-        variant.visualPrompts.length === 7
-          ? variant.visualPrompts
-          : Array.from({ length: 7 }, (_, index) =>
-              variant.visualPrompts[index] ?? `Prompt ${index + 1}:`,
-            ),
+      visualPrompts,
     });
     setSelectedDraftId(null);
     setEditor(null);
@@ -1161,7 +1167,7 @@ export function ContentWorkshopClient() {
     }
 
     if (!options?.forceAllowed && selectedDraft?.status !== "approved") {
-      setError("Valide le brouillon pour preparer les medias.");
+      setError("Valide le brouillon avant de preparer les medias.");
       setNotice(null);
       return;
     }
@@ -1858,7 +1864,7 @@ export function ContentWorkshopClient() {
 
                 {!canPrepareMedia ? (
                   <p className="mt-4 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-3 text-sm font-semibold text-[#FDBA74]">
-                    Valide le brouillon pour preparer les medias.
+                    Valide le brouillon avant de preparer les medias.
                   </p>
                 ) : null}
 

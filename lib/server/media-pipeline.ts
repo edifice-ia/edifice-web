@@ -62,9 +62,13 @@ type ContentAssetRow = {
 };
 
 type MediaPlanRow = {
+  id: string;
   draft_id: string;
+  action: string;
   media_pipeline_status: MediaPipelineStatus;
+  visual_decision_mode: VisualDecisionMode | null;
   visual_decision: VisualDecision;
+  missing_visual_needs: string[] | null;
   created_at: string;
   updated_at: string;
 };
@@ -74,8 +78,9 @@ type AssetLinkRow = {
   draft_id: string;
   asset_id: string | null;
   asset_source: AssetSource;
-  score: number;
-  usage_order: number;
+  score: number | null;
+  position: number | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
 };
 
@@ -148,6 +153,33 @@ function getMediaPipelineClient() {
   });
 
   return mediaPipelineClient;
+}
+
+function isMissingTableError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const record = error as Record<string, unknown>;
+  const message = String(record.message ?? "");
+  const code = String(record.code ?? "");
+
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    message.includes("Could not find the table") ||
+    message.includes("relation") && message.includes("does not exist")
+  );
+}
+
+function missingMediaTablesError(tableName: string, draftId?: string) {
+  return new MediaPipelineError(
+    `Table media manquante: ${tableName}. Applique la migration Supabase 20260603110000_create_content_draft_media_pipeline.sql.`,
+    {
+      draftId,
+      validation: `${tableName}.missing`,
+    },
+  );
 }
 
 function tokenize(value: string) {
@@ -336,11 +368,15 @@ async function readPlan(draftId: string) {
   const supabase = getMediaPipelineClient();
   const { data, error } = await supabase
     .from("content_draft_media_plans")
-    .select("draft_id, media_pipeline_status, visual_decision, created_at, updated_at")
+    .select("id, draft_id, action, media_pipeline_status, visual_decision_mode, visual_decision, missing_visual_needs, created_at, updated_at")
     .eq("draft_id", draftId)
     .maybeSingle<MediaPlanRow>();
 
   if (error) {
+    if (isMissingTableError(error)) {
+      throw missingMediaTablesError("content_draft_media_plans", draftId);
+    }
+
     throw new MediaPipelineError(
       `Lecture du plan media impossible: ${error.message}`,
       {
@@ -357,12 +393,16 @@ async function readSelectedAssets(draftId: string) {
   const supabase = getMediaPipelineClient();
   const { data: links, error } = await supabase
     .from("content_draft_asset_links")
-    .select("id, draft_id, asset_id, asset_source, score, usage_order, created_at")
+    .select("id, draft_id, asset_id, asset_source, score, position, metadata, created_at")
     .eq("draft_id", draftId)
-    .order("usage_order", { ascending: true })
+    .order("position", { ascending: true })
     .returns<AssetLinkRow[]>();
 
   if (error) {
+    if (isMissingTableError(error)) {
+      throw missingMediaTablesError("content_draft_asset_links", draftId);
+    }
+
     throw new MediaPipelineError(
       `Lecture des visuels selectionnes impossible: ${error.message}`,
       {
@@ -411,7 +451,7 @@ async function readSelectedAssets(draftId: string) {
         ...mapAsset(asset, Number(link.score), "Selection persistante du brouillon."),
         linkId: link.id,
         assetSource: link.asset_source,
-        usageOrder: link.usage_order,
+        usageOrder: link.position ?? 1,
       };
     })
     .filter((asset): asset is SelectedDraftAsset => Boolean(asset));
@@ -431,11 +471,18 @@ async function savePlan({
     .from("content_draft_media_plans")
     .upsert({
       draft_id: draftId,
+      action: "prepare_media",
       media_pipeline_status: mediaPipelineStatus,
+      visual_decision_mode: visualDecision.mode,
       visual_decision: visualDecision,
+      missing_visual_needs: visualDecision.missing_visual_needs,
     });
 
   if (error) {
+    if (isMissingTableError(error)) {
+      throw missingMediaTablesError("content_draft_media_plans", draftId);
+    }
+
     throw new MediaPipelineError(
       `Sauvegarde du plan media impossible: ${error.message}`,
       {
@@ -462,6 +509,10 @@ async function replaceSelectedAssets({
     .eq("draft_id", draftId);
 
   if (deleteError) {
+    if (isMissingTableError(deleteError)) {
+      throw missingMediaTablesError("content_draft_asset_links", draftId);
+    }
+
     throw new MediaPipelineError(
       `Reset des visuels impossible: ${deleteError.message}`,
       {
@@ -481,11 +532,18 @@ async function replaceSelectedAssets({
       asset_id: asset.id,
       asset_source: "library",
       score: asset.score,
-      usage_order: index + 1,
+      position: index + 1,
+      metadata: {
+        score_reason: asset.scoreReason,
+      },
     })),
   );
 
   if (error) {
+    if (isMissingTableError(error)) {
+      throw missingMediaTablesError("content_draft_asset_links", draftId);
+    }
+
     throw new MediaPipelineError(
       `Selection des visuels impossible: ${error.message}`,
       {
@@ -650,19 +708,44 @@ export async function selectDraftVisualAsset({
 
   const { error } = await supabase
     .from("content_draft_asset_links")
+    .delete()
+    .eq("draft_id", draftId)
+    .eq("position", normalizedOrder);
+
+  if (error) {
+    if (isMissingTableError(error)) {
+      throw missingMediaTablesError("content_draft_asset_links", draftId);
+    }
+
+    throw new MediaPipelineError(`Selection manuelle impossible: ${error.message}`, {
+      draftId,
+      validation: "content_draft_asset_links.delete_position",
+    });
+  }
+
+  const { error: upsertError } = await supabase
+    .from("content_draft_asset_links")
     .upsert(
       {
         draft_id: draftId,
         asset_id: selectedAsset.id,
         asset_source: "library",
         score: selectedAsset.score,
-        usage_order: normalizedOrder,
+        position: normalizedOrder,
+        metadata: {
+          score_reason: selectedAsset.scoreReason,
+          selected_manually: true,
+        },
       },
-      { onConflict: "draft_id,usage_order" },
+      { onConflict: "draft_id,asset_id" },
     );
 
-  if (error) {
-    throw new MediaPipelineError(`Selection manuelle impossible: ${error.message}`, {
+  if (upsertError) {
+    if (isMissingTableError(upsertError)) {
+      throw missingMediaTablesError("content_draft_asset_links", draftId);
+    }
+
+    throw new MediaPipelineError(`Selection manuelle impossible: ${upsertError.message}`, {
       draftId,
       validation: "content_draft_asset_links.upsert",
     });

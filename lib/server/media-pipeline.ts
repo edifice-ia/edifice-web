@@ -527,6 +527,11 @@ export async function prepareDraftMedia({
   const draft = await readDraft(draftId, userId);
 
   if (draft.status !== "approved") {
+    console.error("[Media Pipeline] prepare blocked", {
+      draftId,
+      draftStatus: draft.status,
+      validation: "draft.status",
+    });
     throw new MediaPipelineError("Valide le brouillon pour preparer les medias.", {
       draftId,
       draftStatus: draft.status,
@@ -561,10 +566,22 @@ export async function prepareDraftMedia({
     })),
     missing_visual_needs: missingVisualNeeds,
   };
+  const mediaPipelineStatus: MediaPipelineStatus = hasEnoughLibraryAssets
+    ? "media_ready"
+    : "media_preparing";
+
+  console.info("[Media Pipeline] visual decision", {
+    draftId,
+    draftStatus: draft.status,
+    contentAssetsCount: suggestedAssets.length,
+    relevantAssetsCount: relevantAssets.length,
+    mediaPipelineStatus,
+    visualDecisionMode: visualDecision.mode,
+  });
 
   await savePlan({
     draftId,
-    mediaPipelineStatus: hasEnoughLibraryAssets ? "media_ready" : "media_preparing",
+    mediaPipelineStatus,
     visualDecision,
   });
   await replaceSelectedAssets({

@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
+import {
+  formatVisualPrompts,
+  parseVisualPrompts,
+} from "@/lib/content/visual-prompts";
 
 type ContentDraft = {
   id: string;
@@ -390,35 +394,6 @@ function buildUpdatePayload(editor: DraftEditorState) {
   };
 }
 
-function formatVisualPromptScenes(scenes: string[]) {
-  return scenes
-    .slice(0, 7)
-    .map((scene, index) => {
-      const cleaned = scene
-        .replace(/^(?:Scene|Prompt)\s+\d+\s*(?:[-:])?\s*/i, "")
-        .trim();
-      return `Prompt ${index + 1}\n${cleaned}`;
-    })
-    .join("\n\n");
-}
-
-function parseVisualPromptScenes(value: string) {
-  const chunks = value
-    .split(/\n\s*\n(?=Prompt\s+\d+)/i)
-    .map((chunk) =>
-      chunk.replace(/^Prompt\s+\d+\s*(?:[-:])?.*\n?/i, "").trim(),
-    )
-    .filter(Boolean);
-
-  if (chunks.length >= 7) {
-    return chunks.slice(0, 7);
-  }
-
-  return Array.from({ length: 7 }, (_, index) =>
-    chunks[index] ?? (index === 0 ? value.trim() : ""),
-  );
-}
-
 function getStatusLabel(status: string) {
   return statusOptions.find((option) => option.value === status)?.label ?? status;
 }
@@ -614,7 +589,7 @@ export function ContentWorkshopClient() {
       return [];
     }
 
-    return parseVisualPromptScenes(editor.visualPrompt);
+    return parseVisualPrompts(editor.visualPrompt);
   }, [editor]);
 
   async function loadDrafts(filter = statusFilter) {
@@ -922,7 +897,7 @@ export function ContentWorkshopClient() {
           variant: {
             ...selectedVariant,
             visualPrompts,
-            visualPrompt: formatVisualPromptScenes(visualPrompts),
+            visualPrompt: formatVisualPrompts(visualPrompts),
           },
         }),
       });
@@ -1084,7 +1059,7 @@ export function ContentWorkshopClient() {
   function updateEditorVisualPrompt(index: number, value: string) {
     const visualPrompts = [...editorVisualPrompts];
     visualPrompts[index] = value;
-    updateEditor("visualPrompt", formatVisualPromptScenes(visualPrompts));
+    updateEditor("visualPrompt", formatVisualPrompts(visualPrompts));
   }
 
   async function handleDelete() {

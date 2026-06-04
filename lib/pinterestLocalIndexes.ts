@@ -26,6 +26,11 @@ export type PinterestWorkshopItem = {
   selectedVisualFilename: string;
   finalPinPath: string;
   finalPinFilename: string;
+  imagePath: string;
+  imageUrl: string;
+  imageSourceField: string;
+  keywords: string;
+  createdAt: string;
   scheduledDate: string;
   scheduledTime: string;
   publishStatus: string;
@@ -468,6 +473,23 @@ function value(row: CsvRow, key: string) {
   return row[key]?.trim() ?? "";
 }
 
+function firstValue(row: CsvRow, keys: string[]) {
+  for (const key of keys) {
+    const currentValue = value(row, key);
+    if (currentValue) {
+      return {
+        key,
+        value: currentValue,
+      };
+    }
+  }
+
+  return {
+    key: "",
+    value: "",
+  };
+}
+
 function isVisualReady(row: CsvRow) {
   const status = value(row, "visual_selection_status");
   return ["exact", "fallback", "generated", "generated_for_variety"].includes(status);
@@ -528,6 +550,17 @@ function mapItem(row: CsvRow, fallbackId: string): PinterestWorkshopItem {
     Boolean(value(row, "final_pin_filename")) ||
     Boolean(value(row, "final_pin_path")) ||
     isFinalPinReady(row);
+  const image = firstValue(row, [
+    "image_path",
+    "visual_path",
+    "image_file",
+    "thumbnail",
+    "image_url",
+    "final_pin_path",
+    "selected_visual_path",
+    "final_pin_filename",
+    "selected_visual_filename",
+  ]);
 
   return {
     id: value(row, "publish_id") || postId,
@@ -547,6 +580,11 @@ function mapItem(row: CsvRow, fallbackId: string): PinterestWorkshopItem {
     finalPinFilename:
       value(row, "final_pin_filename") ||
       basename(value(row, "final_pin_path")),
+    imagePath: image.value,
+    imageUrl: image.value.startsWith("http") ? image.value : "",
+    imageSourceField: image.key,
+    keywords: value(row, "keywords") || value(row, "hashtags"),
+    createdAt: value(row, "created_at") || value(row, "published_at"),
     scheduledDate: value(row, "scheduled_date"),
     scheduledTime: value(row, "scheduled_time"),
     publishStatus,

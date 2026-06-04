@@ -3,6 +3,7 @@ import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
 import { EmptyState } from "@/components/cockpit/EmptyState";
 import { LogPanel } from "@/components/cockpit/LogPanel";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
+import { PinterestLibrary } from "@/components/pinterest/PinterestLibrary";
 import {
   readPinterestWorkshopIndexes,
   type PinterestAccountWorkshop,
@@ -394,6 +395,15 @@ export default async function PinterestPublisherPage({
             <EmptyState
               title="Aucun index Pinterest synchronise pour le moment."
               description="La page reste disponible en lecture seule et attend un snapshot des index locaux produits par les agents Pinterest."
+            />
+          </SectionContainer>
+        ) : null}
+
+        {pinterest.sourceAvailable ? (
+          <SectionContainer>
+            <PinterestLibrary
+              accounts={pinterest.accounts}
+              initialAccountId={selectedAccount?.id ?? null}
             />
           </SectionContainer>
         ) : null}

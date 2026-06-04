@@ -52,6 +52,14 @@ function isAllowedPath(filePath: string) {
   );
 }
 
+function normalizeImagePath(filePath: string) {
+  if (/^[A-Za-z]:[\\/]/.test(filePath)) {
+    return path.win32.normalize(filePath);
+  }
+
+  return path.win32.normalize(path.win32.join(PINTEREST_ROOT, filePath));
+}
+
 function firstImagePath(...rows: Array<SnapshotRow | undefined>) {
   for (const row of rows) {
     if (!row) {
@@ -106,7 +114,7 @@ export async function GET(request: Request) {
     return new Response("Missing image path", { status: 400 });
   }
 
-  const filePath = resolvedPath;
+  const filePath = normalizeImagePath(resolvedPath);
 
   if (!isAllowedPath(filePath)) {
     return new Response("Image path not allowed", { status: 403 });

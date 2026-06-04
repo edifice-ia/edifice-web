@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Image from "next/image";
 import type {
   PinterestAccountWorkshop,
   PinterestWorkshopItem,
@@ -47,6 +46,10 @@ type LibraryPin = PinterestWorkshopItem & {
 function buildImageSrc(item: PinterestWorkshopItem) {
   if (item.imageUrl) {
     return item.imageUrl;
+  }
+
+  if (item.imageId) {
+    return `/api/pinterest/local-image?id=${encodeURIComponent(item.imageId)}`;
   }
 
   if (!item.imagePath || !/\.(png|jpe?g|webp)$/i.test(item.imagePath)) {
@@ -99,8 +102,9 @@ function PinBadges({ badges }: { badges: PinterestWorkshopStatus[] }) {
 
 function PinImage({ item, large = false }: { item: PinterestWorkshopItem; large?: boolean }) {
   const imageSrc = buildImageSrc(item);
+  const [failedSrc, setFailedSrc] = useState("");
 
-  if (!imageSrc) {
+  if (!imageSrc || failedSrc === imageSrc) {
     return (
       <div
         className={`flex aspect-[2/3] items-center justify-center rounded-md border border-[#1D2A44] bg-[#08111A] text-center text-xs uppercase tracking-[0.14em] text-[#64748B] ${
@@ -113,13 +117,12 @@ function PinImage({ item, large = false }: { item: PinterestWorkshopItem; large?
   }
 
   return (
-    <Image
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
       src={imageSrc}
       alt={item.title || "Pin Pinterest"}
-      width={1000}
-      height={1500}
-      unoptimized
       loading="lazy"
+      onError={() => setFailedSrc(imageSrc)}
       className={`aspect-[2/3] w-full rounded-md border border-[#1D2A44] bg-[#08111A] object-cover ${
         large ? "max-h-[72vh]" : ""
       }`}

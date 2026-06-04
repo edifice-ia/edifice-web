@@ -26,6 +26,8 @@ export type PinterestWorkshopItem = {
   selectedVisualFilename: string;
   finalPinPath: string;
   finalPinFilename: string;
+  accountId: string;
+  imageId: string;
   imagePath: string;
   imageUrl: string;
   imageSourceField: string;
@@ -539,9 +541,10 @@ function buildBadges(options: {
   return [...new Set(badges)];
 }
 
-function mapItem(row: CsvRow, fallbackId: string): PinterestWorkshopItem {
+function mapItem(row: CsvRow, fallbackId: string, accountId = ""): PinterestWorkshopItem {
   const postId = value(row, "post_id") || fallbackId;
   const publishStatus = value(row, "publish_status");
+  const normalizedAccountId = accountId || value(row, "account_name");
   const visualReady =
     Boolean(value(row, "selected_visual_filename")) ||
     Boolean(value(row, "selected_visual_path")) ||
@@ -565,6 +568,7 @@ function mapItem(row: CsvRow, fallbackId: string): PinterestWorkshopItem {
   return {
     id: value(row, "publish_id") || postId,
     postId,
+    accountId: normalizedAccountId,
     accountName: normalizeAccountName(value(row, "account_name")),
     theme: value(row, "theme"),
     title: value(row, "title"),
@@ -580,6 +584,7 @@ function mapItem(row: CsvRow, fallbackId: string): PinterestWorkshopItem {
     finalPinFilename:
       value(row, "final_pin_filename") ||
       basename(value(row, "final_pin_path")),
+    imageId: normalizedAccountId && postId ? `${normalizedAccountId}:${postId}` : "",
     imagePath: image.value,
     imageUrl: image.value.startsWith("http") ? image.value : "",
     imageSourceField: image.key,
@@ -652,6 +657,7 @@ function buildAccountWorkshop(account: SnapshotAccount): PinterestAccountWorksho
         ...finalPinsByPostId.get(value(row, "post_id")),
       }),
       `${account.id}-pin-${index + 1}`,
+      account.id,
     ),
   );
   const publicationQueue = publishingQueue.map((row, index) =>
@@ -661,6 +667,7 @@ function buildAccountWorkshop(account: SnapshotAccount): PinterestAccountWorksho
         ...finalPinsByPostId.get(value(row, "post_id")),
       }),
       `${account.id}-queue-${index + 1}`,
+      account.id,
     ),
   );
 
@@ -816,6 +823,7 @@ export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopI
           ...finalPinsByPostId.get(value(row, "post_id")),
         }),
         `pin-${index + 1}`,
+        value(row, "account_name"),
       ),
     );
   const publicationQueue = publishingQueue.map((row, index) =>
@@ -825,6 +833,7 @@ export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopI
         ...finalPinsByPostId.get(value(row, "post_id")),
       }),
       `queue-${index + 1}`,
+      value(row, "account_name"),
     ),
   );
 

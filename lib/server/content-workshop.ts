@@ -97,6 +97,7 @@ type ContentDraftRow = {
   status: string | null;
   source: string | null;
   user_id: string | null;
+  score: Record<string, unknown> | null;
 };
 
 const hashtagBuckets = [
@@ -182,9 +183,10 @@ type ContentDraftInsertColumn =
   | "voice_style"
   | "status"
   | "source"
-  | "user_id";
+  | "user_id"
+  | "score";
 
-type ContentDraftUpdateColumn = Exclude<ContentDraftInsertColumn, "user_id">;
+type ContentDraftUpdateColumn = Exclude<ContentDraftInsertColumn, "user_id" | "score">;
 
 const contentDraftInsertColumns: ContentDraftInsertColumn[] = [
   "project",
@@ -201,6 +203,7 @@ const contentDraftInsertColumns: ContentDraftInsertColumn[] = [
   "status",
   "source",
   "user_id",
+  "score",
 ];
 
 const contentDraftUpdateColumns: ContentDraftUpdateColumn[] = [
@@ -575,6 +578,74 @@ function normalizeVariantScore(value: unknown) {
   };
 }
 
+function serializeDraftScore(score: ContentDraft["score"]) {
+  const viral = clampScore(score.viral);
+  const hook = clampScore(score.hook);
+  const emotion = clampScore(score.emotion);
+  const retention = clampScore(score.retention);
+  const clarity = clampScore(score.clarity);
+  const total = clampScore(score.total);
+
+  return {
+    viral,
+    hook,
+    emotion,
+    retention,
+    clarity,
+    total,
+    reason:
+      normalizeText(score.reason, 500) ??
+      "Score editorial calcule dans l'Atelier de contenu.",
+    emotional_impact: emotion,
+    shareability: viral,
+    source: "content_workshop",
+    schema_version: 1,
+  };
+}
+
+function normalizeStoredDraftScore(value: unknown): ContentDraft["score"] {
+  const score = value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {};
+  const hasStoredScore = Object.keys(score).length > 0;
+  const viral = clampScore(
+    score.viral ?? score.shareability ?? score.shareability_score,
+  );
+  const hook = clampScore(score.hook ?? score.hook_score ?? score.clarity);
+  const emotion = clampScore(
+    score.emotion ?? score.emotional_impact ?? score.emotionalImpact,
+  );
+  const retention = clampScore(score.retention ?? score.clarity);
+  const clarity = clampScore(score.clarity ?? score.clarte);
+  const calculatedTotal = [viral, hook, emotion, retention, clarity]
+    .filter((item) => item > 0);
+  const storedTotal = clampScore(score.total ?? score.global ?? score.score);
+  const total = storedTotal > 0
+    ? storedTotal
+    : calculatedTotal.length > 0
+      ? Number(
+        (
+          calculatedTotal.reduce((sum, item) => sum + item, 0) /
+          calculatedTotal.length
+        ).toFixed(1),
+      )
+      : 0;
+
+  return {
+    viral,
+    hook,
+    emotion,
+    retention,
+    clarity,
+    total,
+    reason:
+      normalizeText(score.reason, 500) ??
+      (hasStoredScore
+        ? "Score editorial recharge depuis content_drafts."
+        : "Score non disponible pour ce brouillon."),
+  };
+}
+
 function normalizeGeneratedVariant(
   value: unknown,
   input: ContentWorkshopInput,
@@ -674,7 +745,7 @@ export function contentDraftFromVariant(
       retention: variant.score.clarity,
       clarity: variant.score.clarity,
       total: variant.score.total,
-      reason: "Score editorial calcule avant sauvegarde, non stocke dans content_drafts.",
+      reason: "Score editorial calcule avant sauvegarde dans l'Atelier de contenu.",
     },
   } satisfies ContentDraft;
 }
@@ -957,15 +1028,7 @@ function mapContentDraftRow(row: ContentDraftRow): SavedContentDraft {
     hashtags: row.hashtags ?? [],
     visualPrompt: row.visual_prompt ?? "",
     voiceStyle: row.voice_style ?? "",
-    score: {
-      viral: 0,
-      hook: 0,
-      emotion: 0,
-      retention: 0,
-      clarity: 0,
-      total: 0,
-      reason: "Score non stocke dans le schema actuel content_drafts.",
-    },
+    score: normalizeStoredDraftScore(row.score),
   };
 }
 
@@ -1154,6 +1217,7 @@ export async function saveContentDraft({
     status: "draft",
     source: "content_workshop",
     user_id: userId,
+    score: serializeDraftScore(draft.score),
   };
 
   validateContentDraftInsertPayload(insertPayload);
@@ -1161,23 +1225,12 @@ export async function saveContentDraft({
   const { data, error } = await supabase
     .from("content_drafts")
     .insert(insertPayload)
-    .select("id, created_at, updated_at")
-    .single<{ id: string; created_at: string; updated_at: string | null }>();
+    .select(contentDraftSelectColumns)
+    .single<ContentDraftRow>();
 
   if (error) {
     throw new Error(`Failed to save content draft: ${error.message}`);
   }
 
-  return {
-    ...draft,
-    id: data.id,
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
-    project: String(insertPayload.project),
-    platformTargets: insertPayload.platform_targets as string[],
-    theme: String(insertPayload.theme),
-    status: String(insertPayload.status),
-    source: String(insertPayload.source),
-    userId,
-  };
+  return mapContentDraftRow(data);
 }

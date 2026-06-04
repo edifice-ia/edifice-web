@@ -1,6 +1,8 @@
 import "server-only";
 
-import { readFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
+import path from "node:path";
 
 export type PinterestWorkshopStatus =
   | "generated"
@@ -70,6 +72,7 @@ export type PinterestWorkshopIndexes = {
 type CsvRow = Record<string, string>;
 type CsvReadResult = {
   exists: boolean;
+  path: string;
   fields: string[];
   rows: CsvRow[];
   lastError: string | null;
@@ -78,6 +81,7 @@ type CsvReadResult = {
 const PINTEREST_INDEX_DIR =
   process.env.PINTEREST_LOCAL_INDEX_DIR?.trim() ||
   String.raw`D:\Edifice_IA\projets\Pinterest`;
+const PINTEREST_SEARCH_ROOT = String.raw`D:\Edifice_IA`;
 
 const emptyStats: PinterestWorkshopStats = {
   postsGenerated: 0,
@@ -127,6 +131,17 @@ const indexFileDefinitions = [
 
 function csvPath(fileName: string) {
   return `${PINTEREST_INDEX_DIR.replace(/[\\/]+$/, "")}\\${fileName}`;
+}
+
+function uniqueValues(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function candidateCsvPaths(fileName: string) {
+  return uniqueValues([
+    csvPath(fileName),
+    path.win32.join(String.raw`D:\Edifice_IA\projets\Pinterest`, fileName),
+  ]);
 }
 
 function basename(value: string) {
@@ -230,12 +245,62 @@ function parseCsv(content: string): { fields: string[]; rows: CsvRow[] } {
   };
 }
 
-async function readCsv(fileName: string): Promise<CsvReadResult> {
+async function findFilesByName(root: string, fileName: string): Promise<string[]> {
+  const matches: string[] = [];
+  const targetName = path.win32.basename(fileName).toLowerCase();
+
+  async function walk(currentDir: string) {
+    let entries: Dirent[];
+
+    try {
+      entries = await readdir(currentDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    await Promise.all(
+      entries.map(async (entry) => {
+        const currentPath = path.win32.join(currentDir, entry.name);
+
+        if (entry.isDirectory()) {
+          await walk(currentPath);
+          return;
+        }
+
+        if (entry.isFile() && entry.name.toLowerCase() === targetName) {
+          matches.push(currentPath);
+        }
+      }),
+    );
+  }
+
+  await walk(root);
+  return matches.sort((left, right) => {
+    const leftIsPinterestProject = left.includes("\\projets\\Pinterest\\") ? 0 : 1;
+    const rightIsPinterestProject = right.includes("\\projets\\Pinterest\\") ? 0 : 1;
+    if (leftIsPinterestProject !== rightIsPinterestProject) {
+      return leftIsPinterestProject - rightIsPinterestProject;
+    }
+
+    const leftIsGlobal =
+      path.win32.basename(left).toLowerCase() === targetName && !left.includes("\\SCRIPT\\")
+        ? 0
+        : 1;
+    const rightIsGlobal =
+      path.win32.basename(right).toLowerCase() === targetName && !right.includes("\\SCRIPT\\")
+        ? 0
+        : 1;
+    return leftIsGlobal - rightIsGlobal || left.localeCompare(right);
+  });
+}
+
+async function readCsvPath(filePath: string): Promise<CsvReadResult> {
   try {
-    const content = await readFile(csvPath(fileName), "utf-8");
+    const content = await readFile(filePath, "utf-8");
     const parsedCsv = parseCsv(content);
     return {
       exists: true,
+      path: filePath,
       fields: parsedCsv.fields,
       rows: parsedCsv.rows,
       lastError: null,
@@ -243,11 +308,45 @@ async function readCsv(fileName: string): Promise<CsvReadResult> {
   } catch (error) {
     return {
       exists: false,
+      path: filePath,
       fields: [],
       rows: [],
       lastError: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+async function readCsv(fileName: string): Promise<CsvReadResult> {
+  const directResults = await Promise.all(
+    candidateCsvPaths(fileName).map((filePath) => readCsvPath(filePath)),
+  );
+  const directMatch = directResults.find((result) => result.rows.length > 0);
+
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const discoveredPaths = await findFilesByName(PINTEREST_SEARCH_ROOT, fileName);
+  const discoveredResults = await Promise.all(
+    discoveredPaths.map((filePath) => readCsvPath(filePath)),
+  );
+  const discoveredMatch = discoveredResults.find((result) => result.rows.length > 0);
+
+  if (discoveredMatch) {
+    return discoveredMatch;
+  }
+
+  return (
+    directResults.find((result) => result.exists) ??
+    discoveredResults.find((result) => result.exists) ??
+    directResults[0] ?? {
+      exists: false,
+      path: csvPath(fileName),
+      fields: [],
+      rows: [],
+      lastError: "Index Pinterest introuvable.",
+    }
+  );
 }
 
 async function readIndex(
@@ -278,6 +377,10 @@ async function readIndex(
 
   return {
     exists: fallbackExists,
+    path: accountResults
+      .filter((result) => result.exists)
+      .map((result) => result.path)
+      .join(" ; "),
     fields: fallbackFields,
     rows: fallbackRows,
     lastError: fallbackRows.length > 0 ? null : fallbackErrors[0] ?? null,
@@ -292,7 +395,7 @@ function buildIndexFile(
   return {
     key: definition.key,
     label: definition.label,
-    path: csvPath(definition.fileName),
+    path: result.path || csvPath(definition.fileName),
     format: "csv",
     count: result.rows.length,
     exists: result.exists,

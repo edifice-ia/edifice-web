@@ -52,6 +52,12 @@ function buildImageSrc(item: PinterestWorkshopItem) {
     return `/api/pinterest/local-image?id=${encodeURIComponent(item.imageId)}`;
   }
 
+  if (item.accountId && item.postId) {
+    return `/api/pinterest/local-image?id=${encodeURIComponent(
+      `${item.accountId}:${item.postId}`,
+    )}`;
+  }
+
   if (!item.imagePath || !/\.(png|jpe?g|webp)$/i.test(item.imagePath)) {
     return "";
   }
@@ -103,8 +109,10 @@ function PinBadges({ badges }: { badges: PinterestWorkshopStatus[] }) {
 function PinImage({ item, large = false }: { item: PinterestWorkshopItem; large?: boolean }) {
   const imageSrc = buildImageSrc(item);
   const [failedSrc, setFailedSrc] = useState("");
+  const hasImageRequest = Boolean(imageSrc);
+  const hasImageError = Boolean(imageSrc && failedSrc === imageSrc);
 
-  if (!imageSrc || failedSrc === imageSrc) {
+  if (!hasImageRequest || hasImageError) {
     return (
       <div
         className={`flex aspect-[2/3] items-center justify-center rounded-md border border-[#1D2A44] bg-[#08111A] text-center text-xs uppercase tracking-[0.14em] text-[#64748B] ${

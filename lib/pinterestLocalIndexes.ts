@@ -50,13 +50,36 @@ export type PinterestLocalIndexFile = {
   exists: boolean;
   fields: string[];
   lastError: string | null;
-  source: "global" | "account_fallback";
+  source: "snapshot" | "global" | "account_fallback";
+};
+
+export type PinterestAccountWorkshop = {
+  id: string;
+  name: string;
+  niche: string;
+  stats: PinterestWorkshopStats;
+  rawStats: {
+    posts_queue: number;
+    posts_with_visuals: number;
+    final_pins: number;
+    publishing_queue: number;
+    ready_to_publish: number;
+    dry_run: number;
+    images_ready: number;
+    visuals_index: number;
+  };
+  boards: string[];
+  imagesReady: string[];
+  readyPins: PinterestWorkshopItem[];
+  publicationQueue: PinterestWorkshopItem[];
+  indexFiles: PinterestLocalIndexFile[];
 };
 
 export type PinterestWorkshopIndexes = {
   sourceAvailable: boolean;
   message: string | null;
   stats: PinterestWorkshopStats;
+  accounts: PinterestAccountWorkshop[];
   readyPins: PinterestWorkshopItem[];
   publicationQueue: PinterestWorkshopItem[];
   indexFiles: PinterestLocalIndexFile[];
@@ -78,10 +101,46 @@ type CsvReadResult = {
   lastError: string | null;
 };
 
+type SnapshotAccount = {
+  id: string;
+  name: string;
+  niche: string;
+  sources: Record<string, string>;
+  stats: PinterestAccountWorkshop["rawStats"];
+  boards?: string[];
+  images?: {
+    pins_ready?: string[];
+  };
+  posts_queue?: CsvRow[];
+  posts_with_visuals?: CsvRow[];
+  final_pins_index?: CsvRow[];
+  publishing_queue?: CsvRow[];
+};
+
+type PinterestSnapshot = {
+  synced_at: string;
+  accounts: SnapshotAccount[];
+  totals: {
+    posts_queue: number;
+    posts_with_visuals: number;
+    final_pins: number;
+    publishing_queue: number;
+    ready_to_publish?: number;
+    dry_run?: number;
+    images_ready?: number;
+  };
+};
+
 const PINTEREST_INDEX_DIR =
   process.env.PINTEREST_LOCAL_INDEX_DIR?.trim() ||
   String.raw`D:\Edifice_IA\projets\Pinterest`;
 const PINTEREST_SEARCH_ROOT = String.raw`D:\Edifice_IA`;
+const PINTEREST_SNAPSHOT_PATH = path.join(
+  process.cwd(),
+  "data",
+  "pinterest",
+  "pinterest_snapshot.json",
+);
 
 const emptyStats: PinterestWorkshopStats = {
   postsGenerated: 0,
@@ -515,7 +574,152 @@ function byPostId(rows: CsvRow[]) {
   return new Map(rows.map((row) => [value(row, "post_id"), row]));
 }
 
+function fieldsOf(rows: CsvRow[]) {
+  return rows[0] ? Object.keys(rows[0]) : [];
+}
+
+function snapshotIndexFile(options: {
+  key: PinterestLocalIndexFile["key"];
+  label: string;
+  path: string;
+  rows: CsvRow[];
+}): PinterestLocalIndexFile {
+  return {
+    key: options.key,
+    label: options.label,
+    path: options.path,
+    format: "csv",
+    count: options.rows.length,
+    exists: Boolean(options.path),
+    fields: fieldsOf(options.rows),
+    lastError: null,
+    source: "snapshot",
+  };
+}
+
+function buildAccountWorkshop(account: SnapshotAccount): PinterestAccountWorkshop {
+  const postsQueue = account.posts_queue ?? [];
+  const postsWithVisuals = account.posts_with_visuals ?? [];
+  const finalPins = account.final_pins_index ?? [];
+  const publishingQueue = account.publishing_queue ?? [];
+  const visualRowsByPostId = byPostId(postsWithVisuals);
+  const finalPinsByPostId = byPostId(finalPins);
+  const readyToPublishRows = publishingQueue.filter(
+    (row) => value(row, "publish_status") === "ready_to_publish",
+  );
+  const readyPins = readyToPublishRows.map((row, index) =>
+    mapItem(
+      mergeRows(row, {
+        ...visualRowsByPostId.get(value(row, "post_id")),
+        ...finalPinsByPostId.get(value(row, "post_id")),
+      }),
+      `${account.id}-pin-${index + 1}`,
+    ),
+  );
+  const publicationQueue = publishingQueue.map((row, index) =>
+    mapItem(
+      mergeRows(row, {
+        ...visualRowsByPostId.get(value(row, "post_id")),
+        ...finalPinsByPostId.get(value(row, "post_id")),
+      }),
+      `${account.id}-queue-${index + 1}`,
+    ),
+  );
+
+  return {
+    id: account.id,
+    name: account.name,
+    niche: account.niche,
+    stats: {
+      postsGenerated: postsQueue.length,
+      pinsWithVisuals: postsWithVisuals.filter(isVisualReady).length,
+      pinsReadyToPublish: readyToPublishRows.length,
+      pinsPendingPublication: publishingQueue.length,
+    },
+    rawStats: {
+      posts_queue: postsQueue.length,
+      posts_with_visuals: postsWithVisuals.length,
+      final_pins: finalPins.length,
+      publishing_queue: publishingQueue.length,
+      ready_to_publish: readyToPublishRows.length,
+      dry_run: publishingQueue.filter((row) => value(row, "publish_status") === "dry_run")
+        .length,
+      images_ready: account.images?.pins_ready?.length ?? 0,
+      visuals_index: account.stats?.visuals_index ?? 0,
+    },
+    boards: account.boards ?? [],
+    imagesReady: account.images?.pins_ready ?? [],
+    readyPins,
+    publicationQueue,
+    indexFiles: [
+      snapshotIndexFile({
+        key: "posts_queue",
+        label: `${account.id} / posts_queue`,
+        path: account.sources.posts_queue,
+        rows: postsQueue,
+      }),
+      snapshotIndexFile({
+        key: "posts_with_visuals",
+        label: `${account.id} / posts_with_visuals`,
+        path: account.sources.posts_with_visuals,
+        rows: postsWithVisuals,
+      }),
+      snapshotIndexFile({
+        key: "final_pins_index",
+        label: `${account.id} / final_pins_index`,
+        path: account.sources.final_pins_index,
+        rows: finalPins,
+      }),
+      snapshotIndexFile({
+        key: "publishing_queue",
+        label: `${account.id} / publishing_queue`,
+        path: account.sources.publishing_queue,
+        rows: publishingQueue,
+      }),
+    ],
+  };
+}
+
+async function readPinterestSnapshot(): Promise<PinterestSnapshot | null> {
+  try {
+    return JSON.parse(await readFile(PINTEREST_SNAPSHOT_PATH, "utf-8")) as PinterestSnapshot;
+  } catch {
+    return null;
+  }
+}
+
 export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopIndexes> {
+  const snapshot = await readPinterestSnapshot();
+
+  if (snapshot?.accounts?.length) {
+    const accounts = snapshot.accounts.map(buildAccountWorkshop);
+    const readyPins = accounts.flatMap((account) => account.readyPins);
+    const publicationQueue = accounts.flatMap((account) => account.publicationQueue);
+    const indexFiles = accounts.flatMap((account) => account.indexFiles);
+
+    return {
+      sourceAvailable: accounts.some((account) => account.rawStats.posts_queue > 0),
+      message: null,
+      stats: {
+        postsGenerated: snapshot.totals.posts_queue,
+        pinsWithVisuals: snapshot.totals.posts_with_visuals,
+        pinsReadyToPublish: snapshot.totals.ready_to_publish ?? readyPins.length,
+        pinsPendingPublication: snapshot.totals.publishing_queue,
+      },
+      accounts,
+      readyPins,
+      publicationQueue,
+      indexFiles,
+      updatedAt: snapshot.synced_at,
+      indexes: {
+        postsQueue: snapshot.totals.posts_queue,
+        postsWithVisuals: snapshot.totals.posts_with_visuals,
+        finalPins: snapshot.totals.final_pins,
+        publishingQueue: snapshot.totals.publishing_queue,
+      },
+    };
+  }
+
   const [postsQueueResult, postsWithVisualsResult, finalPinsResult, publishingQueueResult] =
     await Promise.all([
       readIndex(indexFileDefinitions[0]),
@@ -547,6 +751,7 @@ export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopI
       sourceAvailable: false,
       message: "Aucun index Pinterest synchronise pour le moment.",
       stats: emptyStats,
+      accounts: [],
       readyPins: [],
       publicationQueue: [],
       indexFiles,
@@ -594,6 +799,7 @@ export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopI
       pinsReadyToPublish: readyToPublishRows.length,
       pinsPendingPublication: publishingQueue.length,
     },
+    accounts: [],
     readyPins,
     publicationQueue,
     indexFiles,

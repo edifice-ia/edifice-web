@@ -5,6 +5,7 @@ import { LogPanel } from "@/components/cockpit/LogPanel";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import {
   readPinterestWorkshopIndexes,
+  type PinterestAccountWorkshop,
   type PinterestLocalIndexFile,
   type PinterestWorkshopItem,
   type PinterestWorkshopStatus,
@@ -50,6 +51,70 @@ function StatCard({
       </p>
       <p className="mt-3 text-3xl font-semibold text-[#F8FAFC]">{value}</p>
       <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">{detail}</p>
+    </div>
+  );
+}
+
+function AccountSelector({
+  accounts,
+  selectedAccountId,
+}: {
+  accounts: PinterestAccountWorkshop[];
+  selectedAccountId: string | null;
+}) {
+  if (accounts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {accounts.map((account) => {
+        const isSelected = account.id === selectedAccountId;
+
+        return (
+          <a
+            key={account.id}
+            href={`/interface/publishers/pinterest?account=${account.id}`}
+            className={`rounded-lg border p-4 transition ${
+              isSelected
+                ? "border-[#39E6D0]/60 bg-[#39E6D0]/10"
+                : "border-[#1D2A44] bg-[#08111A] hover:border-[#7DD3FC]/45"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[#F8FAFC]">{account.name}</p>
+                <p className="mt-1 text-xs leading-5 text-[#A7B0C0]">{account.niche}</p>
+              </div>
+              <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-2 py-1 text-xs font-semibold text-[#7DD3FC]">
+                {account.stats.pinsReadyToPublish} prets
+              </span>
+            </div>
+            <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
+              <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-2">
+                <p className="font-semibold text-[#F8FAFC]">{account.rawStats.posts_queue}</p>
+                <p className="mt-1 text-[#64748B]">posts</p>
+              </div>
+              <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-2">
+                <p className="font-semibold text-[#F8FAFC]">
+                  {account.rawStats.posts_with_visuals}
+                </p>
+                <p className="mt-1 text-[#64748B]">visuels</p>
+              </div>
+              <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-2">
+                <p className="font-semibold text-[#F8FAFC]">{account.rawStats.final_pins}</p>
+                <p className="mt-1 text-[#64748B]">pins</p>
+              </div>
+              <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-2">
+                <p className="font-semibold text-[#F8FAFC]">
+                  {account.rawStats.publishing_queue}
+                </p>
+                <p className="mt-1 text-[#64748B]">queue</p>
+              </div>
+            </div>
+          </a>
+        );
+      })}
     </div>
   );
 }
@@ -230,14 +295,28 @@ function IndexFileCard({ indexFile }: { indexFile: PinterestLocalIndexFile }) {
   );
 }
 
-export default async function PinterestPublisherPage() {
+export default async function PinterestPublisherPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ account?: string | string[] }>;
+}) {
   const pinterest = await readPinterestWorkshopIndexes();
+  const accountParam = (await searchParams).account;
+  const requestedAccountId = Array.isArray(accountParam) ? accountParam[0] : accountParam;
+  const selectedAccount =
+    pinterest.accounts.find((account) => account.id === requestedAccountId) ??
+    pinterest.accounts[0] ??
+    null;
+  const selectedReadyPins = selectedAccount?.readyPins ?? pinterest.readyPins;
+  const selectedPublicationQueue =
+    selectedAccount?.publicationQueue ?? pinterest.publicationQueue;
+  const selectedIndexFiles = selectedAccount?.indexFiles ?? pinterest.indexFiles;
   const logs = [
     {
       timestamp: "local",
       type: "system" as const,
       message: pinterest.sourceAvailable
-        ? "Index Pinterest locaux lus en lecture seule."
+        ? "Snapshot Pinterest local lu en lecture seule."
         : "Aucun index Pinterest synchronise pour le moment.",
       status: pinterest.sourceAvailable ? ("Disponible" as const) : ("En migration" as const),
     },
@@ -278,9 +357,37 @@ export default async function PinterestPublisherPage() {
           <StatCard
             label="En attente publication"
             value={pinterest.stats.pinsPendingPublication}
-            detail="Elements en file avec statut ready_to_publish."
+            detail="Lignes totales dans les files locales."
           />
         </div>
+
+        <SectionContainer>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+                Comptes et niches
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
+                Pilotage multi-comptes Pinterest
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+                Selectionne une niche pour afficher ses pins prets et sa file de
+                publication locale.
+              </p>
+            </div>
+            {pinterest.updatedAt ? (
+              <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
+                sync {new Date(pinterest.updatedAt).toLocaleString("fr-FR")}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-4">
+            <AccountSelector
+              accounts={pinterest.accounts}
+              selectedAccountId={selectedAccount?.id ?? null}
+            />
+          </div>
+        </SectionContainer>
 
         {!pinterest.sourceAvailable ? (
           <SectionContainer>
@@ -300,22 +407,26 @@ export default async function PinterestPublisherPage() {
                     Pins prets
                   </p>
                   <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
-                    Pins finalises par les agents locaux
+                    {selectedAccount
+                      ? `Pins finalises - ${selectedAccount.name}`
+                      : "Pins finalises par les agents locaux"}
                   </h2>
                   <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
-                    Vue limitee aux index deja produits, sans generation ni publication.
+                    {selectedAccount
+                      ? selectedAccount.niche
+                      : "Vue limitee aux index deja produits, sans generation ni publication."}
                   </p>
                 </div>
                 <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
-                  {pinterest.indexes.finalPins} index
+                  {selectedAccount?.rawStats.final_pins ?? pinterest.indexes.finalPins} index
                 </span>
               </div>
 
               <div className="mt-5 grid gap-3">
-                {pinterest.readyPins.slice(0, 12).map((item) => (
+                {selectedReadyPins.slice(0, 12).map((item) => (
                   <PinRow key={item.id} item={item} />
                 ))}
-                {pinterest.readyPins.length === 0 ? (
+                {selectedReadyPins.length === 0 ? (
                   <EmptyState
                     title="Aucun pin pret detecte"
                     description="Les index existent peut-etre, mais aucun pin final pret n'a ete normalise pour l'instant."
@@ -338,13 +449,15 @@ export default async function PinterestPublisherPage() {
                   </p>
                 </div>
                 <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
-                  {pinterest.indexes.publishingQueue} lignes
+                  {selectedAccount?.rawStats.publishing_queue ??
+                    pinterest.indexes.publishingQueue}{" "}
+                  lignes
                 </span>
               </div>
 
               <div className="mt-4">
-                {pinterest.publicationQueue.length > 0 ? (
-                  <QueueTable items={pinterest.publicationQueue.slice(0, 18)} />
+                {selectedPublicationQueue.length > 0 ? (
+                  <QueueTable items={selectedPublicationQueue.slice(0, 18)} />
                 ) : (
                   <EmptyState
                     title="File de publication vide"
@@ -361,13 +474,28 @@ export default async function PinterestPublisherPage() {
                 Index locaux
               </p>
               <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
-                Fichiers reels lus dans D:\Edifice_IA, sans modification.
+                Fichiers reels synchronises depuis D:\Edifice_IA, sans modification.
               </p>
               <div className="mt-4 grid gap-3">
-                {pinterest.indexFiles.map((indexFile) => (
-                  <IndexFileCard key={indexFile.key} indexFile={indexFile} />
+                {selectedIndexFiles.map((indexFile) => (
+                  <IndexFileCard key={`${indexFile.label}-${indexFile.key}`} indexFile={indexFile} />
                 ))}
               </div>
+              {selectedAccount ? (
+                <div className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#64748B]">
+                    Tableaux detectes
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+                    {selectedAccount.boards.length > 0
+                      ? selectedAccount.boards.join(" / ")
+                      : "Aucun tableau detecte"}
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-[#64748B]">
+                    Images PINS_READY : {selectedAccount.rawStats.images_ready}
+                  </p>
+                </div>
+              ) : null}
               <p className="mt-4 text-xs leading-6 text-[#64748B]">
                 Lecture locale uniquement. Les agents restent dans D:\Edifice_IA.
               </p>

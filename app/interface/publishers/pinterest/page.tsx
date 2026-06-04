@@ -14,6 +14,8 @@ export const metadata: Metadata = {
   title: "Atelier Pinterest - L'Edifice",
 };
 
+export const dynamic = "force-dynamic";
+
 const statusLabels: Record<PinterestWorkshopStatus, string> = {
   generated: "genere",
   visual_ready: "visuel pret",
@@ -127,6 +129,9 @@ function PinRow({ item }: { item: PinterestWorkshopItem }) {
           <p className="mt-1 break-all text-[#F8FAFC]">
             {item.finalPinFilename || item.selectedVisualFilename || "Non synchronise"}
           </p>
+          <p className="mt-1 break-all font-mono text-xs leading-5 text-[#64748B]">
+            {item.finalPinPath || item.selectedVisualPath || "Chemin image absent"}
+          </p>
         </div>
         <div>
           <p className="text-xs uppercase tracking-[0.12em] text-[#64748B]">
@@ -202,7 +207,8 @@ function IndexFileCard({ indexFile }: { indexFile: PinterestLocalIndexFile }) {
         <div>
           <p className="text-sm font-semibold text-[#F8FAFC]">{indexFile.label}</p>
           <p className="mt-1 text-xs uppercase tracking-[0.12em] text-[#64748B]">
-            format {indexFile.format} / {indexFile.exists ? "detecte" : "absent"}
+            format {indexFile.format} / {indexFile.exists ? "detecte" : "absent"} /{" "}
+            {indexFile.source}
           </p>
         </div>
         <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-2 py-1 text-xs font-semibold text-[#39E6D0]">
@@ -212,6 +218,14 @@ function IndexFileCard({ indexFile }: { indexFile: PinterestLocalIndexFile }) {
       <p className="mt-3 break-all font-mono text-xs leading-5 text-[#A7B0C0]">
         {indexFile.path}
       </p>
+      <p className="mt-2 text-xs leading-5 text-[#64748B]">
+        Champs : {indexFile.fields.length > 0 ? indexFile.fields.join(", ") : "aucun"}
+      </p>
+      {indexFile.lastError ? (
+        <p className="mt-2 rounded-md border border-[#F97316]/30 bg-[#F97316]/10 px-2 py-1.5 text-xs leading-5 text-[#FDBA74]">
+          Derniere erreur : {indexFile.lastError}
+        </p>
+      ) : null}
     </div>
   );
 }

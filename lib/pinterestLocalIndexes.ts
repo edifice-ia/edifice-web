@@ -20,7 +20,9 @@ export type PinterestWorkshopItem = {
   boardName: string;
   link: string;
   visualCategory: string;
+  selectedVisualPath: string;
   selectedVisualFilename: string;
+  finalPinPath: string;
   finalPinFilename: string;
   scheduledDate: string;
   scheduledTime: string;
@@ -44,6 +46,9 @@ export type PinterestLocalIndexFile = {
   format: "csv";
   count: number;
   exists: boolean;
+  fields: string[];
+  lastError: string | null;
+  source: "global" | "account_fallback";
 };
 
 export type PinterestWorkshopIndexes = {
@@ -63,6 +68,12 @@ export type PinterestWorkshopIndexes = {
 };
 
 type CsvRow = Record<string, string>;
+type CsvReadResult = {
+  exists: boolean;
+  fields: string[];
+  rows: CsvRow[];
+  lastError: string | null;
+};
 
 const PINTEREST_INDEX_DIR =
   process.env.PINTEREST_LOCAL_INDEX_DIR?.trim() ||
@@ -80,21 +91,37 @@ const indexFileDefinitions = [
     key: "posts_queue",
     label: "posts_queue",
     fileName: "posts_queue_global.csv",
+    accountFileNames: [
+      "edifice_discipline\\posts_queue.csv",
+      "solution_sommeil\\posts_queue.csv",
+    ],
   },
   {
     key: "posts_with_visuals",
     label: "posts_with_visuals",
     fileName: "posts_with_visuals_global.csv",
+    accountFileNames: [
+      "edifice_discipline\\posts_with_visuals.csv",
+      "solution_sommeil\\posts_with_visuals.csv",
+    ],
   },
   {
     key: "final_pins_index",
     label: "final_pins_index",
     fileName: "final_pins_index_global.csv",
+    accountFileNames: [
+      "edifice_discipline\\final_pins_index.csv",
+      "solution_sommeil\\final_pins_index.csv",
+    ],
   },
   {
     key: "publishing_queue",
     label: "publishing_queue",
     fileName: "publishing_queue_global.csv",
+    accountFileNames: [
+      "edifice_discipline\\publishing_queue.csv",
+      "solution_sommeil\\publishing_queue.csv",
+    ],
   },
 ] as const;
 
@@ -180,41 +207,87 @@ function splitCsvRecords(content: string) {
   return records;
 }
 
-function parseCsv(content: string): CsvRow[] {
+function parseCsv(content: string): { fields: string[]; rows: CsvRow[] } {
   const records = splitCsvRecords(content.replace(/^\uFEFF/, ""));
   const [headerLine, ...dataLines] = records;
 
   if (!headerLine) {
-    return [];
-  }
-
-  const headers = splitCsvLine(headerLine);
-  return dataLines.map((line) => {
-    const values = splitCsvLine(line);
-    return Object.fromEntries(
-      headers.map((header, index) => [header, values[index] ?? ""]),
-    );
-  });
-}
-
-async function readCsv(fileName: string) {
-  try {
-    const content = await readFile(csvPath(fileName), "utf-8");
     return {
-      exists: true,
-      rows: parseCsv(content),
-    };
-  } catch {
-    return {
-      exists: false,
+      fields: [],
       rows: [],
     };
   }
+
+  const headers = splitCsvLine(headerLine);
+  return {
+    fields: headers,
+    rows: dataLines.map((line) => {
+      const values = splitCsvLine(line);
+      return Object.fromEntries(
+        headers.map((header, index) => [header, values[index] ?? ""]),
+      );
+    }),
+  };
+}
+
+async function readCsv(fileName: string): Promise<CsvReadResult> {
+  try {
+    const content = await readFile(csvPath(fileName), "utf-8");
+    const parsedCsv = parseCsv(content);
+    return {
+      exists: true,
+      fields: parsedCsv.fields,
+      rows: parsedCsv.rows,
+      lastError: null,
+    };
+  } catch (error) {
+    return {
+      exists: false,
+      fields: [],
+      rows: [],
+      lastError: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function readIndex(
+  definition: (typeof indexFileDefinitions)[number],
+): Promise<CsvReadResult & { source: "global" | "account_fallback" }> {
+  const globalResult = await readCsv(definition.fileName);
+
+  if (globalResult.rows.length > 0) {
+    return {
+      ...globalResult,
+      source: "global",
+    };
+  }
+
+  const accountResults = await Promise.all(
+    definition.accountFileNames.map((fileName) => readCsv(fileName)),
+  );
+  const fallbackRows = accountResults.flatMap((result) => result.rows);
+  const fallbackFields =
+    accountResults.find((result) => result.fields.length > 0)?.fields ?? [];
+  const fallbackExists = accountResults.some((result) => result.exists);
+  const fallbackErrors = [
+    globalResult.lastError,
+    ...accountResults
+      .filter((result) => !result.exists)
+      .map((result) => result.lastError),
+  ].filter((error): error is string => Boolean(error));
+
+  return {
+    exists: fallbackExists,
+    fields: fallbackFields,
+    rows: fallbackRows,
+    lastError: fallbackRows.length > 0 ? null : fallbackErrors[0] ?? null,
+    source: "account_fallback",
+  };
 }
 
 function buildIndexFile(
   definition: (typeof indexFileDefinitions)[number],
-  result: Awaited<ReturnType<typeof readCsv>>,
+  result: Awaited<ReturnType<typeof readIndex>>,
 ): PinterestLocalIndexFile {
   return {
     key: definition.key,
@@ -223,6 +296,9 @@ function buildIndexFile(
     format: "csv",
     count: result.rows.length,
     exists: result.exists,
+    fields: result.fields,
+    lastError: result.lastError,
+    source: result.source,
   };
 }
 
@@ -301,9 +377,11 @@ function mapItem(row: CsvRow, fallbackId: string): PinterestWorkshopItem {
     boardName: value(row, "board_name"),
     link: value(row, "link"),
     visualCategory: value(row, "visual_category"),
+    selectedVisualPath: value(row, "selected_visual_path"),
     selectedVisualFilename:
       value(row, "selected_visual_filename") ||
       basename(value(row, "selected_visual_path")),
+    finalPinPath: value(row, "final_pin_path"),
     finalPinFilename:
       value(row, "final_pin_filename") ||
       basename(value(row, "final_pin_path")),
@@ -337,10 +415,10 @@ function byPostId(rows: CsvRow[]) {
 export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopIndexes> {
   const [postsQueueResult, postsWithVisualsResult, finalPinsResult, publishingQueueResult] =
     await Promise.all([
-      readCsv("posts_queue_global.csv"),
-      readCsv("posts_with_visuals_global.csv"),
-      readCsv("final_pins_index_global.csv"),
-      readCsv("publishing_queue_global.csv"),
+      readIndex(indexFileDefinitions[0]),
+      readIndex(indexFileDefinitions[1]),
+      readIndex(indexFileDefinitions[2]),
+      readIndex(indexFileDefinitions[3]),
     ]);
   const [postsQueue, postsWithVisuals, finalPins, publishingQueue] = [
     postsQueueResult.rows,
@@ -380,14 +458,16 @@ export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopI
   }
 
   const visualRowsByPostId = byPostId(postsWithVisuals);
-  const publishRowsByPostId = byPostId(publishingQueue);
-  const readyPins = finalPins
-    .filter(isFinalPinReady)
+  const readyToPublishRows = publishingQueue.filter(
+    (row) => value(row, "publish_status") === "ready_to_publish",
+  );
+  const finalPinsByPostId = byPostId(finalPins);
+  const readyPins = readyToPublishRows
     .map((row, index) =>
       mapItem(
         mergeRows(row, {
           ...visualRowsByPostId.get(value(row, "post_id")),
-          ...publishRowsByPostId.get(value(row, "post_id")),
+          ...finalPinsByPostId.get(value(row, "post_id")),
         }),
         `pin-${index + 1}`,
       ),
@@ -396,7 +476,7 @@ export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopI
     mapItem(
       mergeRows(row, {
         ...visualRowsByPostId.get(value(row, "post_id")),
-        ...finalPins.find((pin) => value(pin, "post_id") === value(row, "post_id")),
+        ...finalPinsByPostId.get(value(row, "post_id")),
       }),
       `queue-${index + 1}`,
     ),
@@ -408,10 +488,8 @@ export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopI
     stats: {
       postsGenerated: postsQueue.length,
       pinsWithVisuals: postsWithVisuals.filter(isVisualReady).length,
-      pinsReadyToPublish: readyPins.length,
-      pinsPendingPublication: publishingQueue.filter(
-        (row) => value(row, "publish_status") === "ready_to_publish",
-      ).length,
+      pinsReadyToPublish: readyToPublishRows.length,
+      pinsPendingPublication: publishingQueue.length,
     },
     readyPins,
     publicationQueue,

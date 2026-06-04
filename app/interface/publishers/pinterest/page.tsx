@@ -5,6 +5,7 @@ import { LogPanel } from "@/components/cockpit/LogPanel";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import {
   readPinterestWorkshopIndexes,
+  type PinterestLocalIndexFile,
   type PinterestWorkshopItem,
   type PinterestWorkshopStatus,
 } from "@/lib/pinterestLocalIndexes";
@@ -194,6 +195,27 @@ function QueueTable({ items }: { items: PinterestWorkshopItem[] }) {
   );
 }
 
+function IndexFileCard({ indexFile }: { indexFile: PinterestLocalIndexFile }) {
+  return (
+    <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[#F8FAFC]">{indexFile.label}</p>
+          <p className="mt-1 text-xs uppercase tracking-[0.12em] text-[#64748B]">
+            format {indexFile.format} / {indexFile.exists ? "detecte" : "absent"}
+          </p>
+        </div>
+        <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-2 py-1 text-xs font-semibold text-[#39E6D0]">
+          {indexFile.count}
+        </span>
+      </div>
+      <p className="mt-3 break-all font-mono text-xs leading-5 text-[#A7B0C0]">
+        {indexFile.path}
+      </p>
+    </div>
+  );
+}
+
 export default async function PinterestPublisherPage() {
   const pinterest = await readPinterestWorkshopIndexes();
   const logs = [
@@ -324,20 +346,12 @@ export default async function PinterestPublisherPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
                 Index locaux
               </p>
-              <div className="mt-4 grid gap-3 text-sm">
-                {[
-                  ["posts_queue", pinterest.indexes.postsQueue],
-                  ["posts_with_visuals", pinterest.indexes.postsWithVisuals],
-                  ["final_pins_index", pinterest.indexes.finalPins],
-                  ["publishing_queue", pinterest.indexes.publishingQueue],
-                ].map(([label, value]) => (
-                  <div
-                    key={label}
-                    className="flex items-center justify-between rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2"
-                  >
-                    <span className="text-[#A7B0C0]">{label}</span>
-                    <span className="font-semibold text-[#F8FAFC]">{value}</span>
-                  </div>
+              <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+                Fichiers reels lus dans D:\Edifice_IA, sans modification.
+              </p>
+              <div className="mt-4 grid gap-3">
+                {pinterest.indexFiles.map((indexFile) => (
+                  <IndexFileCard key={indexFile.key} indexFile={indexFile} />
                 ))}
               </div>
               <p className="mt-4 text-xs leading-6 text-[#64748B]">

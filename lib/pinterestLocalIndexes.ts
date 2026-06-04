@@ -37,12 +37,22 @@ export type PinterestWorkshopStats = {
   pinsPendingPublication: number;
 };
 
+export type PinterestLocalIndexFile = {
+  key: "posts_queue" | "posts_with_visuals" | "final_pins_index" | "publishing_queue";
+  label: string;
+  path: string;
+  format: "csv";
+  count: number;
+  exists: boolean;
+};
+
 export type PinterestWorkshopIndexes = {
   sourceAvailable: boolean;
   message: string | null;
   stats: PinterestWorkshopStats;
   readyPins: PinterestWorkshopItem[];
   publicationQueue: PinterestWorkshopItem[];
+  indexFiles: PinterestLocalIndexFile[];
   updatedAt: string | null;
   indexes: {
     postsQueue: number;
@@ -64,6 +74,29 @@ const emptyStats: PinterestWorkshopStats = {
   pinsReadyToPublish: 0,
   pinsPendingPublication: 0,
 };
+
+const indexFileDefinitions = [
+  {
+    key: "posts_queue",
+    label: "posts_queue",
+    fileName: "posts_queue_global.csv",
+  },
+  {
+    key: "posts_with_visuals",
+    label: "posts_with_visuals",
+    fileName: "posts_with_visuals_global.csv",
+  },
+  {
+    key: "final_pins_index",
+    label: "final_pins_index",
+    fileName: "final_pins_index_global.csv",
+  },
+  {
+    key: "publishing_queue",
+    label: "publishing_queue",
+    fileName: "publishing_queue_global.csv",
+  },
+] as const;
 
 function csvPath(fileName: string) {
   return `${PINTEREST_INDEX_DIR.replace(/[\\/]+$/, "")}\\${fileName}`;
@@ -167,10 +200,30 @@ function parseCsv(content: string): CsvRow[] {
 async function readCsv(fileName: string) {
   try {
     const content = await readFile(csvPath(fileName), "utf-8");
-    return parseCsv(content);
+    return {
+      exists: true,
+      rows: parseCsv(content),
+    };
   } catch {
-    return [];
+    return {
+      exists: false,
+      rows: [],
+    };
   }
+}
+
+function buildIndexFile(
+  definition: (typeof indexFileDefinitions)[number],
+  result: Awaited<ReturnType<typeof readCsv>>,
+): PinterestLocalIndexFile {
+  return {
+    key: definition.key,
+    label: definition.label,
+    path: csvPath(definition.fileName),
+    format: "csv",
+    count: result.rows.length,
+    exists: result.exists,
+  };
 }
 
 function value(row: CsvRow, key: string) {
@@ -282,13 +335,25 @@ function byPostId(rows: CsvRow[]) {
 }
 
 export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopIndexes> {
-  const [postsQueue, postsWithVisuals, finalPins, publishingQueue] =
+  const [postsQueueResult, postsWithVisualsResult, finalPinsResult, publishingQueueResult] =
     await Promise.all([
       readCsv("posts_queue_global.csv"),
       readCsv("posts_with_visuals_global.csv"),
       readCsv("final_pins_index_global.csv"),
       readCsv("publishing_queue_global.csv"),
     ]);
+  const [postsQueue, postsWithVisuals, finalPins, publishingQueue] = [
+    postsQueueResult.rows,
+    postsWithVisualsResult.rows,
+    finalPinsResult.rows,
+    publishingQueueResult.rows,
+  ];
+  const indexFiles = [
+    buildIndexFile(indexFileDefinitions[0], postsQueueResult),
+    buildIndexFile(indexFileDefinitions[1], postsWithVisualsResult),
+    buildIndexFile(indexFileDefinitions[2], finalPinsResult),
+    buildIndexFile(indexFileDefinitions[3], publishingQueueResult),
+  ];
 
   const hasAnyIndex =
     postsQueue.length > 0 ||
@@ -303,6 +368,7 @@ export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopI
       stats: emptyStats,
       readyPins: [],
       publicationQueue: [],
+      indexFiles,
       updatedAt: null,
       indexes: {
         postsQueue: 0,
@@ -349,6 +415,7 @@ export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopI
     },
     readyPins,
     publicationQueue,
+    indexFiles,
     updatedAt: new Date().toISOString(),
     indexes: {
       postsQueue: postsQueue.length,

@@ -4,6 +4,7 @@ import {
   prepareDraftMedia,
   readMediaPipelineState,
   refreshDraftMediaSuggestions,
+  requestDraftVisualGeneration,
   selectDraftVisualAsset,
 } from "@/lib/server/media-pipeline";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
@@ -148,6 +149,15 @@ export async function POST(
 
     if (action === "refresh_suggestions") {
       const media = await refreshDraftMediaSuggestions({
+        draftId: id,
+        userId: user.id,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "request_visual_generation") {
+      const media = await requestDraftVisualGeneration({
         draftId: id,
         userId: user.id,
       });

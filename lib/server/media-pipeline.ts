@@ -69,6 +69,11 @@ type MediaPlanRow = {
   visual_decision_mode: VisualDecisionMode | null;
   visual_decision: VisualDecision;
   missing_visual_needs: string[] | null;
+  assets_found: number | null;
+  assets_selected: number | null;
+  generation_requested: boolean | null;
+  generation_reason: string | null;
+  last_run_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -120,11 +125,24 @@ export type VisualDecision = {
   missing_visual_needs: string[];
 };
 
+export type VisualGenerationInput = {
+  script: string | null;
+  subject: string | null;
+  angle: string | null;
+  emotion: string | null;
+  visualPrompts: string[];
+};
+
 export type MediaPipelineState = {
   mediaPipelineStatus: MediaPipelineStatus;
   visualDecision: VisualDecision | null;
   selectedAssets: SelectedDraftAsset[];
   suggestedAssets: VisualAsset[];
+  assetsFound: number;
+  assetsSelected: number;
+  generationRequested: boolean;
+  generationReason: string | null;
+  lastRunAt: string | null;
 };
 
 let mediaPipelineClient: SupabaseClient | null = null;
@@ -368,7 +386,7 @@ async function readPlan(draftId: string) {
   const supabase = getMediaPipelineClient();
   const { data, error } = await supabase
     .from("content_draft_media_plans")
-    .select("id, draft_id, action, media_pipeline_status, visual_decision_mode, visual_decision, missing_visual_needs, created_at, updated_at")
+    .select("id, draft_id, action, media_pipeline_status, visual_decision_mode, visual_decision, missing_visual_needs, assets_found, assets_selected, generation_requested, generation_reason, last_run_at, created_at, updated_at")
     .eq("draft_id", draftId)
     .maybeSingle<MediaPlanRow>();
 
@@ -461,10 +479,18 @@ async function savePlan({
   draftId,
   mediaPipelineStatus,
   visualDecision,
+  assetsFound = visualDecision.matched_assets.length,
+  assetsSelected = visualDecision.matched_assets.length,
+  generationRequested = false,
+  generationReason = null,
 }: {
   draftId: string;
   mediaPipelineStatus: MediaPipelineStatus;
   visualDecision: VisualDecision;
+  assetsFound?: number;
+  assetsSelected?: number;
+  generationRequested?: boolean;
+  generationReason?: string | null;
 }) {
   const supabase = getMediaPipelineClient();
   console.log(
@@ -483,6 +509,11 @@ async function savePlan({
         visual_decision_mode: visualDecision.mode,
         visual_decision: visualDecision,
         missing_visual_needs: visualDecision.missing_visual_needs,
+        assets_found: assetsFound,
+        assets_selected: assetsSelected,
+        generation_requested: generationRequested,
+        generation_reason: generationReason,
+        last_run_at: new Date().toISOString(),
       },
       { onConflict: "draft_id" },
     );
@@ -585,7 +616,39 @@ export async function readMediaPipelineState({
     visualDecision: plan?.visual_decision ?? null,
     selectedAssets,
     suggestedAssets: includeSuggestions ? await scoreLibraryForDraft(draft) : [],
+    assetsFound:
+      plan?.assets_found ??
+      plan?.visual_decision?.matched_assets?.length ??
+      selectedAssets.length,
+    assetsSelected: plan?.assets_selected ?? selectedAssets.length,
+    generationRequested: plan?.generation_requested ?? false,
+    generationReason: plan?.generation_reason ?? null,
+    lastRunAt: plan?.last_run_at ?? plan?.updated_at ?? null,
   };
+}
+
+export function buildVisualGenerationInput(draft: DraftRow): VisualGenerationInput {
+  return {
+    script: draft.script,
+    subject: draft.theme ?? draft.title,
+    angle: draft.angle,
+    emotion: draft.voice_style,
+    visualPrompts: draft.visual_prompt
+      ? draft.visual_prompt
+          .split(/\n+/)
+          .map((prompt) => prompt.trim())
+          .filter(Boolean)
+      : [],
+  };
+}
+
+export async function generateNewVisuals(_draft: VisualGenerationInput) {
+  throw new MediaPipelineError(
+    "Le module de generation visuelle n'est pas encore connecte.",
+    {
+      validation: "visual_generation.not_connected",
+    },
+  );
 }
 
 export async function prepareDraftMedia({
@@ -654,10 +717,79 @@ export async function prepareDraftMedia({
     draftId,
     mediaPipelineStatus,
     visualDecision,
+    assetsFound: relevantAssets.length,
+    assetsSelected: hasEnoughLibraryAssets ? selectedAssets.length : 0,
+    generationRequested: false,
+    generationReason: null,
   });
   await replaceSelectedAssets({
     draftId,
     assets: hasEnoughLibraryAssets ? selectedAssets : [],
+  });
+
+  return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
+}
+
+export async function requestDraftVisualGeneration({
+  draftId,
+  userId,
+}: {
+  draftId: string;
+  userId: string;
+}) {
+  const draft = await readDraft(draftId, userId);
+
+  if (!isDraftValidatedForMedia(draft.status)) {
+    throw new MediaPipelineError("Valide le brouillon avant de demander de nouveaux visuels.", {
+      draftId,
+      draftStatus: draft.status,
+      validation: "draft.status",
+    });
+  }
+
+  const currentState = await readMediaPipelineState({
+    draftId,
+    userId,
+    includeSuggestions: true,
+  });
+
+  if (!currentState.visualDecision) {
+    throw new MediaPipelineError("Prepare les medias avant de demander de nouveaux visuels.", {
+      draftId,
+      validation: "visual_decision.required",
+    });
+  }
+
+  const generationInput = buildVisualGenerationInput(draft);
+  const visualDecision: VisualDecision = {
+    ...currentState.visualDecision,
+    mode: "generate_new",
+    reason:
+      "Nouveaux visuels demandes. Le module de generation sera utilise lorsqu'il sera connecte.",
+    matched_assets: currentState.selectedAssets.map((asset) => ({
+      asset_id: asset.id,
+      file_name: asset.fileName,
+      score: asset.score,
+      reason: asset.scoreReason,
+    })),
+    missing_visual_needs: currentState.visualDecision.missing_visual_needs,
+  };
+
+  await savePlan({
+    draftId,
+    mediaPipelineStatus: currentState.mediaPipelineStatus,
+    visualDecision,
+    assetsFound: currentState.assetsFound,
+    assetsSelected: currentState.selectedAssets.length,
+    generationRequested: true,
+    generationReason: "manual_user_request",
+  });
+
+  console.info("[Media Pipeline] visual generation requested", {
+    draftId,
+    visualDecisionMode: visualDecision.mode,
+    generationReason: "manual_user_request",
+    visualPromptsCount: generationInput.visualPrompts.length,
   });
 
   return readMediaPipelineState({ draftId, userId, includeSuggestions: true });

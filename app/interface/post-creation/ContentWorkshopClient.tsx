@@ -131,6 +131,11 @@ type MediaPipelineState = {
   visualDecision: VisualDecision | null;
   selectedAssets: SelectedDraftAsset[];
   suggestedAssets: VisualAsset[];
+  assetsFound: number;
+  assetsSelected: number;
+  generationRequested: boolean;
+  generationReason: string | null;
+  lastRunAt: string | null;
 };
 
 type ApiErrorPayload = {
@@ -514,6 +519,7 @@ export function ContentWorkshopClient() {
   const [isLoadingAssets, setIsLoadingAssets] = useState(false);
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
   const [isPreparingMedia, setIsPreparingMedia] = useState(false);
+  const [showGenerationConfirm, setShowGenerationConfirm] = useState(false);
   const [isUploadingAsset, setIsUploadingAsset] = useState(false);
   const [isSavingVariant, setIsSavingVariant] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -540,6 +546,20 @@ export function ContentWorkshopClient() {
   );
 
   const canPrepareMedia = isDraftValidatedForMedia(selectedDraft?.status);
+  const canRequestVisualGeneration =
+    canPrepareMedia && Boolean(mediaPipeline?.visualDecision);
+  const selectedAverageScore = useMemo(() => {
+    const selectedScores = mediaPipeline?.selectedAssets.map((asset) => asset.score) ?? [];
+    const matchedScores =
+      mediaPipeline?.visualDecision?.matched_assets.map((asset) => asset.score) ?? [];
+    const scores = selectedScores.length > 0 ? selectedScores : matchedScores;
+
+    if (scores.length === 0) {
+      return 0;
+    }
+
+    return scores.reduce((total, score) => total + score, 0) / scores.length;
+  }, [mediaPipeline]);
 
   const generationStatus = getGenerationStatus(generationProgress);
 
@@ -1152,7 +1172,12 @@ export function ContentWorkshopClient() {
   }
 
   async function runMediaAction(
-    action: "prepare_media" | "refresh_suggestions" | "select_asset" | "replace_asset",
+    action:
+      | "prepare_media"
+      | "refresh_suggestions"
+      | "request_visual_generation"
+      | "select_asset"
+      | "replace_asset",
     options?: {
       assetId?: string;
       draftId?: string;
@@ -1166,7 +1191,7 @@ export function ContentWorkshopClient() {
       return;
     }
 
-    if (!options?.forceAllowed && selectedDraft?.status !== "approved") {
+    if (!options?.forceAllowed && !isDraftValidatedForMedia(selectedDraft?.status)) {
       setError("Valide le brouillon avant de preparer les medias.");
       setNotice(null);
       return;
@@ -1201,9 +1226,11 @@ export function ContentWorkshopClient() {
 
       setMediaPipeline(payload.media);
       setNotice(
-        action === "prepare_media"
-          ? "Pipeline media preparee. Aucun media externe n'a ete genere."
-          : "Bibliotheque visuelle mise a jour.",
+        action === "request_visual_generation"
+          ? "Nouveaux visuels demandes. Le module de generation sera utilise lorsqu'il sera connecte."
+          : action === "prepare_media"
+            ? "Pipeline media preparee. Aucun media externe n'a ete genere."
+            : "Bibliotheque visuelle mise a jour.",
       );
     } catch (caughtError) {
       setError(
@@ -1236,8 +1263,46 @@ export function ContentWorkshopClient() {
     });
   }
 
+  function confirmVisualGenerationRequest() {
+    setShowGenerationConfirm(false);
+    void runMediaAction("request_visual_generation");
+  }
+
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
+    <>
+      {showGenerationConfirm ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#03070B]/80 px-4">
+          <div className="w-full max-w-md rounded-lg border border-[#1D2A44] bg-[#08111A] p-5 shadow-2xl shadow-black/40">
+            <h2 className="text-lg font-semibold text-[#F8FAFC]">
+              Generer de nouveaux visuels
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-[#A7B0C0]">
+              Cette action va generer de nouveaux visuels. Les visuels
+              actuellement selectionnes seront conserves dans l'historique mais
+              remplaces dans la selection active.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowGenerationConfirm(false)}
+                className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={isPreparingMedia}
+                onClick={confirmVisualGenerationRequest}
+                className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+              >
+                Generer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
       <div className="space-y-6">
         <SectionContainer>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -1885,6 +1950,16 @@ export function ContentWorkshopClient() {
                   >
                     Actualiser suggestions
                   </button>
+                  {canRequestVisualGeneration ? (
+                    <button
+                      type="button"
+                      disabled={isPreparingMedia}
+                      onClick={() => setShowGenerationConfirm(true)}
+                      className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      Generer de nouveaux visuels
+                    </button>
+                  ) : null}
                 </div>
 
                 {isLoadingMedia ? (
@@ -1895,14 +1970,38 @@ export function ContentWorkshopClient() {
 
                 {mediaPipeline?.visualDecision ? (
                   <div className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#64748B]">
+                      Decision visuelle
+                    </p>
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7DD3FC]">
-                      {mediaPipeline.visualDecision.mode === "reuse_existing"
-                        ? "Visuels existants utilises"
-                        : "Nouveaux visuels recommandes"}
+                      {mediaPipeline.generationRequested ||
+                      mediaPipeline.visualDecision.mode === "generate_new"
+                        ? "Generation demandee"
+                        : "Bibliotheque reutilisee"}
                     </p>
                     <p className="mt-2 text-sm leading-6 text-[#F8FAFC]">
                       {mediaPipeline.visualDecision.reason}
                     </p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs text-[#A7B0C0]">
+                        Trouves:{" "}
+                        <span className="font-semibold text-[#F8FAFC]">
+                          {mediaPipeline.assetsFound}
+                        </span>
+                      </p>
+                      <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs text-[#A7B0C0]">
+                        Retenus:{" "}
+                        <span className="font-semibold text-[#F8FAFC]">
+                          {mediaPipeline.assetsSelected}
+                        </span>
+                      </p>
+                      <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs text-[#A7B0C0]">
+                        Score moyen:{" "}
+                        <span className="font-semibold text-[#F8FAFC]">
+                          {Math.round(selectedAverageScore)}
+                        </span>
+                      </p>
+                    </div>
                     <p className="mt-2 text-xs text-[#A7B0C0]">
                       Confiance: {Math.round(mediaPipeline.visualDecision.confidence * 100)}%
                     </p>
@@ -2201,6 +2300,7 @@ export function ContentWorkshopClient() {
           </SectionContainer>
         ) : null}
       </aside>
-    </div>
+      </div>
+    </>
   );
 }

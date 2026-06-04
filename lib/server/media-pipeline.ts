@@ -642,7 +642,9 @@ export function buildVisualGenerationInput(draft: DraftRow): VisualGenerationInp
   };
 }
 
-export async function generateNewVisuals(_draft: VisualGenerationInput) {
+export async function generateNewVisuals(draft: VisualGenerationInput) {
+  void draft;
+
   throw new MediaPipelineError(
     "Le module de generation visuelle n'est pas encore connecte.",
     {

@@ -1278,7 +1278,7 @@ export function ContentWorkshopClient() {
             </h2>
             <p className="mt-3 text-sm leading-6 text-[#A7B0C0]">
               Cette action va generer de nouveaux visuels. Les visuels
-              actuellement selectionnes seront conserves dans l'historique mais
+              actuellement selectionnes seront conserves dans l&apos;historique mais
               remplaces dans la selection active.
             </p>
             <div className="mt-5 flex flex-wrap justify-end gap-3">

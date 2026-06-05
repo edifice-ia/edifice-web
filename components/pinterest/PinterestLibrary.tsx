@@ -3,11 +3,13 @@
 import { useMemo, useState } from "react";
 import type {
   PinterestAccountWorkshop,
+  PinterestReviewStatus,
   PinterestWorkshopItem,
   PinterestWorkshopStatus,
 } from "@/lib/pinterestLocalIndexes";
 
 type StatusFilter = "all" | "generated" | "visual_ready" | "ready_to_publish" | "published";
+type ReviewFilter = "all" | PinterestReviewStatus;
 
 const pageSize = 24;
 
@@ -26,6 +28,25 @@ const statusFilterLabels: Record<StatusFilter, string> = {
   visual_ready: "Visuel prêt",
   ready_to_publish: "Prêt à publier",
   published: "Publié",
+};
+
+const reviewLabels: Record<PinterestReviewStatus, string> = {
+  pending: "En attente",
+  approved: "Validé",
+  needs_revision: "À revoir",
+  rejected: "Rejeté",
+};
+
+const reviewFilterLabels: Record<ReviewFilter, string> = {
+  all: "Tous",
+  ...reviewLabels,
+};
+
+const reviewBadgeClasses: Record<PinterestReviewStatus, string> = {
+  pending: "border-[#64748B]/45 bg-[#64748B]/10 text-[#CBD5E1]",
+  approved: "border-[#22C55E]/40 bg-[#22C55E]/10 text-[#86EFAC]",
+  needs_revision: "border-[#FACC15]/40 bg-[#FACC15]/10 text-[#FDE68A]",
+  rejected: "border-[#F97316]/40 bg-[#F97316]/10 text-[#FDBA74]",
 };
 
 const badgeClasses: Record<PinterestWorkshopStatus, string> = {
@@ -106,6 +127,16 @@ function PinBadges({ badges }: { badges: PinterestWorkshopStatus[] }) {
   );
 }
 
+function ReviewBadge({ status }: { status: PinterestReviewStatus }) {
+  return (
+    <span
+      className={`rounded-md border px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${reviewBadgeClasses[status]}`}
+    >
+      {reviewLabels[status]}
+    </span>
+  );
+}
+
 function PinImage({ item, large = false }: { item: PinterestWorkshopItem; large?: boolean }) {
   const imageSrc = buildImageSrc(item);
   const [failedSrc, setFailedSrc] = useState("");
@@ -147,21 +178,34 @@ export function PinterestLibrary({
 }) {
   const [accountFilter, setAccountFilter] = useState(initialAccountId ?? "all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
   const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(pageSize);
   const [selectedPin, setSelectedPin] = useState<LibraryPin | null>(null);
+  const [reviewNote, setReviewNote] = useState("");
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState("");
+  const [reviewError, setReviewError] = useState("");
+  const [reviewOverrides, setReviewOverrides] = useState<
+    Record<string, Pick<LibraryPin, "reviewStatus" | "reviewedAt" | "reviewedBy" | "reviewNotes">>
+  >({});
 
   const pins = useMemo(
     () =>
       accounts.flatMap((account) =>
-        account.publicationQueue.map((item) => ({
-          ...item,
-          accountId: account.id,
-          accountLabel: account.name,
-          niche: account.niche,
-        })),
+        account.publicationQueue.map((item) => {
+          const override = reviewOverrides[`${account.id}:${item.id}`];
+
+          return {
+            ...item,
+            ...override,
+            accountId: account.id,
+            accountLabel: account.name,
+            niche: account.niche,
+          };
+        }),
       ),
-    [accounts],
+    [accounts, reviewOverrides],
   );
 
   const filteredPins = useMemo(() => {
@@ -171,12 +215,13 @@ export function PinterestLibrary({
       const matchesAccount = accountFilter === "all" || pin.accountId === accountFilter;
       const matchesStatus =
         statusFilter === "all" || pin.badges.includes(statusFilter as PinterestWorkshopStatus);
+      const matchesReview = reviewFilter === "all" || pin.reviewStatus === reviewFilter;
       const haystack = `${pin.title} ${pin.keywords} ${pin.description}`.toLowerCase();
       const matchesQuery = !normalizedQuery || haystack.includes(normalizedQuery);
 
-      return matchesAccount && matchesStatus && matchesQuery;
+      return matchesAccount && matchesStatus && matchesReview && matchesQuery;
     });
-  }, [accountFilter, pins, query, statusFilter]);
+  }, [accountFilter, pins, query, reviewFilter, statusFilter]);
 
   const visiblePins = filteredPins.slice(0, visibleCount);
   const detectedVisuals = pins.filter((pin) => buildImageSrc(pin)).length;
@@ -195,6 +240,57 @@ export function PinterestLibrary({
   function updateQuery(value: string) {
     setQuery(value);
     setVisibleCount(pageSize);
+  }
+
+  function openPin(pin: LibraryPin) {
+    setSelectedPin(pin);
+    setReviewNote(pin.reviewNotes);
+    setReviewMessage("");
+    setReviewError("");
+  }
+
+  async function submitReview(reviewStatus: PinterestReviewStatus) {
+    if (!selectedPin?.reviewWritable) {
+      return;
+    }
+
+    setReviewSaving(true);
+    setReviewMessage("");
+    setReviewError("");
+
+    try {
+      const response = await fetch("/api/pinterest/review", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId: selectedPin.accountId,
+          localId: selectedPin.id,
+          reviewStatus,
+          reviewNotes: reviewNote,
+        }),
+      });
+      const payload = await response.json() as {
+        error?: string;
+        review?: Pick<
+          LibraryPin,
+          "reviewStatus" | "reviewedAt" | "reviewedBy" | "reviewNotes"
+        >;
+      };
+
+      if (!response.ok || !payload.review) {
+        throw new Error(payload.error ?? "Validation Pinterest impossible.");
+      }
+
+      const key = `${selectedPin.accountId}:${selectedPin.id}`;
+      setReviewOverrides((current) => ({ ...current, [key]: payload.review! }));
+      setSelectedPin((current) => current ? { ...current, ...payload.review } : current);
+      setReviewNote(payload.review.reviewNotes);
+      setReviewMessage(`Validation enregistrée : ${reviewLabels[payload.review.reviewStatus]}.`);
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : "Validation Pinterest impossible.");
+    } finally {
+      setReviewSaving(false);
+    }
   }
 
   return (
@@ -216,7 +312,7 @@ export function PinterestLibrary({
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[180px_180px_minmax(0,1fr)]">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[180px_180px_180px_minmax(0,1fr)]">
         <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#64748B]">
           Compte
           <select
@@ -228,6 +324,24 @@ export function PinterestLibrary({
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
                 {account.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#64748B]">
+          Validation
+          <select
+            value={reviewFilter}
+            onChange={(event) => {
+              setReviewFilter(event.target.value as ReviewFilter);
+              setVisibleCount(pageSize);
+            }}
+            className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium normal-case tracking-normal text-[#F8FAFC]"
+          >
+            {Object.entries(reviewFilterLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
               </option>
             ))}
           </select>
@@ -271,7 +385,7 @@ export function PinterestLibrary({
           <button
             key={`${pin.accountId}-${pin.id}`}
             type="button"
-            onClick={() => setSelectedPin(pin)}
+            onClick={() => openPin(pin)}
             className="group rounded-lg border border-[#1D2A44] bg-[#03070B] p-3 text-left transition hover:border-[#39E6D0]/50 hover:bg-[#08111A]"
           >
             <PinImage item={pin} />
@@ -286,7 +400,8 @@ export function PinterestLibrary({
                 {pin.niche}
               </p>
             </div>
-            <div className="mt-3">
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <ReviewBadge status={pin.reviewStatus} />
               <PinBadges badges={pin.badges} />
             </div>
             <p className="mt-3 text-xs text-[#64748B]">{formatDate(pin.createdAt)}</p>
@@ -387,7 +502,8 @@ export function PinterestLibrary({
                   <p className="text-xs uppercase tracking-[0.14em] text-[#64748B]">
                     Statut
                   </p>
-                  <div className="mt-2">
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <ReviewBadge status={selectedPin.reviewStatus} />
                     <PinBadges badges={selectedPin.badges} />
                   </div>
                 </div>
@@ -407,6 +523,70 @@ export function PinterestLibrary({
                     {selectedPin.imageSourceField || "aucun"} :{" "}
                     {selectedPin.imagePath || selectedPin.imageUrl || "absent"}
                   </p>
+                </div>
+                <div className="border-t border-[#1D2A44] pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#39E6D0]">
+                    Validation
+                  </p>
+                  <label className="mt-3 grid gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#64748B]">
+                    Note de validation
+                    <textarea
+                      value={reviewNote}
+                      onChange={(event) => setReviewNote(event.target.value)}
+                      disabled={!selectedPin.reviewWritable || reviewSaving}
+                      rows={4}
+                      maxLength={2000}
+                      className="resize-y rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium normal-case leading-6 tracking-normal text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                  </label>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={!selectedPin.reviewWritable || reviewSaving}
+                      onClick={() => submitReview("approved")}
+                      className="rounded-md border border-[#22C55E]/40 bg-[#22C55E]/10 px-3 py-2 text-sm font-semibold text-[#86EFAC] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Valider
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedPin.reviewWritable || reviewSaving}
+                      onClick={() => submitReview("needs_revision")}
+                      className="rounded-md border border-[#FACC15]/40 bg-[#FACC15]/10 px-3 py-2 text-sm font-semibold text-[#FDE68A] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      À revoir
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selectedPin.reviewWritable || reviewSaving}
+                      onClick={() => submitReview("rejected")}
+                      className="rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-3 py-2 text-sm font-semibold text-[#FDBA74] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Rejeter
+                    </button>
+                  </div>
+                  {!selectedPin.reviewWritable ? (
+                    <p className="mt-3 text-xs leading-5 text-[#64748B]">
+                      Validation indisponible avec le snapshot local. Synchronise le pin vers
+                      Supabase pour enregistrer une décision.
+                    </p>
+                  ) : null}
+                  {selectedPin.reviewedAt ? (
+                    <p className="mt-3 text-xs leading-5 text-[#64748B]">
+                      Dernière validation : {formatDate(selectedPin.reviewedAt)}
+                      {selectedPin.reviewedBy ? ` par ${selectedPin.reviewedBy}` : ""}
+                    </p>
+                  ) : null}
+                  {reviewMessage ? (
+                    <p className="mt-3 rounded-md border border-[#22C55E]/30 bg-[#22C55E]/10 px-3 py-2 text-xs text-[#86EFAC]">
+                      {reviewMessage}
+                    </p>
+                  ) : null}
+                  {reviewError ? (
+                    <p className="mt-3 rounded-md border border-[#F97316]/30 bg-[#F97316]/10 px-3 py-2 text-xs text-[#FDBA74]">
+                      {reviewError}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </div>

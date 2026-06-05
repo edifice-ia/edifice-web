@@ -9,6 +9,7 @@ import {
 } from "@/lib/server/oauth/pinterest-state";
 
 const PINTEREST_AUTHORIZE_URL = "https://www.pinterest.com/oauth/";
+const PINTEREST_REDIRECT_URI = "https://www.edificeia.com/api/auth/pinterest/callback";
 const PINTEREST_SCOPES = [
   "boards:read",
   "pins:read",
@@ -33,14 +34,22 @@ export async function GET(request: NextRequest) {
   const redirectUri = process.env.PINTEREST_REDIRECT_URI?.trim();
 
   console.info("[Pinterest OAuth Start] configuration", {
-    configured: missing.length === 0,
+    configured: missing.length === 0 && redirectUri === PINTEREST_REDIRECT_URI,
     missing,
     redirectUri,
   });
 
-  if (missing.length > 0 || !clientId || !redirectUri) {
+  if (
+    missing.length > 0 ||
+    !clientId ||
+    redirectUri !== PINTEREST_REDIRECT_URI
+  ) {
     return NextResponse.json(
-      { error: "Configuration OAuth Pinterest incomplete.", missing },
+      {
+        error: "Configuration OAuth Pinterest incomplete ou redirect URI incorrecte.",
+        missing,
+        expectedRedirectUri: PINTEREST_REDIRECT_URI,
+      },
       { status: 400 },
     );
   }
@@ -57,6 +66,9 @@ export async function GET(request: NextRequest) {
   authorizationUrl.searchParams.set("scope", PINTEREST_SCOPES.join(","));
   authorizationUrl.searchParams.set("state", state);
 
+  console.info("[Pinterest OAuth Start] OAuth demarre", {
+    userAuthenticated: true,
+  });
   console.info("[Pinterest OAuth Start] redirection preparee", {
     callback: redirectUri,
     scopes: PINTEREST_SCOPES,
@@ -68,7 +80,7 @@ export async function GET(request: NextRequest) {
     secure: request.nextUrl.protocol === "https:",
     sameSite: "lax",
     maxAge: PINTEREST_STATE_MAX_AGE_SECONDS,
-    path: "/api/oauth/pinterest",
+    path: "/api/auth/pinterest",
   });
 
   return response;

@@ -15,7 +15,7 @@ Le projet web contient deja une surface Pinterest minimale :
 - `app/interface/publishers/pinterest/page.tsx` : page placeholder "Pinterest Publisher", sans logique metier.
 - `lib/cockpit/modules.ts` : module `publisher-pinterest` et hub `publisher-pinterest-hub`.
 - `lib/oauth/providers.ts` : provider OAuth `pinterest`, en placeholder, avec scopes `boards:read`, `pins:read`, `pins:write`.
-- `app/api/oauth/pinterest/status/route.ts` et `lib/server/oauth/status-payloads.ts` : statut OAuth Pinterest en mode `review`, avec avertissement "aucune publication automatique".
+- `app/api/auth/pinterest/test/route.ts` et `lib/server/oauth/status-payloads.ts` : test OAuth Pinterest en lecture seule, avec avertissement "aucune publication automatique".
 - `lib/server/cockpit/read-only-state.ts`, `lib/cockpit/platform-status.ts`, `lib/cockpit/observatory.ts`, `lib/resources/project-resources.ts` : Pinterest apparait dans l'observatoire, les ressources et l'assistant global.
 
 Conclusion web : l'espace existe deja comme placeholder securise. Il ne faut pas partir d'une page neuve, mais enrichir progressivement cette route.

@@ -79,13 +79,12 @@ export async function getPinterestOAuthStatusPayload() {
   const token = await getOAuthTokenStatus("pinterest");
 
   return buildOAuthStatusFromProvider(provider, {
-    mode: "review",
-    callbackPath: "/api/oauth/pinterest/callback",
+    mode: "production",
+    callbackPath: "/api/auth/pinterest/callback",
     tokenPresent: token.present,
     tokenStorageEnabled: token.storageEnabled,
     expiresAt: token.expiresAt,
     updatedAt: token.updatedAt,
-    extraWarnings: ["Pinterest en review externe; aucune publication automatique."],
   });
 }
 

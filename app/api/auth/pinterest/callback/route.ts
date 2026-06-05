@@ -10,6 +10,7 @@ import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const PINTEREST_TOKEN_URL = "https://api.pinterest.com/v5/oauth/token";
+const PINTEREST_REDIRECT_URI = "https://www.edificeia.com/api/auth/pinterest/callback";
 
 type PinterestTokenResponse = {
   access_token?: string;
@@ -30,7 +31,7 @@ function redirectToConnections(request: NextRequest, connected: boolean, error?:
     secure: request.nextUrl.protocol === "https:",
     sameSite: "lax",
     maxAge: 0,
-    path: "/api/oauth/pinterest",
+    path: "/api/auth/pinterest",
   });
   return response;
 }
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
     Boolean(state && cookieState && state === cookieState) &&
     verifyPinterestOAuthState(state, user.id);
 
-  console.info("[Pinterest OAuth Callback] callback recu", {
+  console.info("[Pinterest OAuth Callback] Callback recu", {
     codePresent: Boolean(code),
     stateValid,
     oauthErrorPresent: Boolean(oauthError),
@@ -63,8 +64,11 @@ export async function GET(request: NextRequest) {
   const clientId = process.env.PINTEREST_CLIENT_ID?.trim();
   const clientSecret = process.env.PINTEREST_CLIENT_SECRET?.trim();
   const redirectUri = process.env.PINTEREST_REDIRECT_URI?.trim();
-  if (!clientId || !clientSecret || !redirectUri) {
-    console.warn("[Pinterest OAuth Callback] configuration incomplete");
+  if (!clientId || !clientSecret || redirectUri !== PINTEREST_REDIRECT_URI) {
+    console.warn("[Pinterest OAuth Callback] configuration incomplete ou redirect URI incorrecte", {
+      redirectUri,
+      expectedRedirectUri: PINTEREST_REDIRECT_URI,
+    });
     return redirectToConnections(request, false, "missing_env");
   }
 
@@ -86,7 +90,7 @@ export async function GET(request: NextRequest) {
     });
     const tokenPayload = (await tokenResponse.json()) as PinterestTokenResponse;
 
-    console.info("[Pinterest OAuth Callback] echange token", {
+    console.info("[Pinterest OAuth Callback] echange de token termine", {
       success: Boolean(tokenResponse.ok && tokenPayload.access_token),
       status: tokenResponse.status,
       refreshTokenPresent: Boolean(tokenPayload.refresh_token),
@@ -100,6 +104,9 @@ export async function GET(request: NextRequest) {
       return redirectToConnections(request, false, "token_exchange");
     }
 
+    console.info("[Pinterest OAuth Callback] Echange de token reussi", {
+      success: true,
+    });
     await saveOAuthToken(
       "pinterest",
       {
@@ -113,7 +120,7 @@ export async function GET(request: NextRequest) {
       user.id,
     );
 
-    console.info("[Pinterest OAuth Callback] token stocke", { stored: true });
+    console.info("[Pinterest OAuth Callback] Token stocke", { stored: true });
     return redirectToConnections(request, true);
   } catch (error) {
     console.error("[Pinterest OAuth Callback] exception", {

@@ -4,6 +4,7 @@ import { useState } from "react";
 
 type PinterestTestPayload = {
   connected: boolean;
+  tokenExpired: boolean;
   accountName: string | null;
   accountId: string | null;
   boardsCount: number;
@@ -11,13 +12,14 @@ type PinterestTestPayload = {
   errorMessage: string | null;
 };
 
-type TestState = "idle" | "checking" | "connected" | "disconnected";
+type TestState = "idle" | "checking" | "connected" | "disconnected" | "expired";
 
 const stateLabels: Record<TestState, string> = {
   idle: "Non teste",
   checking: "Test en cours",
   connected: "Connecte",
   disconnected: "Non connecte",
+  expired: "Token expire",
 };
 
 const stateClasses: Record<TestState, string> = {
@@ -25,6 +27,7 @@ const stateClasses: Record<TestState, string> = {
   checking: "border-[#38BDF8]/40 bg-[#38BDF8]/10 text-[#7DD3FC]",
   connected: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
   disconnected: "border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#fbbf24]",
+  expired: "border-[#ef4444]/40 bg-[#ef4444]/10 text-[#fecaca]",
 };
 
 export function PinterestConnectionControls() {
@@ -35,16 +38,23 @@ export function PinterestConnectionControls() {
     setState("checking");
 
     try {
-      const response = await fetch("/api/oauth/pinterest/test", {
+      const response = await fetch("/api/auth/pinterest/test", {
         method: "GET",
         cache: "no-store",
       });
       const result = (await response.json()) as PinterestTestPayload;
       setPayload(result);
-      setState(response.ok && result.connected ? "connected" : "disconnected");
+      setState(
+        result.tokenExpired
+          ? "expired"
+          : response.ok && result.connected
+            ? "connected"
+            : "disconnected",
+      );
     } catch {
       setPayload({
         connected: false,
+        tokenExpired: false,
         accountName: null,
         accountId: null,
         boardsCount: 0,
@@ -61,7 +71,7 @@ export function PinterestConnectionControls() {
         <button
           type="button"
           onClick={() => {
-            window.location.href = "/api/oauth/pinterest/start";
+            window.location.href = "/api/auth/pinterest/start";
           }}
           className="rounded-md border border-[#39E6D0]/50 bg-[#08111A] px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC]"
         >
@@ -88,7 +98,11 @@ export function PinterestConnectionControls() {
             <p>
               Connexion :{" "}
               <span className="font-semibold text-[#F8FAFC]">
-                {payload.connected ? "Connecte" : "Non connecte"}
+                {payload.tokenExpired
+                  ? "Token expire"
+                  : payload.connected
+                    ? "Connecte"
+                    : "Non connecte"}
               </span>
             </p>
             <p>

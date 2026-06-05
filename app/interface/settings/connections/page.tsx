@@ -52,15 +52,19 @@ export default async function OAuthConnectionsPage({
       <div className="grid gap-6">
         <div className="grid gap-4 xl:grid-cols-2">
           {visibleProviders.map((provider) => {
-            const callbackPath = `/api/oauth/${provider.key}/callback`;
             const isMeta = provider.key === "meta";
             const isYouTube = provider.key === "youtube";
             const isTikTok = provider.key === "tiktok";
             const isPinterest = provider.key === "pinterest";
+            const callbackPath = isPinterest
+              ? "/api/auth/pinterest/callback"
+              : `/api/oauth/${provider.key}/callback`;
             const providerScopes = isMeta ? getActiveMetaScopes() : provider.scopes;
             const startHref = isMeta
               ? "/api/meta/start"
-              : `/api/oauth/${provider.key}/start`;
+              : isPinterest
+                ? "/api/auth/pinterest/start"
+                : `/api/oauth/${provider.key}/start`;
 
             return (
               <OAuthProviderCard
@@ -78,7 +82,7 @@ export default async function OAuthConnectionsPage({
                       : isTikTok
                         ? "/api/oauth/tiktok/status"
                         : isPinterest
-                          ? "/api/oauth/pinterest/test"
+                          ? "/api/auth/pinterest/test"
                           : `/api/oauth/${provider.key}/start?mode=test`
                 }
                 callbackPath={

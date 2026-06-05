@@ -17,6 +17,10 @@ type PinterestBoards = {
   bookmark?: string | null;
 };
 
+function isExpired(expiresAt: string | null) {
+  return Boolean(expiresAt && new Date(expiresAt).getTime() <= Date.now());
+}
+
 async function pinterestGet<T>(path: string, accessToken: string) {
   const response = await fetch(`${PINTEREST_API_URL}${path}`, {
     headers: {
@@ -45,11 +49,25 @@ export async function GET() {
     console.info("[Pinterest OAuth Test] token stocke", { present: false });
     return NextResponse.json({
       connected: false,
+      tokenExpired: false,
       accountName: null,
       accountId: null,
       boardsCount: 0,
       scopesDetected: [],
       errorMessage: "Aucun token Pinterest stocke pour cet utilisateur.",
+    });
+  }
+
+  if (isExpired(token.expiresAt)) {
+    console.info("[Pinterest OAuth Test] token expire", { expired: true });
+    return NextResponse.json({
+      connected: false,
+      tokenExpired: true,
+      accountName: null,
+      accountId: null,
+      boardsCount: 0,
+      scopesDetected: token.scope?.split(/[\s,]+/).filter(Boolean) ?? [],
+      errorMessage: "Le token Pinterest est expire. Reconnecte Pinterest.",
     });
   }
 
@@ -72,11 +90,12 @@ export async function GET() {
         : null,
     ].filter(Boolean);
 
-    console.info("[Pinterest OAuth Test] profil OK", { success: Boolean(profile) });
-    console.info("[Pinterest OAuth Test] boards trouves", { count: boardsCount });
+    console.info("[Pinterest OAuth Test] Test profil reussi", { success: Boolean(profile) });
+    console.info("[Pinterest OAuth Test] Nombre de boards detectes", { count: boardsCount });
 
     return NextResponse.json({
       connected,
+      tokenExpired: false,
       accountName: profile?.username ?? null,
       accountId: profile?.username ?? null,
       accountType: profile?.account_type ?? null,
@@ -91,6 +110,7 @@ export async function GET() {
     return NextResponse.json(
       {
         connected: false,
+        tokenExpired: false,
         accountName: null,
         accountId: null,
         boardsCount: 0,

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createClient } from "@supabase/supabase-js";
 import type { Dirent } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -52,12 +53,12 @@ export type PinterestLocalIndexFile = {
   key: "posts_queue" | "posts_with_visuals" | "final_pins_index" | "publishing_queue";
   label: string;
   path: string;
-  format: "csv";
+  format: "csv" | "supabase";
   count: number;
   exists: boolean;
   fields: string[];
   lastError: string | null;
-  source: "snapshot" | "global" | "account_fallback";
+  source: "supabase" | "snapshot" | "global" | "account_fallback";
 };
 
 export type PinterestAccountWorkshop = {
@@ -84,6 +85,7 @@ export type PinterestAccountWorkshop = {
 
 export type PinterestWorkshopIndexes = {
   sourceAvailable: boolean;
+  dataSource: "supabase" | "snapshot_local";
   message: string | null;
   stats: PinterestWorkshopStats;
   accounts: PinterestAccountWorkshop[];
@@ -136,6 +138,29 @@ type PinterestSnapshot = {
     dry_run?: number;
     images_ready?: number;
   };
+};
+
+type SupabasePinterestPin = {
+  local_id: string;
+  account_id: string;
+  account_name: string | null;
+  niche: string | null;
+  title: string | null;
+  description: string | null;
+  keywords: string[] | null;
+  board_name: string | null;
+  board_id: string | null;
+  status: string | null;
+  source_post_id: string | null;
+  local_image_path: string | null;
+  storage_bucket: string | null;
+  storage_path: string | null;
+  public_image_url: string | null;
+  pin_url: string | null;
+  published_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  raw_payload: Record<string, unknown> | null;
 };
 
 const PINTEREST_INDEX_DIR =
@@ -733,7 +758,170 @@ async function readPinterestSnapshot(): Promise<PinterestSnapshot | null> {
   }
 }
 
+function supabasePinToCsvRow(pin: SupabasePinterestPin): CsvRow {
+  const hasImage = Boolean(pin.public_image_url || pin.local_image_path);
+
+  return {
+    post_id: pin.source_post_id ?? pin.local_id,
+    publish_id: pin.local_id,
+    account_name: pin.account_id,
+    title: pin.title ?? "",
+    description: pin.description ?? "",
+    keywords: (pin.keywords ?? []).join(";"),
+    board_name: pin.board_name ?? "",
+    board_id: pin.board_id ?? "",
+    publish_status: pin.status ?? "generated",
+    visual_selection_status: hasImage ? "exact" : "",
+    pin_creation_status: "created",
+    selected_visual_path: pin.local_image_path ?? "",
+    final_pin_path: pin.local_image_path ?? "",
+    final_pin_filename: basename(pin.storage_path ?? pin.local_image_path ?? ""),
+    image_url: pin.public_image_url ?? "",
+    pinterest_pin_url: pin.pin_url ?? "",
+    published_at: pin.published_at ?? "",
+    created_at: pin.created_at ?? "",
+  };
+}
+
+function supabaseIndexFile(
+  accountId: string,
+  key: PinterestLocalIndexFile["key"],
+  count: number,
+): PinterestLocalIndexFile {
+  return {
+    key,
+    label: `${accountId} / pinterest_pins`,
+    path: `public.pinterest_pins?account_id=${accountId}`,
+    format: "supabase",
+    count,
+    exists: true,
+    fields: [
+      "account_id",
+      "local_id",
+      "source_post_id",
+      "status",
+      "storage_path",
+      "public_image_url",
+    ],
+    lastError: null,
+    source: "supabase",
+  };
+}
+
+async function readSupabasePinterestWorkshop(): Promise<PinterestWorkshopIndexes | null> {
+  const supabaseUrl =
+    process.env.SUPABASE_URL?.trim() || process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return null;
+  }
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+  const { data, error } = await supabase
+    .from("pinterest_pins")
+    .select(
+      "local_id, account_id, account_name, niche, title, description, keywords, board_name, board_id, status, source_post_id, local_image_path, storage_bucket, storage_path, public_image_url, pin_url, published_at, created_at, updated_at, raw_payload",
+    )
+    .order("created_at", { ascending: false });
+
+  if (error || !data?.length) {
+    return null;
+  }
+
+  const pins = data as SupabasePinterestPin[];
+  const groupedPins = new Map<string, SupabasePinterestPin[]>();
+
+  for (const pin of pins) {
+    groupedPins.set(pin.account_id, [...(groupedPins.get(pin.account_id) ?? []), pin]);
+  }
+
+  const accounts = [...groupedPins.entries()].map(([accountId, accountPins]) => {
+    const rows = accountPins.map(supabasePinToCsvRow);
+    const account = buildAccountWorkshop({
+      id: accountId,
+      name: accountPins[0]?.account_name ?? normalizeAccountName(accountId),
+      niche: accountPins[0]?.niche ?? "",
+      sources: {},
+      stats: {
+        posts_queue: rows.length,
+        posts_with_visuals: rows.filter(isVisualReady).length,
+        final_pins: rows.length,
+        publishing_queue: rows.length,
+        ready_to_publish: rows.filter(
+          (row) => value(row, "publish_status") === "ready_to_publish",
+        ).length,
+        dry_run: rows.filter((row) => value(row, "publish_status") === "dry_run").length,
+        images_ready: rows.filter((row) => Boolean(value(row, "image_url"))).length,
+        visuals_index: 0,
+      },
+      boards: uniqueValues(rows.map((row) => value(row, "board_name"))),
+      images: {
+        pins_ready: uniqueValues(rows.map((row) => value(row, "image_url"))),
+      },
+      posts_queue: rows,
+      posts_with_visuals: rows,
+      final_pins_index: rows,
+      publishing_queue: rows,
+    });
+
+    return {
+      ...account,
+      indexFiles: [
+        supabaseIndexFile(accountId, "posts_queue", rows.length),
+        supabaseIndexFile(accountId, "posts_with_visuals", rows.length),
+        supabaseIndexFile(accountId, "final_pins_index", rows.length),
+        supabaseIndexFile(accountId, "publishing_queue", rows.length),
+      ],
+    };
+  });
+  const readyPins = accounts.flatMap((account) => account.readyPins);
+  const publicationQueue = accounts.flatMap((account) => account.publicationQueue);
+  const pinsWithVisuals = pins.filter(
+    (pin) => Boolean(pin.public_image_url || pin.storage_path || pin.local_image_path),
+  ).length;
+  const updatedAt = pins
+    .map((pin) => pin.updated_at ?? pin.created_at)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1);
+
+  return {
+    sourceAvailable: true,
+    dataSource: "supabase",
+    message: null,
+    stats: {
+      postsGenerated: pins.length,
+      pinsWithVisuals,
+      pinsReadyToPublish: readyPins.length,
+      pinsPendingPublication: publicationQueue.length,
+    },
+    accounts,
+    readyPins,
+    publicationQueue,
+    indexFiles: accounts.flatMap((account) => account.indexFiles),
+    updatedAt: updatedAt ?? null,
+    indexes: {
+      postsQueue: pins.length,
+      postsWithVisuals: pinsWithVisuals,
+      finalPins: pins.length,
+      publishingQueue: pins.length,
+    },
+  };
+}
+
 export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopIndexes> {
+  const supabaseWorkshop = await readSupabasePinterestWorkshop();
+
+  if (supabaseWorkshop) {
+    return supabaseWorkshop;
+  }
+
   const snapshot = await readPinterestSnapshot();
 
   if (snapshot?.accounts?.length) {
@@ -744,6 +932,7 @@ export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopI
 
     return {
       sourceAvailable: accounts.some((account) => account.rawStats.posts_queue > 0),
+      dataSource: "snapshot_local",
       message: null,
       stats: {
         postsGenerated: snapshot.totals.posts_queue,
@@ -794,6 +983,7 @@ export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopI
   if (!hasAnyIndex) {
     return {
       sourceAvailable: false,
+      dataSource: "snapshot_local",
       message: "Aucun index Pinterest synchronise pour le moment.",
       stats: emptyStats,
       accounts: [],
@@ -839,6 +1029,7 @@ export async function readPinterestWorkshopIndexes(): Promise<PinterestWorkshopI
 
   return {
     sourceAvailable: true,
+    dataSource: "snapshot_local",
     message: null,
     stats: {
       postsGenerated: postsQueue.length,

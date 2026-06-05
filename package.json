@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "index:content-assets": "node scripts/index-content-assets.mjs",
+    "pinterest:sync": "node scripts/sync-pinterest-to-supabase.mjs",
     "sync:pinterest-snapshot": "node scripts/sync-pinterest-snapshot.mjs"
   },
   "dependencies": {

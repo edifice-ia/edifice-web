@@ -312,12 +312,14 @@ export default async function PinterestPublisherPage({
   const selectedPublicationQueue =
     selectedAccount?.publicationQueue ?? pinterest.publicationQueue;
   const selectedIndexFiles = selectedAccount?.indexFiles ?? pinterest.indexFiles;
+  const dataSourceLabel =
+    pinterest.dataSource === "supabase" ? "Supabase" : "Snapshot local";
   const logs = [
     {
       timestamp: "local",
       type: "system" as const,
       message: pinterest.sourceAvailable
-        ? "Snapshot Pinterest local lu en lecture seule."
+        ? `Pinterest lu depuis ${dataSourceLabel} en lecture seule.`
         : "Aucun index Pinterest synchronise pour le moment.",
       status: pinterest.sourceAvailable ? ("Disponible" as const) : ("En migration" as const),
     },
@@ -339,6 +341,12 @@ export default async function PinterestPublisherPage({
       />
 
       <div className="grid gap-6">
+        <div className="flex justify-end">
+          <div className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#39E6D0]">
+            Source donnees : {dataSourceLabel}
+          </div>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Posts generes"
@@ -484,7 +492,9 @@ export default async function PinterestPublisherPage({
                 Index locaux
               </p>
               <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
-                Fichiers reels synchronises depuis D:\Edifice_IA, sans modification.
+                {pinterest.dataSource === "supabase"
+                  ? "Lignes Pinterest synchronisees dans Supabase, en lecture seule."
+                  : "Fichiers reels synchronises depuis D:\\Edifice_IA, sans modification."}
               </p>
               <div className="mt-4 grid gap-3">
                 {selectedIndexFiles.map((indexFile) => (
@@ -507,7 +517,7 @@ export default async function PinterestPublisherPage({
                 </div>
               ) : null}
               <p className="mt-4 text-xs leading-6 text-[#64748B]">
-                Lecture locale uniquement. Les agents restent dans D:\Edifice_IA.
+                Les agents restent dans D:\Edifice_IA. Aucune publication n&apos;est lancee ici.
               </p>
             </SectionContainer>
 

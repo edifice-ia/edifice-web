@@ -186,6 +186,7 @@ export function PinterestLibrary({
   const [reviewSaving, setReviewSaving] = useState(false);
   const [reviewMessage, setReviewMessage] = useState("");
   const [reviewError, setReviewError] = useState("");
+  const [linkCopied, setLinkCopied] = useState(false);
   const [reviewOverrides, setReviewOverrides] = useState<
     Record<string, Pick<LibraryPin, "reviewStatus" | "reviewedAt" | "reviewedBy" | "reviewNotes">>
   >({});
@@ -247,6 +248,16 @@ export function PinterestLibrary({
     setReviewNote(pin.reviewNotes);
     setReviewMessage("");
     setReviewError("");
+    setLinkCopied(false);
+  }
+
+  async function copyTargetUrl() {
+    if (!selectedPin?.targetUrl) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(selectedPin.targetUrl);
+    setLinkCopied(true);
   }
 
   async function submitReview(reviewStatus: PinterestReviewStatus) {
@@ -522,6 +533,37 @@ export function PinterestLibrary({
                   <p className="mt-2 break-all font-mono text-xs leading-5 text-[#A7B0C0]">
                     {selectedPin.imageSourceField || "aucun"} :{" "}
                     {selectedPin.imagePath || selectedPin.imageUrl || "absent"}
+                  </p>
+                </div>
+                <div className="border-t border-[#1D2A44] pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#39E6D0]">
+                    Lien cible
+                  </p>
+                  <p className="mt-2 break-all text-sm leading-6 text-[#A7B0C0]">
+                    {selectedPin.targetUrl || "Aucun lien cible configuré pour ce compte."}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedPin.targetUrl ? (
+                      <a
+                        href={selectedPin.targetUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-md border border-[#39E6D0]/40 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#7DD3FC]"
+                      >
+                        Ouvrir le lien
+                      </a>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={!selectedPin.targetUrl}
+                      onClick={copyTargetUrl}
+                      className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {linkCopied ? "Lien copié" : "Copier le lien"}
+                    </button>
+                  </div>
+                  <p className="mt-3 text-xs leading-5 text-[#64748B]">
+                    Destination préparée pour la future publication Pinterest.
                   </p>
                 </div>
                 <div className="border-t border-[#1D2A44] pt-4">

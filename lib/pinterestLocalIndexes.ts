@@ -51,6 +51,7 @@ export type PinterestWorkshopItem = {
   reviewedBy: string;
   reviewNotes: string;
   reviewWritable: boolean;
+  targetUrl: string;
 };
 
 export type PinterestWorkshopStats = {
@@ -176,6 +177,7 @@ type SupabasePinterestPin = {
   reviewed_at: string | null;
   reviewed_by: string | null;
   review_notes: string | null;
+  target_url: string | null;
 };
 
 const PINTEREST_INDEX_DIR =
@@ -652,6 +654,7 @@ function mapItem(row: CsvRow, fallbackId: string, accountId = ""): PinterestWork
     reviewedBy: value(row, "reviewed_by"),
     reviewNotes: value(row, "review_notes"),
     reviewWritable: value(row, "review_writable") === "true",
+    targetUrl: value(row, "target_url") || value(row, "link"),
   };
 }
 
@@ -816,6 +819,7 @@ function supabasePinToCsvRow(
     reviewed_by: pin.reviewed_by ?? "",
     review_notes: pin.review_notes ?? "",
     review_writable: String(reviewWritable),
+    target_url: pin.target_url ?? "",
   };
 }
 
@@ -842,6 +846,7 @@ function supabaseIndexFile(
       "reviewed_at",
       "reviewed_by",
       "review_notes",
+      "target_url",
     ],
     lastError: null,
     source: "supabase",
@@ -866,15 +871,18 @@ async function readSupabasePinterestWorkshop(): Promise<PinterestWorkshopIndexes
   const baseColumns =
     "local_id, account_id, account_name, niche, title, description, keywords, board_name, board_id, status, source_post_id, local_image_path, storage_bucket, storage_path, public_image_url, pin_url, published_at, created_at, updated_at, raw_payload";
   const reviewColumns = "review_status, reviewed_at, reviewed_by, review_notes";
-  const reviewedResult = await supabase
+  const fullResult = await supabase
     .from("pinterest_pins")
-    .select(`${baseColumns}, ${reviewColumns}`)
+    .select(`${baseColumns}, ${reviewColumns}, target_url`)
     .order("created_at", { ascending: false });
-  const result = reviewedResult.error
+  const reviewedResult = fullResult.error
     ? await supabase
         .from("pinterest_pins")
-        .select(baseColumns)
+        .select(`${baseColumns}, ${reviewColumns}`)
         .order("created_at", { ascending: false })
+    : fullResult;
+  const result = reviewedResult.error
+    ? await supabase.from("pinterest_pins").select(baseColumns).order("created_at", { ascending: false })
     : reviewedResult;
   const reviewWritable = !reviewedResult.error;
 
@@ -888,6 +896,7 @@ async function readSupabasePinterestWorkshop(): Promise<PinterestWorkshopIndexes
     reviewed_at: "reviewed_at" in pin ? pin.reviewed_at : null,
     reviewed_by: "reviewed_by" in pin ? pin.reviewed_by : null,
     review_notes: "review_notes" in pin ? pin.review_notes : null,
+    target_url: "target_url" in pin ? pin.target_url : null,
   })) as SupabasePinterestPin[];
   const groupedPins = new Map<string, SupabasePinterestPin[]>();
 

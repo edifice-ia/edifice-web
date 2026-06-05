@@ -1,0 +1,10 @@
+{
+  "edifice_discipline": {
+    "account_name": "Édifice Discipline",
+    "target_url_env": "PINTEREST_EDIFICE_DISCIPLINE_TARGET_URL"
+  },
+  "solution_sommeil": {
+    "account_name": "Solution Sommeil",
+    "target_url_env": "PINTEREST_SOLUTION_SOMMEIL_TARGET_URL"
+  }
+}

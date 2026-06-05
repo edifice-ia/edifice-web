@@ -8,6 +8,7 @@ import {
   getPinterestLegacyRootFolder,
   PINTEREST_ACCOUNT_IDS,
 } from "./lib/pinterest-storage-paths.mjs";
+import { loadPinterestAccountConfigs } from "./lib/pinterest-account-config.mjs";
 
 const DEFAULT_BUCKET = "content-assets";
 const SNAPSHOT_PATH = path.resolve("data", "pinterest", "pinterest_snapshot.json");
@@ -110,10 +111,15 @@ function parseTimestamp(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function buildPinRecords(snapshot, bucket) {
+function buildPinRecords(snapshot, bucket, accountConfigs) {
   const records = [];
 
   for (const account of snapshot.accounts ?? []) {
+    const accountConfig = accountConfigs[account.id];
+    if (!accountConfig) {
+      throw new Error(`Configuration Pinterest absente pour ${account.id}.`);
+    }
+
     for (const finalPin of account.final_pins_index ?? []) {
       const postId = finalPin.post_id || finalPin.publish_id;
       if (!postId) {
@@ -150,7 +156,7 @@ function buildPinRecords(snapshot, bucket) {
         row: {
           local_id: localId,
           account_id: account.id,
-          account_name: account.name,
+          account_name: accountConfig.accountName,
           niche: account.niche,
           title: firstValue(queue.title, finalPin.title, visual.title, post.title),
           description: firstValue(
@@ -176,6 +182,7 @@ function buildPinRecords(snapshot, bucket) {
           storage_path: localImagePath ? storagePath : null,
           public_image_url: null,
           pin_url: firstValue(queue.pinterest_pin_url, queue.pin_url) || null,
+          target_url: accountConfig.targetUrl || null,
           published_at: publishedAt,
           created_at: createdAt,
           raw_payload: {
@@ -183,8 +190,12 @@ function buildPinRecords(snapshot, bucket) {
             snapshot_synced_at: snapshot.synced_at ?? null,
             account: {
               id: account.id,
-              name: account.name,
+              name: accountConfig.accountName,
               niche: account.niche,
+            },
+            future_publication: {
+              link: accountConfig.targetUrl || null,
+              destination_url: accountConfig.targetUrl || null,
             },
             post,
             visual,
@@ -279,7 +290,8 @@ async function main() {
     process.env.SUPABASE_BUCKET_CONTENT_ASSETS || DEFAULT_BUCKET,
   );
   const snapshot = JSON.parse(readFileSync(SNAPSHOT_PATH, "utf8"));
-  const records = buildPinRecords(snapshot, bucket);
+  const accountConfigs = loadPinterestAccountConfigs();
+  const records = buildPinRecords(snapshot, bucket, accountConfigs);
   const summary = emptySummary({ dryRun, bucket });
 
   summary.pinsRead = records.length;
@@ -334,6 +346,11 @@ async function main() {
         {
           ...summary,
           plannedFolders: PINTEREST_ACCOUNT_IDS.map(getPinterestFinalPinsFolder),
+          targetUrlConfiguration: PINTEREST_ACCOUNT_IDS.map((accountId) => ({
+            accountId,
+            env: accountConfigs[accountId]?.targetUrlEnv ?? null,
+            configured: Boolean(accountConfigs[accountId]?.targetUrl),
+          })),
           legacyRootRecommendation:
             summary.legacyRootFiles.length > 0
               ? "Lancer npm run pinterest:storage:reorganize -- --dry-run puis la commande reelle. Aucun fichier racine ne sera supprime automatiquement."
@@ -346,6 +363,7 @@ async function main() {
             target: `${bucket}/${record.storagePath}`,
             alreadyPresent: storageState.existingTargetPaths.has(record.storagePath),
             status: record.row.status,
+            targetUrlConfigured: Boolean(record.row.target_url),
           })),
         },
         null,
@@ -361,7 +379,7 @@ async function main() {
 
   const { data: existingRows, error: existingError } = await supabase
     .from("pinterest_pins")
-    .select("account_id, local_id");
+    .select("account_id, local_id, target_url");
 
   if (existingError) {
     throw new Error(`Lecture pinterest_pins impossible: ${existingError.message}`);
@@ -369,6 +387,12 @@ async function main() {
 
   const existingKeys = new Set(
     (existingRows ?? []).map((row) => `${row.account_id}:${row.local_id}`),
+  );
+  const existingTargetUrls = new Map(
+    (existingRows ?? []).map((row) => [
+      `${row.account_id}:${row.local_id}`,
+      row.target_url ?? null,
+    ]),
   );
   const rowsToUpsert = [];
 
@@ -397,6 +421,9 @@ async function main() {
         record.row.public_image_url = publicUrlData.publicUrl;
       }
 
+      const recordKey = `${record.row.account_id}:${record.row.local_id}`;
+      record.row.target_url =
+        record.row.target_url || existingTargetUrls.get(recordKey) || null;
       rowsToUpsert.push(record.row);
     } catch (error) {
       summary.errors.push(error instanceof Error ? error.message : String(error));

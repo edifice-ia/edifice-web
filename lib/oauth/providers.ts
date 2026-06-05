@@ -51,11 +51,10 @@ export const oauthProviders: OAuthProviderConfig[] = [
       stateSecret: "OAUTH_STATE_SECRET",
     },
     authUrl: "https://www.pinterest.com/oauth/",
-    scopes: ["boards:read", "pins:read", "pins:write"],
+    scopes: ["boards:read", "pins:read", "pins:write", "user_accounts:read"],
     actionLabel: "Connecter Pinterest",
     secondaryLabel: "Tester la configuration",
     note: "Publication reelle non declenchee automatiquement.",
-    placeholder: true,
   },
   {
     key: "tiktok",

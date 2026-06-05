@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
 import { OAuthConnectionControls } from "@/components/cockpit/OAuthConnectionControls";
+import { PinterestConnectionControls } from "@/components/cockpit/PinterestConnectionControls";
 import { OAuthProviderCard } from "@/components/cockpit/OAuthProviderCard";
 import { OAuthResultNotice } from "@/components/cockpit/OAuthResultNotice";
 import { RequiredEnvList } from "@/components/cockpit/RequiredEnvList";
@@ -77,7 +78,7 @@ export default async function OAuthConnectionsPage({
                       : isTikTok
                         ? "/api/oauth/tiktok/status"
                         : isPinterest
-                          ? "/api/oauth/pinterest/status"
+                          ? "/api/oauth/pinterest/test"
                           : `/api/oauth/${provider.key}/start?mode=test`
                 }
                 callbackPath={
@@ -92,23 +93,25 @@ export default async function OAuthConnectionsPage({
                 note={provider.note}
                 disabled={provider.placeholder}
                 actionContent={
-                  <OAuthConnectionControls
-                    actionLabel={provider.actionLabel}
-                    startHref={startHref}
-                    statusHref={
-                      isMeta
-                        ? "/api/oauth/meta/status"
-                        : isYouTube
-                          ? "/api/oauth/youtube/status"
-                          : isTikTok
-                            ? "/api/oauth/tiktok/status"
-                            : isPinterest
-                              ? "/api/oauth/pinterest/status"
+                  isPinterest ? (
+                    <PinterestConnectionControls />
+                  ) : (
+                    <OAuthConnectionControls
+                      actionLabel={provider.actionLabel}
+                      startHref={startHref}
+                      statusHref={
+                        isMeta
+                          ? "/api/oauth/meta/status"
+                          : isYouTube
+                            ? "/api/oauth/youtube/status"
+                            : isTikTok
+                              ? "/api/oauth/tiktok/status"
                               : `/api/oauth/${provider.key}/start?mode=test`
-                    }
-                    disabled={provider.placeholder}
-                    showInstagramGraphTest={isMeta}
-                  />
+                      }
+                      disabled={provider.placeholder}
+                      showInstagramGraphTest={isMeta}
+                    />
+                  )
                 }
               />
             );

@@ -34,6 +34,7 @@ type OAuthTokenRow = {
   scope: string | null;
   expires_at: string | null;
   updated_at: string;
+  user_id: string | null;
 };
 
 type OAuthTokenStatus = {
@@ -105,6 +106,7 @@ function mapRowToRecord(row: OAuthTokenRow): OAuthTokenRecord {
 export async function saveOAuthToken(
   provider: OAuthTokenProvider,
   tokenPayload: OAuthTokenPayload,
+  userId?: string,
 ) {
   if (!tokenPayload.access_token) {
     throw new Error(`Cannot save empty OAuth token for provider ${provider}.`);
@@ -125,6 +127,7 @@ export async function saveOAuthToken(
       scope: tokenPayload.scope ?? null,
       expires_at: normalizeExpiresAt(tokenPayload),
       updated_at: updatedAt,
+      user_id: userId ?? null,
     },
     { onConflict: "provider" },
   );
@@ -136,13 +139,17 @@ export async function saveOAuthToken(
 
 export async function getOAuthTokenStatus(
   provider: OAuthTokenProvider,
+  userId?: string,
 ): Promise<OAuthTokenStatus> {
   const supabase = getSupabaseAdminClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("oauth_tokens")
     .select("access_token, expires_at, updated_at")
-    .eq("provider", provider)
-    .maybeSingle();
+    .eq("provider", provider);
+  if (userId) {
+    query = query.eq("user_id", userId);
+  }
+  const { data, error } = await query.maybeSingle();
 
   if (error) {
     throw new Error(`Failed to read OAuth token status for provider ${provider}.`);
@@ -165,13 +172,16 @@ export async function getOAuthTokenStatus(
   };
 }
 
-export async function getOAuthToken(provider: OAuthTokenProvider) {
+export async function getOAuthToken(provider: OAuthTokenProvider, userId?: string) {
   const supabase = getSupabaseAdminClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("oauth_tokens")
-    .select("provider, access_token, refresh_token, token_type, scope, expires_at, updated_at")
-    .eq("provider", provider)
-    .maybeSingle<OAuthTokenRow>();
+    .select("provider, access_token, refresh_token, token_type, scope, expires_at, updated_at, user_id")
+    .eq("provider", provider);
+  if (userId) {
+    query = query.eq("user_id", userId);
+  }
+  const { data, error } = await query.maybeSingle<OAuthTokenRow>();
 
   if (error) {
     throw new Error(`Failed to read OAuth token for provider ${provider}.`);

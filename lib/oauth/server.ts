@@ -39,7 +39,7 @@ export function getOAuthStatus(provider: OAuthProviderConfig) {
 }
 
 export function isTokenExchangeEnabled(provider: OAuthProviderConfig) {
-  return provider.key === "youtube";
+  return provider.key === "youtube" || provider.key === "pinterest";
 }
 
 export function buildOAuthStartUrl(

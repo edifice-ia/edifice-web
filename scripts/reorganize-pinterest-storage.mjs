@@ -1,10 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import {
+  getPinterestFinalPinsFolder,
+  getPinterestFinalPinStoragePath,
+  getPinterestLegacyRootFolder,
+  inferPinterestAccountId,
+  PINTEREST_ACCOUNT_IDS,
+  PINTEREST_STORAGE_PREFIX,
+} from "./lib/pinterest-storage-paths.mjs";
 
 const DEFAULT_BUCKET = "content-assets";
-const PINTEREST_PREFIX = "pinterest";
-const ACCOUNT_IDS = new Set(["edifice_discipline", "solution_sommeil"]);
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 
 function loadEnvFile(filename) {
@@ -44,19 +50,6 @@ function getArgValue(name, fallback = "") {
 
 function hasArg(name) {
   return process.argv.includes(`--${name}`);
-}
-
-function normalizeStoragePath(value) {
-  return value.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-}
-
-function inferAccountId(storagePath) {
-  const segments = normalizeStoragePath(storagePath).split("/");
-  return segments.find((segment) => ACCOUNT_IDS.has(segment)) ?? "";
-}
-
-function targetPathFor(storagePath, accountId) {
-  return `${PINTEREST_PREFIX}/${accountId}/final_pins/${path.posix.basename(storagePath)}`;
 }
 
 function isSupportedImage(storagePath) {
@@ -133,6 +126,7 @@ async function main() {
   loadEnvFile(".env.local");
 
   const dryRun = hasArg("dry-run");
+  const deleteDuplicates = hasArg("delete-duplicates");
   const bucket = getArgValue(
     "bucket",
     process.env.SUPABASE_BUCKET_CONTENT_ASSETS || DEFAULT_BUCKET,
@@ -153,7 +147,7 @@ async function main() {
     },
   });
   const storage = supabase.storage.from(bucket);
-  const files = (await listFilesRecursively(storage, PINTEREST_PREFIX)).filter((file) =>
+  const files = (await listFilesRecursively(storage, PINTEREST_STORAGE_PREFIX)).filter((file) =>
     isSupportedImage(file.path),
   );
   const filePaths = new Set(files.map((file) => file.path));
@@ -167,26 +161,43 @@ async function main() {
 
   const summary = {
     dryRun,
+    deleteDuplicatesRequested: deleteDuplicates,
     bucket,
     filesDetected: files.length,
+    legacyRootFilesDetected: 0,
     filesCopied: 0,
     filesWouldCopy: 0,
+    filesDeleted: 0,
+    filesWouldDelete: 0,
     filesIgnored: 0,
     rowsUpdated: 0,
     rowsWouldUpdate: 0,
+    duplicateFilesRemaining: [],
     errors: [],
   };
 
   for (const file of files) {
-    const accountId = inferAccountId(file.path);
+    const accountId = inferPinterestAccountId(file.path);
 
     if (!accountId) {
       summary.filesIgnored += 1;
       continue;
     }
 
-    const targetPath = targetPathFor(file.path, accountId);
+    const targetPath = getPinterestFinalPinStoragePath(accountId, file.path);
     const alreadyInTarget = file.path === targetPath;
+    const isLegacyRootFile =
+      path.posix.dirname(file.path) === getPinterestLegacyRootFolder(accountId);
+
+    if (!alreadyInTarget && !isLegacyRootFile) {
+      summary.filesIgnored += 1;
+      continue;
+    }
+
+    if (isLegacyRootFile) {
+      summary.legacyRootFilesDetected += 1;
+    }
+
     const targetAlreadyExists = filePaths.has(targetPath);
     const matchingRows = matchingRowsForFile(rows ?? [], accountId, file.path, targetPath);
     const rowsNeedingUpdate = matchingRows.filter(
@@ -229,10 +240,7 @@ async function main() {
 
     if (dryRun) {
       summary.rowsWouldUpdate += rowsNeedingUpdate.length;
-      continue;
-    }
-
-    if (rowsNeedingUpdate.length > 0) {
+    } else if (rowsNeedingUpdate.length > 0) {
       const { data: publicUrlData } = storage.getPublicUrl(targetPath);
 
       for (const row of rowsNeedingUpdate) {
@@ -251,8 +259,48 @@ async function main() {
           );
         } else {
           summary.rowsUpdated += 1;
+          row.storage_path = targetPath;
+          row.public_image_url = publicUrlData.publicUrl;
         }
       }
+    }
+
+    if (!isLegacyRootFile) {
+      continue;
+    }
+
+    const destinationVerified = dryRun
+      ? targetAlreadyExists
+      : await verifyFileExists(storage, targetPath);
+    const databaseVerified =
+      matchingRows.length > 0 &&
+      matchingRows.every(
+        (row) => row.storage_path === targetPath && Boolean(row.public_image_url),
+      );
+    const duplicate = {
+      sourcePath: file.path,
+      targetPath,
+      destinationVerified,
+      databaseVerified,
+    };
+
+    if (!deleteDuplicates || !destinationVerified || !databaseVerified) {
+      summary.duplicateFilesRemaining.push(duplicate);
+      continue;
+    }
+
+    if (dryRun) {
+      summary.filesWouldDelete += 1;
+      summary.duplicateFilesRemaining.push(duplicate);
+      continue;
+    }
+
+    const { error: removeError } = await storage.remove([file.path]);
+    if (removeError) {
+      summary.errors.push(`Suppression doublon ${file.path}: ${removeError.message}`);
+      summary.duplicateFilesRemaining.push(duplicate);
+    } else {
+      summary.filesDeleted += 1;
     }
   }
 
@@ -260,9 +308,7 @@ async function main() {
     JSON.stringify(
       {
         ...summary,
-        targetFolders: [...ACCOUNT_IDS].map(
-          (accountId) => `${PINTEREST_PREFIX}/${accountId}/final_pins`,
-        ),
+        targetFolders: PINTEREST_ACCOUNT_IDS.map(getPinterestFinalPinsFolder),
       },
       null,
       2,

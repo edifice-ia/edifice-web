@@ -1,6 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import {
+  assertPinterestFinalPinStoragePath,
+  getPinterestFinalPinsFolder,
+  getPinterestFinalPinStoragePath,
+  getPinterestLegacyRootFolder,
+  PINTEREST_ACCOUNT_IDS,
+} from "./lib/pinterest-storage-paths.mjs";
 
 const DEFAULT_BUCKET = "content-assets";
 const SNAPSHOT_PATH = path.resolve("data", "pinterest", "pinterest_snapshot.json");
@@ -48,10 +55,6 @@ function getArgValue(name, fallback = "") {
 
 function hasArg(name) {
   return process.argv.includes(`--${name}`);
-}
-
-function normalizeStoragePath(value) {
-  return value.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
 }
 
 function splitKeywords(value) {
@@ -126,9 +129,7 @@ function buildPinRecords(snapshot, bucket) {
       const fileName = localImagePath
         ? path.basename(localImagePath)
         : `${postId}${extension || ".png"}`;
-      const storagePath = normalizeStoragePath(
-        `pinterest/${account.id}/final_pins/${fileName}`,
-      );
+      const storagePath = getPinterestFinalPinStoragePath(account.id, fileName);
       const status = firstValue(
         queue.publish_status,
         finalPin.pin_creation_status,
@@ -206,11 +207,66 @@ function emptySummary({ dryRun, bucket }) {
     imagesFound: 0,
     imagesMissing: 0,
     imagesUploaded: 0,
+    imagesAlreadyPresent: 0,
     imagesWouldUpload: 0,
+    legacyRootFiles: [],
     rowsInserted: 0,
     rowsUpdated: 0,
     rowsWouldUpsert: 0,
     errors: [],
+  };
+}
+
+async function listFiles(storage, folder) {
+  const files = [];
+  let offset = 0;
+  const limit = 100;
+
+  while (true) {
+    const { data, error } = await storage.list(folder, {
+      limit,
+      offset,
+      sortBy: { column: "name", order: "asc" },
+    });
+
+    if (error) {
+      throw new Error(`Lecture Storage ${folder}: ${error.message}`);
+    }
+
+    const page = data ?? [];
+    files.push(...page.filter((entry) => entry.id));
+    if (page.length < limit) {
+      break;
+    }
+    offset += limit;
+  }
+
+  return files;
+}
+
+async function inspectPinterestStorage(storage) {
+  const existingTargetPaths = new Set();
+  const legacyRootFiles = [];
+
+  for (const accountId of PINTEREST_ACCOUNT_IDS) {
+    const finalFolder = getPinterestFinalPinsFolder(accountId);
+    const rootFolder = getPinterestLegacyRootFolder(accountId);
+    const [finalFiles, rootFiles] = await Promise.all([
+      listFiles(storage, finalFolder),
+      listFiles(storage, rootFolder),
+    ]);
+
+    for (const file of finalFiles) {
+      existingTargetPaths.add(`${finalFolder}/${file.name}`);
+    }
+    for (const file of rootFiles) {
+      legacyRootFiles.push(`${rootFolder}/${file.name}`);
+    }
+  }
+
+  return {
+    existingTargetPaths,
+    legacyRootFiles,
   };
 }
 
@@ -230,22 +286,65 @@ async function main() {
   summary.imagesFound = records.filter((record) => record.imageExists).length;
   summary.imagesMissing = records.filter((record) => !record.imageExists).length;
 
+  for (const record of records) {
+    assertPinterestFinalPinStoragePath(record.storagePath);
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if ((!supabaseUrl || !serviceRoleKey) && !dryRun) {
+    throw new Error(
+      "Variables requises dans .env.local: SUPABASE_URL (ou NEXT_PUBLIC_SUPABASE_URL) et SUPABASE_SERVICE_ROLE_KEY.",
+    );
+  }
+
+  const supabase =
+    supabaseUrl && serviceRoleKey
+      ? createClient(supabaseUrl, serviceRoleKey, {
+          auth: {
+            autoRefreshToken: false,
+            persistSession: false,
+          },
+        })
+      : null;
+  const storage = supabase?.storage.from(bucket);
+  const storageState = storage
+    ? await inspectPinterestStorage(storage)
+    : {
+        existingTargetPaths: new Set(),
+        legacyRootFiles: [],
+      };
+
+  summary.imagesAlreadyPresent = records.filter((record) =>
+    storageState.existingTargetPaths.has(record.storagePath),
+  ).length;
+  summary.legacyRootFiles = storageState.legacyRootFiles;
+
   if (dryRun) {
     summary.imagesWouldUpload = records.filter(
-      (record) => record.imageExists && record.contentType,
+      (record) =>
+        record.imageExists &&
+        record.contentType &&
+        !storageState.existingTargetPaths.has(record.storagePath),
     ).length;
     summary.rowsWouldUpsert = records.length;
     console.log(
       JSON.stringify(
         {
           ...summary,
-          plannedFolders: [...new Set(records.map((record) => path.posix.dirname(record.storagePath)))],
+          plannedFolders: PINTEREST_ACCOUNT_IDS.map(getPinterestFinalPinsFolder),
+          legacyRootRecommendation:
+            summary.legacyRootFiles.length > 0
+              ? "Lancer npm run pinterest:storage:reorganize -- --dry-run puis la commande reelle. Aucun fichier racine ne sera supprime automatiquement."
+              : null,
           sample: records.slice(0, 3).map((record) => ({
             accountId: record.row.account_id,
             localId: record.row.local_id,
             localImagePath: record.localImagePath,
             imageExists: record.imageExists,
-            storagePath: record.storagePath,
+            target: `${bucket}/${record.storagePath}`,
+            alreadyPresent: storageState.existingTargetPaths.has(record.storagePath),
             status: record.row.status,
           })),
         },
@@ -256,21 +355,10 @@ async function main() {
     return;
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error(
-      "Variables requises dans .env.local: SUPABASE_URL (ou NEXT_PUBLIC_SUPABASE_URL) et SUPABASE_SERVICE_ROLE_KEY.",
-    );
+  if (!supabase || !storage) {
+    throw new Error("Client Supabase indisponible.");
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
   const { data: existingRows, error: existingError } = await supabase
     .from("pinterest_pins")
     .select("account_id, local_id");
@@ -287,24 +375,26 @@ async function main() {
   for (const record of records) {
     try {
       if (record.imageExists && record.contentType) {
-        const imageBytes = readFileSync(record.localImagePath);
-        const { error: uploadError } = await supabase.storage
-          .from(bucket)
-          .upload(record.storagePath, imageBytes, {
+        assertPinterestFinalPinStoragePath(record.storagePath);
+
+        if (!storageState.existingTargetPaths.has(record.storagePath)) {
+          const imageBytes = readFileSync(record.localImagePath);
+          const { error: uploadError } = await storage.upload(record.storagePath, imageBytes, {
             cacheControl: "3600",
             contentType: record.contentType,
-            upsert: true,
+            upsert: false,
           });
 
-        if (uploadError) {
-          throw new Error(`Upload ${record.storagePath}: ${uploadError.message}`);
+          if (uploadError) {
+            throw new Error(`Upload ${record.storagePath}: ${uploadError.message}`);
+          }
+
+          storageState.existingTargetPaths.add(record.storagePath);
+          summary.imagesUploaded += 1;
         }
 
-        const { data: publicUrlData } = supabase.storage
-          .from(bucket)
-          .getPublicUrl(record.storagePath);
+        const { data: publicUrlData } = storage.getPublicUrl(record.storagePath);
         record.row.public_image_url = publicUrlData.publicUrl;
-        summary.imagesUploaded += 1;
       }
 
       rowsToUpsert.push(record.row);

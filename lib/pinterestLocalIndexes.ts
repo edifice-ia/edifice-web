@@ -758,8 +758,9 @@ async function readPinterestSnapshot(): Promise<PinterestSnapshot | null> {
   }
 }
 
-function supabasePinToCsvRow(pin: SupabasePinterestPin): CsvRow {
-  const hasImage = Boolean(pin.public_image_url || pin.local_image_path);
+function supabasePinToCsvRow(pin: SupabasePinterestPin, storageImageUrl: string): CsvRow {
+  const supabaseImageUrl = pin.public_image_url || storageImageUrl;
+  const hasImage = Boolean(supabaseImageUrl || pin.local_image_path);
 
   return {
     post_id: pin.source_post_id ?? pin.local_id,
@@ -776,7 +777,7 @@ function supabasePinToCsvRow(pin: SupabasePinterestPin): CsvRow {
     selected_visual_path: pin.local_image_path ?? "",
     final_pin_path: pin.local_image_path ?? "",
     final_pin_filename: basename(pin.storage_path ?? pin.local_image_path ?? ""),
-    image_url: pin.public_image_url ?? "",
+    image_url: supabaseImageUrl,
     pinterest_pin_url: pin.pin_url ?? "",
     published_at: pin.published_at ?? "",
     created_at: pin.created_at ?? "",
@@ -842,7 +843,14 @@ async function readSupabasePinterestWorkshop(): Promise<PinterestWorkshopIndexes
   }
 
   const accounts = [...groupedPins.entries()].map(([accountId, accountPins]) => {
-    const rows = accountPins.map(supabasePinToCsvRow);
+    const rows = accountPins.map((pin) => {
+      const storageImageUrl =
+        pin.storage_bucket && pin.storage_path
+          ? supabase.storage.from(pin.storage_bucket).getPublicUrl(pin.storage_path).data.publicUrl
+          : "";
+
+      return supabasePinToCsvRow(pin, storageImageUrl);
+    });
     const account = buildAccountWorkshop({
       id: accountId,
       name: accountPins[0]?.account_name ?? normalizeAccountName(accountId),

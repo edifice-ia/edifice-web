@@ -127,7 +127,7 @@ function buildPinRecords(snapshot, bucket) {
         ? path.basename(localImagePath)
         : `${postId}${extension || ".png"}`;
       const storagePath = normalizeStoragePath(
-        `pinterest/${account.id}/${fileName}`,
+        `pinterest/${account.id}/final_pins/${fileName}`,
       );
       const status = firstValue(
         queue.publish_status,

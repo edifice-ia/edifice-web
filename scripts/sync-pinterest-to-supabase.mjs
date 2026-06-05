@@ -149,6 +149,8 @@ function buildPinRecords(snapshot, bucket, accountConfigs) {
 
       records.push({
         account,
+        defaultTargetUrl: accountConfig.targetUrl || null,
+        targetUrlSource: accountConfig.targetUrl ? "default_account_url" : null,
         localImagePath,
         imageExists: Boolean(localImagePath && existsSync(localImagePath)),
         contentType: resolveContentType(localImagePath),
@@ -208,6 +210,57 @@ function buildPinRecords(snapshot, bucket, accountConfigs) {
   }
 
   return records;
+}
+
+function applyResolvedTargetUrls(records, existingRows) {
+  const existingTargetUrls = new Map(
+    existingRows.map((row) => [
+      `${row.account_id}:${row.local_id}`,
+      row.target_url?.trim() || null,
+    ]),
+  );
+
+  for (const record of records) {
+    const recordKey = `${record.row.account_id}:${record.row.local_id}`;
+    const existingTargetUrl = existingTargetUrls.get(recordKey);
+    const targetUrl = existingTargetUrl || record.defaultTargetUrl || null;
+    const targetUrlSource = existingTargetUrl
+      ? "supabase"
+      : record.defaultTargetUrl
+        ? "default_account_url"
+        : null;
+
+    record.row.target_url = targetUrl;
+    record.targetUrlSource = targetUrlSource;
+    record.row.raw_payload.future_publication = {
+      link: targetUrl,
+      destination_url: targetUrl,
+      target_url_source: targetUrlSource,
+    };
+  }
+}
+
+function summarizeTargetUrls(records) {
+  const uniqueResolutions = new Map();
+
+  for (const record of records) {
+    const key = [
+      record.row.account_id,
+      record.row.target_url ?? "",
+      record.targetUrlSource ?? "",
+    ].join(":");
+
+    if (!uniqueResolutions.has(key)) {
+      uniqueResolutions.set(key, {
+        account: record.row.account_id,
+        targetUrl: record.row.target_url,
+        targetUrlConfigured: Boolean(record.row.target_url),
+        targetUrlSource: record.targetUrlSource,
+      });
+    }
+  }
+
+  return [...uniqueResolutions.values()];
 }
 
 function emptySummary({ dryRun, bucket }) {
@@ -333,6 +386,21 @@ async function main() {
   ).length;
   summary.legacyRootFiles = storageState.legacyRootFiles;
 
+  let existingRows = [];
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("pinterest_pins")
+      .select("account_id, local_id, target_url");
+
+    if (error) {
+      throw new Error(`Lecture pinterest_pins impossible: ${error.message}`);
+    }
+
+    existingRows = data ?? [];
+  }
+
+  applyResolvedTargetUrls(records, existingRows);
+
   if (dryRun) {
     summary.imagesWouldUpload = records.filter(
       (record) =>
@@ -346,10 +414,12 @@ async function main() {
         {
           ...summary,
           plannedFolders: PINTEREST_ACCOUNT_IDS.map(getPinterestFinalPinsFolder),
-          targetUrlConfiguration: PINTEREST_ACCOUNT_IDS.map((accountId) => ({
-            accountId,
+          targetUrlConfiguration: summarizeTargetUrls(records),
+          targetUrlDefaults: PINTEREST_ACCOUNT_IDS.map((accountId) => ({
+            account: accountId,
             env: accountConfigs[accountId]?.targetUrlEnv ?? null,
-            configured: Boolean(accountConfigs[accountId]?.targetUrl),
+            targetUrl: accountConfigs[accountId]?.targetUrl || null,
+            targetUrlConfigured: Boolean(accountConfigs[accountId]?.targetUrl),
           })),
           legacyRootRecommendation:
             summary.legacyRootFiles.length > 0
@@ -363,7 +433,9 @@ async function main() {
             target: `${bucket}/${record.storagePath}`,
             alreadyPresent: storageState.existingTargetPaths.has(record.storagePath),
             status: record.row.status,
+            targetUrl: record.row.target_url,
             targetUrlConfigured: Boolean(record.row.target_url),
+            targetUrlSource: record.targetUrlSource,
           })),
         },
         null,
@@ -377,22 +449,8 @@ async function main() {
     throw new Error("Client Supabase indisponible.");
   }
 
-  const { data: existingRows, error: existingError } = await supabase
-    .from("pinterest_pins")
-    .select("account_id, local_id, target_url");
-
-  if (existingError) {
-    throw new Error(`Lecture pinterest_pins impossible: ${existingError.message}`);
-  }
-
   const existingKeys = new Set(
-    (existingRows ?? []).map((row) => `${row.account_id}:${row.local_id}`),
-  );
-  const existingTargetUrls = new Map(
-    (existingRows ?? []).map((row) => [
-      `${row.account_id}:${row.local_id}`,
-      row.target_url ?? null,
-    ]),
+    existingRows.map((row) => `${row.account_id}:${row.local_id}`),
   );
   const rowsToUpsert = [];
 
@@ -421,9 +479,6 @@ async function main() {
         record.row.public_image_url = publicUrlData.publicUrl;
       }
 
-      const recordKey = `${record.row.account_id}:${record.row.local_id}`;
-      record.row.target_url =
-        record.row.target_url || existingTargetUrls.get(recordKey) || null;
       rowsToUpsert.push(record.row);
     } catch (error) {
       summary.errors.push(error instanceof Error ? error.message : String(error));

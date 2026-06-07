@@ -4,6 +4,7 @@ import { useState } from "react";
 
 type PinterestTestPayload = {
   connected: boolean;
+  accountKey?: string;
   tokenExpired: boolean;
   accountName: string | null;
   accountId: string | null;
@@ -30,7 +31,23 @@ const stateClasses: Record<TestState, string> = {
   expired: "border-[#ef4444]/40 bg-[#ef4444]/10 text-[#fecaca]",
 };
 
-export function PinterestConnectionControls() {
+type PinterestConnectionAccount = {
+  accountKey: string;
+  label: string;
+};
+
+const pinterestAccounts: PinterestConnectionAccount[] = [
+  {
+    accountKey: "edifice_discipline",
+    label: "Pinterest - Edifice Discipline",
+  },
+  {
+    accountKey: "solution_sommeil",
+    label: "Pinterest - Solution Sommeil",
+  },
+];
+
+function PinterestAccountConnectionControls({ account }: { account: PinterestConnectionAccount }) {
   const [state, setState] = useState<TestState>("idle");
   const [payload, setPayload] = useState<PinterestTestPayload | null>(null);
 
@@ -38,10 +55,13 @@ export function PinterestConnectionControls() {
     setState("checking");
 
     try {
-      const response = await fetch("/api/auth/pinterest/test", {
-        method: "GET",
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/auth/pinterest/test?account_key=${encodeURIComponent(account.accountKey)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
       const result = (await response.json()) as PinterestTestPayload;
       setPayload(result);
       setState(
@@ -66,12 +86,22 @@ export function PinterestConnectionControls() {
   }
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-4 rounded-md border border-[#1D2A44] bg-[#08111A] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="font-semibold text-[#F8FAFC]">{account.label}</p>
+        <span
+          className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${stateClasses[state]}`}
+        >
+          {stateLabels[state]}
+        </span>
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={() => {
-            window.location.href = "/api/auth/pinterest/start";
+            window.location.href = `/api/auth/pinterest/start?account_key=${encodeURIComponent(
+              account.accountKey,
+            )}`;
           }}
           className="rounded-md border border-[#39E6D0]/50 bg-[#08111A] px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC]"
         >
@@ -85,15 +115,10 @@ export function PinterestConnectionControls() {
         >
           Tester configuration
         </button>
-        <span
-          className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${stateClasses[state]}`}
-        >
-          {stateLabels[state]}
-        </span>
       </div>
 
       {payload ? (
-        <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-3 text-sm text-[#A7B0C0]">
+        <div className="text-sm text-[#A7B0C0]">
           <div className="grid gap-2">
             <p>
               Connexion :{" "}
@@ -131,6 +156,19 @@ export function PinterestConnectionControls() {
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+export function PinterestConnectionControls() {
+  return (
+    <div className="grid gap-3">
+      {pinterestAccounts.map((account) => (
+        <PinterestAccountConnectionControls
+          key={account.accountKey}
+          account={account}
+        />
+      ))}
     </div>
   );
 }

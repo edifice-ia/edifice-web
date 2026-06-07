@@ -7,6 +7,7 @@ import {
   PINTEREST_STATE_COOKIE,
   PINTEREST_STATE_MAX_AGE_SECONDS,
 } from "@/lib/server/oauth/pinterest-state";
+import { getPinterestOAuthAccount } from "@/lib/server/oauth/pinterest-accounts";
 
 const PINTEREST_AUTHORIZE_URL = "https://www.pinterest.com/oauth/";
 const PINTEREST_REDIRECT_URI = "https://www.edificeia.com/api/auth/pinterest/callback";
@@ -27,6 +28,15 @@ export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user || !canAccessPrivateCockpit(user)) {
     return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+  }
+
+  const accountKey = request.nextUrl.searchParams.get("account_key");
+  const account = getPinterestOAuthAccount(accountKey);
+  if (!account) {
+    return NextResponse.json(
+      { error: "Compte Pinterest OAuth inconnu.", accountKey },
+      { status: 400 },
+    );
   }
 
   const missing = REQUIRED_ENV.filter((name) => !process.env[name]?.trim());
@@ -54,7 +64,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const state = createPinterestOAuthState(user.id);
+  const state = createPinterestOAuthState(user.id, account.accountKey);
   if (!state) {
     return NextResponse.json({ error: "State OAuth Pinterest indisponible." }, { status: 500 });
   }
@@ -68,6 +78,7 @@ export async function GET(request: NextRequest) {
 
   console.info("[Pinterest OAuth Start] OAuth demarre", {
     userAuthenticated: true,
+    accountKey: account.accountKey,
   });
   console.info("[Pinterest OAuth Start] redirection preparee", {
     callback: redirectUri,

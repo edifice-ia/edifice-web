@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { isPinterestOAuthAccountKey } from "./pinterest-accounts";
 
 export const PINTEREST_STATE_COOKIE = "edifice_pinterest_oauth_state";
 export const PINTEREST_STATE_MAX_AGE_SECONDS = 10 * 60;
@@ -21,43 +22,60 @@ function safeEqual(left: string, right: string) {
   );
 }
 
-export function createPinterestOAuthState(userId: string) {
+export type PinterestOAuthStateValidation =
+  | {
+      valid: true;
+      accountKey: string;
+    }
+  | {
+      valid: false;
+      accountKey: null;
+    };
+
+export function createPinterestOAuthState(userId: string, accountKey: string) {
   const secret = getStateSecret();
-  if (!secret) {
+  if (!secret || !isPinterestOAuthAccountKey(accountKey)) {
     return null;
   }
 
   const nonce = randomBytes(32).toString("base64url");
   const issuedAt = Math.floor(Date.now() / 1000).toString();
   const encodedUserId = Buffer.from(userId).toString("base64url");
-  const payload = `${nonce}.${issuedAt}.${encodedUserId}`;
+  const encodedAccountKey = Buffer.from(accountKey).toString("base64url");
+  const payload = `${nonce}.${issuedAt}.${encodedUserId}.${encodedAccountKey}`;
 
   return `${payload}.${signStatePayload(payload, secret)}`;
 }
 
-export function verifyPinterestOAuthState(receivedState: string | null, userId: string) {
+export function verifyPinterestOAuthState(
+  receivedState: string | null,
+  userId: string,
+): PinterestOAuthStateValidation {
   const secret = getStateSecret();
   if (!secret || !receivedState) {
-    return false;
+    return { valid: false, accountKey: null };
   }
 
   const parts = receivedState.split(".");
-  if (parts.length !== 4) {
-    return false;
+  if (parts.length !== 5) {
+    return { valid: false, accountKey: null };
   }
 
-  const [nonce, issuedAt, encodedUserId, signature] = parts;
+  const [nonce, issuedAt, encodedUserId, encodedAccountKey, signature] = parts;
   const issuedAtSeconds = Number(issuedAt);
   const stateUserId = Buffer.from(encodedUserId, "base64url").toString();
+  const accountKey = Buffer.from(encodedAccountKey, "base64url").toString();
   const ageSeconds = Math.floor(Date.now() / 1000) - issuedAtSeconds;
-  const payload = `${nonce}.${issuedAt}.${encodedUserId}`;
+  const payload = `${nonce}.${issuedAt}.${encodedUserId}.${encodedAccountKey}`;
 
-  return (
+  const valid =
     Boolean(nonce) &&
     Number.isFinite(issuedAtSeconds) &&
     ageSeconds >= 0 &&
     ageSeconds <= PINTEREST_STATE_MAX_AGE_SECONDS &&
     stateUserId === userId &&
-    safeEqual(signature, signStatePayload(payload, secret))
-  );
+    isPinterestOAuthAccountKey(accountKey) &&
+    safeEqual(signature, signStatePayload(payload, secret));
+
+  return valid ? { valid: true, accountKey } : { valid: false, accountKey: null };
 }

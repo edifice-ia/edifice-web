@@ -267,6 +267,7 @@ function emptySummary({ dryRun, bucket }) {
   return {
     dryRun,
     bucket,
+    oauthTokens: [],
     pinsRead: 0,
     imagesFound: 0,
     imagesMissing: 0,
@@ -279,6 +280,32 @@ function emptySummary({ dryRun, bucket }) {
     rowsWouldUpsert: 0,
     errors: [],
   };
+}
+
+async function readPinterestOAuthTokenStatuses(supabase) {
+  const { data, error } = await supabase
+    .from("oauth_tokens")
+    .select("account_key, access_token, refresh_token, expires_at, updated_at")
+    .eq("provider", "pinterest");
+
+  if (error) {
+    throw new Error(`Lecture oauth_tokens Pinterest impossible: ${error.message}`);
+  }
+
+  const rowsByAccount = new Map(
+    (data ?? []).map((row) => [row.account_key, row]),
+  );
+
+  return PINTEREST_ACCOUNT_IDS.map((accountId) => {
+    const token = rowsByAccount.get(accountId);
+    return {
+      accountId,
+      tokenPresent: Boolean(token?.access_token),
+      refreshTokenPresent: Boolean(token?.refresh_token),
+      expiresAtPresent: Boolean(token?.expires_at),
+      updatedAtPresent: Boolean(token?.updated_at),
+    };
+  });
 }
 
 async function listFiles(storage, folder) {
@@ -380,6 +407,10 @@ async function main() {
         existingTargetPaths: new Set(),
         legacyRootFiles: [],
       };
+
+  if (supabase) {
+    summary.oauthTokens = await readPinterestOAuthTokenStatuses(supabase);
+  }
 
   summary.imagesAlreadyPresent = records.filter((record) =>
     storageState.existingTargetPaths.has(record.storagePath),

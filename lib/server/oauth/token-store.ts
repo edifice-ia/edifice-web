@@ -12,10 +12,12 @@ export type OAuthTokenPayload = {
   updated_at?: string | null;
   scope?: string;
   open_id?: string;
+  account_key?: string | null;
 };
 
 export type OAuthTokenRecord = {
   provider: OAuthTokenProvider;
+  accountKey: string | null;
   accessToken: string | null;
   refreshToken: string | null;
   tokenType: string | null;
@@ -35,6 +37,7 @@ type OAuthTokenRow = {
   expires_at: string | null;
   updated_at: string;
   user_id: string | null;
+  account_key: string | null;
 };
 
 type OAuthTokenStatus = {
@@ -46,6 +49,7 @@ type OAuthTokenStatus = {
 };
 
 let supabaseAdmin: SupabaseClient | null = null;
+const DEFAULT_OAUTH_ACCOUNT_KEY = "default";
 
 const allowedOAuthTokenProviders = new Set<OAuthTokenProvider>([
   "youtube",
@@ -115,6 +119,7 @@ function normalizeRefreshExpiresAt(tokenPayload: OAuthTokenPayload) {
 function mapRowToRecord(row: OAuthTokenRow): OAuthTokenRecord {
   return {
     provider: row.provider,
+    accountKey: row.account_key,
     accessToken: row.access_token,
     refreshToken: row.refresh_token,
     tokenType: row.token_type,
@@ -166,6 +171,24 @@ function isMissingUserIdColumn(error: SupabaseOAuthError) {
   return error.code === "42703" && error.message?.includes("user_id") === true;
 }
 
+function isMissingAccountKeyColumn(error: SupabaseOAuthError) {
+  return error.code === "42703" && error.message?.includes("account_key") === true;
+}
+
+function normalizeAccountKey(provider: OAuthTokenProvider, accountKey?: string | null) {
+  const normalized = accountKey?.trim();
+
+  if (provider === "pinterest") {
+    if (!normalized) {
+      throw new Error("Pinterest OAuth token storage requires account_key.");
+    }
+
+    return normalized;
+  }
+
+  return normalized || DEFAULT_OAUTH_ACCOUNT_KEY;
+}
+
 export async function saveOAuthToken(
   provider: OAuthTokenProvider,
   tokenPayload: OAuthTokenPayload,
@@ -179,8 +202,10 @@ export async function saveOAuthToken(
   const updatedAt = tokenPayload.updated_at ?? now;
   const supabase = getSupabaseAdminClient();
   const userId = userIdInput?.trim() || null;
+  const accountKey = normalizeAccountKey(provider, tokenPayload.account_key);
   const baseRow = {
     provider,
+    account_key: accountKey,
     access_token: tokenPayload.access_token ?? null,
     refresh_token: tokenPayload.refresh_token ?? null,
     token_type: tokenPayload.token_type ?? null,
@@ -193,6 +218,7 @@ export async function saveOAuthToken(
   console.info("[OAuth Token Store] save started", {
     provider,
     providerAllowed: allowedOAuthTokenProviders.has(provider),
+    accountKey,
     userIdPresent: Boolean(userId),
     accessTokenPresent: Boolean(tokenPayload.access_token),
     refreshTokenPresent: Boolean(tokenPayload.refresh_token),
@@ -201,13 +227,14 @@ export async function saveOAuthToken(
     scopePresent: Boolean(tokenPayload.scope),
   });
 
-  const primaryConflictTarget = userId ? "provider,user_id" : "provider";
+  const primaryConflictTarget = "provider,account_key";
   const requestDiagnostic = {
     table: "oauth_tokens",
     operation: "upsert",
     conflictTarget: primaryConflictTarget,
     columns: Object.keys(row),
     provider,
+    accountKey,
     providerAcceptedByCode: allowedOAuthTokenProviders.has(provider),
     userIdIncluded: "user_id" in row,
     accessTokenPresent: Boolean(tokenPayload.access_token),
@@ -232,22 +259,31 @@ export async function saveOAuthToken(
       userIdPresent: Boolean(userId),
     });
 
-    if (userId && isMissingUserIdColumn(error)) {
-      console.warn("[OAuth Token Store] retrying save without user_id column", {
+    if (provider !== "pinterest" && isMissingAccountKeyColumn(error)) {
+      console.warn("[OAuth Token Store] retrying save without account_key column", {
         provider,
-        reason: "missing_user_id_column",
+        reason: "missing_account_key_column",
       });
 
+      const legacyBaseRow = {
+        provider: baseRow.provider,
+        access_token: baseRow.access_token,
+        refresh_token: baseRow.refresh_token,
+        token_type: baseRow.token_type,
+        scope: baseRow.scope,
+        expires_at: baseRow.expires_at,
+        updated_at: baseRow.updated_at,
+      };
       const { error: fallbackError } = await supabase
         .from("oauth_tokens")
-        .upsert(baseRow, { onConflict: "provider" });
+        .upsert(legacyBaseRow, { onConflict: "provider" });
 
       if (!fallbackError) {
         const successPayload = {
           provider,
           conflictTarget: "provider",
-          userIdPresent: false,
-          userIdColumnPresent: false,
+          accountKey,
+          accountKeyColumnPresent: false,
         };
         console.info("[OAuth Token Store] token saved", successPayload);
         console.info("[Pinterest Token Store] success", successPayload);
@@ -256,12 +292,15 @@ export async function saveOAuthToken(
 
       logSupabaseOAuthError(provider, fallbackError, {
         conflictTarget: "provider",
-        userIdPresent: false,
-        userIdColumnPresent: false,
+        accountKey,
+        accountKeyColumnPresent: false,
       });
     }
 
-    if (userId && (isMissingConflictConstraint(error) || isProviderUniqueConflict(error))) {
+    if (
+      provider !== "pinterest" &&
+      (isMissingConflictConstraint(error) || isProviderUniqueConflict(error))
+    ) {
       console.warn("[OAuth Token Store] retrying save with provider conflict", {
         provider,
         reason: isMissingConflictConstraint(error)
@@ -277,7 +316,8 @@ export async function saveOAuthToken(
         const successPayload = {
           provider,
           conflictTarget: "provider",
-          userIdPresent: true,
+          accountKey,
+          userIdPresent: Boolean(userId),
         };
         console.info("[OAuth Token Store] token saved", successPayload);
         console.info("[Pinterest Token Store] success", successPayload);
@@ -296,6 +336,7 @@ export async function saveOAuthToken(
   const successPayload = {
     provider,
     conflictTarget: primaryConflictTarget,
+    accountKey,
     userIdPresent: Boolean(userId),
   };
   console.info("[OAuth Token Store] token saved", successPayload);
@@ -308,16 +349,23 @@ export async function saveOAuthToken(
 export async function getOAuthTokenStatus(
   provider: OAuthTokenProvider,
   userId?: string,
+  accountKeyInput?: string,
 ): Promise<OAuthTokenStatus> {
+  const accountKey = accountKeyInput?.trim();
   const supabase = getSupabaseAdminClient();
   let query = supabase
     .from("oauth_tokens")
     .select("access_token, expires_at, updated_at")
     .eq("provider", provider);
+  if (accountKey) {
+    query = query.eq("account_key", accountKey);
+  }
   if (userId) {
     query = query.eq("user_id", userId);
   }
-  const { data, error } = await query.maybeSingle();
+  const { data, error } = accountKey
+    ? await query.maybeSingle()
+    : await query.limit(1).maybeSingle();
 
   if (error) {
     throw new Error(`Failed to read OAuth token status for provider ${provider}.`);
@@ -340,14 +388,22 @@ export async function getOAuthTokenStatus(
   };
 }
 
-export async function getOAuthToken(provider: OAuthTokenProvider, userId?: string) {
+export async function getOAuthToken(
+  provider: OAuthTokenProvider,
+  userId?: string,
+  accountKeyInput?: string,
+) {
   const supabase = getSupabaseAdminClient();
+  const accountKey = accountKeyInput?.trim();
   const baseSelect =
-    "provider, access_token, refresh_token, token_type, scope, expires_at, updated_at";
+    "provider, account_key, access_token, refresh_token, token_type, scope, expires_at, updated_at";
   let query = supabase
     .from("oauth_tokens")
     .select(userId ? `${baseSelect}, user_id` : baseSelect)
     .eq("provider", provider);
+  if (accountKey) {
+    query = query.eq("account_key", accountKey);
+  }
   if (userId) {
     query = query.eq("user_id", userId);
   }
@@ -364,6 +420,7 @@ export async function getOAuthToken(provider: OAuthTokenProvider, userId?: strin
         .from("oauth_tokens")
         .select(baseSelect)
         .eq("provider", provider)
+        .eq("account_key", accountKey ?? DEFAULT_OAUTH_ACCOUNT_KEY)
         .maybeSingle<OAuthTokenRow>();
 
       if (fallbackError) {

@@ -130,14 +130,18 @@ export async function GET(request: NextRequest) {
   const oauthError = request.nextUrl.searchParams.get("error");
   const cookieState = request.cookies.get(PINTEREST_STATE_COOKIE)?.value ?? null;
   diagnostic.code_received = Boolean(code);
-  const stateValid =
-    Boolean(state && cookieState && state === cookieState) &&
-    verifyPinterestOAuthState(state, user.id);
+  const stateValidation =
+    state && cookieState && state === cookieState
+      ? verifyPinterestOAuthState(state, user.id)
+      : { valid: false as const, accountKey: null };
+  const stateValid = stateValidation.valid;
+  const accountKey = stateValidation.accountKey;
   diagnostic.state_valid = stateValid;
 
   logPinterestStep("oauth_parameters_received", {
     code_received: diagnostic.code_received,
     state_valid: diagnostic.state_valid,
+    accountKey,
     oauthErrorPresent: Boolean(oauthError),
     cookieStatePresent: Boolean(cookieState),
   });
@@ -252,6 +256,7 @@ export async function GET(request: NextRequest) {
       refreshTokenPresent: Boolean(tokenPayload.refresh_token),
       expiresInPresent: typeof tokenPayload.expires_in === "number",
       scopePresent: Boolean(tokenPayload.scope),
+      accountKey,
     });
 
     try {
@@ -264,6 +269,7 @@ export async function GET(request: NextRequest) {
           expires_in: tokenPayload.expires_in,
           refresh_expires_in: tokenPayload.refresh_token_expires_in,
           scope: tokenPayload.scope,
+          account_key: accountKey,
         },
       );
     } catch (storeError) {
@@ -279,6 +285,7 @@ export async function GET(request: NextRequest) {
 
     logPinterestStep("token_store_succeeded", {
       tokenStored: true,
+      accountKey,
       message: "Token OAuth Pinterest enregistre dans Supabase.",
     });
     return redirectToConnections(request, true, undefined, diagnostic);

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { getOAuthToken } from "@/lib/server/oauth/token-store";
+import { getPinterestOAuthAccount } from "@/lib/server/oauth/pinterest-accounts";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -38,15 +40,35 @@ async function pinterestGet<T>(path: string, accessToken: string) {
   return payload;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user || !canAccessPrivateCockpit(user)) {
     return NextResponse.json({ errorMessage: "Acces refuse.", connected: false }, { status: 403 });
   }
 
-  const token = await getOAuthToken("pinterest", user.id);
+  const accountKey = request.nextUrl.searchParams.get("account_key");
+  const account = getPinterestOAuthAccount(accountKey);
+  if (!account) {
+    return NextResponse.json(
+      {
+        connected: false,
+        tokenExpired: false,
+        accountName: null,
+        accountId: accountKey,
+        boardsCount: 0,
+        scopesDetected: [],
+        errorMessage: "Compte Pinterest OAuth inconnu.",
+      },
+      { status: 400 },
+    );
+  }
+
+  const token = await getOAuthToken("pinterest", undefined, account.accountKey);
   if (!token?.accessToken) {
-    console.info("[Pinterest OAuth Test] token stocke", { present: false });
+    console.info("[Pinterest OAuth Test] token stocke", {
+      accountKey: account.accountKey,
+      present: false,
+    });
     return NextResponse.json({
       connected: false,
       tokenExpired: false,
@@ -54,12 +76,15 @@ export async function GET() {
       accountId: null,
       boardsCount: 0,
       scopesDetected: [],
-      errorMessage: "Aucun token Pinterest stocke pour cet utilisateur.",
+      errorMessage: `Aucun token Pinterest stocke pour ${account.label}.`,
     });
   }
 
   if (isExpired(token.expiresAt)) {
-    console.info("[Pinterest OAuth Test] token expire", { expired: true });
+    console.info("[Pinterest OAuth Test] token expire", {
+      accountKey: account.accountKey,
+      expired: true,
+    });
     return NextResponse.json({
       connected: false,
       tokenExpired: true,
@@ -91,10 +116,14 @@ export async function GET() {
     ].filter(Boolean);
 
     console.info("[Pinterest OAuth Test] Test profil reussi", { success: Boolean(profile) });
-    console.info("[Pinterest OAuth Test] Nombre de boards detectes", { count: boardsCount });
+    console.info("[Pinterest OAuth Test] Nombre de boards detectes", {
+      accountKey: account.accountKey,
+      count: boardsCount,
+    });
 
     return NextResponse.json({
       connected,
+      accountKey: account.accountKey,
       tokenExpired: false,
       accountName: profile?.username ?? null,
       accountId: profile?.username ?? null,
@@ -106,7 +135,10 @@ export async function GET() {
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Test API Pinterest impossible.";
-    console.warn("[Pinterest OAuth Test] echec", { errorMessage });
+    console.warn("[Pinterest OAuth Test] echec", {
+      accountKey: account.accountKey,
+      errorMessage,
+    });
     return NextResponse.json(
       {
         connected: false,

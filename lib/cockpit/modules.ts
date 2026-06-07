@@ -3,25 +3,25 @@ import type { CockpitLog, CockpitModule } from "@/types/cockpit";
 export const cockpitModules: CockpitModule[] = [
   {
     id: "assistant-edifice",
-    title: "Assistant de L’Édifice",
+    title: "Assistant de L'Edifice",
     description:
-      "Point central pour bâtir l'œuvre, organiser l'intérieur et garder le cap.",
+      "Point central pour batir l'oeuvre, organiser l'interieur et garder le cap.",
     href: "/interface",
     status: "En migration",
     accent: "jade",
   },
   {
-    id: "post-creation",
+    id: "content-workshop",
     title: "Atelier de contenu",
     description:
-      "Idées, scripts courts, captions, hooks, prompts et préparation multi-réseaux.",
+      "Creation et preparation: Shorts d'un cote, Pinterest de l'autre.",
     href: "/interface/post-creation",
     status: "En migration",
   },
   {
     id: "publishers-overview",
     title: "Publications",
-    description: "Espace de préparation et validation des publications.",
+    description: "Publication controlee et separee des ateliers de creation.",
     href: "/interface/publishers",
     status: "En migration",
   },
@@ -36,28 +36,28 @@ export const cockpitModules: CockpitModule[] = [
   {
     id: "publisher-pinterest",
     title: "Pinterest Publisher",
-    description: "Préparer le futur espace Pinterest sans publication réelle.",
+    description: "Publication Pinterest limitee a un pin test confirme.",
     href: "/interface/publishers/pinterest",
     status: "En migration",
   },
   {
     id: "monitoring-static",
     title: "Observatoire",
-    description: "Signaux, alertes et état du système.",
+    description: "Signaux, alertes et etat du systeme.",
     href: "/interface/monitoring",
     status: "Experimental",
   },
   {
     id: "personnel-light",
-    title: "Espace intérieur",
-    description: "Vision du jour, routines, notes, énergie et objectifs.",
+    title: "Espace interieur",
+    description: "Vision du jour, routines, notes, energie et objectifs.",
     href: "/interface/personnel",
     status: "Experimental",
   },
   {
     id: "links-useful",
     title: "Ressources",
-    description: "Documents, repères et liens utiles du cockpit.",
+    description: "Documents, reperes et liens utiles du cockpit.",
     href: "/interface/resources",
     status: "Disponible",
   },
@@ -68,7 +68,7 @@ export const publisherModules: CockpitModule[] = [
     id: "publisher-youtube-hub",
     title: "YouTube Publisher",
     description:
-      "Workflow YouTube conservé, avec publication réelle bloquée côté web.",
+      "Workflow YouTube conserve, avec publication reelle bloquee cote web.",
     href: "/interface/publishers/youtube",
     status: "Disponible",
     accent: "blue",
@@ -76,17 +76,10 @@ export const publisherModules: CockpitModule[] = [
   {
     id: "publisher-pinterest-hub",
     title: "Pinterest Publisher",
-    description: "Espace Pinterest futur: workflow, API, automation et logs.",
+    description:
+      "Selection des pins prets, choix du board cible et publication d'un seul pin test.",
     href: "/interface/publishers/pinterest",
     status: "En migration",
-  },
-  {
-    id: "publisher-shorts-hub",
-    title: "Réseaux courts",
-    description:
-      "TikTok, Instagram et Meta regroupés, non migrés et bloqués par défaut.",
-    href: "/interface/publishers/shorts",
-    status: "A securiser",
   },
 ];
 
@@ -100,13 +93,13 @@ export const overviewLogs: CockpitLog[] = [
   {
     timestamp: "09:05",
     type: "security",
-    message: "Routes cockpit protégées par session Supabase.",
+    message: "Routes cockpit protegees par session Supabase.",
     status: "Disponible",
   },
   {
     timestamp: "09:10",
     type: "assistant",
-    message: "Assistant de L’Édifice disponible sans action réelle.",
+    message: "Assistant de L'Edifice disponible sans action reelle.",
     status: "En migration",
   },
 ];

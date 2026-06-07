@@ -5,7 +5,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { publisherModules } from "@/lib/cockpit/modules";
 
 export const metadata: Metadata = {
-  title: "Publications - L’Édifice",
+  title: "Publications - L'Edifice",
 };
 
 export default function PublishersPage() {
@@ -13,8 +13,8 @@ export default function PublishersPage() {
     <div>
       <CockpitHeader
         eyebrow="Publications"
-        title="Préparation des publications"
-        description="Espace de préparation et validation des publications. YouTube reste conservé, Pinterest est préparé, et TikTok/Instagram sont regroupés dans Réseaux courts avec publication réelle bloquée."
+        title="Publications"
+        description="Publier depuis des contenus deja prepares. Les ateliers de creation restent separes."
         status="En migration"
       />
       <SectionContainer>

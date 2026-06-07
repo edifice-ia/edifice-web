@@ -19,6 +19,11 @@ export type CockpitNavItem = {
   description: string;
   status: CockpitStatus;
   showStatus?: boolean;
+  children?: Array<{
+    id: string;
+    href: string;
+    label: string;
+  }>;
 };
 
 export type CockpitModule = {

@@ -1,11 +1,34 @@
 import type { Metadata } from "next";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
+import { ModuleGrid } from "@/components/cockpit/ModuleGrid";
 import { SafetyModeBadge } from "@/components/cockpit/SafetyModeBadge";
-import { ContentWorkshopClient } from "./ContentWorkshopClient";
+import { SectionContainer } from "@/components/cockpit/SectionContainer";
+import type { CockpitModule } from "@/types/cockpit";
 
 export const metadata: Metadata = {
   title: "Atelier de contenu - L'Edifice",
 };
+
+const workshopModules: CockpitModule[] = [
+  {
+    id: "content-workshop-shorts",
+    title: "Shorts",
+    description:
+      "Creation, generation, scoring et correction de brouillons pour formats courts.",
+    href: "/interface/post-creation/shorts",
+    status: "En migration",
+    accent: "blue",
+  },
+  {
+    id: "content-workshop-pinterest",
+    title: "Pinterest",
+    description:
+      "Pins, visuels, brouillons, validations et preparation avant publication.",
+    href: "/interface/post-creation/pinterest",
+    status: "En migration",
+    accent: "jade",
+  },
+];
 
 export default function PostCreationPage() {
   return (
@@ -13,7 +36,7 @@ export default function PostCreationPage() {
       <CockpitHeader
         eyebrow="Atelier de contenu"
         title="Atelier de contenu"
-        description="Generer un brouillon texte complet, puis le garder en brouillon Supabase avant validation humaine."
+        description="Creer, generer, scorer, corriger et preparer les contenus. Aucune publication n'est lancee depuis l'atelier."
         status="En migration"
       />
 
@@ -21,7 +44,9 @@ export default function PostCreationPage() {
         <SafetyModeBadge />
       </div>
 
-      <ContentWorkshopClient />
+      <SectionContainer>
+        <ModuleGrid modules={workshopModules} />
+      </SectionContainer>
     </div>
   );
 }

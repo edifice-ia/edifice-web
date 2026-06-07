@@ -23,23 +23,47 @@ export function CockpitSidebar() {
                   pathname.startsWith(`${item.href}/`);
 
             return (
-              <Link
-                key={item.id}
-                href={item.href}
-                className={`rounded-md border px-3 py-3 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                  active
-                    ? "border-[#39E6D0]/50 bg-[#39E6D0]/10 text-[#F8FAFC]"
-                    : "border-transparent text-[#A7B0C0] hover:border-[#1D2A44] hover:bg-[#0B1420] hover:text-[#F8FAFC]"
-                }`}
-              >
-                <span className="flex items-center justify-between gap-3">
-                  <span className="font-semibold">{item.label}</span>
-                  {item.showStatus ? <StatusBadge status={item.status} /> : null}
-                </span>
-                <span className="mt-1 block text-sm text-[#A7B0C0]">
-                  {item.description}
-                </span>
-              </Link>
+              <div key={item.id}>
+                <Link
+                  href={item.href}
+                  className={`block rounded-md border px-3 py-3 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                    active
+                      ? "border-[#39E6D0]/50 bg-[#39E6D0]/10 text-[#F8FAFC]"
+                      : "border-transparent text-[#A7B0C0] hover:border-[#1D2A44] hover:bg-[#0B1420] hover:text-[#F8FAFC]"
+                  }`}
+                >
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="font-semibold">{item.label}</span>
+                    {item.showStatus ? <StatusBadge status={item.status} /> : null}
+                  </span>
+                  <span className="mt-1 block text-sm text-[#A7B0C0]">
+                    {item.description}
+                  </span>
+                </Link>
+                {item.children ? (
+                  <div className="ml-3 mt-1 grid gap-1 border-l border-[#1D2A44] pl-3">
+                    {item.children.map((child) => {
+                      const childActive =
+                        pathname === child.href ||
+                        pathname.startsWith(`${child.href}/`);
+
+                      return (
+                        <Link
+                          key={child.id}
+                          href={child.href}
+                          className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+                            childActive
+                              ? "bg-[#39E6D0]/10 text-[#39E6D0]"
+                              : "text-[#A7B0C0] hover:bg-[#0B1420] hover:text-[#F8FAFC]"
+                          }`}
+                        >
+                          {child.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             );
           })}
         </nav>

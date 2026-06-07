@@ -3,538 +3,83 @@ import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
 import { EmptyState } from "@/components/cockpit/EmptyState";
 import { LogPanel } from "@/components/cockpit/LogPanel";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
-import { PinterestLibrary } from "@/components/pinterest/PinterestLibrary";
+import { PinterestPublisherClient } from "@/components/pinterest/PinterestPublisherClient";
 import {
-  readPinterestWorkshopIndexes,
-  type PinterestAccountWorkshop,
-  type PinterestLocalIndexFile,
-  type PinterestWorkshopItem,
-  type PinterestWorkshopStatus,
-} from "@/lib/pinterestLocalIndexes";
+  readPinterestPublisherBoards,
+  readPinterestPublisherPins,
+} from "@/lib/server/pinterest-publisher";
 
 export const metadata: Metadata = {
-  title: "Atelier Pinterest - L'Edifice",
+  title: "Pinterest Publisher - L'Edifice",
 };
 
 export const dynamic = "force-dynamic";
 
-const statusLabels: Record<PinterestWorkshopStatus, string> = {
-  generated: "genere",
-  visual_ready: "visuel pret",
-  ready_to_publish: "pret a publier",
-  dry_run: "dry-run",
-  published: "publie",
-  error: "erreur",
-};
+const logs = [
+  {
+    timestamp: "guard",
+    type: "security" as const,
+    message: "Publication limitee a un seul pin test avec confirmation humaine.",
+    status: "A securiser" as const,
+  },
+  {
+    timestamp: "oauth",
+    type: "api" as const,
+    message: "Tokens Pinterest lus cote serveur par compte OAuth.",
+    status: "En migration" as const,
+  },
+];
 
-const statusClasses: Record<PinterestWorkshopStatus, string> = {
-  generated: "border-[#7DD3FC]/35 bg-[#7DD3FC]/10 text-[#7DD3FC]",
-  visual_ready: "border-[#39E6D0]/35 bg-[#39E6D0]/10 text-[#39E6D0]",
-  ready_to_publish: "border-[#22C55E]/35 bg-[#22C55E]/10 text-[#86EFAC]",
-  dry_run: "border-[#FACC15]/35 bg-[#FACC15]/10 text-[#FDE68A]",
-  published: "border-[#A78BFA]/35 bg-[#A78BFA]/10 text-[#C4B5FD]",
-  error: "border-[#F97316]/35 bg-[#F97316]/10 text-[#FDBA74]",
-};
-
-function StatCard({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: number;
-  detail: string;
-}) {
-  return (
-    <div className="rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7DD3FC]">
-        {label}
-      </p>
-      <p className="mt-3 text-3xl font-semibold text-[#F8FAFC]">{value}</p>
-      <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">{detail}</p>
-    </div>
-  );
-}
-
-function AccountSelector({
-  accounts,
-  selectedAccountId,
-}: {
-  accounts: PinterestAccountWorkshop[];
-  selectedAccountId: string | null;
-}) {
-  if (accounts.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {accounts.map((account) => {
-        const isSelected = account.id === selectedAccountId;
-
-        return (
-          <a
-            key={account.id}
-            href={`/interface/publishers/pinterest?account=${account.id}`}
-            className={`rounded-lg border p-4 transition ${
-              isSelected
-                ? "border-[#39E6D0]/60 bg-[#39E6D0]/10"
-                : "border-[#1D2A44] bg-[#08111A] hover:border-[#7DD3FC]/45"
-            }`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-[#F8FAFC]">{account.name}</p>
-                <p className="mt-1 text-xs leading-5 text-[#A7B0C0]">{account.niche}</p>
-              </div>
-              <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-2 py-1 text-xs font-semibold text-[#7DD3FC]">
-                {account.stats.pinsReadyToPublish} prets
-              </span>
-            </div>
-            <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
-              <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-2">
-                <p className="font-semibold text-[#F8FAFC]">{account.rawStats.posts_queue}</p>
-                <p className="mt-1 text-[#64748B]">posts</p>
-              </div>
-              <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-2">
-                <p className="font-semibold text-[#F8FAFC]">
-                  {account.rawStats.posts_with_visuals}
-                </p>
-                <p className="mt-1 text-[#64748B]">visuels</p>
-              </div>
-              <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-2">
-                <p className="font-semibold text-[#F8FAFC]">{account.rawStats.final_pins}</p>
-                <p className="mt-1 text-[#64748B]">pins</p>
-              </div>
-              <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-2">
-                <p className="font-semibold text-[#F8FAFC]">
-                  {account.rawStats.publishing_queue}
-                </p>
-                <p className="mt-1 text-[#64748B]">queue</p>
-              </div>
-            </div>
-          </a>
-        );
-      })}
-    </div>
-  );
-}
-
-function StatusPills({ badges }: { badges: PinterestWorkshopStatus[] }) {
-  if (badges.length === 0) {
-    return (
-      <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-2 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#A7B0C0]">
-        en attente
-      </span>
-    );
-  }
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      {badges.map((badge) => (
-        <span
-          key={badge}
-          className={`rounded-md border px-2 py-1 text-xs font-semibold uppercase tracking-[0.12em] ${statusClasses[badge]}`}
-        >
-          {statusLabels[badge]}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function DisabledActions() {
-  const actions = ["Publier", "Planifier", "Regenerer visuel"];
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      {actions.map((action) => (
-        <button
-          key={action}
-          type="button"
-          disabled
-          title="Bientot disponible"
-          className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-1.5 text-xs font-semibold text-[#64748B] opacity-70"
-        >
-          {action}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function PinRow({ item }: { item: PinterestWorkshopItem }) {
-  return (
-    <article className="rounded-md border border-[#1D2A44] bg-[#03070B] p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#64748B]">
-            {item.accountName} / {item.postId}
-          </p>
-          <h3 className="mt-2 text-base font-semibold text-[#F8FAFC]">
-            {item.title || "Pin sans titre"}
-          </h3>
-          <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#A7B0C0]">
-            {item.description || item.theme || "Description absente de l'index."}
-          </p>
-        </div>
-        <StatusPills badges={item.badges} />
-      </div>
-
-      <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.12em] text-[#64748B]">
-            Tableau
-          </p>
-          <p className="mt-1 text-[#F8FAFC]">{item.boardName || "Non renseigne"}</p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-[0.12em] text-[#64748B]">
-            Visuel
-          </p>
-          <p className="mt-1 break-all text-[#F8FAFC]">
-            {item.finalPinFilename || item.selectedVisualFilename || "Non synchronise"}
-          </p>
-          <p className="mt-1 break-all font-mono text-xs leading-5 text-[#64748B]">
-            {item.finalPinPath || item.selectedVisualPath || "Chemin image absent"}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-[0.12em] text-[#64748B]">
-            Programmation
-          </p>
-          <p className="mt-1 text-[#F8FAFC]">
-            {item.scheduledDate
-              ? `${item.scheduledDate} ${item.scheduledTime || ""}`.trim()
-              : "Non planifie"}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 flex flex-col gap-3 border-t border-[#1D2A44] pt-4 lg:flex-row lg:items-center lg:justify-between">
-        <p className="text-xs text-[#64748B]">
-          Statut publication :{" "}
-          <span className="font-semibold text-[#A7B0C0]">
-            {item.publishStatus || "non place en file"}
-          </span>
-        </p>
-        <DisabledActions />
-      </div>
-    </article>
-  );
-}
-
-function QueueTable({ items }: { items: PinterestWorkshopItem[] }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] border-separate border-spacing-y-2 text-left text-sm">
-        <thead>
-          <tr className="text-xs uppercase tracking-[0.14em] text-[#64748B]">
-            <th className="px-3 py-2">Pin</th>
-            <th className="px-3 py-2">Compte</th>
-            <th className="px-3 py-2">Tableau</th>
-            <th className="px-3 py-2">Date</th>
-            <th className="px-3 py-2">Statut</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id} className="bg-[#03070B] text-[#A7B0C0]">
-              <td className="rounded-l-md border-y border-l border-[#1D2A44] px-3 py-3">
-                <p className="font-semibold text-[#F8FAFC]">{item.title}</p>
-                <p className="mt-1 text-xs text-[#64748B]">{item.postId}</p>
-              </td>
-              <td className="border-y border-[#1D2A44] px-3 py-3">
-                {item.accountName}
-              </td>
-              <td className="border-y border-[#1D2A44] px-3 py-3">
-                {item.boardName || "Non renseigne"}
-              </td>
-              <td className="border-y border-[#1D2A44] px-3 py-3">
-                {item.scheduledDate
-                  ? `${item.scheduledDate} ${item.scheduledTime || ""}`.trim()
-                  : "Non planifie"}
-              </td>
-              <td className="rounded-r-md border-y border-r border-[#1D2A44] px-3 py-3">
-                <StatusPills badges={item.badges} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function IndexFileCard({ indexFile }: { indexFile: PinterestLocalIndexFile }) {
-  return (
-    <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-[#F8FAFC]">{indexFile.label}</p>
-          <p className="mt-1 text-xs uppercase tracking-[0.12em] text-[#64748B]">
-            format {indexFile.format} / {indexFile.exists ? "detecte" : "absent"} /{" "}
-            {indexFile.source}
-          </p>
-        </div>
-        <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-2 py-1 text-xs font-semibold text-[#39E6D0]">
-          {indexFile.count}
-        </span>
-      </div>
-      <p className="mt-3 break-all font-mono text-xs leading-5 text-[#A7B0C0]">
-        {indexFile.path}
-      </p>
-      <p className="mt-2 text-xs leading-5 text-[#64748B]">
-        Champs : {indexFile.fields.length > 0 ? indexFile.fields.join(", ") : "aucun"}
-      </p>
-      {indexFile.lastError ? (
-        <p className="mt-2 rounded-md border border-[#F97316]/30 bg-[#F97316]/10 px-2 py-1.5 text-xs leading-5 text-[#FDBA74]">
-          Derniere erreur : {indexFile.lastError}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-export default async function PinterestPublisherPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ account?: string | string[] }>;
-}) {
-  const pinterest = await readPinterestWorkshopIndexes();
-  const accountParam = (await searchParams).account;
-  const requestedAccountId = Array.isArray(accountParam) ? accountParam[0] : accountParam;
-  const selectedAccount =
-    pinterest.accounts.find((account) => account.id === requestedAccountId) ??
-    pinterest.accounts[0] ??
-    null;
-  const selectedReadyPins = selectedAccount?.readyPins ?? pinterest.readyPins;
-  const selectedPublicationQueue =
-    selectedAccount?.publicationQueue ?? pinterest.publicationQueue;
-  const selectedIndexFiles = selectedAccount?.indexFiles ?? pinterest.indexFiles;
-  const dataSourceLabel =
-    pinterest.dataSource === "supabase" ? "Supabase" : "Snapshot local";
-  const logs = [
-    {
-      timestamp: "local",
-      type: "system" as const,
-      message: pinterest.sourceAvailable
-        ? `Pinterest lu depuis ${dataSourceLabel} en lecture seule.`
-        : "Aucun index Pinterest synchronise pour le moment.",
-      status: pinterest.sourceAvailable ? ("Disponible" as const) : ("En migration" as const),
-    },
-    {
-      timestamp: "guard",
-      type: "security" as const,
-      message: "Aucune publication reelle, aucun agent local lance depuis cette page.",
-      status: "A securiser" as const,
-    },
-  ];
+export default async function PinterestPublisherPage() {
+  const [pins, boards] = await Promise.all([
+    readPinterestPublisherPins(),
+    readPinterestPublisherBoards(),
+  ]);
+  const readyPins = pins.filter((pin) => pin.status !== "published");
 
   return (
     <div>
       <CockpitHeader
-        eyebrow="Pinterest"
-        title="Atelier Pinterest"
-        description="Cockpit de pilotage des agents Pinterest locaux."
-        status={pinterest.sourceAvailable ? "Disponible" : "En migration"}
+        eyebrow="Publications > Pinterest"
+        title="Pinterest Publisher"
+        description="Publier uniquement des pins deja prepares, avec selection du compte OAuth et confirmation humaine."
+        status="En migration"
       />
 
-      <div className="grid gap-6">
-        <div className="flex justify-end">
-          <div className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#39E6D0]">
-            Source donnees : {dataSourceLabel}
-          </div>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            label="Posts generes"
-            value={pinterest.stats.postsGenerated}
-            detail="Lignes detectees dans posts_queue."
-          />
-          <StatCard
-            label="Pins avec visuels"
-            value={pinterest.stats.pinsWithVisuals}
-            detail="Associations exactes, fallback ou generees."
-          />
-          <StatCard
-            label="Pins prets a publier"
-            value={pinterest.stats.pinsReadyToPublish}
-            detail="Pins finaux crees dans l'index local."
-          />
-          <StatCard
-            label="En attente publication"
-            value={pinterest.stats.pinsPendingPublication}
-            detail="Lignes totales dans les files locales."
-          />
-        </div>
-
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <SectionContainer>
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
-                Comptes et niches
-              </p>
-              <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
-                Pilotage multi-comptes Pinterest
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
-                Selectionne une niche pour afficher ses pins prets et sa file de
-                publication locale.
-              </p>
-            </div>
-            {pinterest.updatedAt ? (
-              <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
-                sync {new Date(pinterest.updatedAt).toLocaleString("fr-FR")}
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-4">
-            <AccountSelector
-              accounts={pinterest.accounts}
-              selectedAccountId={selectedAccount?.id ?? null}
+          {pins.length > 0 ? (
+            <PinterestPublisherClient initialPins={pins} boards={boards} />
+          ) : (
+            <EmptyState
+              title="Aucun pin synchronise"
+              description="Synchronise d'abord les pins Pinterest prets depuis l'atelier avant de publier."
             />
-          </div>
+          )}
         </SectionContainer>
 
-        {!pinterest.sourceAvailable ? (
+        <div className="grid content-start gap-6">
           <SectionContainer>
-            <EmptyState
-              title="Aucun index Pinterest synchronise pour le moment."
-              description="La page reste disponible en lecture seule et attend un snapshot des index locaux produits par les agents Pinterest."
-            />
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+              Garde-fous
+            </p>
+            <div className="mt-4 grid gap-3 text-sm leading-6 text-[#A7B0C0]">
+              <p>Publication automatique en masse desactivee.</p>
+              <p>Le bouton publie exactement un pin, apres confirmation.</p>
+              <p>Un echec conserve le statut courant et enregistre l&apos;erreur.</p>
+            </div>
           </SectionContainer>
-        ) : null}
-
-        {pinterest.sourceAvailable ? (
           <SectionContainer>
-            <PinterestLibrary
-              accounts={pinterest.accounts}
-              initialAccountId={selectedAccount?.id ?? null}
-            />
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+              Etat
+            </p>
+            <div className="mt-4 grid gap-3 text-sm text-[#A7B0C0]">
+              <p>Pins visibles: {pins.length}</p>
+              <p>Non publies: {readyPins.length}</p>
+              <p>Boards OAuth detectes: {boards.length}</p>
+            </div>
           </SectionContainer>
-        ) : null}
-
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="space-y-6">
-            <SectionContainer>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
-                    Pins prets
-                  </p>
-                  <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
-                    {selectedAccount
-                      ? `Pins finalises - ${selectedAccount.name}`
-                      : "Pins finalises par les agents locaux"}
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
-                    {selectedAccount
-                      ? selectedAccount.niche
-                      : "Vue limitee aux index deja produits, sans generation ni publication."}
-                  </p>
-                </div>
-                <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
-                  {selectedAccount?.rawStats.final_pins ?? pinterest.indexes.finalPins} index
-                </span>
-              </div>
-
-              <div className="mt-5 grid gap-3">
-                {selectedReadyPins.slice(0, 12).map((item) => (
-                  <PinRow key={item.id} item={item} />
-                ))}
-                {selectedReadyPins.length === 0 ? (
-                  <EmptyState
-                    title="Aucun pin pret detecte"
-                    description="Les index existent peut-etre, mais aucun pin final pret n'a ete normalise pour l'instant."
-                  />
-                ) : null}
-              </div>
-            </SectionContainer>
-
-            <SectionContainer>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
-                    File de publication
-                  </p>
-                  <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
-                    Publication Pinterest locale
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
-                    Statuts issus de publishing_queue, affiches sans action reelle.
-                  </p>
-                </div>
-                <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
-                  {selectedAccount?.rawStats.publishing_queue ??
-                    pinterest.indexes.publishingQueue}{" "}
-                  lignes
-                </span>
-              </div>
-
-              <div className="mt-4">
-                {selectedPublicationQueue.length > 0 ? (
-                  <QueueTable items={selectedPublicationQueue.slice(0, 18)} />
-                ) : (
-                  <EmptyState
-                    title="File de publication vide"
-                    description="Aucun publishing_queue local n'a ete trouve ou normalise."
-                  />
-                )}
-              </div>
-            </SectionContainer>
-          </div>
-
-          <div className="space-y-6">
-            <SectionContainer>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
-                Index locaux
-              </p>
-              <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
-                {pinterest.dataSource === "supabase"
-                  ? "Lignes Pinterest synchronisees dans Supabase, en lecture seule."
-                  : "Fichiers reels synchronises depuis D:\\Edifice_IA, sans modification."}
-              </p>
-              <div className="mt-4 grid gap-3">
-                {selectedIndexFiles.map((indexFile) => (
-                  <IndexFileCard key={`${indexFile.label}-${indexFile.key}`} indexFile={indexFile} />
-                ))}
-              </div>
-              {selectedAccount ? (
-                <div className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#64748B]">
-                    Tableaux detectes
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
-                    {selectedAccount.boards.length > 0
-                      ? selectedAccount.boards.join(" / ")
-                      : "Aucun tableau detecte"}
-                  </p>
-                  <p className="mt-2 text-xs leading-5 text-[#64748B]">
-                    Images PINS_READY : {selectedAccount.rawStats.images_ready}
-                  </p>
-                </div>
-              ) : null}
-              <p className="mt-4 text-xs leading-6 text-[#64748B]">
-                Les agents restent dans D:\Edifice_IA. Aucune publication n&apos;est lancee ici.
-              </p>
-            </SectionContainer>
-
-            <SectionContainer>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
-                Actions futures
-              </p>
-              <div className="mt-4 grid gap-2">
-                <DisabledActions />
-              </div>
-              <p className="mt-4 text-sm leading-6 text-[#A7B0C0]">
-                Bientot disponible apres synchronisation controlee des agents locaux.
-              </p>
-            </SectionContainer>
-
-            <LogPanel logs={logs} />
-          </div>
+          <LogPanel logs={logs} />
         </div>
       </div>
     </div>

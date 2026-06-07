@@ -58,13 +58,10 @@ export const observatoryItems: ObservatoryItem[] = [
     id: "oauth-pinterest",
     area: "OAuth",
     name: "Pinterest",
-    status: "Review",
-    summary: "Espace publisher prepare, en attente reviewer externe.",
+    status: "Actif",
+    summary: "OAuth Pinterest multi-comptes connecte et Publisher actif.",
     nextAction:
-      "Attendre la validation reviewer Pinterest avant toute action OAuth supplementaire.",
-    blockedByExternalReview: true,
-    externalReviewNote:
-      "Attente de validation reviewer Pinterest, aucune action OAuth supplementaire pour l'instant.",
+      "Garder la publication limitee a un pin confirme et surveiller les erreurs API.",
   },
   {
     id: "agent-assistant",

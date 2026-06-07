@@ -5,6 +5,7 @@ import type { PinterestBoard, PinterestPublisherPin } from "@/lib/server/pintere
 
 type PublishState =
   | { status: "idle"; message: string | null }
+  | { status: "refreshing"; message: string | null }
   | { status: "confirming"; message: string | null; pin: PinterestPublisherPin }
   | { status: "publishing"; message: string | null; pin: PinterestPublisherPin }
   | { status: "success"; message: string; pinId: string }
@@ -14,6 +15,12 @@ const accountLabels: Record<string, string> = {
   edifice_discipline: "Edifice Discipline",
   solution_sommeil: "Solution Sommeil",
 };
+
+const confidenceLabels = {
+  eleve: "eleve",
+  moyen: "moyen",
+  faible: "faible",
+} as const;
 
 function uniqueValues(values: Array<string | null>) {
   return Array.from(new Set(values.filter(Boolean) as string[])).sort();
@@ -49,6 +56,7 @@ export function PinterestPublisherClient({
   const [accountFilter, setAccountFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [boardFilter, setBoardFilter] = useState("all");
+  const [boardStateFilter, setBoardStateFilter] = useState("all");
   const [selectedBoards, setSelectedBoards] = useState<Record<string, string>>({});
   const [publishState, setPublishState] = useState<PublishState>({
     status: "idle",
@@ -62,7 +70,12 @@ export function PinterestPublisherClient({
     const accountOk = accountFilter === "all" || pin.accountId === accountFilter;
     const statusOk = statusFilter === "all" || pin.status === statusFilter;
     const boardOk = boardFilter === "all" || pin.boardName === boardFilter;
-    return accountOk && statusOk && boardOk;
+    const boardStateOk =
+      boardStateFilter === "all" ||
+      (boardStateFilter === "without_board" && !pin.boardId) ||
+      (boardStateFilter === "suggested_board" && !pin.boardId && Boolean(pin.suggestedBoardId)) ||
+      (boardStateFilter === "confirmed_board" && Boolean(pin.boardId));
+    return accountOk && statusOk && boardOk && boardStateOk;
   });
 
   function boardsForPin(pin: PinterestPublisherPin) {
@@ -70,8 +83,44 @@ export function PinterestPublisherClient({
   }
 
   function getSelectedBoard(pin: PinterestPublisherPin) {
-    const boardId = selectedBoards[pin.id] ?? pin.boardId ?? "";
+    const boardId = selectedBoards[pin.id] ?? pin.boardId ?? pin.suggestedBoardId ?? "";
     return boardsForPin(pin).find((board) => board.id === boardId) ?? null;
+  }
+
+  async function refreshSuggestions() {
+    setPublishState({ status: "refreshing", message: null });
+
+    try {
+      const response = await fetch("/api/pinterest/board-suggestions", {
+        method: "POST",
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        pins?: PinterestPublisherPin[];
+        suggestionsUpdated?: number;
+      };
+
+      if (!response.ok || !payload.ok || !payload.pins) {
+        throw new Error(payload.error ?? "Actualisation des suggestions impossible.");
+      }
+
+      setPins(payload.pins);
+      setPublishState({
+        status: "success",
+        message: `${payload.suggestionsUpdated ?? 0} suggestion(s) de tableau actualisee(s).`,
+        pinId: "suggestions",
+      });
+    } catch (error) {
+      setPublishState({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Actualisation des suggestions impossible.",
+        pinId: null,
+      });
+    }
   }
 
   async function publishConfirmed(pin: PinterestPublisherPin) {
@@ -144,7 +193,7 @@ export function PinterestPublisherClient({
 
   return (
     <div className="grid gap-5">
-      <div className="grid gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] p-4 md:grid-cols-3">
+      <div className="grid gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] p-4 md:grid-cols-2 xl:grid-cols-5">
         <label className="grid gap-2 text-sm text-[#A7B0C0]">
           Compte Pinterest
           <select
@@ -187,6 +236,31 @@ export function PinterestPublisherClient({
             ))}
           </select>
         </label>
+        <label className="grid gap-2 text-sm text-[#A7B0C0]">
+          Etat board
+          <select
+            value={boardStateFilter}
+            onChange={(event) => setBoardStateFilter(event.target.value)}
+            className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-[#F8FAFC]"
+          >
+            <option value="all">Tous</option>
+            <option value="without_board">Sans board</option>
+            <option value="suggested_board">Board suggere</option>
+            <option value="confirmed_board">Board confirme</option>
+          </select>
+        </label>
+        <div className="grid content-end">
+          <button
+            type="button"
+            disabled={publishState.status === "refreshing"}
+            onClick={refreshSuggestions}
+            className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#111D2E] hover:text-[#F8FAFC] disabled:border-[#1D2A44] disabled:bg-[#03070B] disabled:text-[#64748B]"
+          >
+            {publishState.status === "refreshing"
+              ? "Actualisation..."
+              : "Actualiser les suggestions"}
+          </button>
+        </div>
       </div>
 
       {publishState.status === "success" || publishState.status === "error" ? (
@@ -243,6 +317,23 @@ export function PinterestPublisherClient({
                       {pin.boardName ?? "non defini"}
                     </span>
                   </p>
+                  <p className="md:col-span-2">
+                    Tableau suggere:{" "}
+                    <span className="font-semibold text-[#F8FAFC]">
+                      {pin.suggestedBoardName ?? "aucune suggestion"}
+                    </span>
+                    {pin.boardSuggestionConfidence ? (
+                      <span className="ml-2 rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-2 py-0.5 text-xs font-semibold text-[#39E6D0]">
+                        confiance {confidenceLabels[pin.boardSuggestionConfidence]}
+                      </span>
+                    ) : null}
+                  </p>
+                  {pin.boardSuggestionReason ? (
+                    <p className="md:col-span-2">
+                      Raison:{" "}
+                      <span className="text-[#D8DEE8]">{pin.boardSuggestionReason}</span>
+                    </p>
+                  ) : null}
                   {pin.lastError ? (
                     <p className="md:col-span-2 text-[#fecaca]">
                       Erreur: {pin.lastError}
@@ -254,7 +345,7 @@ export function PinterestPublisherClient({
                 <label className="grid gap-2 text-sm text-[#A7B0C0]">
                   Board cible
                   <select
-                    value={selectedBoards[pin.id] ?? pin.boardId ?? ""}
+                    value={selectedBoards[pin.id] ?? pin.boardId ?? pin.suggestedBoardId ?? ""}
                     onChange={(event) =>
                       setSelectedBoards((current) => ({
                         ...current,

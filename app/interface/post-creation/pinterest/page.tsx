@@ -43,13 +43,13 @@ export default async function PinterestWorkshopPage() {
       message: pinterest.sourceAvailable
         ? `Pinterest lu depuis ${dataSourceLabel} pour preparation de contenu.`
         : "Aucun index Pinterest synchronise pour le moment.",
-      status: pinterest.sourceAvailable ? ("Disponible" as const) : ("En migration" as const),
+      status: "Configure" as const,
     },
     {
       timestamp: "guard",
       type: "security" as const,
       message: "Aucune publication Pinterest n'est disponible depuis l'atelier.",
-      status: "A securiser" as const,
+      status: "Actif" as const,
     },
   ];
 
@@ -59,7 +59,7 @@ export default async function PinterestWorkshopPage() {
         eyebrow="Atelier de contenu > Pinterest"
         title="Atelier Pinterest"
         description="Creer, verifier, scorer et preparer les pins, visuels et brouillons Pinterest avant passage au Publisher."
-        status={pinterest.sourceAvailable ? "Disponible" : "En migration"}
+        status="Configure"
       />
 
       <div className="grid gap-6">

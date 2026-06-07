@@ -124,9 +124,8 @@ export const projectResources: ProjectResource[] = [
     category: "Reseaux sociaux / developpeurs",
     description: "Apps Pinterest, OAuth, boards et pins API.",
     linkStatus: "accessible",
-    projectStatus: "review",
-    note: "Attente de validation reviewer Pinterest, aucune action OAuth supplementaire pour l'instant.",
-    blockedByExternalReview: true,
+    projectStatus: "actif",
+    note: "Pinterest actif: OAuth multi-comptes connecte et publication controlee disponible.",
   },
   {
     name: "YouTube Studio",

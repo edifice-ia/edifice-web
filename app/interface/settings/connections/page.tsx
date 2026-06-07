@@ -9,6 +9,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { getActiveMetaScopes } from "@/lib/oauth/meta";
 import { oauthProviders, getRequiredEnvNames } from "@/lib/oauth/providers";
 import { getOAuthStatus } from "@/lib/oauth/server";
+import { getOAuthTokenStatus } from "@/lib/server/oauth/token-store";
 
 export const metadata: Metadata = {
   title: "Connexions OAuth - L’Édifice",
@@ -37,6 +38,7 @@ export default async function OAuthConnectionsPage({
   }>;
 }) {
   const result = await searchParams;
+  const pinterestTokenStatus = await getOAuthTokenStatus("pinterest").catch(() => null);
 
   return (
     <div>
@@ -73,12 +75,16 @@ export default async function OAuthConnectionsPage({
               : isPinterest
                 ? "/api/auth/pinterest/start"
                 : `/api/oauth/${provider.key}/start`;
+            const providerStatus =
+              isPinterest && pinterestTokenStatus?.present
+                ? "Actif"
+                : getOAuthStatus(provider);
 
             return (
               <OAuthProviderCard
                 key={provider.key}
                 name={provider.name}
-                status={getOAuthStatus(provider)}
+                status={providerStatus}
                 actionLabel={provider.actionLabel}
                 secondaryLabel={provider.secondaryLabel}
                 startHref={startHref}

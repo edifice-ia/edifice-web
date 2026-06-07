@@ -20,13 +20,13 @@ const logs = [
     timestamp: "guard",
     type: "security" as const,
     message: "Publication limitee a un seul pin test avec confirmation humaine.",
-    status: "A securiser" as const,
+    status: "Actif" as const,
   },
   {
     timestamp: "oauth",
     type: "api" as const,
     message: "Tokens Pinterest lus cote serveur par compte OAuth.",
-    status: "En migration" as const,
+    status: "Connecte" as const,
   },
 ];
 
@@ -43,7 +43,7 @@ export default async function PinterestPublisherPage() {
         eyebrow="Publications > Pinterest"
         title="Pinterest Publisher"
         description="Publier uniquement des pins deja prepares, avec selection du compte OAuth et confirmation humaine."
-        status="En migration"
+        status="Actif"
       />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">

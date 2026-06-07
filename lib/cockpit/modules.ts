@@ -36,9 +36,9 @@ export const cockpitModules: CockpitModule[] = [
   {
     id: "publisher-pinterest",
     title: "Pinterest Publisher",
-    description: "Publication Pinterest limitee a un pin test confirme.",
+    description: "Publication Pinterest active, limitee a un pin test confirme.",
     href: "/interface/publishers/pinterest",
-    status: "En migration",
+    status: "Actif",
   },
   {
     id: "monitoring-static",
@@ -79,7 +79,7 @@ export const publisherModules: CockpitModule[] = [
     description:
       "Selection des pins prets, choix du board cible et publication d'un seul pin test.",
     href: "/interface/publishers/pinterest",
-    status: "En migration",
+    status: "Actif",
   },
 ];
 

@@ -1,4 +1,7 @@
 export type CockpitStatus =
+  | "Actif"
+  | "Configure"
+  | "Connecte"
   | "Disponible"
   | "En migration"
   | "Local uniquement"

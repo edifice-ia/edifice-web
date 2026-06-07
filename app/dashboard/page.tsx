@@ -46,7 +46,7 @@ function buildRecommendations(state: CockpitReadOnlyState) {
       : []),
     "Commencer les assets images/voix uniquement pour les brouillons valides.",
     ...(state.externalReviews.length > 0
-      ? ["Attendre les reviews TikTok/Pinterest avant d'ouvrir l'automation sociale."]
+      ? ["Attendre les reviews restantes, notamment TikTok, avant d'ouvrir l'automation sociale."]
       : []),
     "Tester Instagram/YouTube uniquement via les pages de test controlees, sans publication automatique.",
   ];

@@ -3,6 +3,10 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getOAuthToken } from "@/lib/server/oauth/token-store";
 import { pinterestOAuthAccounts } from "@/lib/server/oauth/pinterest-accounts";
+import {
+  suggestPinterestBoard,
+  type PinterestBoardSuggestionConfidence,
+} from "@/lib/pinterest-board-suggestions";
 
 const PINTEREST_API_URL = "https://api.pinterest.com/v5";
 
@@ -13,8 +17,14 @@ export type PinterestPublisherPin = {
   accountName: string | null;
   title: string | null;
   description: string | null;
+  keywords: string[];
+  niche: string | null;
   boardId: string | null;
   boardName: string | null;
+  suggestedBoardId: string | null;
+  suggestedBoardName: string | null;
+  boardSuggestionReason: string | null;
+  boardSuggestionConfidence: PinterestBoardSuggestionConfidence | null;
   status: string;
   targetUrl: string | null;
   imageUrl: string | null;
@@ -30,6 +40,7 @@ export type PinterestBoard = {
   id: string;
   name: string;
   accountKey: string;
+  description: string | null;
 };
 
 type PinterestPinRow = {
@@ -39,8 +50,14 @@ type PinterestPinRow = {
   account_name: string | null;
   title: string | null;
   description: string | null;
+  keywords?: string[] | null;
+  niche?: string | null;
   board_id: string | null;
   board_name: string | null;
+  suggested_board_id?: string | null;
+  suggested_board_name?: string | null;
+  board_suggestion_reason?: string | null;
+  board_suggestion_confidence?: PinterestBoardSuggestionConfidence | null;
   status: string;
   target_url: string | null;
   public_image_url: string | null;
@@ -56,6 +73,7 @@ type PinterestBoardsResponse = {
   items?: Array<{
     id?: string;
     name?: string;
+    description?: string | null;
   }>;
 };
 
@@ -101,8 +119,14 @@ function mapPin(row: PinterestPinRow): PinterestPublisherPin {
     accountName: row.account_name,
     title: row.title,
     description: row.description,
+    keywords: row.keywords ?? [],
+    niche: row.niche ?? null,
     boardId: row.board_id,
     boardName: row.board_name,
+    suggestedBoardId: row.suggested_board_id ?? null,
+    suggestedBoardName: row.suggested_board_name ?? null,
+    boardSuggestionReason: row.board_suggestion_reason ?? null,
+    boardSuggestionConfidence: row.board_suggestion_confidence ?? null,
     status: row.status,
     targetUrl: row.target_url,
     imageUrl: row.public_image_url,
@@ -118,8 +142,9 @@ function mapPin(row: PinterestPinRow): PinterestPublisherPin {
 export async function readPinterestPublisherPins() {
   const supabase = getPinterestPublisherClient();
   const baseColumns =
-    "id, local_id, account_id, account_name, title, description, board_id, board_name, status, target_url, public_image_url, storage_path, pin_url, published_at";
-  const optionalColumns = "pinterest_pin_id, review_notes, last_error";
+    "id, local_id, account_id, account_name, title, description, keywords, niche, board_id, board_name, status, target_url, public_image_url, storage_path, pin_url, published_at";
+  const optionalColumns =
+    "pinterest_pin_id, review_notes, last_error, suggested_board_id, suggested_board_name, board_suggestion_reason, board_suggestion_confidence";
 
   let response: {
     data: unknown[] | null;
@@ -133,7 +158,9 @@ export async function readPinterestPublisherPins() {
   if (
     response.error &&
     (response.error.message.includes("pinterest_pin_id") ||
-      response.error.message.includes("last_error"))
+      response.error.message.includes("last_error") ||
+      response.error.message.includes("suggested_board_id") ||
+      response.error.message.includes("board_suggestion"))
   ) {
     response = await supabase
       .from("pinterest_pins")
@@ -182,6 +209,7 @@ async function pinterestGetBoards(accountKey: string): Promise<PinterestBoard[]>
       id: board.id as string,
       name: board.name as string,
       accountKey,
+      description: board.description ?? null,
     }));
 }
 
@@ -191,6 +219,48 @@ export async function readPinterestPublisherBoards() {
   );
 
   return boardGroups.flat();
+}
+
+export async function refreshPinterestBoardSuggestions() {
+  const supabase = getPinterestPublisherClient();
+  const [pins, boards] = await Promise.all([
+    readPinterestPublisherPins(),
+    readPinterestPublisherBoards(),
+  ]);
+  let suggestionsUpdated = 0;
+
+  for (const pin of pins) {
+    if (pin.status === "published") {
+      continue;
+    }
+
+    const suggestion = suggestPinterestBoard(pin, boards);
+
+    if (suggestion.source === "none") {
+      continue;
+    }
+
+    const { error } = await supabase
+      .from("pinterest_pins")
+      .update({
+        suggested_board_id: suggestion.boardId,
+        suggested_board_name: suggestion.boardName,
+        board_suggestion_reason: suggestion.reason,
+        board_suggestion_confidence: suggestion.confidence,
+      })
+      .eq("id", pin.id);
+
+    if (error) {
+      throw new Error(`Suggestion board Pinterest impossible: ${error.message}`);
+    }
+
+    suggestionsUpdated += 1;
+  }
+
+  return {
+    suggestionsUpdated,
+    pins: await readPinterestPublisherPins(),
+  };
 }
 
 export async function publishOnePinterestPin({
@@ -206,7 +276,7 @@ export async function publishOnePinterestPin({
   const { data, error } = await supabase
     .from("pinterest_pins")
     .select(
-      "id, local_id, account_id, account_name, title, description, board_id, board_name, status, target_url, public_image_url, storage_path, pin_url, published_at, review_notes",
+      "id, local_id, account_id, account_name, title, description, keywords, niche, board_id, board_name, status, target_url, public_image_url, storage_path, pin_url, published_at, review_notes",
     )
     .eq("id", pinId)
     .maybeSingle<PinterestPinRow>();

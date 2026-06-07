@@ -28,7 +28,7 @@ export function getOAuthStatus(provider: OAuthProviderConfig) {
   const state = getOAuthConfigState(provider);
 
   if (provider.key === "youtube") {
-    return "Validé";
+    return "Connecte";
   }
 
   if (provider.placeholder) {

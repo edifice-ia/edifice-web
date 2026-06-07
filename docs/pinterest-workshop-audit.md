@@ -296,7 +296,7 @@ Risque Windows :
 - Encodage : plusieurs anciens fichiers affichent des caracteres mal encodes. A corriger avant affichage web public.
 - CSV comme source de verite : pratique localement, fragile pour multi-utilisateur, concurrence et historique.
 - OpenAI images : cout, latence, quotas et retries doivent etre controles.
-- Pinterest API review : le web indique encore le mode review ; ne pas activer publication tant que l'etat externe n'est pas clair.
+- Pinterest API : statut actif, conserver la confirmation humaine et les limites de publication.
 
 ## Architecture cible simple
 
@@ -356,7 +356,7 @@ Source actuelle : aucune fonction detectee.
 
 Premiere version web : placeholder "non connecte".
 
-Migration progressive : ajouter lecture API analytics Pinterest lorsque les permissions et la review sont OK.
+Migration progressive : ajouter lecture API analytics Pinterest lorsque les permissions sont confirmees.
 
 ## Proposition de migration progressive
 
@@ -364,7 +364,7 @@ Migration progressive : ajouter lecture API analytics Pinterest lorsque les perm
 2. Job runner local : creer une route serveur ou un petit service local qui lance les agents Python autorises, capture `PROGRESS`, et ecrit un journal.
 3. Supabase mirror : importer les CSV en tables `pinterest_posts`, `pinterest_assets`, `pinterest_pins`, `pinterest_publication_queue`.
 4. Actions controlees : generation posts, selection visuel, creation pin, dry-run publication.
-5. Publication reelle : activer seulement apres OAuth/token store stable, review Pinterest OK, confirmation humaine et limite par run.
+5. Publication reelle : garder OAuth/token store stable, confirmation humaine et limite par run.
 6. Analytics : connecter les statistiques Pinterest en lecture seule.
 
 ## Recommandation immediate

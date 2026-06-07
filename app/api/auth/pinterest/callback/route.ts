@@ -265,7 +265,6 @@ export async function GET(request: NextRequest) {
           refresh_expires_in: tokenPayload.refresh_token_expires_in,
           scope: tokenPayload.scope,
         },
-        user.id,
       );
     } catch (storeError) {
       logPinterestStep("token_store_failed", {

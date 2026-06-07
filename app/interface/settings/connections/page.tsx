@@ -30,6 +30,10 @@ export default async function OAuthConnectionsPage({
     status?: string;
     connected?: string;
     error?: string;
+    code_received?: string;
+    state_valid?: string;
+    token_exchange_success?: string;
+    profile_fetch_success?: string;
   }>;
 }) {
   const result = await searchParams;
@@ -47,6 +51,10 @@ export default async function OAuthConnectionsPage({
         status={result.status}
         connected={result.connected}
         error={result.error}
+        code_received={result.code_received}
+        state_valid={result.state_valid}
+        token_exchange_success={result.token_exchange_success}
+        profile_fetch_success={result.profile_fetch_success}
       />
 
       <div className="grid gap-6">

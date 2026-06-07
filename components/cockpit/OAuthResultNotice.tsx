@@ -3,6 +3,10 @@ type OAuthResultNoticeProps = {
   status?: string;
   connected?: string;
   error?: string;
+  code_received?: string;
+  state_valid?: string;
+  token_exchange_success?: string;
+  profile_fetch_success?: string;
 };
 
 const messages: Record<
@@ -63,12 +67,38 @@ export function OAuthResultNotice({
   status,
   connected,
   error,
+  code_received,
+  state_valid,
+  token_exchange_success,
+  profile_fetch_success,
 }: OAuthResultNoticeProps) {
   if (!provider) {
     return null;
   }
 
   const normalizedProvider = provider.charAt(0).toUpperCase() + provider.slice(1);
+  const pinterestDiagnostics =
+    provider === "pinterest"
+      ? [
+          ["code_received", code_received],
+          ["state_valid", state_valid],
+          ["token_exchange_success", token_exchange_success],
+          ["profile_fetch_success", profile_fetch_success],
+        ].filter(([, value]) => value === "1" || value === "0")
+      : [];
+  const diagnosticPanel =
+    pinterestDiagnostics.length > 0 ? (
+      <div className="mt-3 grid gap-2 rounded-md border border-[#1D2A44] bg-[#08111A] p-3 text-xs text-[#A7B0C0] sm:grid-cols-2">
+        {pinterestDiagnostics.map(([label, value]) => (
+          <p key={label} className="flex items-center justify-between gap-3">
+            <span>{label}</span>
+            <span className={value === "1" ? "font-semibold text-[#39E6D0]" : "font-semibold text-[#fecaca]"}>
+              {value === "1" ? "true" : "false"}
+            </span>
+          </p>
+        ))}
+      </div>
+    ) : null;
 
   if (connected === "1") {
     return (
@@ -77,6 +107,7 @@ export function OAuthResultNotice({
         <p className="mt-1 text-sm text-[#A7B0C0]">
           Le retour OAuth a ete finalise sur la page Connexions.
         </p>
+        {diagnosticPanel}
       </div>
     );
   }
@@ -88,6 +119,7 @@ export function OAuthResultNotice({
         <p className="mt-1 text-sm text-[#A7B0C0]">
           La connexion n&apos;a pas pu etre finalisee{error ? ` (${error})` : ""}.
         </p>
+        {diagnosticPanel}
       </div>
     );
   }

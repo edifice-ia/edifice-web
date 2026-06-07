@@ -246,21 +246,42 @@ export async function GET(request: NextRequest) {
       return redirectToConnections(request, false, "profile_fetch", diagnostic);
     }
 
-    logPinterestStep("token_store_started");
-    await saveOAuthToken(
-      "pinterest",
-      {
-        access_token: tokenPayload.access_token,
-        refresh_token: tokenPayload.refresh_token,
-        token_type: tokenPayload.token_type,
-        expires_in: tokenPayload.expires_in,
-        refresh_expires_in: tokenPayload.refresh_token_expires_in,
-        scope: tokenPayload.scope,
-      },
-      user.id,
-    );
+    logPinterestStep("token_store_started", {
+      userIdPresent: Boolean(user.id),
+      accessTokenPresent: Boolean(tokenPayload.access_token),
+      refreshTokenPresent: Boolean(tokenPayload.refresh_token),
+      expiresInPresent: typeof tokenPayload.expires_in === "number",
+      scopePresent: Boolean(tokenPayload.scope),
+    });
 
-    logPinterestStep("token_store_succeeded", { tokenStored: true });
+    try {
+      await saveOAuthToken(
+        "pinterest",
+        {
+          access_token: tokenPayload.access_token,
+          refresh_token: tokenPayload.refresh_token,
+          token_type: tokenPayload.token_type,
+          expires_in: tokenPayload.expires_in,
+          refresh_expires_in: tokenPayload.refresh_token_expires_in,
+          scope: tokenPayload.scope,
+        },
+        user.id,
+      );
+    } catch (storeError) {
+      logPinterestStep("token_store_failed", {
+        failureStep: "token_store",
+        message:
+          storeError instanceof Error
+            ? storeError.message
+            : "Erreur stockage token Pinterest inconnue",
+      }, "error");
+      return redirectToConnections(request, false, "token_store", diagnostic);
+    }
+
+    logPinterestStep("token_store_succeeded", {
+      tokenStored: true,
+      message: "Token OAuth Pinterest enregistre dans Supabase.",
+    });
     return redirectToConnections(request, true, undefined, diagnostic);
   } catch (error) {
     logPinterestStep("callback_exception", {

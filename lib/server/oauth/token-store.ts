@@ -47,6 +47,20 @@ type OAuthTokenStatus = {
 
 let supabaseAdmin: SupabaseClient | null = null;
 
+const allowedOAuthTokenProviders = new Set<OAuthTokenProvider>([
+  "youtube",
+  "tiktok",
+  "meta",
+  "pinterest",
+]);
+
+type SupabaseOAuthError = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+};
+
 function getSupabaseAdminClient() {
   if (supabaseAdmin) {
     return supabaseAdmin;
@@ -62,6 +76,11 @@ function getSupabaseAdminClient() {
   }
 
   console.info("[OAuth Token Store] storage=supabase");
+  console.info("[OAuth Token Store] server url matches auth url yes/no", {
+    matchesAuthUrl: !process.env.NEXT_PUBLIC_SUPABASE_URL
+      ? null
+      : supabaseUrl === process.env.NEXT_PUBLIC_SUPABASE_URL.trim(),
+  });
 
   supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
     auth: {
@@ -89,6 +108,10 @@ function normalizeExpiresAt(tokenPayload: OAuthTokenPayload) {
   return toExpiresAt(tokenPayload.expires_in);
 }
 
+function normalizeRefreshExpiresAt(tokenPayload: OAuthTokenPayload) {
+  return toExpiresAt(tokenPayload.refresh_expires_in);
+}
+
 function mapRowToRecord(row: OAuthTokenRow): OAuthTokenRecord {
   return {
     provider: row.provider,
@@ -103,10 +126,40 @@ function mapRowToRecord(row: OAuthTokenRow): OAuthTokenRecord {
   };
 }
 
+function logSupabaseOAuthError(
+  provider: OAuthTokenProvider,
+  error: SupabaseOAuthError,
+  context: Record<string, unknown>,
+) {
+  console.error("[OAuth Token Store] Supabase save error", {
+    provider,
+    ...context,
+    code: error.code ?? null,
+    message: error.message ?? null,
+    details: error.details ?? null,
+    hint: error.hint ?? null,
+  });
+}
+
+function isMissingConflictConstraint(error: SupabaseOAuthError) {
+  return (
+    error.code === "42P10" ||
+    error.message?.includes("no unique or exclusion constraint") === true
+  );
+}
+
+function isProviderUniqueConflict(error: SupabaseOAuthError) {
+  return (
+    error.code === "23505" &&
+    (error.message?.includes("oauth_tokens_provider_key") === true ||
+      error.details?.includes("(provider)=") === true)
+  );
+}
+
 export async function saveOAuthToken(
   provider: OAuthTokenProvider,
   tokenPayload: OAuthTokenPayload,
-  userId?: string,
+  userIdInput?: string,
 ) {
   if (!tokenPayload.access_token) {
     throw new Error(`Cannot save empty OAuth token for provider ${provider}.`);
@@ -115,26 +168,75 @@ export async function saveOAuthToken(
   const now = new Date().toISOString();
   const updatedAt = tokenPayload.updated_at ?? now;
   const supabase = getSupabaseAdminClient();
+  const userId = userIdInput?.trim() || null;
+  const row = {
+    provider,
+    access_token: tokenPayload.access_token ?? null,
+    refresh_token: tokenPayload.refresh_token ?? null,
+    token_type: tokenPayload.token_type ?? null,
+    scope: tokenPayload.scope ?? null,
+    expires_at: normalizeExpiresAt(tokenPayload),
+    updated_at: updatedAt,
+    user_id: userId,
+  };
 
-  console.info(`[OAuth Token Store] save provider=${provider}`);
+  console.info("[OAuth Token Store] save started", {
+    provider,
+    providerAllowed: allowedOAuthTokenProviders.has(provider),
+    userIdPresent: Boolean(userId),
+    accessTokenPresent: Boolean(tokenPayload.access_token),
+    refreshTokenPresent: Boolean(tokenPayload.refresh_token),
+    expiresAtPresent: Boolean(row.expires_at),
+    refreshExpiresAtPresent: Boolean(normalizeRefreshExpiresAt(tokenPayload)),
+    scopePresent: Boolean(tokenPayload.scope),
+  });
 
-  const { error } = await supabase.from("oauth_tokens").upsert(
-    {
-      provider,
-      access_token: tokenPayload.access_token ?? null,
-      refresh_token: tokenPayload.refresh_token ?? null,
-      token_type: tokenPayload.token_type ?? null,
-      scope: tokenPayload.scope ?? null,
-      expires_at: normalizeExpiresAt(tokenPayload),
-      updated_at: updatedAt,
-      user_id: userId ?? null,
-    },
-    { onConflict: "provider" },
-  );
+  const primaryConflictTarget = userId ? "provider,user_id" : "provider";
+  const { error } = await supabase
+    .from("oauth_tokens")
+    .upsert(row, { onConflict: primaryConflictTarget });
 
   if (error) {
+    logSupabaseOAuthError(provider, error, {
+      conflictTarget: primaryConflictTarget,
+      userIdPresent: Boolean(userId),
+    });
+
+    if (userId && (isMissingConflictConstraint(error) || isProviderUniqueConflict(error))) {
+      console.warn("[OAuth Token Store] retrying save with provider conflict", {
+        provider,
+        reason: isMissingConflictConstraint(error)
+          ? "missing_provider_user_id_unique_constraint"
+          : "provider_unique_constraint",
+      });
+
+      const { error: fallbackError } = await supabase
+        .from("oauth_tokens")
+        .upsert(row, { onConflict: "provider" });
+
+      if (!fallbackError) {
+        console.info("[OAuth Token Store] token saved", {
+          provider,
+          conflictTarget: "provider",
+          userIdPresent: true,
+        });
+        return;
+      }
+
+      logSupabaseOAuthError(provider, fallbackError, {
+        conflictTarget: "provider",
+        userIdPresent: true,
+      });
+    }
+
     throw new Error(`Failed to save OAuth token for provider ${provider}.`);
   }
+
+  console.info("[OAuth Token Store] token saved", {
+    provider,
+    conflictTarget: primaryConflictTarget,
+    userIdPresent: Boolean(userId),
+  });
 }
 
 export async function getOAuthTokenStatus(

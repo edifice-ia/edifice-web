@@ -5,6 +5,7 @@ import { LogPanel } from "@/components/cockpit/LogPanel";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { PinterestPublisherClient } from "@/components/pinterest/PinterestPublisherClient";
 import {
+  getPinterestPublisherDiagnostic,
   readPinterestPublisherBoards,
   readPinterestPublisherPins,
 } from "@/lib/server/pinterest-publisher";
@@ -35,6 +36,7 @@ export default async function PinterestPublisherPage() {
     readPinterestPublisherPins(),
     readPinterestPublisherBoards(),
   ]);
+  const diagnostic = getPinterestPublisherDiagnostic();
   const readyPins = pins.filter((pin) => pin.status !== "published");
 
   return (
@@ -77,6 +79,52 @@ export default async function PinterestPublisherPage() {
               <p>Pins visibles: {pins.length}</p>
               <p>Non publies: {readyPins.length}</p>
               <p>Boards OAuth detectes: {boards.length}</p>
+            </div>
+          </SectionContainer>
+          <SectionContainer>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+              Diagnostic Pinterest API
+            </p>
+            <div className="mt-4 grid gap-3 text-sm leading-6 text-[#A7B0C0]">
+              <p>
+                Statut:{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {diagnostic.environmentLabel}
+                </span>
+              </p>
+              <p>
+                Environment detecte:{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {diagnostic.environment}
+                </span>
+              </p>
+              <p>
+                Access level detecte:{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {diagnostic.accessLevel}
+                </span>
+              </p>
+              <p className="break-all">
+                API URL utilisee:{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {diagnostic.apiBaseUrl}
+                </span>
+              </p>
+              <p className="break-all">
+                URL creation Pin:{" "}
+                <span className="font-semibold text-[#F8FAFC]">
+                  {diagnostic.createPinUrl}
+                </span>
+              </p>
+              <p
+                className={
+                  diagnostic.createPinsCompatible
+                    ? "text-[#39E6D0]"
+                    : "text-[#fbbf24]"
+                }
+              >
+                {diagnostic.compatibilityMessage}
+              </p>
             </div>
           </SectionContainer>
           <LogPanel logs={logs} />

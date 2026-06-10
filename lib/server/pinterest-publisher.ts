@@ -8,7 +8,21 @@ import {
   type PinterestBoardSuggestionConfidence,
 } from "@/lib/pinterest-board-suggestions";
 
-const PINTEREST_API_URL = "https://api.pinterest.com/v5";
+const PINTEREST_PRODUCTION_API_URL = "https://api.pinterest.com/v5";
+const PINTEREST_SANDBOX_API_URL = "https://api-sandbox.pinterest.com/v5";
+
+export type PinterestEnvironment = "production" | "sandbox";
+export type PinterestAccessLevel = "trial" | "production";
+
+export type PinterestPublisherDiagnostic = {
+  apiBaseUrl: string;
+  createPinUrl: string;
+  environment: PinterestEnvironment;
+  accessLevel: PinterestAccessLevel;
+  environmentLabel: "Pinterest Trial" | "Pinterest Production";
+  createPinsCompatible: boolean;
+  compatibilityMessage: string;
+};
 
 export type PinterestPublisherPin = {
   id: string;
@@ -88,6 +102,35 @@ type PinterestCreatePinResponse = {
 };
 
 let pinterestPublisherClient: SupabaseClient | null = null;
+
+function normalizePinterestEnvironment(value: string | undefined): PinterestEnvironment {
+  return value?.trim().toLowerCase() === "sandbox" ? "sandbox" : "production";
+}
+
+function normalizePinterestAccessLevel(value: string | undefined): PinterestAccessLevel {
+  return value?.trim().toLowerCase() === "production" ? "production" : "trial";
+}
+
+export function getPinterestPublisherDiagnostic(): PinterestPublisherDiagnostic {
+  const environment = normalizePinterestEnvironment(process.env.PINTEREST_ENVIRONMENT);
+  const accessLevel = normalizePinterestAccessLevel(process.env.PINTEREST_ACCESS_LEVEL);
+  const apiBaseUrl =
+    environment === "sandbox" ? PINTEREST_SANDBOX_API_URL : PINTEREST_PRODUCTION_API_URL;
+  const createPinsCompatible = accessLevel === "production" || environment === "sandbox";
+
+  return {
+    apiBaseUrl,
+    createPinUrl: `${apiBaseUrl}/pins`,
+    environment,
+    accessLevel,
+    environmentLabel:
+      accessLevel === "production" ? "Pinterest Production" : "Pinterest Trial",
+    createPinsCompatible,
+    compatibilityMessage: createPinsCompatible
+      ? "Creation de pins compatible avec la configuration actuelle."
+      : "Trial Access detecte: la creation de pins doit utiliser l'API Sandbox.",
+  };
+}
 
 function getPinterestPublisherClient() {
   if (pinterestPublisherClient) {
@@ -178,12 +221,21 @@ export async function readPinterestPublisherPins() {
 
 async function pinterestGetBoards(accountKey: string): Promise<PinterestBoard[]> {
   const token = await getOAuthToken("pinterest", undefined, accountKey);
+  const diagnostic = getPinterestPublisherDiagnostic();
 
   if (!token?.accessToken) {
     return [];
   }
 
-  const response = await fetch(`${PINTEREST_API_URL}/boards?page_size=100`, {
+  const boardsUrl = `${diagnostic.apiBaseUrl}/boards?page_size=100`;
+  console.info("[Pinterest Publisher] boards request", {
+    url: boardsUrl,
+    environment: diagnostic.environment,
+    accessLevel: diagnostic.accessLevel,
+    accountKey,
+  });
+
+  const response = await fetch(boardsUrl, {
     headers: {
       Authorization: `Bearer ${token.accessToken}`,
       Accept: "application/json",
@@ -316,9 +368,22 @@ export async function publishOnePinterestPin({
       url: data.public_image_url,
     },
   };
+  const diagnostic = getPinterestPublisherDiagnostic();
+  const createPinUrl = diagnostic.createPinUrl;
+
+  console.info("[Pinterest Publisher] create pin request", {
+    url: createPinUrl,
+    environment: diagnostic.environment,
+    accessLevel: diagnostic.accessLevel,
+    environmentLabel: diagnostic.environmentLabel,
+    createPinsCompatible: diagnostic.createPinsCompatible,
+    accountKey: data.account_id,
+    pinId,
+    boardId,
+  });
 
   try {
-    const response = await fetch(`${PINTEREST_API_URL}/pins`, {
+    const response = await fetch(createPinUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token.accessToken}`,
@@ -332,6 +397,17 @@ export async function publishOnePinterestPin({
       message?: string;
       code?: number;
     };
+
+    console.info("[Pinterest Publisher] create pin response", {
+      url: createPinUrl,
+      environment: diagnostic.environment,
+      accessLevel: diagnostic.accessLevel,
+      status: response.status,
+      success: response.ok,
+      pinterestPinIdPresent: Boolean(payload.id),
+      message: payload.message ?? null,
+      code: payload.code ?? null,
+    });
 
     if (!response.ok || !payload.id) {
       const message = payload.message ?? `Pinterest API HTTP ${response.status}`;

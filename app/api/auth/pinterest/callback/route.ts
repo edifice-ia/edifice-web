@@ -8,6 +8,7 @@ import {
 import { saveOAuthToken } from "@/lib/server/oauth/token-store";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
+import { buildPinterestScopeDiagnostic } from "@/lib/oauth/pinterest";
 
 const PINTEREST_TOKEN_URL = "https://api.pinterest.com/v5/oauth/token";
 const PINTEREST_PROFILE_URL = "https://api.pinterest.com/v5/user_account";
@@ -29,6 +30,9 @@ type PinterestOAuthDiagnostic = {
   state_valid: boolean;
   token_exchange_success: boolean;
   profile_fetch_success: boolean;
+  scopes_requested: string[];
+  scopes_granted: string[];
+  scopes_missing: string[];
 };
 
 const emptyDiagnostic: PinterestOAuthDiagnostic = {
@@ -36,6 +40,9 @@ const emptyDiagnostic: PinterestOAuthDiagnostic = {
   state_valid: false,
   token_exchange_success: false,
   profile_fetch_success: false,
+  scopes_requested: [],
+  scopes_granted: [],
+  scopes_missing: [],
 };
 
 function redactPinterestSecrets(value: unknown): unknown {
@@ -103,6 +110,11 @@ function redirectToConnections(
     "profile_fetch_success",
     diagnostic.profile_fetch_success ? "1" : "0",
   );
+  if (diagnostic.scopes_requested.length > 0) {
+    target.searchParams.set("scopes_requested", diagnostic.scopes_requested.join(","));
+    target.searchParams.set("scopes_granted", diagnostic.scopes_granted.join(","));
+    target.searchParams.set("scopes_missing", diagnostic.scopes_missing.join(","));
+  }
   const response = NextResponse.redirect(target);
   response.cookies.set(PINTEREST_STATE_COOKIE, "", {
     httpOnly: true,
@@ -220,6 +232,15 @@ export async function GET(request: NextRequest) {
 
     logPinterestStep("token_exchange_succeeded", {
       token_exchange_success: true,
+    });
+    const scopeDiagnostic = buildPinterestScopeDiagnostic(tokenPayload.scope);
+    diagnostic.scopes_requested = scopeDiagnostic.requested;
+    diagnostic.scopes_granted = scopeDiagnostic.granted;
+    diagnostic.scopes_missing = scopeDiagnostic.missing;
+    logPinterestStep("scope_diagnostic", {
+      requested: scopeDiagnostic.requested,
+      granted: scopeDiagnostic.granted,
+      missing: scopeDiagnostic.missing,
     });
 
     logPinterestStep("profile_fetch_started", {

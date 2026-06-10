@@ -35,6 +35,9 @@ export default async function OAuthConnectionsPage({
     state_valid?: string;
     token_exchange_success?: string;
     profile_fetch_success?: string;
+    scopes_requested?: string;
+    scopes_granted?: string;
+    scopes_missing?: string;
   }>;
 }) {
   const result = await searchParams;
@@ -57,6 +60,9 @@ export default async function OAuthConnectionsPage({
         state_valid={result.state_valid}
         token_exchange_success={result.token_exchange_success}
         profile_fetch_success={result.profile_fetch_success}
+        scopes_requested={result.scopes_requested}
+        scopes_granted={result.scopes_granted}
+        scopes_missing={result.scopes_missing}
       />
 
       <div className="grid gap-6">

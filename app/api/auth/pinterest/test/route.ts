@@ -4,6 +4,10 @@ import { getOAuthToken } from "@/lib/server/oauth/token-store";
 import { getPinterestOAuthAccount } from "@/lib/server/oauth/pinterest-accounts";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
+import {
+  buildPinterestScopeDiagnostic,
+  splitPinterestScopes,
+} from "@/lib/oauth/pinterest";
 
 const PINTEREST_API_URL = "https://api.pinterest.com/v5";
 
@@ -57,6 +61,8 @@ export async function GET(request: NextRequest) {
         accountId: accountKey,
         boardsCount: 0,
         scopesDetected: [],
+        scopesRequested: buildPinterestScopeDiagnostic([]).requested,
+        scopesMissing: buildPinterestScopeDiagnostic([]).missing,
         errorMessage: "Compte Pinterest OAuth inconnu.",
       },
       { status: 400 },
@@ -76,6 +82,8 @@ export async function GET(request: NextRequest) {
       accountId: null,
       boardsCount: 0,
       scopesDetected: [],
+      scopesRequested: buildPinterestScopeDiagnostic([]).requested,
+      scopesMissing: buildPinterestScopeDiagnostic([]).missing,
       errorMessage: `Aucun token Pinterest stocke pour ${account.label}.`,
     });
   }
@@ -85,13 +93,16 @@ export async function GET(request: NextRequest) {
       accountKey: account.accountKey,
       expired: true,
     });
+    const scopeDiagnostic = buildPinterestScopeDiagnostic(token.scope);
     return NextResponse.json({
       connected: false,
       tokenExpired: true,
       accountName: null,
       accountId: null,
       boardsCount: 0,
-      scopesDetected: token.scope?.split(/[\s,]+/).filter(Boolean) ?? [],
+      scopesDetected: scopeDiagnostic.granted,
+      scopesRequested: scopeDiagnostic.requested,
+      scopesMissing: scopeDiagnostic.missing,
       errorMessage: "Le token Pinterest est expire. Reconnecte Pinterest.",
     });
   }
@@ -104,7 +115,8 @@ export async function GET(request: NextRequest) {
     const profile = profileResult.status === "fulfilled" ? profileResult.value : null;
     const boards = boardsResult.status === "fulfilled" ? boardsResult.value : null;
     const boardsCount = boards?.items?.length ?? 0;
-    const scopesDetected = token.scope?.split(/[\s,]+/).filter(Boolean) ?? [];
+    const scopesDetected = splitPinterestScopes(token.scope);
+    const scopeDiagnostic = buildPinterestScopeDiagnostic(scopesDetected);
     const connected = Boolean(profile || boards);
     const errors = [
       profileResult.status === "rejected"
@@ -120,6 +132,12 @@ export async function GET(request: NextRequest) {
       accountKey: account.accountKey,
       count: boardsCount,
     });
+    console.info("[Pinterest OAuth Test] scopes diagnostic", {
+      accountKey: account.accountKey,
+      requested: scopeDiagnostic.requested,
+      granted: scopeDiagnostic.granted,
+      missing: scopeDiagnostic.missing,
+    });
 
     return NextResponse.json({
       connected,
@@ -129,7 +147,9 @@ export async function GET(request: NextRequest) {
       accountId: profile?.username ?? null,
       accountType: profile?.account_type ?? null,
       boardsCount,
-      scopesDetected,
+      scopesDetected: scopeDiagnostic.granted,
+      scopesRequested: scopeDiagnostic.requested,
+      scopesMissing: scopeDiagnostic.missing,
       errorMessage: errors.length > 0 ? errors.join(" / ") : null,
     }, { status: connected ? 200 : 502 });
   } catch (error) {
@@ -139,6 +159,7 @@ export async function GET(request: NextRequest) {
       accountKey: account.accountKey,
       errorMessage,
     });
+    const scopeDiagnostic = buildPinterestScopeDiagnostic(token.scope);
     return NextResponse.json(
       {
         connected: false,
@@ -146,7 +167,9 @@ export async function GET(request: NextRequest) {
         accountName: null,
         accountId: null,
         boardsCount: 0,
-        scopesDetected: token.scope?.split(/[\s,]+/).filter(Boolean) ?? [],
+        scopesDetected: scopeDiagnostic.granted,
+        scopesRequested: scopeDiagnostic.requested,
+        scopesMissing: scopeDiagnostic.missing,
         errorMessage,
       },
       { status: 502 },

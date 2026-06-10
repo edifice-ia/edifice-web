@@ -1,3 +1,5 @@
+import { PINTEREST_EXPECTED_SCOPES } from "@/lib/oauth/pinterest";
+
 export type OAuthProviderKey =
   | "youtube"
   | "pinterest"
@@ -51,7 +53,7 @@ export const oauthProviders: OAuthProviderConfig[] = [
       stateSecret: "OAUTH_STATE_SECRET",
     },
     authUrl: "https://www.pinterest.com/oauth/",
-    scopes: ["boards:read", "pins:read", "pins:write", "user_accounts:read"],
+    scopes: [...PINTEREST_EXPECTED_SCOPES],
     actionLabel: "Connecter Pinterest",
     secondaryLabel: "Tester la configuration",
     note: "Publication reelle non declenchee automatiquement.",

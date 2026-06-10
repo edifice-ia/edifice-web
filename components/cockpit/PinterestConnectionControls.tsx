@@ -10,6 +10,8 @@ type PinterestTestPayload = {
   accountId: string | null;
   boardsCount: number;
   scopesDetected: string[];
+  scopesRequested?: string[];
+  scopesMissing?: string[];
   errorMessage: string | null;
 };
 
@@ -50,6 +52,15 @@ const pinterestAccounts: PinterestConnectionAccount[] = [
 function PinterestAccountConnectionControls({ account }: { account: PinterestConnectionAccount }) {
   const [state, setState] = useState<TestState>("idle");
   const [payload, setPayload] = useState<PinterestTestPayload | null>(null);
+  const scopesRequested = payload?.scopesRequested ?? [];
+  const scopesMissing = payload?.scopesMissing ?? [];
+  const needsExtendedReconnect = scopesMissing.includes("boards:write");
+
+  function reconnect() {
+    window.location.href = `/api/auth/pinterest/start?account_key=${encodeURIComponent(
+      account.accountKey,
+    )}`;
+  }
 
   async function testConfiguration() {
     setState("checking");
@@ -98,15 +109,20 @@ function PinterestAccountConnectionControls({ account }: { account: PinterestCon
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={() => {
-            window.location.href = `/api/auth/pinterest/start?account_key=${encodeURIComponent(
-              account.accountKey,
-            )}`;
-          }}
+          onClick={reconnect}
           className="rounded-md border border-[#39E6D0]/50 bg-[#08111A] px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC]"
         >
           {payload?.connected ? "Reconnecter Pinterest" : "Connecter Pinterest"}
         </button>
+        {needsExtendedReconnect ? (
+          <button
+            type="button"
+            onClick={reconnect}
+            className="rounded-md border border-[#f59e0b]/50 bg-[#f59e0b]/10 px-4 py-2 text-sm font-semibold text-[#fbbf24] transition hover:bg-[#111D2E] hover:text-[#F8FAFC]"
+          >
+            Reconnecter avec permissions étendues
+          </button>
+        ) : null}
         <button
           type="button"
           disabled={state === "checking"}
@@ -141,14 +157,38 @@ function PinterestAccountConnectionControls({ account }: { account: PinterestCon
               <span className="font-semibold text-[#F8FAFC]">{payload.boardsCount}</span>
             </p>
             <p>
-              Scopes detectes :{" "}
+              Scopes demandes :{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {scopesRequested.length > 0
+                  ? scopesRequested.join(", ")
+                  : "non detectes"}
+              </span>
+            </p>
+            <p>
+              Scopes accordes :{" "}
               <span className="font-semibold text-[#F8FAFC]">
                 {payload.scopesDetected.length > 0
                   ? payload.scopesDetected.join(", ")
                   : "non detectes"}
               </span>
             </p>
+            <p>
+              Scopes manquants :{" "}
+              <span
+                className={`font-semibold ${
+                  scopesMissing.length > 0 ? "text-[#fbbf24]" : "text-[#39E6D0]"
+                }`}
+              >
+                {scopesMissing.length > 0 ? scopesMissing.join(", ") : "aucun"}
+              </span>
+            </p>
           </div>
+          {needsExtendedReconnect ? (
+            <p className="mt-3 rounded-md border border-[#f59e0b]/30 bg-[#f59e0b]/10 px-3 py-2 text-[#fbbf24]">
+              boards:write est absent du token. Reconnecte ce compte avec les
+              permissions etendues avant de publier.
+            </p>
+          ) : null}
           {payload.errorMessage ? (
             <p className="mt-3 rounded-md border border-[#f59e0b]/30 bg-[#f59e0b]/10 px-3 py-2 text-[#fbbf24]">
               {payload.errorMessage}

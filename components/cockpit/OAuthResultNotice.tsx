@@ -7,6 +7,9 @@ type OAuthResultNoticeProps = {
   state_valid?: string;
   token_exchange_success?: string;
   profile_fetch_success?: string;
+  scopes_requested?: string;
+  scopes_granted?: string;
+  scopes_missing?: string;
 };
 
 const messages: Record<
@@ -71,6 +74,9 @@ export function OAuthResultNotice({
   state_valid,
   token_exchange_success,
   profile_fetch_success,
+  scopes_requested,
+  scopes_granted,
+  scopes_missing,
 }: OAuthResultNoticeProps) {
   if (!provider) {
     return null;
@@ -88,15 +94,26 @@ export function OAuthResultNotice({
       : [];
   const diagnosticPanel =
     pinterestDiagnostics.length > 0 ? (
-      <div className="mt-3 grid gap-2 rounded-md border border-[#1D2A44] bg-[#08111A] p-3 text-xs text-[#A7B0C0] sm:grid-cols-2">
-        {pinterestDiagnostics.map(([label, value]) => (
-          <p key={label} className="flex items-center justify-between gap-3">
-            <span>{label}</span>
-            <span className={value === "1" ? "font-semibold text-[#39E6D0]" : "font-semibold text-[#fecaca]"}>
-              {value === "1" ? "true" : "false"}
-            </span>
-          </p>
-        ))}
+      <div className="mt-3 grid gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] p-3 text-xs text-[#A7B0C0]">
+        <div className="grid gap-2 sm:grid-cols-2">
+          {pinterestDiagnostics.map(([label, value]) => (
+            <p key={label} className="flex items-center justify-between gap-3">
+              <span>{label}</span>
+              <span className={value === "1" ? "font-semibold text-[#39E6D0]" : "font-semibold text-[#fecaca]"}>
+                {value === "1" ? "true" : "false"}
+              </span>
+            </p>
+          ))}
+        </div>
+        {scopes_requested || scopes_granted || scopes_missing ? (
+          <div className="grid gap-2 border-t border-[#1D2A44] pt-3">
+            <p>scopes_requested: {scopes_requested || "non detectes"}</p>
+            <p>scopes_granted: {scopes_granted || "non detectes"}</p>
+            <p className={scopes_missing ? "text-[#fbbf24]" : "text-[#39E6D0]"}>
+              scopes_missing: {scopes_missing || "aucun"}
+            </p>
+          </div>
+        ) : null}
       </div>
     ) : null;
 

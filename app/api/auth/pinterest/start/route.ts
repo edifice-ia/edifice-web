@@ -8,15 +8,10 @@ import {
   PINTEREST_STATE_MAX_AGE_SECONDS,
 } from "@/lib/server/oauth/pinterest-state";
 import { getPinterestOAuthAccount } from "@/lib/server/oauth/pinterest-accounts";
+import { PINTEREST_EXPECTED_SCOPES } from "@/lib/oauth/pinterest";
 
 const PINTEREST_AUTHORIZE_URL = "https://www.pinterest.com/oauth/";
 const PINTEREST_REDIRECT_URI = "https://www.edificeia.com/api/auth/pinterest/callback";
-const PINTEREST_SCOPES = [
-  "boards:read",
-  "pins:read",
-  "pins:write",
-  "user_accounts:read",
-];
 const REQUIRED_ENV = [
   "PINTEREST_CLIENT_ID",
   "PINTEREST_CLIENT_SECRET",
@@ -73,7 +68,7 @@ export async function GET(request: NextRequest) {
   authorizationUrl.searchParams.set("client_id", clientId);
   authorizationUrl.searchParams.set("redirect_uri", redirectUri);
   authorizationUrl.searchParams.set("response_type", "code");
-  authorizationUrl.searchParams.set("scope", PINTEREST_SCOPES.join(","));
+  authorizationUrl.searchParams.set("scope", PINTEREST_EXPECTED_SCOPES.join(","));
   authorizationUrl.searchParams.set("state", state);
 
   console.info("[Pinterest OAuth Start] OAuth demarre", {
@@ -82,7 +77,7 @@ export async function GET(request: NextRequest) {
   });
   console.info("[Pinterest OAuth Start] redirection preparee", {
     callback: redirectUri,
-    scopes: PINTEREST_SCOPES,
+    scopes: PINTEREST_EXPECTED_SCOPES,
   });
 
   const response = NextResponse.redirect(authorizationUrl);

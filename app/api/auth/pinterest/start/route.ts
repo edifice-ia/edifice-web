@@ -9,6 +9,7 @@ import {
 } from "@/lib/server/oauth/pinterest-state";
 import { getPinterestOAuthAccount } from "@/lib/server/oauth/pinterest-accounts";
 import { PINTEREST_EXPECTED_SCOPES } from "@/lib/oauth/pinterest";
+import { normalizePinterestEnvironment } from "@/lib/server/pinterest-publisher";
 
 const PINTEREST_AUTHORIZE_URL = "https://www.pinterest.com/oauth/";
 const PINTEREST_REDIRECT_URI = "https://www.edificeia.com/api/auth/pinterest/callback";
@@ -26,6 +27,11 @@ export async function GET(request: NextRequest) {
   }
 
   const accountKey = request.nextUrl.searchParams.get("account_key");
+  const oauthEnvironment = normalizePinterestEnvironment(
+    request.nextUrl.searchParams.get("oauth_environment") ??
+      request.nextUrl.searchParams.get("environment") ??
+      undefined,
+  );
   const account = getPinterestOAuthAccount(accountKey);
   if (!account) {
     return NextResponse.json(
@@ -59,7 +65,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const state = createPinterestOAuthState(user.id, account.accountKey);
+  const state = createPinterestOAuthState(user.id, account.accountKey, oauthEnvironment);
   if (!state) {
     return NextResponse.json({ error: "State OAuth Pinterest indisponible." }, { status: 500 });
   }
@@ -74,6 +80,7 @@ export async function GET(request: NextRequest) {
   console.info("[Pinterest OAuth Start] OAuth demarre", {
     userAuthenticated: true,
     accountKey: account.accountKey,
+    oauthEnvironment,
   });
   console.info("[Pinterest OAuth Start] redirection preparee", {
     callback: redirectUri,

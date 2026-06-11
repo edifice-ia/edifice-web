@@ -9,9 +9,10 @@ import { saveOAuthToken } from "@/lib/server/oauth/token-store";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 import { buildPinterestScopeDiagnostic } from "@/lib/oauth/pinterest";
+import { normalizePinterestEnvironment } from "@/lib/server/pinterest-publisher";
 
-const PINTEREST_TOKEN_URL = "https://api.pinterest.com/v5/oauth/token";
-const PINTEREST_PROFILE_URL = "https://api.pinterest.com/v5/user_account";
+const PINTEREST_PRODUCTION_API_URL = "https://api.pinterest.com/v5";
+const PINTEREST_SANDBOX_API_URL = "https://api-sandbox.pinterest.com/v5";
 const PINTEREST_REDIRECT_URI = "https://www.edificeia.com/api/auth/pinterest/callback";
 
 type PinterestTokenResponse = {
@@ -148,12 +149,20 @@ export async function GET(request: NextRequest) {
       : { valid: false as const, accountKey: null };
   const stateValid = stateValidation.valid;
   const accountKey = stateValidation.accountKey;
+  const oauthEnvironment = stateValidation.valid
+    ? stateValidation.oauthEnvironment
+    : normalizePinterestEnvironment(undefined);
+  const pinterestApiUrl =
+    oauthEnvironment === "sandbox" ? PINTEREST_SANDBOX_API_URL : PINTEREST_PRODUCTION_API_URL;
+  const tokenUrl = `${pinterestApiUrl}/oauth/token`;
+  const profileUrl = `${pinterestApiUrl}/user_account`;
   diagnostic.state_valid = stateValid;
 
   logPinterestStep("oauth_parameters_received", {
     code_received: diagnostic.code_received,
     state_valid: diagnostic.state_valid,
     accountKey,
+    oauthEnvironment,
     oauthErrorPresent: Boolean(oauthError),
     cookieStatePresent: Boolean(cookieState),
   });
@@ -191,10 +200,11 @@ export async function GET(request: NextRequest) {
 
   try {
     logPinterestStep("token_exchange_started", {
-      tokenUrl: PINTEREST_TOKEN_URL,
+      tokenUrl,
+      oauthEnvironment,
     });
 
-    const tokenResponse = await fetch(PINTEREST_TOKEN_URL, {
+    const tokenResponse = await fetch(tokenUrl, {
       method: "POST",
       headers: {
         Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
@@ -244,10 +254,11 @@ export async function GET(request: NextRequest) {
     });
 
     logPinterestStep("profile_fetch_started", {
-      profileUrl: PINTEREST_PROFILE_URL,
+      profileUrl,
+      oauthEnvironment,
     });
 
-    const profileResponse = await fetch(PINTEREST_PROFILE_URL, {
+    const profileResponse = await fetch(profileUrl, {
       headers: {
         Authorization: `Bearer ${tokenPayload.access_token}`,
         Accept: "application/json",
@@ -278,6 +289,7 @@ export async function GET(request: NextRequest) {
       expiresInPresent: typeof tokenPayload.expires_in === "number",
       scopePresent: Boolean(tokenPayload.scope),
       accountKey,
+      oauthEnvironment,
     });
 
     try {
@@ -291,6 +303,7 @@ export async function GET(request: NextRequest) {
           refresh_expires_in: tokenPayload.refresh_token_expires_in,
           scope: tokenPayload.scope,
           account_key: accountKey,
+          oauth_environment: oauthEnvironment,
         },
       );
     } catch (storeError) {
@@ -307,6 +320,7 @@ export async function GET(request: NextRequest) {
     logPinterestStep("token_store_succeeded", {
       tokenStored: true,
       accountKey,
+      oauthEnvironment,
       message: "Token OAuth Pinterest enregistre dans Supabase.",
     });
     return redirectToConnections(request, true, undefined, diagnostic);

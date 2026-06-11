@@ -24,6 +24,18 @@ export type PinterestPublisherDiagnostic = {
   compatibilityMessage: string;
 };
 
+export type PinterestTokenDiagnostic = {
+  accountKey: string;
+  accountLabel: string;
+  provider: "pinterest";
+  tokenPresent: boolean;
+  tokenValid: boolean;
+  tokenSource: PinterestEnvironment;
+  tokenSourceInferred: boolean;
+  expiresAt: string | null;
+  scopes: string[];
+};
+
 export type PinterestPublisherPin = {
   id: string;
   localId: string;
@@ -96,12 +108,30 @@ type PinterestCreatePinResponse = {
   url?: string;
   link?: string;
   board_id?: string;
+  code?: number | string;
+  message?: string;
+  details?: unknown;
+  error?: unknown;
+  errors?: unknown;
   board_owner?: {
     username?: string;
   };
 };
 
 let pinterestPublisherClient: SupabaseClient | null = null;
+
+async function readPinterestResponseBody(response: Response) {
+  const bodyText = await response.text();
+
+  try {
+    return JSON.parse(bodyText) as PinterestCreatePinResponse;
+  } catch {
+    return {
+      message: bodyText || `Pinterest API HTTP ${response.status}`,
+      details: bodyText || null,
+    } satisfies PinterestCreatePinResponse;
+  }
+}
 
 export function normalizePinterestEnvironment(value: string | undefined): PinterestEnvironment {
   return value?.trim().toLowerCase() === "sandbox" ? "sandbox" : "production";
@@ -132,6 +162,14 @@ export function getPinterestPublisherDiagnostic(options?: {
       ? "Creation de pins compatible avec la configuration actuelle."
       : "Trial Access detecte: la creation de pins doit utiliser l'API Sandbox.",
   };
+}
+
+function splitScopes(scope: string | null | undefined) {
+  return scope?.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean) ?? [];
+}
+
+function isTokenValid(expiresAt: string | null) {
+  return !expiresAt || new Date(expiresAt).getTime() > Date.now();
 }
 
 function getPinterestPublisherClient() {
@@ -275,6 +313,31 @@ export async function readPinterestPublisherBoards() {
   return boardGroups.flat();
 }
 
+export async function readPinterestTokenDiagnostics(): Promise<PinterestTokenDiagnostic[]> {
+  const diagnostics = await Promise.all(
+    pinterestOAuthAccounts.map(async (account) => {
+      const token = await getOAuthToken("pinterest", undefined, account.accountKey);
+      const tokenSource = token?.oauthEnvironment ?? "production";
+      const tokenPresent = Boolean(token?.accessToken);
+      const expiresAt = token?.expiresAt ?? null;
+
+      return {
+        accountKey: account.accountKey,
+        accountLabel: account.label,
+        provider: "pinterest" as const,
+        tokenPresent,
+        tokenValid: tokenPresent && isTokenValid(expiresAt),
+        tokenSource,
+        tokenSourceInferred: !token?.oauthEnvironment,
+        expiresAt,
+        scopes: splitScopes(token?.scope),
+      };
+    }),
+  );
+
+  return diagnostics;
+}
+
 export async function refreshPinterestBoardSuggestions() {
   const supabase = getPinterestPublisherClient();
   const [pins, boards] = await Promise.all([
@@ -361,6 +424,8 @@ export async function publishOnePinterestPin({
   if (!token?.accessToken) {
     throw new Error(`Token Pinterest absent pour ${data.account_id}.`);
   }
+  const tokenSource = token.oauthEnvironment ?? "production";
+  const tokenValid = isTokenValid(token.expiresAt);
 
   const publishBody = {
     board_id: boardId,
@@ -377,6 +442,7 @@ export async function publishOnePinterestPin({
 
   console.info("[Pinterest Publisher] create pin request", {
     url: createPinUrl,
+    provider: "pinterest",
     environment: diagnostic.environment,
     accessLevel: diagnostic.accessLevel,
     accessLabel: diagnostic.accessLabel,
@@ -384,6 +450,11 @@ export async function publishOnePinterestPin({
     accountKey: data.account_id,
     pinId,
     boardId,
+    tokenValid,
+    tokenSource,
+    tokenSourceInferred: !token.oauthEnvironment,
+    tokenExpiresAt: token.expiresAt,
+    tokenScopes: splitScopes(token.scope),
   });
 
   try {
@@ -397,20 +468,27 @@ export async function publishOnePinterestPin({
       body: JSON.stringify(publishBody),
       cache: "no-store",
     });
-    const payload = (await response.json()) as PinterestCreatePinResponse & {
-      message?: string;
-      code?: number;
-    };
+    const payload = await readPinterestResponseBody(response);
 
     console.info("[Pinterest Publisher] create pin response", {
       url: createPinUrl,
+      provider: "pinterest",
+      accountKey: data.account_id,
       environment: diagnostic.environment,
       accessLevel: diagnostic.accessLevel,
-      status: response.status,
+      httpStatus: response.status,
       success: response.ok,
       pinterestPinIdPresent: Boolean(payload.id),
+      errorCode: payload.code ?? null,
       message: payload.message ?? null,
-      code: payload.code ?? null,
+      details: payload.details ?? null,
+      error: payload.error ?? null,
+      errors: payload.errors ?? null,
+      tokenValid,
+      tokenSource,
+      tokenSourceInferred: !token.oauthEnvironment,
+      tokenExpiresAt: token.expiresAt,
+      tokenScopes: splitScopes(token.scope),
     });
 
     if (!response.ok || !payload.id) {

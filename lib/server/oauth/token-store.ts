@@ -13,6 +13,7 @@ export type OAuthTokenPayload = {
   scope?: string;
   open_id?: string;
   account_key?: string | null;
+  oauth_environment?: "production" | "sandbox" | null;
 };
 
 export type OAuthTokenRecord = {
@@ -26,6 +27,7 @@ export type OAuthTokenRecord = {
   expiresAt: string | null;
   refreshExpiresAt: string | null;
   updatedAt: string;
+  oauthEnvironment: "production" | "sandbox" | null;
 };
 
 type OAuthTokenRow = {
@@ -38,6 +40,7 @@ type OAuthTokenRow = {
   updated_at: string;
   user_id: string | null;
   account_key: string | null;
+  oauth_environment?: "production" | "sandbox" | null;
 };
 
 type OAuthTokenStatus = {
@@ -128,6 +131,7 @@ function mapRowToRecord(row: OAuthTokenRow): OAuthTokenRecord {
     expiresAt: row.expires_at,
     refreshExpiresAt: null,
     updatedAt: row.updated_at,
+    oauthEnvironment: row.oauth_environment ?? null,
   };
 }
 
@@ -212,6 +216,7 @@ export async function saveOAuthToken(
     scope: tokenPayload.scope ?? null,
     expires_at: normalizeExpiresAt(tokenPayload),
     updated_at: updatedAt,
+    oauth_environment: tokenPayload.oauth_environment ?? null,
   };
   const row = userId ? { ...baseRow, user_id: userId } : baseRow;
 
@@ -225,6 +230,7 @@ export async function saveOAuthToken(
     expiresAtPresent: Boolean(baseRow.expires_at),
     refreshExpiresAtPresent: Boolean(normalizeRefreshExpiresAt(tokenPayload)),
     scopePresent: Boolean(tokenPayload.scope),
+    oauthEnvironment: tokenPayload.oauth_environment ?? null,
   });
 
   const primaryConflictTarget = "provider,account_key";
@@ -241,6 +247,7 @@ export async function saveOAuthToken(
     refreshTokenPresent: Boolean(tokenPayload.refresh_token),
     expiresAtPresent: Boolean(baseRow.expires_at),
     scopePresent: Boolean(tokenPayload.scope),
+    oauthEnvironment: tokenPayload.oauth_environment ?? null,
   };
 
   console.info("[OAuth Token Store] Supabase save request", requestDiagnostic);
@@ -258,6 +265,41 @@ export async function saveOAuthToken(
       conflictTarget: primaryConflictTarget,
       userIdPresent: Boolean(userId),
     });
+
+    if (error.code === "42703" && error.message?.includes("oauth_environment")) {
+      console.warn("[OAuth Token Store] retrying save without oauth_environment column", {
+        provider,
+        reason: "missing_oauth_environment_column",
+      });
+
+      const rowWithoutEnvironment = Object.fromEntries(
+        Object.entries(row).filter(([key]) => key !== "oauth_environment"),
+      );
+      const { error: fallbackError } = await supabase
+        .from("oauth_tokens")
+        .upsert(rowWithoutEnvironment, { onConflict: primaryConflictTarget });
+
+      if (!fallbackError) {
+        const successPayload = {
+          provider,
+          conflictTarget: primaryConflictTarget,
+          accountKey,
+          userIdPresent: Boolean(userId),
+          oauthEnvironmentColumnPresent: false,
+        };
+        console.info("[OAuth Token Store] token saved", successPayload);
+        if (provider === "pinterest") {
+          console.info("[Pinterest Token Store] success", successPayload);
+        }
+        return;
+      }
+
+      logSupabaseOAuthError(provider, fallbackError, {
+        conflictTarget: primaryConflictTarget,
+        userIdPresent: Boolean(userId),
+        oauthEnvironmentColumnPresent: false,
+      });
+    }
 
     if (provider !== "pinterest" && isMissingAccountKeyColumn(error)) {
       console.warn("[OAuth Token Store] retrying save without account_key column", {
@@ -338,6 +380,7 @@ export async function saveOAuthToken(
     conflictTarget: primaryConflictTarget,
     accountKey,
     userIdPresent: Boolean(userId),
+    oauthEnvironment: tokenPayload.oauth_environment ?? null,
   };
   console.info("[OAuth Token Store] token saved", successPayload);
 
@@ -396,7 +439,7 @@ export async function getOAuthToken(
   const supabase = getSupabaseAdminClient();
   const accountKey = accountKeyInput?.trim();
   const baseSelect =
-    "provider, account_key, access_token, refresh_token, token_type, scope, expires_at, updated_at";
+    "provider, account_key, access_token, refresh_token, token_type, scope, expires_at, updated_at, oauth_environment";
   let query = supabase
     .from("oauth_tokens")
     .select(userId ? `${baseSelect}, user_id` : baseSelect)
@@ -410,6 +453,34 @@ export async function getOAuthToken(
   const { data, error } = await query.maybeSingle<OAuthTokenRow>();
 
   if (error) {
+    if (error.code === "42703" && error.message?.includes("oauth_environment")) {
+      console.warn("[OAuth Token Store] retrying token read without oauth_environment column", {
+        provider,
+        reason: "missing_oauth_environment_column",
+      });
+
+      const legacyBaseSelect =
+        "provider, account_key, access_token, refresh_token, token_type, scope, expires_at, updated_at";
+      let fallbackQuery = supabase
+        .from("oauth_tokens")
+        .select(userId ? `${legacyBaseSelect}, user_id` : legacyBaseSelect)
+        .eq("provider", provider);
+      if (accountKey) {
+        fallbackQuery = fallbackQuery.eq("account_key", accountKey);
+      }
+      if (userId) {
+        fallbackQuery = fallbackQuery.eq("user_id", userId);
+      }
+      const { data: fallbackData, error: fallbackError } =
+        await fallbackQuery.maybeSingle<OAuthTokenRow>();
+
+      if (fallbackError) {
+        throw new Error(`Failed to read OAuth token for provider ${provider}.`);
+      }
+
+      return fallbackData ? mapRowToRecord(fallbackData) : null;
+    }
+
     if (userId && isMissingUserIdColumn(error)) {
       console.warn("[OAuth Token Store] retrying token read without user_id column", {
         provider,

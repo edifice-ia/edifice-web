@@ -7,6 +7,7 @@ import {
   getPinterestPublisherDiagnostic,
   readPinterestPublisherBoards,
   readPinterestPublisherPins,
+  readPinterestTokenDiagnostics,
 } from "@/lib/server/pinterest-publisher";
 
 export const metadata: Metadata = {
@@ -31,9 +32,10 @@ const logs = [
 ];
 
 export default async function PinterestPublisherPage() {
-  const [pins, boards] = await Promise.all([
+  const [pins, boards, tokenDiagnostics] = await Promise.all([
     readPinterestPublisherPins(),
     readPinterestPublisherBoards(),
+    readPinterestTokenDiagnostics(),
   ]);
   const diagnostic = getPinterestPublisherDiagnostic();
   const readyPins = pins.filter((pin) => pin.status !== "published");
@@ -53,6 +55,7 @@ export default async function PinterestPublisherPage() {
             initialPins={pins}
             boards={boards}
             initialDiagnostic={diagnostic}
+            tokenDiagnostics={tokenDiagnostics}
           />
         </SectionContainer>
 

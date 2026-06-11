@@ -6,6 +6,7 @@ import type {
   PinterestEnvironment,
   PinterestPublisherDiagnostic,
   PinterestPublisherPin,
+  PinterestTokenDiagnostic,
 } from "@/lib/server/pinterest-publisher";
 
 type PublishState =
@@ -55,10 +56,12 @@ export function PinterestPublisherClient({
   initialPins,
   boards,
   initialDiagnostic,
+  tokenDiagnostics,
 }: {
   initialPins: PinterestPublisherPin[];
   boards: PinterestBoard[];
   initialDiagnostic: PinterestPublisherDiagnostic;
+  tokenDiagnostics: PinterestTokenDiagnostic[];
 }) {
   const [pins, setPins] = useState(initialPins);
   const [diagnostic, setDiagnostic] = useState(initialDiagnostic);
@@ -77,6 +80,10 @@ export function PinterestPublisherClient({
 
   const statuses = useMemo(() => uniqueValues(pins.map((pin) => pin.status)), [pins]);
   const boardNames = useMemo(() => uniqueValues(pins.map((pin) => pin.boardName)), [pins]);
+  const visibleTokenDiagnostics =
+    accountFilter === "all"
+      ? tokenDiagnostics
+      : tokenDiagnostics.filter((token) => token.accountKey === accountFilter);
 
   const filteredPins = pins.filter((pin) => {
     const accountOk = accountFilter === "all" || pin.accountId === accountFilter;
@@ -156,6 +163,14 @@ export function PinterestPublisherClient({
           : "Trial Access detecte: la creation de pins doit utiliser l'API Sandbox.",
       };
     });
+  }
+
+  function reconnectSandbox(accountKey: string) {
+    window.location.assign(
+      `/api/auth/pinterest/start?account_key=${encodeURIComponent(
+        accountKey,
+      )}&oauth_environment=sandbox`,
+    );
   }
 
   async function refreshSuggestions() {
@@ -306,6 +321,53 @@ export function PinterestPublisherClient({
           >
             {diagnostic.compatibilityMessage}
           </p>
+          <div className="grid gap-3 border-t border-[#1D2A44] pt-3">
+            {visibleTokenDiagnostics.map((token) => (
+              <div
+                key={token.accountKey}
+                className="grid gap-2 rounded-md border border-[#1D2A44] bg-[#03070B] p-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold text-[#F8FAFC]">{token.accountLabel}</p>
+                  <span
+                    className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${
+                      token.tokenValid
+                        ? "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]"
+                        : "border-[#ef4444]/40 bg-[#ef4444]/10 text-[#fecaca]"
+                    }`}
+                  >
+                    Token valide: {token.tokenValid ? "oui" : "non"}
+                  </span>
+                </div>
+                <p>
+                  Source token:{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {token.tokenSource}
+                    {token.tokenSourceInferred ? " (inférée)" : ""}
+                  </span>
+                </p>
+                <p>
+                  Expiration token:{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {token.expiresAt ?? "non renseignee"}
+                  </span>
+                </p>
+                <p className="break-words">
+                  Scopes token:{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {token.scopes.length > 0 ? token.scopes.join(", ") : "non detectes"}
+                  </span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => reconnectSandbox(token.accountKey)}
+                  className="justify-self-start rounded-md border border-[#f59e0b]/50 bg-[#f59e0b]/10 px-3 py-1.5 text-xs font-semibold text-[#fbbf24] transition hover:bg-[#111D2E] hover:text-[#F8FAFC]"
+                >
+                  Reconnecter en Sandbox
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
         <div className="grid content-start gap-3">
           <label className="grid gap-2 text-sm text-[#A7B0C0]">

@@ -5,7 +5,7 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { PinterestPublisherClient } from "@/components/pinterest/PinterestPublisherClient";
 import {
   getPinterestPublisherDiagnostic,
-  readPinterestPublisherBoards,
+  readPinterestPublisherBoardsState,
   readPinterestPublisherPins,
   readPinterestTokenDiagnostics,
 } from "@/lib/server/pinterest-publisher";
@@ -33,11 +33,12 @@ const logs = [
 
 export default async function PinterestPublisherPage() {
   const diagnostic = getPinterestPublisherDiagnostic();
-  const [pins, boards, tokenDiagnostics] = await Promise.all([
+  const [pins, boardState, tokenDiagnostics] = await Promise.all([
     readPinterestPublisherPins(),
-    readPinterestPublisherBoards(diagnostic.environment),
+    readPinterestPublisherBoardsState(diagnostic.environment),
     readPinterestTokenDiagnostics(),
   ]);
+  const boards = boardState.boards;
   const readyPins = pins.filter((pin) => pin.status !== "published");
 
   return (
@@ -54,6 +55,7 @@ export default async function PinterestPublisherPage() {
           <PinterestPublisherClient
             initialPins={pins}
             boards={boards}
+            initialBoardDiagnostics={boardState.diagnostics}
             initialDiagnostic={diagnostic}
             tokenDiagnostics={tokenDiagnostics}
           />

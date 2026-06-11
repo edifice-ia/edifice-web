@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
   normalizePinterestEnvironment,
-  readPinterestPublisherBoards,
+  readPinterestPublisherBoardsState,
 } from "@/lib/server/pinterest-publisher";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -20,9 +20,38 @@ export async function GET(request: NextRequest) {
     const environment = normalizePinterestEnvironment(
       request.nextUrl.searchParams.get("environment") ?? undefined,
     );
-    const boards = await readPinterestPublisherBoards(environment);
+    const selectedAccount = request.nextUrl.searchParams.get("account_key") ?? "all";
+    const state = await readPinterestPublisherBoardsState(environment);
+    const boards =
+      selectedAccount === "all"
+        ? state.boards
+        : state.boards.filter((board) => board.accountKey === selectedAccount);
+    const diagnostics =
+      selectedAccount === "all"
+        ? state.diagnostics
+        : state.diagnostics.filter((item) => item.accountKey === selectedAccount);
 
-    return NextResponse.json({ ok: true, environment, boards });
+    console.info("[Pinterest Publisher] tableaux route result", {
+      provider: "pinterest",
+      selectedAccount,
+      environment,
+      boardsCount: boards.length,
+      boardsSource: "api_pinterest",
+      tokenEnvironments: diagnostics.map((item) => ({
+        accountKey: item.accountKey,
+        tokenEnvironment: item.tokenEnvironment,
+        tokenValid: item.tokenValid,
+        skippedReason: item.skippedReason,
+      })),
+    });
+
+    return NextResponse.json({
+      ok: true,
+      environment,
+      selectedAccount,
+      boards,
+      diagnostics,
+    });
   } catch (error) {
     return NextResponse.json(
       {

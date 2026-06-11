@@ -69,6 +69,18 @@ export type PinterestBoard = {
   description: string | null;
 };
 
+export type PinterestBoardsDiagnostic = {
+  accountKey: string;
+  accountLabel: string;
+  uiEnvironment: PinterestEnvironment;
+  tokenEnvironment: PinterestEnvironment | null;
+  tokenSourceInferred: boolean;
+  tokenValid: boolean;
+  boardsCount: number;
+  boardsSource: "api_pinterest" | "none";
+  skippedReason: string | null;
+};
+
 type PinterestPinRow = {
   id: string;
   local_id: string;
@@ -306,37 +318,70 @@ async function pinterestGetBoards(accountKey: string): Promise<PinterestBoard[]>
 }
 
 async function pinterestGetBoardsForEnvironment(
-  accountKey: string,
+  account: (typeof pinterestOAuthAccounts)[number],
   environment: PinterestEnvironment,
-): Promise<PinterestBoard[]> {
+): Promise<{ boards: PinterestBoard[]; diagnostic: PinterestBoardsDiagnostic }> {
+  const accountKey = account.accountKey;
   const token = await getOAuthToken("pinterest", undefined, accountKey);
   const diagnostic = getPinterestPublisherDiagnostic({ environment });
+  const tokenSource = token?.oauthEnvironment ?? "production";
+  const tokenValid = Boolean(token?.accessToken) && isTokenValid(token?.expiresAt ?? null);
+  const baseDiagnostic: PinterestBoardsDiagnostic = {
+    accountKey,
+    accountLabel: account.label,
+    uiEnvironment: environment,
+    tokenEnvironment: token?.accessToken ? tokenSource : null,
+    tokenSourceInferred: Boolean(token?.accessToken && !token.oauthEnvironment),
+    tokenValid,
+    boardsCount: 0,
+    boardsSource: "none",
+    skippedReason: null,
+  };
 
   if (!token?.accessToken) {
-    return [];
+    console.info("[Pinterest Publisher] tableaux ignores: token absent", {
+      provider: "pinterest",
+      accountKey,
+      selectedAccount: accountKey,
+      environment,
+      tokenSource: null,
+      boardsCount: 0,
+      boardsSource: "none",
+    });
+    return {
+      boards: [],
+      diagnostic: { ...baseDiagnostic, skippedReason: "token_absent" },
+    };
   }
-
-  const tokenSource = token.oauthEnvironment ?? "production";
-  const tokenValid = isTokenValid(token.expiresAt);
 
   if (!tokenValid || tokenSource !== environment) {
     console.info("[Pinterest Publisher] tableaux ignores pour environnement incompatible", {
       provider: "pinterest",
       accountKey,
+      selectedAccount: accountKey,
       environment,
       tokenSource,
       tokenSourceInferred: !token.oauthEnvironment,
       tokenValid,
       tokenExpiresAt: token.expiresAt,
       tokenScopes: splitScopes(token.scope),
+      boardsCount: 0,
+      boardsSource: "none",
     });
-    return [];
+    return {
+      boards: [],
+      diagnostic: {
+        ...baseDiagnostic,
+        skippedReason: !tokenValid ? "token_invalide" : "environnement_token_incompatible",
+      },
+    };
   }
 
   const boardsUrl = `${diagnostic.apiBaseUrl}/boards?page_size=100`;
   console.info("[Pinterest Publisher] tableaux request", {
     url: boardsUrl,
     provider: "pinterest",
+    selectedAccount: accountKey,
     environment: diagnostic.environment,
     accessLevel: diagnostic.accessLevel,
     accountKey,
@@ -362,17 +407,23 @@ async function pinterestGetBoardsForEnvironment(
     console.warn("[Pinterest Publisher] tableaux read failed", {
       provider: "pinterest",
       accountKey,
+      selectedAccount: accountKey,
       environment,
       tokenSource,
       httpStatus: response.status,
       errorCode: payload.code ?? null,
       message: payload.message ?? null,
       details: payload.details ?? null,
+      boardsCount: 0,
+      boardsSource: "api_pinterest",
     });
-    return [];
+    return {
+      boards: [],
+      diagnostic: { ...baseDiagnostic, boardsSource: "api_pinterest", skippedReason: "api_error" },
+    };
   }
 
-  return (payload.items ?? [])
+  const boards = (payload.items ?? [])
     .filter((board) => board.id && board.name)
     .map((board) => ({
       id: board.id as string,
@@ -380,17 +431,31 @@ async function pinterestGetBoardsForEnvironment(
       accountKey,
       description: board.description ?? null,
     }));
+
+  console.info("[Pinterest Publisher] tableaux loaded", {
+    provider: "pinterest",
+    accountKey,
+    selectedAccount: accountKey,
+    environment,
+    tokenSource,
+    boardsCount: boards.length,
+    boardsSource: "api_pinterest",
+  });
+
+  return {
+    boards,
+    diagnostic: {
+      ...baseDiagnostic,
+      boardsCount: boards.length,
+      boardsSource: "api_pinterest",
+    },
+  };
 }
 
 export async function readPinterestPublisherBoards(environment?: PinterestEnvironment) {
   if (environment) {
-    const boardGroups = await Promise.all(
-      pinterestOAuthAccounts.map((account) =>
-        pinterestGetBoardsForEnvironment(account.accountKey, environment),
-      ),
-    );
-
-    return boardGroups.flat();
+    const state = await readPinterestPublisherBoardsState(environment);
+    return state.boards;
   }
 
   const boardGroups = await Promise.all(
@@ -398,6 +463,17 @@ export async function readPinterestPublisherBoards(environment?: PinterestEnviro
   );
 
   return boardGroups.flat();
+}
+
+export async function readPinterestPublisherBoardsState(environment: PinterestEnvironment) {
+  const boardGroups = await Promise.all(
+    pinterestOAuthAccounts.map((account) => pinterestGetBoardsForEnvironment(account, environment)),
+  );
+
+  return {
+    boards: boardGroups.flatMap((group) => group.boards),
+    diagnostics: boardGroups.map((group) => group.diagnostic),
+  };
 }
 
 export async function readPinterestTokenDiagnostics(): Promise<PinterestTokenDiagnostic[]> {

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type {
   PinterestBoard,
+  PinterestBoardsDiagnostic,
   PinterestEnvironment,
   PinterestPublisherDiagnostic,
   PinterestPublisherPin,
@@ -28,6 +29,18 @@ const confidenceLabels = {
   moyen: "moyen",
   faible: "faible",
 } as const;
+
+const boardSourceLabels: Record<PinterestBoardsDiagnostic["boardsSource"], string> = {
+  api_pinterest: "API Pinterest",
+  none: "aucune",
+};
+
+const boardSkippedReasonLabels: Record<string, string> = {
+  token_absent: "token absent",
+  token_invalide: "token invalide ou expire",
+  environnement_token_incompatible: "environnement token/API incompatible",
+  api_error: "erreur API Pinterest",
+};
 
 function uniqueValues(values: Array<string | null>) {
   return Array.from(new Set(values.filter(Boolean) as string[])).sort();
@@ -55,16 +68,19 @@ function PinImage({ pin }: { pin: PinterestPublisherPin }) {
 export function PinterestPublisherClient({
   initialPins,
   boards,
+  initialBoardDiagnostics,
   initialDiagnostic,
   tokenDiagnostics,
 }: {
   initialPins: PinterestPublisherPin[];
   boards: PinterestBoard[];
+  initialBoardDiagnostics: PinterestBoardsDiagnostic[];
   initialDiagnostic: PinterestPublisherDiagnostic;
   tokenDiagnostics: PinterestTokenDiagnostic[];
 }) {
   const [pins, setPins] = useState(initialPins);
   const [availableBoards, setAvailableBoards] = useState(boards);
+  const [boardDiagnostics, setBoardDiagnostics] = useState(initialBoardDiagnostics);
   const [boardsError, setBoardsError] = useState<string | null>(null);
   const [diagnostic, setDiagnostic] = useState(initialDiagnostic);
   const [environment, setEnvironment] = useState<PinterestEnvironment>(
@@ -89,6 +105,10 @@ export function PinterestPublisherClient({
     accountFilter === "all"
       ? tokenDiagnostics
       : tokenDiagnostics.filter((token) => token.accountKey === accountFilter);
+  const visibleBoardDiagnostics =
+    accountFilter === "all"
+      ? boardDiagnostics
+      : boardDiagnostics.filter((item) => item.accountKey === accountFilter);
 
   const filteredPins = pins.filter((pin) => {
     const accountOk = accountFilter === "all" || pin.accountId === accountFilter;
@@ -150,7 +170,7 @@ export function PinterestPublisherClient({
   function changeEnvironment(nextEnvironment: PinterestEnvironment) {
     setEnvironment(nextEnvironment);
     setSelectedBoards({});
-    void loadBoards(nextEnvironment);
+    void loadBoards(nextEnvironment, accountFilter);
     setDiagnostic((current) => {
       const apiBaseUrl =
         nextEnvironment === "sandbox"
@@ -172,12 +192,14 @@ export function PinterestPublisherClient({
     });
   }
 
-  async function loadBoards(nextEnvironment = environment) {
+  async function loadBoards(nextEnvironment = environment, nextAccount = accountFilter) {
     setBoardsError(null);
 
     try {
       const response = await fetch(
-        `/api/pinterest/boards?environment=${encodeURIComponent(nextEnvironment)}`,
+        `/api/pinterest/boards?environment=${encodeURIComponent(
+          nextEnvironment,
+        )}&account_key=${encodeURIComponent(nextAccount)}`,
         {
           method: "GET",
           cache: "no-store",
@@ -187,6 +209,7 @@ export function PinterestPublisherClient({
         ok?: boolean;
         error?: string;
         boards?: PinterestBoard[];
+        diagnostics?: PinterestBoardsDiagnostic[];
       };
 
       if (!response.ok || !payload.ok || !payload.boards) {
@@ -194,8 +217,10 @@ export function PinterestPublisherClient({
       }
 
       setAvailableBoards(payload.boards);
+      setBoardDiagnostics(payload.diagnostics ?? []);
     } catch (error) {
       setAvailableBoards([]);
+      setBoardDiagnostics([]);
       setBoardsError(
         error instanceof Error
           ? error.message
@@ -457,6 +482,52 @@ export function PinterestPublisherClient({
               </div>
             ))}
           </div>
+          <div className="grid gap-3 border-t border-[#1D2A44] pt-3">
+            {visibleBoardDiagnostics.map((item) => (
+              <div
+                key={item.accountKey}
+                className="grid gap-1 rounded-md border border-[#1D2A44] bg-[#03070B] p-3"
+              >
+                <p>
+                  Compte:{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {item.accountLabel}
+                  </span>
+                </p>
+                <p>
+                  Environnement UI:{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {item.uiEnvironment}
+                  </span>
+                </p>
+                <p>
+                  Environnement token:{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {item.tokenEnvironment ?? "absent"}
+                    {item.tokenSourceInferred ? " (inferee)" : ""}
+                  </span>
+                </p>
+                <p>
+                  Nombre de tableaux:{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {item.boardsCount}
+                  </span>
+                </p>
+                <p>
+                  Source des tableaux:{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {boardSourceLabels[item.boardsSource]}
+                  </span>
+                </p>
+                {item.skippedReason ? (
+                  <p className="text-[#fbbf24]">
+                    Diagnostic:{" "}
+                    {boardSkippedReasonLabels[item.skippedReason] ?? item.skippedReason}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
         </div>
         <div className="grid content-start gap-3">
           <label className="grid gap-2 text-sm text-[#A7B0C0]">
@@ -490,7 +561,11 @@ export function PinterestPublisherClient({
           Compte Pinterest
           <select
             value={accountFilter}
-            onChange={(event) => setAccountFilter(event.target.value)}
+            onChange={(event) => {
+              const nextAccount = event.target.value;
+              setAccountFilter(nextAccount);
+              void loadBoards(environment, nextAccount);
+            }}
             className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-[#F8FAFC]"
           >
             <option value="all">Tous</option>

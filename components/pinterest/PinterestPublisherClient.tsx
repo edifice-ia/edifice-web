@@ -1,11 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { PinterestBoard, PinterestPublisherPin } from "@/lib/server/pinterest-publisher";
+import type {
+  PinterestBoard,
+  PinterestEnvironment,
+  PinterestPublisherDiagnostic,
+  PinterestPublisherPin,
+} from "@/lib/server/pinterest-publisher";
 
 type PublishState =
   | { status: "idle"; message: string | null }
   | { status: "refreshing"; message: string | null }
+  | { status: "checking_access"; message: string | null }
   | { status: "confirming"; message: string | null; pin: PinterestPublisherPin }
   | { status: "publishing"; message: string | null; pin: PinterestPublisherPin }
   | { status: "success"; message: string; pinId: string }
@@ -48,11 +54,17 @@ function PinImage({ pin }: { pin: PinterestPublisherPin }) {
 export function PinterestPublisherClient({
   initialPins,
   boards,
+  initialDiagnostic,
 }: {
   initialPins: PinterestPublisherPin[];
   boards: PinterestBoard[];
+  initialDiagnostic: PinterestPublisherDiagnostic;
 }) {
   const [pins, setPins] = useState(initialPins);
+  const [diagnostic, setDiagnostic] = useState(initialDiagnostic);
+  const [environment, setEnvironment] = useState<PinterestEnvironment>(
+    initialDiagnostic.environment,
+  );
   const [accountFilter, setAccountFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [boardFilter, setBoardFilter] = useState("all");
@@ -85,6 +97,65 @@ export function PinterestPublisherClient({
   function getSelectedBoard(pin: PinterestPublisherPin) {
     const boardId = selectedBoards[pin.id] ?? pin.boardId ?? pin.suggestedBoardId ?? "";
     return boardsForPin(pin).find((board) => board.id === boardId) ?? null;
+  }
+
+  async function checkAccessLevel(nextEnvironment = environment) {
+    setPublishState({ status: "checking_access", message: null });
+
+    try {
+      const response = await fetch(
+        `/api/pinterest/access-level?environment=${encodeURIComponent(nextEnvironment)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        diagnostic?: PinterestPublisherDiagnostic;
+      };
+
+      if (!response.ok || !payload.ok || !payload.diagnostic) {
+        throw new Error(payload.error ?? "Verification Pinterest impossible.");
+      }
+
+      setDiagnostic(payload.diagnostic);
+      setPublishState({
+        status: "success",
+        message: `Niveau d'acces Pinterest verifie: ${payload.diagnostic.accessLabel}.`,
+        pinId: "pinterest-access",
+      });
+    } catch (error) {
+      setPublishState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Verification Pinterest impossible.",
+        pinId: null,
+      });
+    }
+  }
+
+  function changeEnvironment(nextEnvironment: PinterestEnvironment) {
+    setEnvironment(nextEnvironment);
+    setDiagnostic((current) => {
+      const apiBaseUrl =
+        nextEnvironment === "sandbox"
+          ? "https://api-sandbox.pinterest.com/v5"
+          : "https://api.pinterest.com/v5";
+      const createPinsCompatible =
+        current.accessLevel === "production" || nextEnvironment === "sandbox";
+
+      return {
+        ...current,
+        environment: nextEnvironment,
+        apiBaseUrl,
+        createPinUrl: `${apiBaseUrl}/pins`,
+        createPinsCompatible,
+        compatibilityMessage: createPinsCompatible
+          ? "Creation de pins compatible avec la configuration actuelle."
+          : "Trial Access detecte: la creation de pins doit utiliser l'API Sandbox.",
+      };
+    });
   }
 
   async function refreshSuggestions() {
@@ -146,6 +217,7 @@ export function PinterestPublisherClient({
           pinId: pin.id,
           boardId: board.id,
           boardName: board.name,
+          environment,
           confirmed: true,
         }),
       });
@@ -193,6 +265,75 @@ export function PinterestPublisherClient({
 
   return (
     <div className="grid gap-5">
+      <div className="grid gap-4 rounded-md border border-[#1D2A44] bg-[#08111A] p-4 xl:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="grid gap-3 text-sm leading-6 text-[#A7B0C0]">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`rounded-md border px-2.5 py-1 text-xs font-semibold ${
+                diagnostic.accessLevel === "production"
+                  ? "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]"
+                  : "border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#fbbf24]"
+              }`}
+            >
+              {diagnostic.accessLabel}
+            </span>
+            <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-2.5 py-1 text-xs font-semibold text-[#A7B0C0]">
+              Environment actif: {diagnostic.environment}
+            </span>
+          </div>
+          <p>
+            Access Level detecte:{" "}
+            <span className="font-semibold text-[#F8FAFC]">
+              {diagnostic.accessLevel}
+            </span>
+          </p>
+          <p className="break-all">
+            API URL utilisee:{" "}
+            <span className="font-semibold text-[#F8FAFC]">
+              {diagnostic.apiBaseUrl}
+            </span>
+          </p>
+          <p className="break-all">
+            URL creation Pin:{" "}
+            <span className="font-semibold text-[#F8FAFC]">
+              {diagnostic.createPinUrl}
+            </span>
+          </p>
+          <p
+            className={
+              diagnostic.createPinsCompatible ? "text-[#39E6D0]" : "text-[#fbbf24]"
+            }
+          >
+            {diagnostic.compatibilityMessage}
+          </p>
+        </div>
+        <div className="grid content-start gap-3">
+          <label className="grid gap-2 text-sm text-[#A7B0C0]">
+            Environment Pinterest
+            <select
+              value={environment}
+              onChange={(event) =>
+                changeEnvironment(event.target.value as PinterestEnvironment)
+              }
+              className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-[#F8FAFC]"
+            >
+              <option value="sandbox">sandbox</option>
+              <option value="production">production</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={publishState.status === "checking_access"}
+            onClick={() => checkAccessLevel()}
+            className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#111D2E] hover:text-[#F8FAFC] disabled:border-[#1D2A44] disabled:bg-[#03070B] disabled:text-[#64748B]"
+          >
+            {publishState.status === "checking_access"
+              ? "Verification..."
+              : "Vérifier le niveau d'accès Pinterest"}
+          </button>
+        </div>
+      </div>
+
       <div className="grid gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] p-4 md:grid-cols-2 xl:grid-cols-5">
         <label className="grid gap-2 text-sm text-[#A7B0C0]">
           Compte Pinterest

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { publishOnePinterestPin } from "@/lib/server/pinterest-publisher";
+import {
+  normalizePinterestEnvironment,
+  publishOnePinterestPin,
+} from "@/lib/server/pinterest-publisher";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -14,6 +17,7 @@ export async function POST(request: Request) {
     boardId?: string;
     boardName?: string;
     confirmed?: boolean;
+    environment?: string;
   };
 
   if (!payload.confirmed) {
@@ -35,6 +39,7 @@ export async function POST(request: Request) {
       pinId: payload.pinId,
       boardId: payload.boardId,
       boardName: payload.boardName,
+      environment: normalizePinterestEnvironment(payload.environment),
     });
 
     return NextResponse.json(result);

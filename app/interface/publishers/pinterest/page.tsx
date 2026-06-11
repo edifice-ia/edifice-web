@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
-import { EmptyState } from "@/components/cockpit/EmptyState";
 import { LogPanel } from "@/components/cockpit/LogPanel";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { PinterestPublisherClient } from "@/components/pinterest/PinterestPublisherClient";
@@ -50,14 +49,11 @@ export default async function PinterestPublisherPage() {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <SectionContainer>
-          {pins.length > 0 ? (
-            <PinterestPublisherClient initialPins={pins} boards={boards} />
-          ) : (
-            <EmptyState
-              title="Aucun pin synchronise"
-              description="Synchronise d'abord les pins Pinterest prets depuis l'atelier avant de publier."
-            />
-          )}
+          <PinterestPublisherClient
+            initialPins={pins}
+            boards={boards}
+            initialDiagnostic={diagnostic}
+          />
         </SectionContainer>
 
         <div className="grid content-start gap-6">
@@ -79,52 +75,6 @@ export default async function PinterestPublisherPage() {
               <p>Pins visibles: {pins.length}</p>
               <p>Non publies: {readyPins.length}</p>
               <p>Boards OAuth detectes: {boards.length}</p>
-            </div>
-          </SectionContainer>
-          <SectionContainer>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
-              Diagnostic Pinterest API
-            </p>
-            <div className="mt-4 grid gap-3 text-sm leading-6 text-[#A7B0C0]">
-              <p>
-                Statut:{" "}
-                <span className="font-semibold text-[#F8FAFC]">
-                  {diagnostic.environmentLabel}
-                </span>
-              </p>
-              <p>
-                Environment detecte:{" "}
-                <span className="font-semibold text-[#F8FAFC]">
-                  {diagnostic.environment}
-                </span>
-              </p>
-              <p>
-                Access level detecte:{" "}
-                <span className="font-semibold text-[#F8FAFC]">
-                  {diagnostic.accessLevel}
-                </span>
-              </p>
-              <p className="break-all">
-                API URL utilisee:{" "}
-                <span className="font-semibold text-[#F8FAFC]">
-                  {diagnostic.apiBaseUrl}
-                </span>
-              </p>
-              <p className="break-all">
-                URL creation Pin:{" "}
-                <span className="font-semibold text-[#F8FAFC]">
-                  {diagnostic.createPinUrl}
-                </span>
-              </p>
-              <p
-                className={
-                  diagnostic.createPinsCompatible
-                    ? "text-[#39E6D0]"
-                    : "text-[#fbbf24]"
-                }
-              >
-                {diagnostic.compatibilityMessage}
-              </p>
             </div>
           </SectionContainer>
           <LogPanel logs={logs} />

@@ -19,7 +19,7 @@ export type PinterestPublisherDiagnostic = {
   createPinUrl: string;
   environment: PinterestEnvironment;
   accessLevel: PinterestAccessLevel;
-  environmentLabel: "Pinterest Trial" | "Pinterest Production";
+  accessLabel: "Pinterest Trial" | "Pinterest Standard";
   createPinsCompatible: boolean;
   compatibilityMessage: string;
 };
@@ -103,7 +103,7 @@ type PinterestCreatePinResponse = {
 
 let pinterestPublisherClient: SupabaseClient | null = null;
 
-function normalizePinterestEnvironment(value: string | undefined): PinterestEnvironment {
+export function normalizePinterestEnvironment(value: string | undefined): PinterestEnvironment {
   return value?.trim().toLowerCase() === "sandbox" ? "sandbox" : "production";
 }
 
@@ -111,8 +111,11 @@ function normalizePinterestAccessLevel(value: string | undefined): PinterestAcce
   return value?.trim().toLowerCase() === "production" ? "production" : "trial";
 }
 
-export function getPinterestPublisherDiagnostic(): PinterestPublisherDiagnostic {
-  const environment = normalizePinterestEnvironment(process.env.PINTEREST_ENVIRONMENT);
+export function getPinterestPublisherDiagnostic(options?: {
+  environment?: PinterestEnvironment;
+}): PinterestPublisherDiagnostic {
+  const environment =
+    options?.environment ?? normalizePinterestEnvironment(process.env.PINTEREST_ENVIRONMENT);
   const accessLevel = normalizePinterestAccessLevel(process.env.PINTEREST_ACCESS_LEVEL);
   const apiBaseUrl =
     environment === "sandbox" ? PINTEREST_SANDBOX_API_URL : PINTEREST_PRODUCTION_API_URL;
@@ -123,8 +126,7 @@ export function getPinterestPublisherDiagnostic(): PinterestPublisherDiagnostic 
     createPinUrl: `${apiBaseUrl}/pins`,
     environment,
     accessLevel,
-    environmentLabel:
-      accessLevel === "production" ? "Pinterest Production" : "Pinterest Trial",
+    accessLabel: accessLevel === "production" ? "Pinterest Standard" : "Pinterest Trial",
     createPinsCompatible,
     compatibilityMessage: createPinsCompatible
       ? "Creation de pins compatible avec la configuration actuelle."
@@ -319,10 +321,12 @@ export async function publishOnePinterestPin({
   pinId,
   boardId,
   boardName,
+  environment,
 }: {
   pinId: string;
   boardId: string;
   boardName: string;
+  environment?: PinterestEnvironment;
 }) {
   const supabase = getPinterestPublisherClient();
   const { data, error } = await supabase
@@ -368,14 +372,14 @@ export async function publishOnePinterestPin({
       url: data.public_image_url,
     },
   };
-  const diagnostic = getPinterestPublisherDiagnostic();
+  const diagnostic = getPinterestPublisherDiagnostic({ environment });
   const createPinUrl = diagnostic.createPinUrl;
 
   console.info("[Pinterest Publisher] create pin request", {
     url: createPinUrl,
     environment: diagnostic.environment,
     accessLevel: diagnostic.accessLevel,
-    environmentLabel: diagnostic.environmentLabel,
+    accessLabel: diagnostic.accessLabel,
     createPinsCompatible: diagnostic.createPinsCompatible,
     accountKey: data.account_id,
     pinId,

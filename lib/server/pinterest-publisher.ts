@@ -305,7 +305,94 @@ async function pinterestGetBoards(accountKey: string): Promise<PinterestBoard[]>
     }));
 }
 
-export async function readPinterestPublisherBoards() {
+async function pinterestGetBoardsForEnvironment(
+  accountKey: string,
+  environment: PinterestEnvironment,
+): Promise<PinterestBoard[]> {
+  const token = await getOAuthToken("pinterest", undefined, accountKey);
+  const diagnostic = getPinterestPublisherDiagnostic({ environment });
+
+  if (!token?.accessToken) {
+    return [];
+  }
+
+  const tokenSource = token.oauthEnvironment ?? "production";
+  const tokenValid = isTokenValid(token.expiresAt);
+
+  if (!tokenValid || tokenSource !== environment) {
+    console.info("[Pinterest Publisher] tableaux ignores pour environnement incompatible", {
+      provider: "pinterest",
+      accountKey,
+      environment,
+      tokenSource,
+      tokenSourceInferred: !token.oauthEnvironment,
+      tokenValid,
+      tokenExpiresAt: token.expiresAt,
+      tokenScopes: splitScopes(token.scope),
+    });
+    return [];
+  }
+
+  const boardsUrl = `${diagnostic.apiBaseUrl}/boards?page_size=100`;
+  console.info("[Pinterest Publisher] tableaux request", {
+    url: boardsUrl,
+    provider: "pinterest",
+    environment: diagnostic.environment,
+    accessLevel: diagnostic.accessLevel,
+    accountKey,
+    tokenSource,
+    tokenExpiresAt: token.expiresAt,
+    tokenScopes: splitScopes(token.scope),
+  });
+
+  const response = await fetch(boardsUrl, {
+    headers: {
+      Authorization: `Bearer ${token.accessToken}`,
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+  const payload = (await response.json()) as PinterestBoardsResponse & {
+    message?: string;
+    code?: string | number;
+    details?: unknown;
+  };
+
+  if (!response.ok) {
+    console.warn("[Pinterest Publisher] tableaux read failed", {
+      provider: "pinterest",
+      accountKey,
+      environment,
+      tokenSource,
+      httpStatus: response.status,
+      errorCode: payload.code ?? null,
+      message: payload.message ?? null,
+      details: payload.details ?? null,
+    });
+    return [];
+  }
+
+  return (payload.items ?? [])
+    .filter((board) => board.id && board.name)
+    .map((board) => ({
+      id: board.id as string,
+      name: board.name as string,
+      accountKey,
+      description: board.description ?? null,
+    }));
+}
+
+export async function readPinterestPublisherBoards(environment?: PinterestEnvironment) {
+  if (environment) {
+    const boardGroups = await Promise.all(
+      pinterestOAuthAccounts.map((account) =>
+        pinterestGetBoardsForEnvironment(account.accountKey, environment),
+      ),
+    );
+
+    return boardGroups.flat();
+  }
+
   const boardGroups = await Promise.all(
     pinterestOAuthAccounts.map((account) => pinterestGetBoards(account.accountKey)),
   );
@@ -338,11 +425,11 @@ export async function readPinterestTokenDiagnostics(): Promise<PinterestTokenDia
   return diagnostics;
 }
 
-export async function refreshPinterestBoardSuggestions() {
+export async function refreshPinterestBoardSuggestions(environment?: PinterestEnvironment) {
   const supabase = getPinterestPublisherClient();
   const [pins, boards] = await Promise.all([
     readPinterestPublisherPins(),
-    readPinterestPublisherBoards(),
+    readPinterestPublisherBoards(environment),
   ]);
   let suggestionsUpdated = 0;
 
@@ -368,7 +455,7 @@ export async function refreshPinterestBoardSuggestions() {
       .eq("id", pin.id);
 
     if (error) {
-      throw new Error(`Suggestion board Pinterest impossible: ${error.message}`);
+      throw new Error(`Suggestion tableau Pinterest impossible: ${error.message}`);
     }
 
     suggestionsUpdated += 1;
@@ -378,6 +465,23 @@ export async function refreshPinterestBoardSuggestions() {
     suggestionsUpdated,
     pins: await readPinterestPublisherPins(),
   };
+}
+
+export async function clearPinterestPinError(pinId: string) {
+  const supabase = getPinterestPublisherClient();
+  const { error } = await supabase
+    .from("pinterest_pins")
+    .update({
+      last_error: null,
+      review_notes: null,
+    })
+    .eq("id", pinId);
+
+  if (error) {
+    throw new Error(`Nettoyage erreur Pinterest impossible: ${error.message}`);
+  }
+
+  return { ok: true };
 }
 
 export async function publishOnePinterestPin({
@@ -426,6 +530,17 @@ export async function publishOnePinterestPin({
   }
   const tokenSource = token.oauthEnvironment ?? "production";
   const tokenValid = isTokenValid(token.expiresAt);
+  const diagnostic = getPinterestPublisherDiagnostic({ environment });
+
+  if (!tokenValid) {
+    throw new Error(`Token Pinterest invalide ou expire pour ${data.account_id}.`);
+  }
+
+  if (tokenSource !== diagnostic.environment) {
+    throw new Error(
+      `Token Pinterest ${tokenSource} incompatible avec API ${diagnostic.environment}.`,
+    );
+  }
 
   const publishBody = {
     board_id: boardId,
@@ -437,7 +552,6 @@ export async function publishOnePinterestPin({
       url: data.public_image_url,
     },
   };
-  const diagnostic = getPinterestPublisherDiagnostic({ environment });
   const createPinUrl = diagnostic.createPinUrl;
 
   console.info("[Pinterest Publisher] create pin request", {

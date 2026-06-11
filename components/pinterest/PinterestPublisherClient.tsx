@@ -64,6 +64,8 @@ export function PinterestPublisherClient({
   tokenDiagnostics: PinterestTokenDiagnostic[];
 }) {
   const [pins, setPins] = useState(initialPins);
+  const [availableBoards, setAvailableBoards] = useState(boards);
+  const [boardsError, setBoardsError] = useState<string | null>(null);
   const [diagnostic, setDiagnostic] = useState(initialDiagnostic);
   const [environment, setEnvironment] = useState<PinterestEnvironment>(
     initialDiagnostic.environment,
@@ -79,7 +81,10 @@ export function PinterestPublisherClient({
   });
 
   const statuses = useMemo(() => uniqueValues(pins.map((pin) => pin.status)), [pins]);
-  const boardNames = useMemo(() => uniqueValues(pins.map((pin) => pin.boardName)), [pins]);
+  const boardNames = useMemo(
+    () => uniqueValues(availableBoards.map((board) => board.name)),
+    [availableBoards],
+  );
   const visibleTokenDiagnostics =
     accountFilter === "all"
       ? tokenDiagnostics
@@ -98,7 +103,7 @@ export function PinterestPublisherClient({
   });
 
   function boardsForPin(pin: PinterestPublisherPin) {
-    return boards.filter((board) => board.accountKey === pin.accountId);
+    return availableBoards.filter((board) => board.accountKey === pin.accountId);
   }
 
   function getSelectedBoard(pin: PinterestPublisherPin) {
@@ -144,6 +149,8 @@ export function PinterestPublisherClient({
 
   function changeEnvironment(nextEnvironment: PinterestEnvironment) {
     setEnvironment(nextEnvironment);
+    setSelectedBoards({});
+    void loadBoards(nextEnvironment);
     setDiagnostic((current) => {
       const apiBaseUrl =
         nextEnvironment === "sandbox"
@@ -165,6 +172,80 @@ export function PinterestPublisherClient({
     });
   }
 
+  async function loadBoards(nextEnvironment = environment) {
+    setBoardsError(null);
+
+    try {
+      const response = await fetch(
+        `/api/pinterest/boards?environment=${encodeURIComponent(nextEnvironment)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+        },
+      );
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        boards?: PinterestBoard[];
+      };
+
+      if (!response.ok || !payload.ok || !payload.boards) {
+        throw new Error(payload.error ?? "Chargement des tableaux impossible.");
+      }
+
+      setAvailableBoards(payload.boards);
+    } catch (error) {
+      setAvailableBoards([]);
+      setBoardsError(
+        error instanceof Error
+          ? error.message
+          : "Chargement des tableaux impossible.",
+      );
+    }
+  }
+
+  function tokenForAccount(accountKey: string) {
+    return tokenDiagnostics.find((token) => token.accountKey === accountKey) ?? null;
+  }
+
+  function canUseTokenForPin(pin: PinterestPublisherPin) {
+    const token = tokenForAccount(pin.accountId);
+    return Boolean(token?.tokenValid && token.tokenSource === environment);
+  }
+
+  function isActiveError(pin: PinterestPublisherPin) {
+    return /error|erreur|failed|echec|échec/i.test(pin.status);
+  }
+
+  async function clearPinError(pin: PinterestPublisherPin) {
+    try {
+      const response = await fetch("/api/pinterest/clear-error", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ pinId: pin.id }),
+      });
+      const payload = (await response.json()) as { ok?: boolean; error?: string };
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error ?? "Nettoyage erreur impossible.");
+      }
+
+      setPins((current) =>
+        current.map((item) =>
+          item.id === pin.id ? { ...item, lastError: null, reviewNotes: null } : item,
+        ),
+      );
+    } catch (error) {
+      setPublishState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Nettoyage erreur impossible.",
+        pinId: pin.id,
+      });
+    }
+  }
+
   function reconnectSandbox(accountKey: string) {
     window.location.assign(
       `/api/auth/pinterest/start?account_key=${encodeURIComponent(
@@ -179,6 +260,10 @@ export function PinterestPublisherClient({
     try {
       const response = await fetch("/api/pinterest/board-suggestions", {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ environment }),
       });
       const payload = (await response.json()) as {
         ok?: boolean;
@@ -191,7 +276,11 @@ export function PinterestPublisherClient({
         throw new Error(payload.error ?? "Actualisation des suggestions impossible.");
       }
 
-      setPins(payload.pins);
+      setPins(
+        payload.pins.map((pin) =>
+          isActiveError(pin) ? pin : { ...pin, lastError: null, reviewNotes: null },
+        ),
+      );
       setPublishState({
         status: "success",
         message: `${payload.suggestionsUpdated ?? 0} suggestion(s) de tableau actualisee(s).`,
@@ -214,7 +303,7 @@ export function PinterestPublisherClient({
     if (!board) {
       setPublishState({
         status: "error",
-        message: "Choisis un board cible avant publication.",
+        message: "Choisis un tableau cible avant publication.",
         pinId: pin.id,
       });
       return;
@@ -425,7 +514,7 @@ export function PinterestPublisherClient({
           </select>
         </label>
         <label className="grid gap-2 text-sm text-[#A7B0C0]">
-          Board cible
+          Tableau cible
           <select
             value={boardFilter}
             onChange={(event) => setBoardFilter(event.target.value)}
@@ -440,16 +529,16 @@ export function PinterestPublisherClient({
           </select>
         </label>
         <label className="grid gap-2 text-sm text-[#A7B0C0]">
-          Etat board
+          État tableau
           <select
             value={boardStateFilter}
             onChange={(event) => setBoardStateFilter(event.target.value)}
             className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-[#F8FAFC]"
           >
             <option value="all">Tous</option>
-            <option value="without_board">Sans board</option>
-            <option value="suggested_board">Board suggere</option>
-            <option value="confirmed_board">Board confirme</option>
+            <option value="without_board">Sans tableau</option>
+            <option value="suggested_board">Tableau suggere</option>
+            <option value="confirmed_board">Tableau confirme</option>
           </select>
         </label>
         <div className="grid content-end">
@@ -465,6 +554,12 @@ export function PinterestPublisherClient({
           </button>
         </div>
       </div>
+
+      {boardsError ? (
+        <div className="rounded-md border border-[#ef4444]/40 bg-[#ef4444]/10 px-4 py-3 text-sm text-[#fecaca]">
+          {boardsError}
+        </div>
+      ) : null}
 
       {publishState.status === "success" || publishState.status === "error" ? (
         <div
@@ -482,9 +577,13 @@ export function PinterestPublisherClient({
         {filteredPins.map((pin) => {
           const pinBoards = boardsForPin(pin);
           const selectedBoard = getSelectedBoard(pin);
+          const tokenUsable = canUseTokenForPin(pin);
           const canPublish =
             pin.status !== "published" &&
+            tokenUsable &&
+            Boolean(selectedBoard) &&
             Boolean(pin.imageUrl && pin.title && pin.description && pin.targetUrl);
+          const activeError = isActiveError(pin);
 
           return (
             <article
@@ -515,7 +614,7 @@ export function PinterestPublisherClient({
                     </span>
                   </p>
                   <p>
-                    board:{" "}
+                    tableau:{" "}
                     <span className="font-semibold text-[#F8FAFC]">
                       {pin.boardName ?? "non defini"}
                     </span>
@@ -537,16 +636,28 @@ export function PinterestPublisherClient({
                       <span className="text-[#D8DEE8]">{pin.boardSuggestionReason}</span>
                     </p>
                   ) : null}
-                  {pin.lastError ? (
+                  {pin.lastError && activeError ? (
                     <p className="md:col-span-2 text-[#fecaca]">
                       Erreur: {pin.lastError}
+                      <button
+                        type="button"
+                        onClick={() => clearPinError(pin)}
+                        className="ml-2 rounded-md border border-[#ef4444]/40 px-2 py-0.5 text-xs font-semibold text-[#fecaca]"
+                      >
+                        Effacer l&apos;erreur
+                      </button>
+                    </p>
+                  ) : null}
+                  {!tokenUsable ? (
+                    <p className="md:col-span-2 text-[#fbbf24]">
+                      Token Pinterest indisponible ou incompatible avec l&apos;environnement {environment}.
                     </p>
                   ) : null}
                 </div>
               </div>
               <div className="grid content-start gap-3">
                 <label className="grid gap-2 text-sm text-[#A7B0C0]">
-                  Board cible
+                  Tableau cible
                   <select
                     value={selectedBoards[pin.id] ?? pin.boardId ?? pin.suggestedBoardId ?? ""}
                     onChange={(event) =>
@@ -556,8 +667,9 @@ export function PinterestPublisherClient({
                       }))
                     }
                     className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-[#F8FAFC]"
+                    disabled={pinBoards.length === 0}
                   >
-                    <option value="">Choisir un board</option>
+                    <option value="">Choisir un tableau</option>
                     {pinBoards.map((board) => (
                       <option key={board.id} value={board.id}>
                         {board.name}
@@ -565,9 +677,14 @@ export function PinterestPublisherClient({
                     ))}
                   </select>
                 </label>
+                {pinBoards.length === 0 ? (
+                  <p className="rounded-md border border-[#f59e0b]/30 bg-[#f59e0b]/10 px-3 py-2 text-xs text-[#fbbf24]">
+                    Aucun tableau disponible pour ce compte Pinterest
+                  </p>
+                ) : null}
                 <button
                   type="button"
-                  disabled={!canPublish || !selectedBoard}
+                  disabled={!canPublish}
                   onClick={() =>
                     setPublishState({
                       status: "confirming",
@@ -603,7 +720,7 @@ export function PinterestPublisherClient({
               <PinImage pin={publishState.pin} />
               <div className="grid gap-2 text-sm leading-6 text-[#A7B0C0]">
                 <p>Compte utilise: {accountLabels[publishState.pin.accountId] ?? publishState.pin.accountId}</p>
-                <p>Board utilise: {getSelectedBoard(publishState.pin)?.name ?? "non choisi"}</p>
+                <p>Tableau utilise: {getSelectedBoard(publishState.pin)?.name ?? "non choisi"}</p>
                 <p>Titre: {publishState.pin.title}</p>
                 <p>Description: {publishState.pin.description}</p>
                 <p className="break-all">target_url: {publishState.pin.targetUrl}</p>

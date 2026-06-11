@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import {
   normalizePinterestEnvironment,
-  refreshPinterestBoardSuggestions,
+  readPinterestPublisherBoards,
 } from "@/lib/server/pinterest-publisher";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -9,18 +10,19 @@ import { getCurrentUser } from "@/src/lib/supabase/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user || !canAccessPrivateCockpit(user)) {
     return NextResponse.json({ ok: false, error: "Acces refuse." }, { status: 403 });
   }
 
   try {
-    const payload = (await request.json().catch(() => ({}))) as { environment?: string };
-    const result = await refreshPinterestBoardSuggestions(
-      normalizePinterestEnvironment(payload.environment),
+    const environment = normalizePinterestEnvironment(
+      request.nextUrl.searchParams.get("environment") ?? undefined,
     );
-    return NextResponse.json({ ok: true, ...result });
+    const boards = await readPinterestPublisherBoards(environment);
+
+    return NextResponse.json({ ok: true, environment, boards });
   } catch (error) {
     return NextResponse.json(
       {
@@ -28,7 +30,7 @@ export async function POST(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : "Actualisation des suggestions Pinterest impossible.",
+            : "Chargement des tableaux Pinterest impossible.",
       },
       { status: 500 },
     );

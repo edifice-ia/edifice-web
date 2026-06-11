@@ -77,7 +77,7 @@ export const publisherModules: CockpitModule[] = [
     id: "publisher-pinterest-hub",
     title: "Pinterest Publisher",
     description:
-      "Selection des pins prets, choix du board cible et publication d'un seul pin test.",
+      "Selection des pins prets, choix du tableau cible et publication d'un seul pin test.",
     href: "/interface/publishers/pinterest",
     status: "Actif",
   },

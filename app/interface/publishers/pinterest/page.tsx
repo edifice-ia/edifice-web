@@ -32,12 +32,12 @@ const logs = [
 ];
 
 export default async function PinterestPublisherPage() {
+  const diagnostic = getPinterestPublisherDiagnostic();
   const [pins, boards, tokenDiagnostics] = await Promise.all([
     readPinterestPublisherPins(),
-    readPinterestPublisherBoards(),
+    readPinterestPublisherBoards(diagnostic.environment),
     readPinterestTokenDiagnostics(),
   ]);
-  const diagnostic = getPinterestPublisherDiagnostic();
   const readyPins = pins.filter((pin) => pin.status !== "published");
 
   return (
@@ -77,7 +77,7 @@ export default async function PinterestPublisherPage() {
             <div className="mt-4 grid gap-3 text-sm text-[#A7B0C0]">
               <p>Pins visibles: {pins.length}</p>
               <p>Non publies: {readyPins.length}</p>
-              <p>Boards OAuth detectes: {boards.length}</p>
+              <p>Tableaux OAuth detectes: {boards.length}</p>
             </div>
           </SectionContainer>
           <LogPanel logs={logs} />

@@ -91,7 +91,7 @@ export function suggestPinterestBoard(
       boardId: confirmedBoard?.id ?? pin.boardId ?? null,
       boardName: confirmedBoard?.name ?? pin.boardName ?? null,
       confidence: "eleve",
-      reason: "board deja confirme",
+      reason: "tableau deja confirme",
       score: 99,
       source: "confirmed",
     };
@@ -102,7 +102,7 @@ export function suggestPinterestBoard(
       boardId: null,
       boardName: null,
       confidence: null,
-      reason: "aucun board accessible pour ce compte",
+      reason: "aucun tableau accessible pour ce compte",
       score: 0,
       source: "none",
     };

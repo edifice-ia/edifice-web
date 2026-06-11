@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  normalizePinterestEnvironment,
-  refreshPinterestBoardSuggestions,
-} from "@/lib/server/pinterest-publisher";
+import { clearPinterestPinError } from "@/lib/server/pinterest-publisher";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -15,12 +12,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Acces refuse." }, { status: 403 });
   }
 
-  try {
-    const payload = (await request.json().catch(() => ({}))) as { environment?: string };
-    const result = await refreshPinterestBoardSuggestions(
-      normalizePinterestEnvironment(payload.environment),
+  const payload = (await request.json()) as { pinId?: string };
+
+  if (!payload.pinId) {
+    return NextResponse.json(
+      { ok: false, error: "pinId est requis." },
+      { status: 400 },
     );
-    return NextResponse.json({ ok: true, ...result });
+  }
+
+  try {
+    const result = await clearPinterestPinError(payload.pinId);
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       {
@@ -28,7 +31,7 @@ export async function POST(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : "Actualisation des suggestions Pinterest impossible.",
+            : "Nettoyage erreur Pinterest impossible.",
       },
       { status: 500 },
     );

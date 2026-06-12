@@ -1,10 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   PinterestBoard,
   PinterestBoardsDiagnostic,
   PinterestEnvironment,
+  PinterestPublisherAccount,
   PinterestPublisherDiagnostic,
   PinterestPublisherPin,
   PinterestTokenDiagnostic,
@@ -19,9 +21,9 @@ type PublishState =
   | { status: "success"; message: string; pinId: string }
   | { status: "error"; message: string; pinId: string | null };
 
-const accountLabels: Record<string, string> = {
-  edifice_discipline: "Edifice Discipline",
-  solution_sommeil: "Solution Sommeil",
+const environmentLabels: Record<PinterestEnvironment, string> = {
+  production: "Production",
+  sandbox: "Sandbox",
 };
 
 const confidenceLabels = {
@@ -71,13 +73,20 @@ export function PinterestPublisherClient({
   initialBoardDiagnostics,
   initialDiagnostic,
   tokenDiagnostics,
+  accounts,
+  accountEnvironmentSummary,
 }: {
   initialPins: PinterestPublisherPin[];
   boards: PinterestBoard[];
   initialBoardDiagnostics: PinterestBoardsDiagnostic[];
   initialDiagnostic: PinterestPublisherDiagnostic;
   tokenDiagnostics: PinterestTokenDiagnostic[];
+  accounts: PinterestPublisherAccount[];
+  accountEnvironmentSummary: Record<PinterestEnvironment, number>;
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [pins, setPins] = useState(initialPins);
   const [availableBoards, setAvailableBoards] = useState(boards);
   const [boardDiagnostics, setBoardDiagnostics] = useState(initialBoardDiagnostics);
@@ -96,6 +105,24 @@ export function PinterestPublisherClient({
     message: null,
   });
 
+  const accountByKey = useMemo(
+    () => new Map(accounts.map((account) => [account.accountKey, account])),
+    [accounts],
+  );
+  const accountOptions = useMemo(
+    () => accounts.filter((account) => account.environment === environment),
+    [accounts, environment],
+  );
+  const accountLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        accounts.map((account) => [
+          account.accountKey,
+          `${account.label} [${environmentLabels[account.environment]}]`,
+        ]),
+      ),
+    [accounts],
+  );
   const statuses = useMemo(() => uniqueValues(pins.map((pin) => pin.status)), [pins]);
   const boardNames = useMemo(
     () => uniqueValues(availableBoards.map((board) => board.name)),
@@ -103,7 +130,7 @@ export function PinterestPublisherClient({
   );
   const visibleTokenDiagnostics =
     accountFilter === "all"
-      ? tokenDiagnostics
+      ? tokenDiagnostics.filter((token) => token.accountEnvironment === environment)
       : tokenDiagnostics.filter((token) => token.accountKey === accountFilter);
   const visibleBoardDiagnostics =
     accountFilter === "all"
@@ -124,6 +151,16 @@ export function PinterestPublisherClient({
 
   function boardsForPin(pin: PinterestPublisherPin) {
     return availableBoards.filter((board) => board.accountKey === pin.accountId);
+  }
+
+  function isAccountInCurrentEnvironment(accountKey: string) {
+    return accountByKey.get(accountKey)?.environment === environment;
+  }
+
+  function updateEnvironmentUrl(nextEnvironment: PinterestEnvironment) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("environment", nextEnvironment);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
   function getSelectedBoard(pin: PinterestPublisherPin) {
@@ -168,9 +205,17 @@ export function PinterestPublisherClient({
   }
 
   function changeEnvironment(nextEnvironment: PinterestEnvironment) {
+    const nextAccount =
+      accountFilter !== "all" &&
+      accountByKey.get(accountFilter)?.environment === nextEnvironment
+        ? accountFilter
+        : "all";
     setEnvironment(nextEnvironment);
+    setAccountFilter(nextAccount);
+    setBoardFilter("all");
     setSelectedBoards({});
-    void loadBoards(nextEnvironment, accountFilter);
+    updateEnvironmentUrl(nextEnvironment);
+    void loadBoards(nextEnvironment, nextAccount);
     setDiagnostic((current) => {
       const apiBaseUrl =
         nextEnvironment === "sandbox"
@@ -271,11 +316,11 @@ export function PinterestPublisherClient({
     }
   }
 
-  function reconnectSandbox(accountKey: string) {
+  function reconnectPinterest(accountKey: string, oauthEnvironment: PinterestEnvironment) {
     window.location.assign(
       `/api/auth/pinterest/start?account_key=${encodeURIComponent(
         accountKey,
-      )}&oauth_environment=sandbox`,
+      )}&oauth_environment=${encodeURIComponent(oauthEnvironment)}`,
     );
   }
 
@@ -435,6 +480,20 @@ export function PinterestPublisherClient({
           >
             {diagnostic.compatibilityMessage}
           </p>
+          <div className="grid gap-2 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-sm md:grid-cols-2">
+            <p>
+              Comptes Sandbox:{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {accountEnvironmentSummary.sandbox}
+              </span>
+            </p>
+            <p>
+              Comptes Production:{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {accountEnvironmentSummary.production}
+              </span>
+            </p>
+          </div>
           <div className="grid gap-3 border-t border-[#1D2A44] pt-3">
             {visibleTokenDiagnostics.map((token) => (
               <div
@@ -474,10 +533,10 @@ export function PinterestPublisherClient({
                 </p>
                 <button
                   type="button"
-                  onClick={() => reconnectSandbox(token.accountKey)}
+                  onClick={() => reconnectPinterest(token.accountKey, environment)}
                   className="justify-self-start rounded-md border border-[#f59e0b]/50 bg-[#f59e0b]/10 px-3 py-1.5 text-xs font-semibold text-[#fbbf24] transition hover:bg-[#111D2E] hover:text-[#F8FAFC]"
                 >
-                  Reconnecter en Sandbox
+                  Reconnecter en {environmentLabels[environment]}
                 </button>
               </div>
             ))}
@@ -531,7 +590,7 @@ export function PinterestPublisherClient({
         </div>
         <div className="grid content-start gap-3">
           <label className="grid gap-2 text-sm text-[#A7B0C0]">
-            Environment Pinterest
+            Environnement Pinterest
             <select
               value={environment}
               onChange={(event) =>
@@ -539,8 +598,8 @@ export function PinterestPublisherClient({
               }
               className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-[#F8FAFC]"
             >
-              <option value="sandbox">sandbox</option>
-              <option value="production">production</option>
+              <option value="production">Production</option>
+              <option value="sandbox">Sandbox</option>
             </select>
           </label>
           <button
@@ -569,8 +628,11 @@ export function PinterestPublisherClient({
             className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-[#F8FAFC]"
           >
             <option value="all">Tous</option>
-            <option value="edifice_discipline">Edifice Discipline</option>
-            <option value="solution_sommeil">Solution Sommeil</option>
+            {accountOptions.map((account) => (
+              <option key={account.accountKey} value={account.accountKey}>
+                {account.label} [{environmentLabels[account.environment]}]
+              </option>
+            ))}
           </select>
         </label>
         <label className="grid gap-2 text-sm text-[#A7B0C0]">
@@ -653,8 +715,10 @@ export function PinterestPublisherClient({
           const pinBoards = boardsForPin(pin);
           const selectedBoard = getSelectedBoard(pin);
           const tokenUsable = canUseTokenForPin(pin);
+          const accountInCurrentEnvironment = isAccountInCurrentEnvironment(pin.accountId);
           const canPublish =
             pin.status !== "published" &&
+            accountInCurrentEnvironment &&
             tokenUsable &&
             Boolean(selectedBoard) &&
             Boolean(pin.imageUrl && pin.title && pin.description && pin.targetUrl);
@@ -754,7 +818,9 @@ export function PinterestPublisherClient({
                 </label>
                 {pinBoards.length === 0 ? (
                   <p className="rounded-md border border-[#f59e0b]/30 bg-[#f59e0b]/10 px-3 py-2 text-xs text-[#fbbf24]">
-                    Aucun tableau disponible pour ce compte Pinterest
+                    {accountInCurrentEnvironment
+                      ? "Aucun tableau disponible pour ce compte Pinterest"
+                      : "Compte disponible dans un autre environnement"}
                   </p>
                 ) : null}
                 <button

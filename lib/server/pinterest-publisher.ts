@@ -2,7 +2,10 @@ import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getOAuthToken } from "@/lib/server/oauth/token-store";
-import { pinterestOAuthAccounts } from "@/lib/server/oauth/pinterest-accounts";
+import {
+  getPinterestOAuthAccount,
+  pinterestOAuthAccounts,
+} from "@/lib/server/oauth/pinterest-accounts";
 import {
   suggestPinterestBoard,
   type PinterestBoardSuggestionConfidence,
@@ -13,6 +16,12 @@ const PINTEREST_SANDBOX_API_URL = "https://api-sandbox.pinterest.com/v5";
 
 export type PinterestEnvironment = "production" | "sandbox";
 export type PinterestAccessLevel = "trial" | "production";
+
+export type PinterestPublisherAccount = {
+  accountKey: string;
+  label: string;
+  environment: PinterestEnvironment;
+};
 
 export type PinterestPublisherDiagnostic = {
   apiBaseUrl: string;
@@ -27,6 +36,7 @@ export type PinterestPublisherDiagnostic = {
 export type PinterestTokenDiagnostic = {
   accountKey: string;
   accountLabel: string;
+  accountEnvironment: PinterestEnvironment;
   provider: "pinterest";
   tokenPresent: boolean;
   tokenValid: boolean;
@@ -72,6 +82,7 @@ export type PinterestBoard = {
 export type PinterestBoardsDiagnostic = {
   accountKey: string;
   accountLabel: string;
+  accountEnvironment: PinterestEnvironment;
   uiEnvironment: PinterestEnvironment;
   tokenEnvironment: PinterestEnvironment | null;
   tokenSourceInferred: boolean;
@@ -147,6 +158,24 @@ async function readPinterestResponseBody(response: Response) {
 
 export function normalizePinterestEnvironment(value: string | undefined): PinterestEnvironment {
   return value?.trim().toLowerCase() === "sandbox" ? "sandbox" : "production";
+}
+
+export function getPinterestPublisherAccounts(): PinterestPublisherAccount[] {
+  return pinterestOAuthAccounts.map((account) => ({
+    accountKey: account.accountKey,
+    label: account.label,
+    environment: account.environment,
+  }));
+}
+
+export function getPinterestAccountEnvironmentSummary() {
+  return pinterestOAuthAccounts.reduce(
+    (summary, account) => ({
+      ...summary,
+      [account.environment]: summary[account.environment] + 1,
+    }),
+    { production: 0, sandbox: 0 } satisfies Record<PinterestEnvironment, number>,
+  );
 }
 
 function normalizePinterestAccessLevel(value: string | undefined): PinterestAccessLevel {
@@ -329,6 +358,7 @@ async function pinterestGetBoardsForEnvironment(
   const baseDiagnostic: PinterestBoardsDiagnostic = {
     accountKey,
     accountLabel: account.label,
+    accountEnvironment: account.environment,
     uiEnvironment: environment,
     tokenEnvironment: token?.accessToken ? tokenSource : null,
     tokenSourceInferred: Boolean(token?.accessToken && !token.oauthEnvironment),
@@ -466,8 +496,11 @@ export async function readPinterestPublisherBoards(environment?: PinterestEnviro
 }
 
 export async function readPinterestPublisherBoardsState(environment: PinterestEnvironment) {
+  const matchingAccounts = pinterestOAuthAccounts.filter(
+    (account) => account.environment === environment,
+  );
   const boardGroups = await Promise.all(
-    pinterestOAuthAccounts.map((account) => pinterestGetBoardsForEnvironment(account, environment)),
+    matchingAccounts.map((account) => pinterestGetBoardsForEnvironment(account, environment)),
   );
 
   return {
@@ -487,6 +520,7 @@ export async function readPinterestTokenDiagnostics(): Promise<PinterestTokenDia
       return {
         accountKey: account.accountKey,
         accountLabel: account.label,
+        accountEnvironment: account.environment,
         provider: "pinterest" as const,
         tokenPresent,
         tokenValid: tokenPresent && isTokenValid(expiresAt),
@@ -601,12 +635,24 @@ export async function publishOnePinterestPin({
   }
 
   const token = await getOAuthToken("pinterest", undefined, data.account_id);
+  const account = getPinterestOAuthAccount(data.account_id);
+  const diagnostic = getPinterestPublisherDiagnostic({ environment });
+
+  if (!account) {
+    throw new Error(`Compte Pinterest inconnu pour ${data.account_id}.`);
+  }
+
+  if (account.environment !== diagnostic.environment) {
+    throw new Error(
+      `Compte Pinterest ${account.environment} incompatible avec API ${diagnostic.environment}.`,
+    );
+  }
+
   if (!token?.accessToken) {
     throw new Error(`Token Pinterest absent pour ${data.account_id}.`);
   }
   const tokenSource = token.oauthEnvironment ?? "production";
   const tokenValid = isTokenValid(token.expiresAt);
-  const diagnostic = getPinterestPublisherDiagnostic({ environment });
 
   if (!tokenValid) {
     throw new Error(`Token Pinterest invalide ou expire pour ${data.account_id}.`);

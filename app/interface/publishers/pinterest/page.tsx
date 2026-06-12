@@ -4,7 +4,10 @@ import { LogPanel } from "@/components/cockpit/LogPanel";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { PinterestPublisherClient } from "@/components/pinterest/PinterestPublisherClient";
 import {
+  getPinterestAccountEnvironmentSummary,
+  getPinterestPublisherAccounts,
   getPinterestPublisherDiagnostic,
+  normalizePinterestEnvironment,
   readPinterestPublisherBoardsState,
   readPinterestPublisherPins,
   readPinterestTokenDiagnostics,
@@ -31,8 +34,17 @@ const logs = [
   },
 ];
 
-export default async function PinterestPublisherPage() {
-  const diagnostic = getPinterestPublisherDiagnostic();
+export default async function PinterestPublisherPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ environment?: string | string[] }>;
+}) {
+  const params = await searchParams;
+  const requestedEnvironment = Array.isArray(params.environment)
+    ? params.environment[0]
+    : params.environment;
+  const environment = normalizePinterestEnvironment(requestedEnvironment);
+  const diagnostic = getPinterestPublisherDiagnostic({ environment });
   const [pins, boardState, tokenDiagnostics] = await Promise.all([
     readPinterestPublisherPins(),
     readPinterestPublisherBoardsState(diagnostic.environment),
@@ -40,6 +52,8 @@ export default async function PinterestPublisherPage() {
   ]);
   const boards = boardState.boards;
   const readyPins = pins.filter((pin) => pin.status !== "published");
+  const accounts = getPinterestPublisherAccounts();
+  const accountEnvironmentSummary = getPinterestAccountEnvironmentSummary();
 
   return (
     <div>
@@ -58,6 +72,8 @@ export default async function PinterestPublisherPage() {
             initialBoardDiagnostics={boardState.diagnostics}
             initialDiagnostic={diagnostic}
             tokenDiagnostics={tokenDiagnostics}
+            accounts={accounts}
+            accountEnvironmentSummary={accountEnvironmentSummary}
           />
         </SectionContainer>
 

@@ -2,10 +2,12 @@ export const pinterestOAuthAccounts = [
   {
     accountKey: "edifice_discipline",
     label: "Pinterest - Edifice Discipline",
+    environment: "sandbox",
   },
   {
     accountKey: "solution_sommeil",
     label: "Pinterest - Solution Sommeil",
+    environment: "production",
   },
 ] as const;
 

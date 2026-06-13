@@ -3,9 +3,9 @@ import type { CockpitNavItem } from "@/types/cockpit";
 export const cockpitNavigation: CockpitNavItem[] = [
   {
     id: "cockpit-home",
-    href: "/dashboard",
-    label: "Accueil cockpit",
-    description: "Resume operationnel du jour",
+    href: "/interface/overview",
+    label: "Accueil Cockpit",
+    description: "Lecture quotidienne rapide",
     status: "Operationnel",
     showStatus: true,
   },
@@ -16,13 +16,6 @@ export const cockpitNavigation: CockpitNavItem[] = [
     description: "Projet, interieur, equilibre",
     status: "En migration",
     showStatus: true,
-  },
-  {
-    id: "overview",
-    href: "/interface/overview",
-    label: "Tableau de bord",
-    description: "Fondations du cockpit",
-    status: "Disponible",
   },
   {
     id: "post-creation",

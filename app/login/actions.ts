@@ -127,7 +127,7 @@ export async function login(
 
   let error: unknown = null;
 
-  let redirectTarget = "/dashboard";
+  let redirectTarget = "/interface/overview";
 
   try {
     const result = await supabase.auth.signInWithPassword({

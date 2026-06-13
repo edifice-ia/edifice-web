@@ -7,9 +7,9 @@ import { readTrajectoire } from "@/lib/server/trajectoire";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Tableau de bord - L'Edifice",
+  title: "Accueil Cockpit - L'Edifice",
   description:
-    "Tableau de bord du cockpit IA prive pour le portail L'Edifice.",
+    "Accueil Cockpit du portail prive de L'Edifice.",
 };
 
 function daysUntil(value: string | null) {
@@ -64,6 +64,10 @@ export default async function OverviewPage() {
   const activeProjects = trajectoireResult.projects.filter(
     (project) => project.status === "actif",
   );
+  const activeObjectives = objectives.filter(
+    (objective) =>
+      objective.status !== "termine" && objective.status !== "reporte",
+  );
   const lateObjectives = objectives.filter((objective) =>
     isLate(objective.status, objective.deadline),
   );
@@ -91,11 +95,13 @@ export default async function OverviewPage() {
     : 0;
   const draftStatuses = cockpitState.contentDrafts.byStatus;
   const shortsDrafts =
-    (draftStatuses.draft ?? 0) +
-    (draftStatuses.approved ?? 0) +
-    (draftStatuses.validated ?? 0);
+    (draftStatuses.draft ?? 0) + (draftStatuses["non commence"] ?? 0);
+  const validatedTexts =
+    (draftStatuses.approved ?? 0) + (draftStatuses.validated ?? 0);
   const visualsReady =
     (draftStatuses.media_ready ?? 0) + (draftStatuses.ready_to_publish ?? 0);
+  const voicesReady = draftStatuses.voice_ready ?? 0;
+  const videosReady = draftStatuses.video_ready ?? 0;
   const readyToPublish = cockpitState.contentDrafts.readyToPublish.length;
   const pinterestReadyPins = pinterestPins.filter(
     (pin) => pin.status !== "published" && Boolean(pin.imageUrl || pin.storagePath),
@@ -142,6 +148,15 @@ export default async function OverviewPage() {
         summary: {
           operationalSummary:
             "Cockpit pret pour piloter la journee par priorite, contenu, connexions et trajectoire.",
+          cockpitState:
+            criticalBlockers.length > 0
+              ? "Attention requise"
+              : "Aucun blocage critique",
+          activeProjects: activeProjects.length,
+          activeObjectives: activeObjectives.length,
+          nextDeadline: upcomingDeadlines[0]
+            ? `${upcomingDeadlines[0].title} / ${upcomingDeadlines[0].deadline ?? "sans date"}`
+            : "Aucune echeance proche",
           dayPriority: recommendations[0],
           nextAction:
             actions.find((action) => action.status === "en cours")?.title ??
@@ -152,6 +167,7 @@ export default async function OverviewPage() {
         trajectory: {
           globalProgress,
           activeProjects: activeProjects.map((project) => project.title),
+          activeObjectives: activeObjectives.map((objective) => objective.title),
           upcomingDeadlines: upcomingDeadlines.map((objective) => ({
             title: objective.title,
             date: objective.deadline,
@@ -162,16 +178,14 @@ export default async function OverviewPage() {
         },
         content: {
           shortsDrafts,
+          validatedTexts,
           visualsReady,
+          voicesReady,
+          videosReady,
           readyToPublish,
           pinterestReadyPins: pinterestReadyPins.length,
         },
         connections: [
-          {
-            name: "YouTube",
-            state: connectionState("youtube"),
-            detail: connectionDetail("youtube", "OAuth valide"),
-          },
           {
             name: "Meta",
             state: connectionState("meta"),
@@ -183,18 +197,29 @@ export default async function OverviewPage() {
             detail: connectionDetail("instagram", "Relie via Meta"),
           },
           {
+            name: "Facebook",
+            state: connectionState("facebook"),
+            detail: connectionDetail("facebook", "Relie via Meta"),
+          },
+          {
+            name: "YouTube",
+            state: connectionState("youtube"),
+            detail: connectionDetail("youtube", "OAuth valide"),
+          },
+          {
+            name: "TikTok",
+            state: connectionState("tiktok"),
+            detail: connectionDetail("tiktok", "Sandbox / production selon memoire projet"),
+          },
+          {
             name: "Pinterest",
             state: connectionState("pinterest"),
             detail: connectionDetail("pinterest", "OAuth multi-comptes"),
           },
-          {
-            name: "TikTok Sandbox",
-            state: connectionState("tiktok"),
-            detail: connectionDetail("tiktok", "Production reportee"),
-          },
         ],
         recommendations: {
           actions: recommendations,
+          blockers: criticalBlockers,
           priority: recommendations[0],
           shortAction:
             cockpitState.contentDrafts.inProgress[0]?.title ??

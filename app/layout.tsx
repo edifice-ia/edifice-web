@@ -65,7 +65,7 @@ export default async function RootLayout({
                 {user ? (
                   <>
                     <Link
-                      href={isReviewer ? REVIEWER_SANDBOX_PATH : "/dashboard"}
+                      href={isReviewer ? REVIEWER_SANDBOX_PATH : "/interface/overview"}
                       className="rounded-md border border-[#223149] px-3 py-2 font-semibold text-[#7DD3FC] transition hover:bg-[#111D2E] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                     >
                       {isReviewer ? "Demo TikTok" : "Accueil cockpit"}

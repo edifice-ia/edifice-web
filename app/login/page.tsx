@@ -18,7 +18,7 @@ export default async function LoginPage() {
       redirect(REVIEWER_SANDBOX_PATH);
     }
 
-    redirect("/dashboard");
+    redirect("/interface/overview");
   }
 
   return (

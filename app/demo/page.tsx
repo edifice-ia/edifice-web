@@ -24,7 +24,7 @@ export default async function DemoPage({
   const role = getUserRole(user);
 
   if (role !== "reviewer") {
-    redirect("/dashboard");
+    redirect("/interface/overview");
   }
 
   return (

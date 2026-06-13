@@ -11,6 +11,10 @@ type DashboardData = {
   greetingName: string;
   summary: {
     operationalSummary: string;
+    cockpitState: string;
+    activeProjects: number;
+    activeObjectives: number;
+    nextDeadline: string;
     dayPriority: string;
     nextAction: string;
     criticalBlocker: string | null;
@@ -18,6 +22,7 @@ type DashboardData = {
   trajectory: {
     globalProgress: number;
     activeProjects: string[];
+    activeObjectives: string[];
     upcomingDeadlines: Array<{
       title: string;
       date: string | null;
@@ -28,7 +33,10 @@ type DashboardData = {
   };
   content: {
     shortsDrafts: number;
+    validatedTexts: number;
     visualsReady: number;
+    voicesReady: number;
+    videosReady: number;
     readyToPublish: number;
     pinterestReadyPins: number;
   };
@@ -39,6 +47,7 @@ type DashboardData = {
   }>;
   recommendations: {
     actions: string[];
+    blockers: string[];
     priority: string;
     shortAction: string;
     strategicAction: string;
@@ -172,9 +181,9 @@ export function OverviewDashboardClient({ data }: { data: DashboardData }) {
     <div>
       <CockpitHeader
         eyebrow="Accueil cockpit"
-        title="Cockpit Web de L'Edifice"
-        description="Un tableau de bord par blocs pour lire la journee vite, puis naviguer vers le bon module."
-        status="En migration"
+        title="Accueil Cockpit"
+        description="Centre de pilotage quotidien de L'Edifice, organise en blocs rapides."
+        status="Operationnel"
       />
 
       <div className="mb-5 flex flex-wrap gap-2">
@@ -227,14 +236,14 @@ export function OverviewDashboardClient({ data }: { data: DashboardData }) {
               onClick={() => setActiveBlock(previousBlock.id)}
               type="button"
             >
-              Précédent
+              ← Précédent
             </button>
             <button
               className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#38BDF8] hover:text-[#F8FAFC]"
               onClick={() => setActiveBlock(nextBlock.id)}
               type="button"
             >
-              Suivant
+              Suivant →
             </button>
             <button
               className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/20"
@@ -318,16 +327,15 @@ function SummaryBlock({
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <MetricCard label="Priorité du jour" value={data.summary.dayPriority} />
-        <MetricCard label="Action suivante" value={data.summary.nextAction} />
+        <MetricCard label="Etat général du cockpit" value={data.summary.cockpitState} />
+        <MetricCard label="Projets actifs" value={data.summary.activeProjects} />
+        <MetricCard label="Objectifs actifs" value={data.summary.activeObjectives} />
+        <MetricCard label="Prochaine échéance" value={data.summary.nextDeadline} />
+        <MetricCard label="Prochaine action recommandée" value={data.summary.nextAction} />
         <MetricCard
           label="Blocage critique"
           tone={data.summary.criticalBlocker ? "warning" : "good"}
           value={data.summary.criticalBlocker ?? "Aucun blocage critique"}
-        />
-        <MetricCard
-          label="Progression Trajectoire"
-          value={`${data.trajectory.globalProgress}%`}
         />
       </div>
 
@@ -353,11 +361,7 @@ function TrajectoryBlock({ data }: { data: DashboardData }) {
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard label="Progression globale" value={`${data.trajectory.globalProgress}%`} />
         <MetricCard label="Projets actifs" value={data.trajectory.activeProjects.length} />
-        <MetricCard
-          label="Objectifs en retard réels"
-          tone={data.trajectory.lateObjectives.length ? "warning" : "good"}
-          value={data.trajectory.lateObjectives.length}
-        />
+        <MetricCard label="Objectifs" value={data.trajectory.activeObjectives.length} />
       </div>
       <ProgressBar value={data.trajectory.globalProgress} />
       {data.trajectory.readError ? (
@@ -371,7 +375,13 @@ function TrajectoryBlock({ data }: { data: DashboardData }) {
           <SimpleList empty="Aucun projet actif." items={data.trajectory.activeProjects} />
         </div>
         <div>
-          <h3 className="mb-3 font-semibold text-[#F8FAFC]">Prochaines deadlines</h3>
+          <h3 className="mb-3 font-semibold text-[#F8FAFC]">Objectifs</h3>
+          <SimpleList empty="Aucun objectif actif." items={data.trajectory.activeObjectives} />
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <h3 className="mb-3 font-semibold text-[#F8FAFC]">Échéances proches</h3>
           <div className="grid gap-2">
             {data.trajectory.upcomingDeadlines.length ? (
               data.trajectory.upcomingDeadlines.map((deadline) => (
@@ -407,10 +417,13 @@ function ContentBlock({ data }: { data: DashboardData }) {
   return (
     <div className="grid gap-5">
       <div className="grid gap-3 md:grid-cols-4">
-        <MetricCard label="Brouillons Shorts" value={data.content.shortsDrafts} />
+        <MetricCard label="Brouillons" value={data.content.shortsDrafts} />
+        <MetricCard label="Textes validés" value={data.content.validatedTexts} />
         <MetricCard label="Visuels prêts" value={data.content.visualsReady} />
-        <MetricCard label="Prêts à publier" value={data.content.readyToPublish} />
-        <MetricCard label="Pins Pinterest prêts" value={data.content.pinterestReadyPins} />
+        <MetricCard label="Voix prêtes" value={data.content.voicesReady} />
+        <MetricCard label="Vidéos prêtes" value={data.content.videosReady} />
+        <MetricCard label="Contenus prêts à publier" value={data.content.readyToPublish} />
+        <MetricCard label="Pinterest pins prêts" value={data.content.pinterestReadyPins} />
       </div>
       <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
         <h3 className="font-semibold text-[#F8FAFC]">Atelier de contenu</h3>
@@ -451,7 +464,7 @@ function ConnectionsBlock({ data }: { data: DashboardData }) {
           </div>
         ))}
       </div>
-      <LinkButton href="/interface/settings/connections">Ouvrir Connexions</LinkButton>
+      <LinkButton href="/interface/settings/connections">Gérer les connexions</LinkButton>
     </div>
   );
 }
@@ -460,13 +473,20 @@ function RecommendationsBlock({ data }: { data: DashboardData }) {
   return (
     <div className="grid gap-5">
       <div>
-        <h3 className="mb-3 font-semibold text-[#F8FAFC]">3 actions recommandées</h3>
+        <h3 className="mb-3 font-semibold text-[#F8FAFC]">3 priorités du jour</h3>
         <SimpleList empty="Aucune recommandation." items={data.recommendations.actions} />
+      </div>
+      <div>
+        <h3 className="mb-3 font-semibold text-[#F8FAFC]">Blocages éventuels</h3>
+        <SimpleList
+          empty="Aucun blocage critique."
+          items={data.recommendations.blockers}
+        />
       </div>
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard label="Action prioritaire" value={data.recommendations.priority} />
-        <MetricCard label="Si peu de temps" value={data.recommendations.shortAction} />
-        <MetricCard label="Si plus de temps" value={data.recommendations.strategicAction} />
+        <MetricCard label="Action courte" value={data.recommendations.shortAction} />
+        <MetricCard label="Action stratégique" value={data.recommendations.strategicAction} />
       </div>
     </div>
   );

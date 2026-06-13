@@ -60,9 +60,10 @@ export async function POST(request: Request) {
       ? payload as Record<string, unknown>
       : {};
 
-    if (record.action === "propose_update") {
+    if (record.action === "propose_update" || record.action === "propose") {
       const message = typeof record.message === "string" ? record.message : "";
-      const proposal = inferProjectMemoryUpdate(message);
+      const entries = await readProjectMemoryEntries();
+      const proposal = inferProjectMemoryUpdate(message, entries);
 
       return NextResponse.json({
         proposal,
@@ -70,7 +71,7 @@ export async function POST(request: Request) {
       });
     }
 
-    if (record.action === "confirm_update") {
+    if (record.action === "confirm_update" || record.action === "confirm") {
       const proposal = record.proposal;
 
       if (!proposal || typeof proposal !== "object") {

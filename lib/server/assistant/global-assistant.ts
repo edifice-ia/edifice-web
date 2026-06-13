@@ -13,6 +13,17 @@ export type GlobalAssistantInput = {
   context: ProjectContext;
 };
 
+export type TrajectoryObjectiveProposal = {
+  project: string;
+  objective: string;
+  deadline: string | null;
+  planAction: string[];
+  actions: string[];
+  means: string[];
+  initialProgress: number;
+  confidence: number;
+};
+
 type OpenAIResponsePayload = {
   output_text?: string;
   output?: Array<{
@@ -73,6 +84,123 @@ function getPrimaryRecommendation(
       feasibleNow: true,
     }
   );
+}
+
+function confidenceForContext(context: ProjectContext) {
+  const hasMemory = context.projectMemoryEntries.length > 0;
+  const hasDrafts = context.cockpitState.contentDrafts.total > 0;
+  const hasPlatforms = context.cockpitState.platformStatuses.length > 0;
+  const score = 70 + (hasMemory ? 10 : 0) + (hasDrafts ? 8 : 0) + (hasPlatforms ? 7 : 0);
+
+  return Math.min(95, score);
+}
+
+function buildShortOperationalAnswer(context: ProjectContext) {
+  const priority = getPrimaryRecommendation(context);
+  const blockers = context.cockpitState.blockers
+    .filter((blocker) => !blocker.toLowerCase().includes("review externe"))
+    .slice(0, 2);
+  const actions = context.actionablePriorities.slice(0, 3);
+  const actionLines = (actions.length ? actions : [priority])
+    .slice(0, 3)
+    .map((action, index) => `${index + 1}. ${action.action}`);
+
+  return [
+    "Etat du jour :",
+    `${context.cockpitState.contentDrafts.total} brouillon(s) lus, ${context.cockpitState.contentDrafts.readyToPublish.length} pret(s) a publier. Connexions suivies: ${context.cockpitState.platformStatuses.length}.`,
+    "",
+    "Priorite :",
+    priority.action,
+    "",
+    "Blocages :",
+    blockers.length ? blockers.join(" ; ") : "Aucun blocage critique detecte.",
+    "",
+    "Actions recommandees :",
+    actionLines.join("\n"),
+    "",
+    "Prochaine action :",
+    priority.action,
+    "",
+    "Confiance :",
+    `${confidenceForContext(context)}%`,
+  ].join("\n");
+}
+
+function detectTrajectoryObjectiveProposal(
+  message: string,
+): TrajectoryObjectiveProposal | null {
+  const normalized = normalizeMessage(message);
+  const asksObjective =
+    normalized.includes("objectif") ||
+    normalized.includes("fixe-moi") ||
+    normalized.includes("cree-moi") ||
+    normalized.includes("creer");
+
+  if (!asksObjective) {
+    return null;
+  }
+
+  const mentionsShorts = normalized.includes("short");
+  const mentionsPinterest = normalized.includes("pinterest");
+  const deadline =
+    normalized.includes("juillet")
+      ? "2026-07-31"
+      : normalized.includes("fin juin")
+        ? "2026-06-30"
+        : null;
+
+  if (mentionsShorts) {
+    return {
+      project: "Atelier Shorts",
+      objective: "Terminer le pipeline Shorts",
+      deadline,
+      planAction: [
+        "Finaliser les statuts Brouillons, Visuels et Voix",
+        "Brancher la generation visuelle reelle",
+        "Preparer la suite audio et video",
+      ],
+      actions: [
+        "Verifier le module Visuels",
+        "Lister les pieces manquantes du pipeline",
+        "Definir le prochain test de bout en bout",
+      ],
+      means: ["Supabase", "Atelier de contenu", "OpenAI / generation visuelle"],
+      initialProgress: 0,
+      confidence: 0.82,
+    };
+  }
+
+  if (mentionsPinterest) {
+    return {
+      project: "Pinterest Publisher",
+      objective: "Finir Pinterest Publisher",
+      deadline,
+      planAction: [
+        "Stabiliser les environnements Production et Sandbox",
+        "Verifier les tableaux par compte",
+        "Reporter Production si non prioritaire",
+      ],
+      actions: [
+        "Tester le selecteur d'environnement",
+        "Verifier les pins prets",
+        "Documenter le statut Production",
+      ],
+      means: ["Supabase", "OAuth Pinterest", "Publisher Pinterest"],
+      initialProgress: 0,
+      confidence: 0.78,
+    };
+  }
+
+  return {
+    project: "Trajectoire",
+    objective: message.slice(0, 120),
+    deadline,
+    planAction: ["Clarifier l'objectif", "Definir les actions", "Fixer la prochaine echeance"],
+    actions: ["Valider le perimetre", "Creer l'objectif dans Trajectoire"],
+    means: ["Trajectoire", "Assistant Edifice"],
+    initialProgress: 0,
+    confidence: 0.65,
+  };
 }
 
 function formatPriority(priority: AssistantActionablePriority) {
@@ -733,26 +861,29 @@ function buildResponseContext(context: ProjectContext) {
 }
 
 export async function globalAssistant(input: GlobalAssistantInput) {
-  let answer: string | null = null;
+  let detailedAnalysis: string | null = null;
 
   try {
-    answer = await generateOpenAIAnswer(input);
+    detailedAnalysis = await generateOpenAIAnswer(input);
   } catch {
-    answer = null;
+    detailedAnalysis = null;
   }
 
-  if (!answer) {
-    answer = buildFallbackAnswer(input);
+  if (!detailedAnalysis) {
+    detailedAnalysis = buildFallbackAnswer(input);
     console.info("[Global Assistant] fallback response generated");
   }
 
   const { context } = input;
   const recommendation = getPrimaryRecommendation(context);
+  const answer = buildShortOperationalAnswer(context);
 
   return {
     ok: true,
     answer,
+    detailedAnalysis,
     recommendation,
+    trajectoryProposal: detectTrajectoryObjectiveProposal(input.message),
     context: buildResponseContext(context),
   };
 }

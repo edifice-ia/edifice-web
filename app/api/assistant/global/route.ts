@@ -57,7 +57,10 @@ export async function POST(request: Request) {
   try {
     const context = await buildProjectContext();
     console.info("[Global Assistant] project context loaded");
-    const memoryProposal = inferProjectMemoryUpdate(message);
+    const memoryProposal = inferProjectMemoryUpdate(
+      message,
+      context.projectMemoryEntries,
+    );
     const response = await globalAssistant({ message, mode, context });
 
     if (memoryProposal) {
@@ -65,13 +68,6 @@ export async function POST(request: Request) {
         ...response,
         memoryProposal,
         requiresConfirmation: true,
-        answer: [
-          response.answer,
-          "",
-          "Je peux proposer une mise a jour memoire projet :",
-          `${memoryProposal.title} -> ${memoryProposal.value}`,
-          "Confirmer ?",
-        ].join("\n"),
       });
     }
 

@@ -22,9 +22,12 @@ type AssistantExchange = {
   id: string;
   role: "user" | "assistant";
   message: string;
+  detailedAnalysis?: string;
   recommendation?: AssistantRecommendation;
   memoryProposal?: ProjectMemoryProposal;
   memoryConfirmed?: boolean;
+  memoryCancelled?: boolean;
+  trajectoryProposal?: TrajectoryProposal;
 };
 
 type AssistantRecommendation = {
@@ -41,6 +44,19 @@ type ProjectMemoryProposal = {
   value: string;
   status: string;
   source: string;
+  confidence: number;
+  previousValue?: string | null;
+  impact?: string;
+};
+
+type TrajectoryProposal = {
+  project: string;
+  objective: string;
+  deadline: string | null;
+  planAction: string[];
+  actions: string[];
+  means: string[];
+  initialProgress: number;
   confidence: number;
 };
 
@@ -222,8 +238,10 @@ export function AssistantCommandCenter({
       const payload = (await response.json()) as {
         ok?: boolean;
         answer?: string;
+        detailedAnalysis?: string;
         recommendation?: AssistantRecommendation;
         memoryProposal?: ProjectMemoryProposal;
+        trajectoryProposal?: TrajectoryProposal | null;
         requiresConfirmation?: boolean;
         error?: string;
       };
@@ -240,8 +258,10 @@ export function AssistantCommandCenter({
           id: `assistant-${Date.now()}`,
           role: "assistant",
           message: answer,
+          detailedAnalysis: payload.detailedAnalysis,
           recommendation: payload.recommendation,
           memoryProposal: payload.memoryProposal,
+          trajectoryProposal: payload.trajectoryProposal ?? undefined,
         },
       ]);
     } catch (requestError) {
@@ -253,6 +273,16 @@ export function AssistantCommandCenter({
     } finally {
       setIsSending(false);
     }
+  }
+
+  function cancelMemoryProposal(exchangeId: string) {
+    setExchanges((current) =>
+      current.map((exchange) =>
+        exchange.id === exchangeId
+          ? { ...exchange, memoryCancelled: true }
+          : exchange,
+      ),
+    );
   }
 
   async function confirmMemoryProposal(
@@ -365,11 +395,15 @@ export function AssistantCommandCenter({
                   tone={exchange.role === "user" ? "blue" : "jade"}
                   align={exchange.role === "user" ? "right" : "left"}
                   recommendation={exchange.recommendation}
+                  detailedAnalysis={exchange.detailedAnalysis}
                   memoryProposal={exchange.memoryProposal}
                   memoryConfirmed={exchange.memoryConfirmed}
+                  memoryCancelled={exchange.memoryCancelled}
+                  trajectoryProposal={exchange.trajectoryProposal}
                   confirmingProposalId={confirmingProposalId}
                   exchangeId={exchange.id}
                   onConfirmMemoryProposal={confirmMemoryProposal}
+                  onCancelMemoryProposal={cancelMemoryProposal}
                 >
                   {exchange.message}
                 </ChatMessage>
@@ -569,25 +603,33 @@ function ChatMessage({
   align = "left",
   children,
   recommendation,
+  detailedAnalysis,
   memoryProposal,
   memoryConfirmed,
+  memoryCancelled,
+  trajectoryProposal,
   confirmingProposalId,
   exchangeId,
   onConfirmMemoryProposal,
+  onCancelMemoryProposal,
 }: {
   label: string;
   tone: "jade" | "blue";
   align?: "left" | "right";
   children: React.ReactNode;
   recommendation?: AssistantRecommendation;
+  detailedAnalysis?: string;
   memoryProposal?: ProjectMemoryProposal;
   memoryConfirmed?: boolean;
+  memoryCancelled?: boolean;
+  trajectoryProposal?: TrajectoryProposal;
   confirmingProposalId?: string | null;
   exchangeId?: string;
   onConfirmMemoryProposal?: (
     exchangeId: string,
     proposal: ProjectMemoryProposal,
   ) => Promise<void>;
+  onCancelMemoryProposal?: (exchangeId: string) => void;
 }) {
   const color = tone === "jade" ? "text-[#39E6D0]" : "text-[#38BDF8]";
 
@@ -616,36 +658,100 @@ function ChatMessage({
           />
         </div>
       ) : null}
-      {memoryProposal && !memoryConfirmed ? (
+      {detailedAnalysis ? (
+        <details className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-sm">
+          <summary className="cursor-pointer font-semibold text-[#39E6D0]">
+            Développer l’analyse
+          </summary>
+          <div className="mt-3 whitespace-pre-line leading-7 text-[#A7B0C0]">
+            {detailedAnalysis}
+          </div>
+        </details>
+      ) : null}
+      {memoryProposal && !memoryConfirmed && !memoryCancelled ? (
         <div className="mt-4 rounded-md border border-[#39E6D0]/30 bg-[#03070B] p-3 text-sm">
           <p className="font-semibold text-[#F8FAFC]">
-            Mise a jour proposee
+            Mise à jour mémoire à confirmer
           </p>
-          <p className="mt-2 text-[#A7B0C0]">
-            {memoryProposal.title} -&gt; {memoryProposal.value}
-          </p>
-          <p className="mt-1 text-xs text-[#64748b]">
-            Cle: {memoryProposal.key} / confiance{" "}
+          <div className="mt-3 grid gap-2 text-[#A7B0C0]">
+            <RecommendationLine label="Clé" value={memoryProposal.key} />
+            <RecommendationLine
+              label="Ancienne valeur"
+              value={memoryProposal.previousValue ?? "non renseignée"}
+            />
+            <RecommendationLine label="Nouvelle valeur" value={memoryProposal.value} />
+            <RecommendationLine
+              label="Impact"
+              value={memoryProposal.impact ?? "Statut cockpit mis a jour apres confirmation."}
+            />
+          </div>
+          <p className="mt-2 text-xs text-[#64748b]">
+            Confiance{" "}
             {Math.round(memoryProposal.confidence * 100)}%
           </p>
-          <button
-            className="mt-3 rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-50"
-            disabled={!exchangeId || confirmingProposalId === exchangeId}
-            onClick={() =>
-              exchangeId
-                ? onConfirmMemoryProposal?.(exchangeId, memoryProposal)
-                : undefined
-            }
-            type="button"
-          >
-            {confirmingProposalId === exchangeId ? "Confirmation..." : "Confirmer"}
-          </button>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-50"
+              disabled={!exchangeId || confirmingProposalId === exchangeId}
+              onClick={() =>
+                exchangeId
+                  ? onConfirmMemoryProposal?.(exchangeId, memoryProposal)
+                  : undefined
+              }
+              type="button"
+            >
+              {confirmingProposalId === exchangeId ? "Confirmation..." : "Confirmer"}
+            </button>
+            <button
+              className="rounded-md border border-[#64748b]/50 bg-[#64748b]/10 px-3 py-2 text-xs font-semibold text-[#cbd5e1] transition hover:text-[#F8FAFC]"
+              disabled={!exchangeId || confirmingProposalId === exchangeId}
+              onClick={() => (exchangeId ? onCancelMemoryProposal?.(exchangeId) : undefined)}
+              type="button"
+            >
+              Annuler
+            </button>
+          </div>
         </div>
       ) : null}
       {memoryProposal && memoryConfirmed ? (
         <p className="mt-4 rounded-md border border-[#39E6D0]/30 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
-          Mise a jour confirmee.
+          Mémoire projet mise à jour.
         </p>
+      ) : null}
+      {memoryProposal && memoryCancelled ? (
+        <p className="mt-4 rounded-md border border-[#64748b]/30 bg-[#64748b]/10 px-3 py-2 text-sm font-semibold text-[#cbd5e1]">
+          Mise à jour annulée.
+        </p>
+      ) : null}
+      {trajectoryProposal ? (
+        <div className="mt-4 rounded-md border border-[#38BDF8]/30 bg-[#03070B] p-3 text-sm">
+          <p className="font-semibold text-[#F8FAFC]">
+            Proposition Trajectoire préparée
+          </p>
+          <div className="mt-3 grid gap-2 text-[#A7B0C0]">
+            <RecommendationLine label="Projet" value={trajectoryProposal.project} />
+            <RecommendationLine label="Objectif" value={trajectoryProposal.objective} />
+            <RecommendationLine
+              label="Deadline"
+              value={trajectoryProposal.deadline ?? "à confirmer"}
+            />
+            <RecommendationLine
+              label="Plan d’action"
+              value={trajectoryProposal.planAction.join(" ; ")}
+            />
+            <RecommendationLine
+              label="Actions"
+              value={trajectoryProposal.actions.join(" ; ")}
+            />
+            <RecommendationLine
+              label="Moyens"
+              value={trajectoryProposal.means.join(" ; ")}
+            />
+          </div>
+          <p className="mt-2 text-xs text-[#64748b]">
+            Rien n’est écrit dans Trajectoire sans confirmation dédiée.
+          </p>
+        </div>
       ) : null}
     </div>
   );

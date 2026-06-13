@@ -30,6 +30,8 @@ export type ProjectMemoryUpdateProposal = {
   status: string;
   source: string;
   confidence: number;
+  previousValue?: string | null;
+  impact?: string;
 };
 
 let projectMemoryClient: SupabaseClient | null = null;
@@ -244,9 +246,23 @@ async function writeProjectMemoryAudit({
     next_value: next,
     source,
     user_id: userId,
+    confidence: next.confidence,
+    user_confirmed: true,
   });
 
   if (error) {
+    if (
+      error.message.includes("project_memory_audit_log") ||
+      error.message.includes("confidence") ||
+      error.message.includes("user_confirmed")
+    ) {
+      console.warn("[Project Memory] audit log unavailable", {
+        memoryKey: key,
+        error: error.message,
+      });
+      return;
+    }
+
     throw new Error(`Failed to audit project memory: ${error.message}`);
   }
 }
@@ -300,18 +316,35 @@ export async function updateProjectMemory({
   return mapRow(data);
 }
 
+function withPreviousValue(
+  proposal: ProjectMemoryUpdateProposal | null,
+  entries: ProjectMemoryEntry[] = [],
+) {
+  if (!proposal) {
+    return null;
+  }
+
+  const previous = entries.find((entry) => entry.key === proposal.key);
+
+  return {
+    ...proposal,
+    previousValue: previous?.value ?? previous?.status ?? null,
+  };
+}
+
 export function inferProjectMemoryUpdate(
   message: string,
+  entries: ProjectMemoryEntry[] = [],
 ): ProjectMemoryUpdateProposal | null {
   const normalized = message
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "");
-  const source = "assistant_confirmed";
+  const source = "assistant";
 
   if (normalized.includes("tiktok") && normalized.includes("review")) {
     if (normalized.includes("valid")) {
-      return {
+      return withPreviousValue({
         key: "tiktok_review_status",
         category: "connexion",
         title: "TikTok review status",
@@ -319,11 +352,25 @@ export function inferProjectMemoryUpdate(
         status: "valide",
         source,
         confidence: 0.92,
-      };
+        impact: "TikTok Production peut sortir de la liste des reviews bloquantes si la production est aussi validee.",
+      }, entries);
+    }
+
+    if (normalized.includes("report")) {
+      return withPreviousValue({
+        key: "tiktok_review_status",
+        category: "connexion",
+        title: "TikTok review status",
+        value: "reportee",
+        status: "reporte",
+        source,
+        confidence: 0.91,
+        impact: "TikTok Production reste hors priorite immediate, TikTok Sandbox reste utilisable.",
+      }, entries);
     }
 
     if (normalized.includes("sandbox")) {
-      return {
+      return withPreviousValue({
         key: "tiktok_review_status",
         category: "connexion",
         title: "TikTok review status",
@@ -331,12 +378,13 @@ export function inferProjectMemoryUpdate(
         status: "sandbox",
         source,
         confidence: 0.86,
-      };
+        impact: "TikTok reste limite a l'environnement Sandbox.",
+      }, entries);
     }
   }
 
   if (normalized.includes("tiktok") && normalized.includes("sandbox")) {
-    return {
+    return withPreviousValue({
       key: "tiktok_access_status",
       category: "connexion",
       title: "TikTok access status",
@@ -344,12 +392,30 @@ export function inferProjectMemoryUpdate(
       status: "sandbox",
       source,
       confidence: 0.9,
-    };
+      impact: "TikTok Sandbox reste fonctionnel, production non prioritaire.",
+    }, entries);
+  }
+
+  if (
+    normalized.includes("pinterest") &&
+    normalized.includes("sandbox") &&
+    (normalized.includes("reste") || normalized.includes("garde"))
+  ) {
+    return withPreviousValue({
+      key: "pinterest_access_status",
+      category: "connexion",
+      title: "Pinterest access status",
+      value: "reste en sandbox",
+      status: "sandbox",
+      source,
+      confidence: 0.88,
+      impact: "Pinterest Sandbox reste prioritaire, Production reste hors activation immediate.",
+    }, entries);
   }
 
   if (normalized.includes("pinterest") && normalized.includes("production")) {
     if (normalized.includes("report")) {
-      return {
+      return withPreviousValue({
         key: "pinterest_access_status",
         category: "connexion",
         title: "Pinterest access status",
@@ -357,11 +423,12 @@ export function inferProjectMemoryUpdate(
         status: "reporte",
         source,
         confidence: 0.9,
-      };
+        impact: "Pinterest Production reste hors priorite immediate.",
+      }, entries);
     }
 
     if (normalized.includes("valid") || normalized.includes("actif")) {
-      return {
+      return withPreviousValue({
         key: "pinterest_access_status",
         category: "connexion",
         title: "Pinterest access status",
@@ -369,7 +436,8 @@ export function inferProjectMemoryUpdate(
         status: "valide",
         source,
         confidence: 0.86,
-      };
+        impact: "Pinterest Production peut redevenir actionnable apres controles.",
+      }, entries);
     }
   }
 
@@ -378,7 +446,7 @@ export function inferProjectMemoryUpdate(
     normalized.includes("short") &&
     (normalized.includes("termine") || normalized.includes("fini"))
   ) {
-    return {
+    return withPreviousValue({
       key: "shorts_visual_module_status",
       category: "contenu",
       title: "Shorts visual module status",
@@ -386,11 +454,12 @@ export function inferProjectMemoryUpdate(
       status: "termine",
       source,
       confidence: 0.88,
-    };
+      impact: "Le module Visuels Shorts peut etre considere termine dans les vues cockpit.",
+    }, entries);
   }
 
   if (normalized.includes("youtube") && normalized.includes("valid")) {
-    return {
+    return withPreviousValue({
       key: "youtube_connection_status",
       category: "connexion",
       title: "YouTube connection status",
@@ -398,11 +467,12 @@ export function inferProjectMemoryUpdate(
       status: "valide",
       source,
       confidence: 0.84,
-    };
+      impact: "YouTube reste disponible pour les tests controles.",
+    }, entries);
   }
 
   if (normalized.includes("meta") && normalized.includes("valid")) {
-    return {
+    return withPreviousValue({
       key: "meta_connection_status",
       category: "connexion",
       title: "Meta connection status",
@@ -410,11 +480,12 @@ export function inferProjectMemoryUpdate(
       status: "valide",
       source,
       confidence: 0.84,
-    };
+      impact: "Meta reste disponible pour les modules controles.",
+    }, entries);
   }
 
   if (normalized.includes("instagram") && normalized.includes("valid")) {
-    return {
+    return withPreviousValue({
       key: "instagram_connection_status",
       category: "connexion",
       title: "Instagram connection status",
@@ -422,10 +493,11 @@ export function inferProjectMemoryUpdate(
       status: "valide",
       source,
       confidence: 0.84,
-    };
+      impact: "Instagram reste disponible via Meta.",
+    }, entries);
   }
 
-  return null;
+  return withPreviousValue(null, entries);
 }
 
 export function getPriorityRank(priority: string | null) {

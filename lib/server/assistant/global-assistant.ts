@@ -56,6 +56,26 @@ type AssistantSubject =
   | "Personnel"
   | "General";
 
+type AssistantSourceUsage = {
+  trajectoire: boolean;
+  memory: boolean;
+  cockpit: boolean;
+  observatory: boolean;
+};
+
+type SubjectEvidence = {
+  memory: ProjectContext["projectMemoryEntries"];
+  oauth: ProjectContext["cockpitState"]["oauthStatuses"];
+  platforms: ProjectContext["cockpitState"]["platformStatuses"];
+  modules: ProjectContext["cockpitState"]["modules"]["available"];
+  migratingModules: ProjectContext["cockpitState"]["modules"]["migrating"];
+  observatory: ProjectContext["observatoryItems"];
+  dependencies: ProjectContext["cockpitState"]["dependencies"];
+  blockers: string[];
+  drafts: ProjectContext["cockpitState"]["contentDrafts"];
+  sourceUsage: AssistantSourceUsage;
+};
+
 const systemPrompt = [
   "Tu es l'Assistant de L'Edifice, copilote de chantier du projet.",
   "Tu aides Vincent a prioriser, comprendre les blocages, suivre les modules et choisir la prochaine pierre a poser.",
@@ -128,12 +148,12 @@ function detectSubject(message: string): AssistantSubject {
 
 function subjectTerms(subject: AssistantSubject) {
   const terms: Record<AssistantSubject, string[]> = {
-    Shorts: ["short", "atelier", "visuel", "voix", "pipeline", "contenu"],
-    Pinterest: ["pinterest", "publisher", "pin", "tableau"],
+    Shorts: ["short", "atelier", "visuel", "voix", "pipeline", "contenu", "draft", "brouillon"],
+    Pinterest: ["pinterest", "publisher", "pin", "tableau", "oauth"],
     TikTok: ["tiktok", "sandbox", "production"],
     Assistant: ["assistant", "memoire", "project memory", "popam"],
     Trajectoire: ["trajectoire", "objectif", "action", "popam"],
-    Connexions: ["connexion", "oauth", "youtube", "meta", "instagram", "tiktok", "pinterest"],
+    Connexions: ["connexion", "connexions", "oauth", "youtube", "meta", "instagram", "facebook", "tiktok", "pinterest"],
     Personnel: ["personnel", "sport", "sante", "ecriture", "routine", "alternance"],
     General: [],
   };
@@ -311,8 +331,22 @@ function formatContextUsed(options: {
   memoryCount: number;
   project: TrajectoireProject | null;
   objective: TrajectoireObjective | null;
+  sourceUsage?: AssistantSourceUsage;
 }) {
+  const sourceUsage = options.sourceUsage ?? {
+    trajectoire: Boolean(options.project),
+    memory: options.memoryCount > 0,
+    cockpit: false,
+    observatory: false,
+  };
+
   return [
+    "Source utilisee :",
+    `- Trajectoire : ${sourceUsage.trajectoire ? "oui" : "non"}`,
+    `- Memoire Projet : ${sourceUsage.memory ? "oui" : "non"}`,
+    `- Cockpit : ${sourceUsage.cockpit ? "oui" : "non"}`,
+    `- Observatoire : ${sourceUsage.observatory ? "oui" : "non"}`,
+    "",
     "Contexte utilise :",
     `- Memoire projet : ${options.memoryCount} entree(s)`,
     `- Trajectoire : ${options.project ? "projet trouve" : "aucun projet correspondant"}`,
@@ -320,6 +354,88 @@ function formatContextUsed(options: {
     `- Projet detecte : ${options.project?.title ?? "non detecte"}`,
     `- Objectif detecte : ${options.objective?.title ?? "non detecte"}`,
   ].join("\n");
+}
+
+function textIncludesSubject(text: string, subject: AssistantSubject) {
+  const normalized = normalizeMessage(text);
+  const terms = subjectTerms(subject);
+
+  if (subject === "General") {
+    return false;
+  }
+
+  return terms.some((term) => normalized.includes(normalizeMessage(term)));
+}
+
+function collectSubjectEvidence(
+  context: ProjectContext,
+  subject: AssistantSubject,
+): SubjectEvidence {
+  const memory = context.projectMemoryEntries.filter((entry) =>
+    textIncludesSubject(
+      `${entry.key ?? ""} ${entry.title} ${entry.value ?? ""} ${entry.content ?? ""} ${entry.status ?? ""} ${entry.nextAction ?? ""}`,
+      subject,
+    ),
+  );
+  const oauth = context.cockpitState.oauthStatuses.filter((status) =>
+    subject === "Connexions" ||
+    textIncludesSubject(`${status.provider} ${status.warnings.join(" ")}`, subject),
+  );
+  const platforms = context.cockpitState.platformStatuses.filter((platform) =>
+    subject === "Connexions" ||
+    textIncludesSubject(
+      `${platform.key} ${platform.name} ${platform.label} ${platform.summary} ${platform.details.join(" ")}`,
+      subject,
+    ),
+  );
+  const modules = context.cockpitState.modules.available.filter((module) =>
+    textIncludesSubject(`${module.title} ${module.description} ${module.status}`, subject),
+  );
+  const migratingModules = context.cockpitState.modules.migrating.filter((module) =>
+    textIncludesSubject(`${module.title} ${module.description} ${module.status}`, subject),
+  );
+  const observatory = context.observatoryItems.filter((item) =>
+    subject === "Connexions"
+      ? item.area === "OAuth" || textIncludesSubject(`${item.name} ${item.summary} ${item.nextAction}`, subject)
+      : textIncludesSubject(
+          `${item.name} ${item.summary} ${item.nextAction} ${item.detail ?? ""} ${item.externalReviewNote ?? ""}`,
+          subject,
+        ),
+  );
+  const dependencies = context.cockpitState.dependencies.filter((dependency) =>
+    textIncludesSubject(`${dependency.name} ${dependency.status} ${dependency.note}`, subject),
+  );
+  const blockers = context.cockpitState.blockers.filter((blocker) =>
+    textIncludesSubject(blocker, subject),
+  );
+  const hasDraftContext =
+    subject === "Shorts" && context.cockpitState.contentDrafts.total > 0;
+  const cockpit =
+    oauth.length > 0 ||
+    platforms.length > 0 ||
+    modules.length > 0 ||
+    migratingModules.length > 0 ||
+    dependencies.length > 0 ||
+    blockers.length > 0 ||
+    hasDraftContext;
+
+  return {
+    memory,
+    oauth,
+    platforms,
+    modules,
+    migratingModules,
+    observatory,
+    dependencies,
+    blockers,
+    drafts: context.cockpitState.contentDrafts,
+    sourceUsage: {
+      trajectoire: false,
+      memory: memory.length > 0,
+      cockpit,
+      observatory: observatory.length > 0,
+    },
+  };
 }
 
 function missingContextAnswer(subject: AssistantSubject, context: ProjectContext) {
@@ -344,6 +460,136 @@ function missingContextAnswer(subject: AssistantSubject, context: ProjectContext
       memoryCount: context.projectMemoryEntries.length,
       project: null,
       objective: null,
+    }),
+  ].join("\n");
+}
+
+function hasSubjectEvidence(evidence: SubjectEvidence) {
+  return (
+    evidence.memory.length > 0 ||
+    evidence.oauth.length > 0 ||
+    evidence.platforms.length > 0 ||
+    evidence.modules.length > 0 ||
+    evidence.migratingModules.length > 0 ||
+    evidence.observatory.length > 0 ||
+    evidence.dependencies.length > 0 ||
+    evidence.blockers.length > 0 ||
+    (evidence.sourceUsage.cockpit && evidence.drafts.total > 0)
+  );
+}
+
+function formatYesNo(value: boolean) {
+  return value ? "oui" : "non";
+}
+
+function formatOAuthLine(status: SubjectEvidence["oauth"][number]) {
+  return `${status.provider}: configure=${formatYesNo(status.configured)}, token=${formatYesNo(status.tokenPresent)}${
+    status.warnings.length ? `, alertes=${status.warnings.join(" ; ")}` : ""
+  }`;
+}
+
+function nextActionFromEvidence(
+  context: ProjectContext,
+  evidence: SubjectEvidence,
+) {
+  return (
+    evidence.memory.find((entry) => entry.nextAction)?.nextAction ??
+    evidence.observatory.find((item) => item.nextAction)?.nextAction ??
+    evidence.dependencies[0]?.note ??
+    evidence.platforms[0]?.summary ??
+    context.nextPriorityAction
+  );
+}
+
+function buildSubjectEvidenceAnswer({
+  context,
+  evidence,
+  subject,
+}: {
+  context: ProjectContext;
+  evidence: SubjectEvidence;
+  subject: AssistantSubject;
+}) {
+  const platformLines = evidence.platforms.length
+    ? evidence.platforms.map((platform) =>
+        `${platform.name}: ${platform.label} (${platform.status}). ${platform.summary}${
+          platform.details.length ? ` Details: ${platform.details.join(" ; ")}` : ""
+        }`,
+      )
+    : ["Aucun statut plateforme dedie visible."];
+  const oauthLines = evidence.oauth.length
+    ? evidence.oauth.map(formatOAuthLine)
+    : ["Aucun statut OAuth dedie visible."];
+  const moduleLines = [...evidence.modules, ...evidence.migratingModules].length
+    ? [...evidence.modules, ...evidence.migratingModules].map(
+        (module) => `${module.title}: ${module.status}. ${module.description}`,
+      )
+    : ["Aucun module cockpit dedie visible."];
+  const memoryLines = evidence.memory.length
+    ? evidence.memory
+        .slice(0, 5)
+        .map((entry) => `${entry.title}: ${entry.value ?? entry.status ?? entry.content ?? "renseigne"}`)
+    : ["Aucune entree memoire dediee."];
+  const observatoryLines = evidence.observatory.length
+    ? evidence.observatory
+        .slice(0, 5)
+        .map((item) => `${item.name}: ${item.status}. ${item.summary} Prochaine action: ${item.nextAction}`)
+    : ["Aucun item Observatoire dedie."];
+  const dependencyLines = evidence.dependencies.length
+    ? evidence.dependencies.map((dependency) => `${dependency.name}: ${dependency.status}. ${dependency.note}`)
+    : [];
+  const blockers = evidence.blockers.length
+    ? evidence.blockers
+    : evidence.observatory
+        .filter((item) => ["Bloque", "A securiser", "Non connecte", "Review"].includes(item.status))
+        .map((item) => `${item.name}: ${item.summary}`);
+  const nextAction = nextActionFromEvidence(context, evidence);
+  const shortsLines =
+    subject === "Shorts"
+      ? [
+          `Brouillons: ${evidence.drafts.total}`,
+          `Prets a publier: ${evidence.drafts.readyToPublish.length}`,
+          `En cours: ${evidence.drafts.inProgress.length}`,
+        ]
+      : [];
+
+  return [
+    `Etat ${subject} :`,
+    ...platformLines,
+    ...shortsLines,
+    "",
+    "OAuth / acces :",
+    ...oauthLines,
+    "",
+    subject === "Pinterest" || subject === "TikTok"
+      ? "Sandbox / Production :"
+      : "Memoire projet :",
+    ...(subject === "Pinterest" || subject === "TikTok"
+      ? [
+          ...memoryLines,
+          ...evidence.dependencies.map((dependency) => `${dependency.name}: ${dependency.status}. ${dependency.note}`),
+        ]
+      : memoryLines),
+    "",
+    subject === "Pinterest" ? "Publisher :" : "Modules cockpit :",
+    ...moduleLines,
+    "",
+    "Observatoire :",
+    ...observatoryLines,
+    ...(dependencyLines.length ? ["", "Dependances :", ...dependencyLines] : []),
+    "",
+    "Blocages :",
+    ...(blockers.length ? blockers : ["Aucun blocage critique detecte pour ce sujet."]),
+    "",
+    "Prochaine etape :",
+    nextAction ?? "A definir.",
+    "",
+    formatContextUsed({
+      subject,
+      memoryCount: evidence.memory.length,
+      project: null,
+      objective: null,
+      sourceUsage: evidence.sourceUsage,
     }),
   ].join("\n");
 }
@@ -381,11 +627,13 @@ function buildPopamAnswer({
   context,
   objective,
   project,
+  sourceUsage,
   subject,
 }: {
   context: ProjectContext;
   objective: TrajectoireObjective;
   project: TrajectoireProject;
+  sourceUsage?: AssistantSourceUsage;
   subject: AssistantSubject;
 }) {
   const manualProgress = objective.progress;
@@ -440,6 +688,14 @@ function buildPopamAnswer({
       memoryCount: context.projectMemoryEntries.length,
       project,
       objective,
+      sourceUsage: sourceUsage
+        ? { ...sourceUsage, trajectoire: true }
+        : {
+            trajectoire: true,
+            memory: context.projectMemoryEntries.length > 0,
+            cockpit: false,
+            observatory: false,
+          },
     }),
   ].join("\n");
 }
@@ -448,12 +704,22 @@ function buildContextualOperationalAnswer(input: GlobalAssistantInput) {
   const subject = detectSubject(input.message);
   const project = findSubjectProject(subject, input.trajectoire);
   const objective = project ? selectObjective(project, subject) : null;
+  const evidence = collectSubjectEvidence(input.context, subject);
 
   if (project && objective) {
     return buildPopamAnswer({
       context: input.context,
       objective,
       project,
+      sourceUsage: evidence.sourceUsage,
+      subject,
+    });
+  }
+
+  if (hasSubjectEvidence(evidence)) {
+    return buildSubjectEvidenceAnswer({
+      context: input.context,
+      evidence,
       subject,
     });
   }

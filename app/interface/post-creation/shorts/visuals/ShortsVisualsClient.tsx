@@ -21,6 +21,8 @@ type VisualAsset = {
   fileName: string;
   publicUrl: string;
   status: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
   score: number;
   scoreReason: string;
 };
@@ -94,6 +96,48 @@ function formatApiError(payload: ApiErrorPayload, fallback: string) {
   return payload.error ?? fallback;
 }
 
+function metadataText(metadata: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = metadata[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+}
+
+function visualPromptSource(
+  asset: VisualAsset,
+  visualPrompts: string[],
+  usageOrder?: number,
+) {
+  return (
+    metadataText(asset.metadata, [
+      "prompt",
+      "visual_prompt",
+      "source_prompt",
+      "generation_prompt",
+      "scene_prompt",
+    ]) ??
+    visualPrompts[Math.max(0, (usageOrder ?? 1) - 1)] ??
+    asset.scoreReason
+  );
+}
+
+function firstFreeVisualSlot(retainedVisuals: SelectedDraftAsset[]) {
+  const usedSlots = new Set(retainedVisuals.map((asset) => asset.usageOrder));
+
+  for (let slot = 1; slot <= 7; slot += 1) {
+    if (!usedSlots.has(slot)) {
+      return slot;
+    }
+  }
+
+  return 1;
+}
+
 export function ShortsVisualsClient() {
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState("");
@@ -113,7 +157,7 @@ export function ShortsVisualsClient() {
     () => parseVisualPrompts(selectedDraft?.visualPrompt ?? ""),
     [selectedDraft],
   );
-  const proposedVisuals = useMemo(
+  const generatedVisuals = useMemo(
     () => media?.suggestedAssets.slice(0, 12) ?? [],
     [media],
   );
@@ -124,14 +168,18 @@ export function ShortsVisualsClient() {
   const averageScore = useMemo(() => {
     const scores = retainedVisuals.length
       ? retainedVisuals.map((asset) => asset.score)
-      : proposedVisuals.map((asset) => asset.score);
+      : generatedVisuals.map((asset) => asset.score);
 
     if (!scores.length) {
       return 0;
     }
 
     return scoreOutOf100(scores.reduce((sum, score) => sum + score, 0) / scores.length);
-  }, [proposedVisuals, retainedVisuals]);
+  }, [generatedVisuals, retainedVisuals]);
+  const retainedAssetIds = useMemo(
+    () => new Set(retainedVisuals.map((asset) => asset.id)),
+    [retainedVisuals],
+  );
   const mediaReady =
     media?.mediaPipelineStatus === "media_ready" ||
     media?.mediaPipelineStatus === "ready_to_publish";
@@ -197,7 +245,13 @@ export function ShortsVisualsClient() {
   }
 
   async function runVisualAction(
-    action: "prepare_media" | "refresh_suggestions" | "request_visual_generation" | "select_asset",
+    action:
+      | "prepare_media"
+      | "refresh_suggestions"
+      | "request_visual_generation"
+      | "select_asset"
+      | "replace_asset"
+      | "remove_asset",
     options?: { assetId?: string; usageOrder?: number },
   ) {
     if (!selectedDraft) {
@@ -325,12 +379,11 @@ export function ShortsVisualsClient() {
           <h2 className="text-xl font-semibold text-[#F8FAFC]">Statuts Shorts</h2>
           <div className="mt-4 grid gap-2 text-sm text-[#A7B0C0]">
             {[
-              "Brouillon texte",
-              "Texte validé",
-              "Visuels prêts",
-              "Voix prête",
-              "Vidéo prête",
-              "Prêt à publier",
+              "🟢 Texte validé",
+              mediaReady ? "🟡 Visuels prêts" : "🟡 Visuels en attente",
+              "🟡 Voix en attente",
+              "🟡 Vidéo en attente",
+              "🟢 Prêt à publier",
             ].map((status) => (
               <p key={status} className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2">
                 {status}
@@ -383,15 +436,15 @@ export function ShortsVisualsClient() {
               <span className="font-semibold text-[#F8FAFC]">{averageScore}/100</span>
             </p>
             <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
-              Visuels proposés:{" "}
+              Visuels générés:{" "}
               <span className="font-semibold text-[#F8FAFC]">
-                {proposedVisuals.length}/12
+                {generatedVisuals.length}
               </span>
             </p>
             <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
               Visuels retenus:{" "}
               <span className="font-semibold text-[#F8FAFC]">
-                {retainedVisuals.length}/7
+                {retainedVisuals.length}
               </span>
             </p>
           </div>
@@ -460,7 +513,7 @@ export function ShortsVisualsClient() {
 
         <SectionContainer>
           <h2 className="text-xl font-semibold text-[#F8FAFC]">
-            7 visuels retenus
+            Visuels retenus
           </h2>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {retainedVisuals.length === 0 ? (
@@ -480,9 +533,26 @@ export function ShortsVisualsClient() {
                   <p className="text-sm font-semibold text-[#F8FAFC]">
                     {asset.usageOrder}. {asset.fileName}
                   </p>
-                  <p className="mt-1 text-xs text-[#A7B0C0]">
-                    Score {scoreOutOf100(asset.score)}/100
-                  </p>
+                  <div className="mt-2 grid gap-2 text-xs text-[#A7B0C0]">
+                    <p>Score: <span className="font-semibold text-[#F8FAFC]">{scoreOutOf100(asset.score)}/100</span></p>
+                    <p>Date de génération: <span className="font-semibold text-[#F8FAFC]">{formatDate(asset.createdAt)}</span></p>
+                    <p>Statut: <span className="font-semibold text-[#39E6D0]">retenu</span></p>
+                    <p className="line-clamp-4 leading-5">
+                      Prompt source: {visualPromptSource(asset, visualPrompts, asset.usageOrder)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isRunningAction}
+                    onClick={() =>
+                      void runVisualAction("remove_asset", {
+                        assetId: asset.id,
+                      })
+                    }
+                    className="mt-3 rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-3 py-1.5 text-xs font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                  >
+                    Retirer
+                  </button>
                 </div>
               </article>
             ))}
@@ -491,16 +561,18 @@ export function ShortsVisualsClient() {
 
         <SectionContainer>
           <h2 className="text-xl font-semibold text-[#F8FAFC]">
-            12 visuels proposés
+            Visuels générés
           </h2>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {proposedVisuals.length === 0 ? (
+            {generatedVisuals.length === 0 ? (
               <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0] md:col-span-2 xl:col-span-3">
                 Prépare les visuels pour afficher les propositions de ce brouillon.
               </p>
             ) : null}
-            {proposedVisuals.map((asset) => {
-              const usageOrder = slotByAsset[asset.id] ?? 1;
+            {generatedVisuals.map((asset, index) => {
+              const isRetained = retainedAssetIds.has(asset.id);
+              const usageOrder =
+                slotByAsset[asset.id] ?? firstFreeVisualSlot(retainedVisuals);
 
               return (
                 <article key={asset.id} className="overflow-hidden rounded-md border border-[#1D2A44] bg-[#08111A]">
@@ -512,9 +584,19 @@ export function ShortsVisualsClient() {
                   />
                   <div className="p-3">
                     <p className="text-sm font-semibold text-[#F8FAFC]">{asset.fileName}</p>
-                    <p className="mt-1 text-xs text-[#A7B0C0]">
-                      Score {scoreOutOf100(asset.score)}/100 - {asset.scoreReason}
-                    </p>
+                    <div className="mt-2 grid gap-2 text-xs text-[#A7B0C0]">
+                      <p>Score: <span className="font-semibold text-[#F8FAFC]">{scoreOutOf100(asset.score)}/100</span></p>
+                      <p>Date de génération: <span className="font-semibold text-[#F8FAFC]">{formatDate(asset.createdAt)}</span></p>
+                      <p>
+                        Statut:{" "}
+                        <span className={isRetained ? "font-semibold text-[#39E6D0]" : "font-semibold text-[#FDBA74]"}>
+                          {isRetained ? "retenu" : "non retenu"}
+                        </span>
+                      </p>
+                      <p className="line-clamp-4 leading-5">
+                        Prompt source: {visualPromptSource(asset, visualPrompts, index + 1)}
+                      </p>
+                    </div>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <select
                         value={usageOrder}
@@ -536,15 +618,29 @@ export function ShortsVisualsClient() {
                         type="button"
                         disabled={isRunningAction}
                         onClick={() =>
-                          void runVisualAction("select_asset", {
+                          void runVisualAction(isRetained ? "replace_asset" : "select_asset", {
                             assetId: asset.id,
                             usageOrder,
                           })
                         }
                         className="rounded-md border border-[#39E6D0]/45 bg-[#39E6D0]/10 px-3 py-1.5 text-xs font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
                       >
-                        Retenir
+                        {isRetained ? "Remplacer" : "Retenir"}
                       </button>
+                      {isRetained ? (
+                        <button
+                          type="button"
+                          disabled={isRunningAction}
+                          onClick={() =>
+                            void runVisualAction("remove_asset", {
+                              assetId: asset.id,
+                            })
+                          }
+                          className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-3 py-1.5 text-xs font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                        >
+                          Retirer
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </article>

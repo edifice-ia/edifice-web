@@ -4,6 +4,7 @@ import {
   prepareDraftMedia,
   readMediaPipelineState,
   refreshDraftMediaSuggestions,
+  removeDraftVisualAsset,
   requestDraftVisualGeneration,
   selectDraftVisualAsset,
 } from "@/lib/server/media-pipeline";
@@ -24,7 +25,9 @@ function summarizeMediaBody(body: unknown) {
     assetId: payload.assetId,
     usageOrder: payload.usageOrder,
     missing: [
-      payload.action === "select_asset" || payload.action === "replace_asset"
+      payload.action === "select_asset" ||
+      payload.action === "replace_asset" ||
+      payload.action === "remove_asset"
         ? "assetId"
         : null,
     ].filter((field): field is string => Boolean(field && !(field in payload))),
@@ -165,7 +168,7 @@ export async function POST(
       return NextResponse.json({ media });
     }
 
-    if (action === "select_asset" || action === "replace_asset") {
+    if (action === "select_asset" || action === "replace_asset" || action === "remove_asset") {
       const assetId =
         typeof payload.assetId === "string" ? payload.assetId : "";
       const usageOrder =
@@ -188,6 +191,16 @@ export async function POST(
           },
           { status: 400 },
         );
+      }
+
+      if (action === "remove_asset") {
+        const media = await removeDraftVisualAsset({
+          draftId: id,
+          userId: user.id,
+          assetId,
+        });
+
+        return NextResponse.json({ media });
       }
 
       const media = await selectDraftVisualAsset({

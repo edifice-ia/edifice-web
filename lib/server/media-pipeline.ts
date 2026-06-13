@@ -904,6 +904,63 @@ export async function selectDraftVisualAsset({
     draftId,
     mediaPipelineStatus: selectedCount >= 3 ? "media_ready" : "media_preparing",
     visualDecision: currentState.visualDecision ?? defaultVisualDecision(),
+    assetsFound: currentState.assetsFound,
+    assetsSelected: selectedCount,
+  });
+
+  return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
+}
+
+export async function removeDraftVisualAsset({
+  draftId,
+  userId,
+  assetId,
+}: {
+  draftId: string;
+  userId: string;
+  assetId: string;
+}) {
+  const draft = await readDraft(draftId, userId);
+
+  if (!isDraftValidatedForMedia(draft.status)) {
+    throw new MediaPipelineError("Valide le brouillon avant de modifier les visuels.", {
+      draftId,
+      draftStatus: draft.status,
+      validation: "draft.status",
+    });
+  }
+
+  const supabase = getMediaPipelineClient();
+  const { error } = await supabase
+    .from("content_draft_asset_links")
+    .delete()
+    .eq("draft_id", draftId)
+    .eq("asset_id", assetId);
+
+  if (error) {
+    if (isMissingTableError(error)) {
+      throw missingMediaTablesError("content_draft_asset_links", draftId);
+    }
+
+    throw new MediaPipelineError(`Retrait du visuel impossible: ${error.message}`, {
+      draftId,
+      validation: "content_draft_asset_links.delete_asset",
+    });
+  }
+
+  const currentState = await readMediaPipelineState({
+    draftId,
+    userId,
+    includeSuggestions: true,
+  });
+  const selectedCount = currentState.selectedAssets.length;
+
+  await savePlan({
+    draftId,
+    mediaPipelineStatus: selectedCount >= 3 ? "media_ready" : "media_preparing",
+    visualDecision: currentState.visualDecision ?? defaultVisualDecision(),
+    assetsFound: currentState.assetsFound,
+    assetsSelected: selectedCount,
   });
 
   return readMediaPipelineState({ draftId, userId, includeSuggestions: true });

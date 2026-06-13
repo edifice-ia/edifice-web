@@ -22,6 +22,11 @@ export type TrajectoryObjectiveProposal = {
   means: string[];
   initialProgress: number;
   confidence: number;
+  mode?: "create" | "update";
+  existingProjectId?: string | null;
+  existingObjectiveId?: string | null;
+  rationale?: string;
+  memoryContext?: string[];
 };
 
 type OpenAIResponsePayload = {
@@ -128,13 +133,25 @@ function buildShortOperationalAnswer(context: ProjectContext) {
 
 function detectTrajectoryObjectiveProposal(
   message: string,
+  context: ProjectContext,
 ): TrajectoryObjectiveProposal | null {
   const normalized = normalizeMessage(message);
   const asksObjective =
     normalized.includes("objectif") ||
     normalized.includes("fixe-moi") ||
     normalized.includes("cree-moi") ||
-    normalized.includes("creer");
+    normalized.includes("creer") ||
+    normalized.includes("avant le") ||
+    normalized.includes("avant fin") ||
+    (
+      normalized.includes("je veux") &&
+      (
+        normalized.includes("terminer") ||
+        normalized.includes("finir") ||
+        normalized.includes("rendre") ||
+        normalized.includes("operationnel")
+      )
+    );
 
   if (!asksObjective) {
     return null;
@@ -142,10 +159,26 @@ function detectTrajectoryObjectiveProposal(
 
   const mentionsShorts = normalized.includes("short");
   const mentionsPinterest = normalized.includes("pinterest");
+  const memoryContext = context.projectMemoryEntries
+    .filter((entry) => {
+      const text = normalizeMessage(
+        `${entry.key ?? ""} ${entry.title} ${entry.value ?? ""} ${entry.status ?? ""}`,
+      );
+
+      return (
+        (mentionsPinterest && text.includes("pinterest")) ||
+        (mentionsShorts && (text.includes("short") || text.includes("visuel"))) ||
+        (normalized.includes("tiktok") && text.includes("tiktok"))
+      );
+    })
+    .slice(0, 4)
+    .map((entry) =>
+      `${entry.key ?? entry.title}: ${entry.value ?? entry.status ?? "non renseigne"}`,
+    );
   const deadline =
-    normalized.includes("juillet")
+    normalized.includes("31 juillet") || normalized.includes("juillet")
       ? "2026-07-31"
-      : normalized.includes("fin juin")
+      : normalized.includes("30 juin") || normalized.includes("fin juin")
         ? "2026-06-30"
         : null;
 
@@ -155,18 +188,23 @@ function detectTrajectoryObjectiveProposal(
       objective: "Terminer le pipeline Shorts",
       deadline,
       planAction: [
-        "Finaliser les statuts Brouillons, Visuels et Voix",
-        "Brancher la generation visuelle reelle",
-        "Preparer la suite audio et video",
+        "Finaliser Brouillons",
+        "Finaliser Visuels",
+        "Preparer Voix",
+        "Preparer Montage",
       ],
       actions: [
         "Verifier le module Visuels",
-        "Lister les pieces manquantes du pipeline",
-        "Definir le prochain test de bout en bout",
+        "Identifier les elements manquants",
+        "Definir le prochain test complet",
       ],
-      means: ["Supabase", "Atelier de contenu", "OpenAI / generation visuelle"],
+      means: ["Supabase", "Atelier de contenu", "OpenAI"],
       initialProgress: 0,
       confidence: 0.82,
+      mode: "create",
+      rationale:
+        "Demande explicite de creation d'objectif Trajectoire pour le pipeline Shorts.",
+      memoryContext,
     };
   }
 
@@ -188,6 +226,10 @@ function detectTrajectoryObjectiveProposal(
       means: ["Supabase", "OAuth Pinterest", "Publisher Pinterest"],
       initialProgress: 0,
       confidence: 0.78,
+      mode: "create",
+      rationale:
+        "Demande explicite autour de Pinterest; la memoire projet est utilisee pour eviter de traiter un report comme un blocage.",
+      memoryContext,
     };
   }
 
@@ -200,6 +242,10 @@ function detectTrajectoryObjectiveProposal(
     means: ["Trajectoire", "Assistant Edifice"],
     initialProgress: 0,
     confidence: 0.65,
+    mode: "create",
+    rationale:
+      "Demande interpretee comme objectif Trajectoire; contenu a confirmer avant creation.",
+    memoryContext,
   };
 }
 
@@ -883,7 +929,7 @@ export async function globalAssistant(input: GlobalAssistantInput) {
     answer,
     detailedAnalysis,
     recommendation,
-    trajectoryProposal: detectTrajectoryObjectiveProposal(input.message),
+    trajectoryProposal: detectTrajectoryObjectiveProposal(input.message, context),
     context: buildResponseContext(context),
   };
 }

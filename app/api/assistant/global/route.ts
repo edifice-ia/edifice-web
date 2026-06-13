@@ -5,6 +5,7 @@ import {
   globalAssistant,
   type GlobalAssistantMode,
 } from "@/lib/server/assistant/global-assistant";
+import { enrichTrajectoireAssistantProposal } from "@/lib/server/trajectoire";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -62,16 +63,26 @@ export async function POST(request: Request) {
       context.projectMemoryEntries,
     );
     const response = await globalAssistant({ message, mode, context });
+    const trajectoryProposal = response.trajectoryProposal
+      ? await enrichTrajectoireAssistantProposal({
+          proposal: response.trajectoryProposal,
+          userId: user.id,
+        })
+      : null;
+    const enrichedResponse = {
+      ...response,
+      trajectoryProposal,
+    };
 
     if (memoryProposal) {
       return NextResponse.json({
-        ...response,
+        ...enrichedResponse,
         memoryProposal,
         requiresConfirmation: true,
       });
     }
 
-    return NextResponse.json(response);
+    return NextResponse.json(enrichedResponse);
   } catch {
     return NextResponse.json(
       { error: "Assistant global indisponible." },

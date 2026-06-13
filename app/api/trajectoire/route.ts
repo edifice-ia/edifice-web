@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import {
   createTrajectoireAction,
+  createTrajectoireFromAssistantProposal,
   createTrajectoireObjective,
   createTrajectoireProject,
   readTrajectoire,
   sanitizeActionInput,
+  sanitizeAssistantProposalInput,
   sanitizeObjectiveInput,
   sanitizeProjectInput,
 } from "@/lib/server/trajectoire";
@@ -69,8 +71,19 @@ export async function POST(request: Request) {
     ? payload as Record<string, unknown>
     : {};
   const type = record.type;
+  const action = record.action;
 
   try {
+    if (action === "confirm_assistant_proposal") {
+      const result = await createTrajectoireFromAssistantProposal({
+        proposal: sanitizeAssistantProposalInput(record.proposal),
+        userId: user.id,
+      });
+      const trajectoire = await readTrajectoire(user.id);
+
+      return NextResponse.json({ ...trajectoire, result }, { status: 201 });
+    }
+
     if (type === "project") {
       await createTrajectoireProject({
         input: sanitizeProjectInput(record.data),

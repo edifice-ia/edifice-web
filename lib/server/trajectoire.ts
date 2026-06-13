@@ -77,6 +77,31 @@ export type TrajectoireProject = {
   objectives: TrajectoireObjective[];
 };
 
+export type TrajectoireAssistantProposal = {
+  project: string;
+  objective: string;
+  deadline: string | null;
+  planAction: string[];
+  actions: string[];
+  means: string[];
+  initialProgress: number;
+  confidence: number;
+  mode?: "create" | "update";
+  existingProjectId?: string | null;
+  existingObjectiveId?: string | null;
+  rationale?: string;
+  memoryContext?: string[];
+};
+
+export type TrajectoireAssistantCreationResult = {
+  project: TrajectoireProject;
+  objective: TrajectoireObjective;
+  actions: TrajectoireAction[];
+  reusedProject: boolean;
+  reusedObjective: boolean;
+  skippedActions: string[];
+};
+
 type ProjectRow = {
   id: string;
   title: string | null;
@@ -202,6 +227,43 @@ function numberValue(value: unknown, fallback = 0) {
   return Math.max(0, Math.min(100, Math.round(number)));
 }
 
+function normalizeComparable(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isSimilarTitle(first: string, second: string) {
+  const a = normalizeComparable(first);
+  const b = normalizeComparable(second);
+
+  if (!a || !b) {
+    return false;
+  }
+
+  return a === b || a.includes(b) || b.includes(a);
+}
+
+function findSimilarProject(projects: TrajectoireProject[], title: string) {
+  return projects.find((project) => isSimilarTitle(project.title, title)) ?? null;
+}
+
+function findSimilarObjective(
+  objectives: TrajectoireObjective[],
+  title: string,
+) {
+  return (
+    objectives.find((objective) => isSimilarTitle(objective.title, title)) ?? null
+  );
+}
+
+function findSimilarAction(actions: TrajectoireAction[], title: string) {
+  return actions.find((action) => isSimilarTitle(action.title, title)) ?? null;
+}
+
 function enumValue<T extends readonly string[]>(
   value: unknown,
   values: T,
@@ -311,6 +373,44 @@ export function sanitizeActionInput(payload: unknown): ActionInput {
   };
 }
 
+export function sanitizeAssistantProposalInput(
+  payload: unknown,
+): TrajectoireAssistantProposal {
+  const record = asRecord(payload);
+  const planAction = Array.isArray(record.planAction)
+    ? record.planAction.map((item) => stringValue(item)).filter(Boolean)
+    : [];
+  const actions = Array.isArray(record.actions)
+    ? record.actions.map((item) => stringValue(item)).filter(Boolean)
+    : [];
+  const means = Array.isArray(record.means)
+    ? record.means.map((item) => stringValue(item)).filter(Boolean)
+    : [];
+  const memoryContext = Array.isArray(record.memoryContext)
+    ? record.memoryContext.map((item) => stringValue(item)).filter(Boolean)
+    : [];
+  const confidenceValue = Number(record.confidence);
+  const confidence = Number.isFinite(confidenceValue)
+    ? Math.max(0, Math.min(1, confidenceValue > 1 ? confidenceValue / 100 : confidenceValue))
+    : 0.75;
+
+  return {
+    project: requiredText(record.project, "Le projet"),
+    objective: requiredText(record.objective, "L'objectif"),
+    deadline: nullableDate(record.deadline),
+    planAction,
+    actions,
+    means,
+    initialProgress: numberValue(record.initialProgress),
+    confidence,
+    mode: record.mode === "update" ? "update" : "create",
+    existingProjectId: stringValue(record.existingProjectId) || null,
+    existingObjectiveId: stringValue(record.existingObjectiveId) || null,
+    rationale: stringValue(record.rationale),
+    memoryContext,
+  };
+}
+
 export async function readTrajectoire(userId: string) {
   const supabase = getTrajectoireClient();
 
@@ -399,20 +499,26 @@ export async function createTrajectoireProject({
   userId: string;
 }) {
   const supabase = getTrajectoireClient();
-  const { error } = await supabase.from("trajectoire_projects").insert({
-    user_id: userId,
-    title: input.title,
-    description: input.description,
-    category: input.category,
-    status: input.status,
-    priority: input.priority,
-    deadline: input.deadline,
-    progress: input.progress,
-  });
+  const { data, error } = await supabase
+    .from("trajectoire_projects")
+    .insert({
+      user_id: userId,
+      title: input.title,
+      description: input.description,
+      category: input.category,
+      status: input.status,
+      priority: input.priority,
+      deadline: input.deadline,
+      progress: input.progress,
+    })
+    .select("id,title,description,category,status,priority,deadline,progress,created_at,updated_at")
+    .single();
 
   if (error) {
     throw new Error(error.message);
   }
+
+  return mapProject(data as ProjectRow, []);
 }
 
 export async function createTrajectoireObjective({
@@ -423,20 +529,26 @@ export async function createTrajectoireObjective({
   userId: string;
 }) {
   const supabase = getTrajectoireClient();
-  const { error } = await supabase.from("trajectoire_objectives").insert({
-    user_id: userId,
-    project_id: input.projectId,
-    title: input.title,
-    description: input.description,
-    deadline: input.deadline,
-    status: input.status,
-    priority: input.priority,
-    progress: input.progress,
-  });
+  const { data, error } = await supabase
+    .from("trajectoire_objectives")
+    .insert({
+      user_id: userId,
+      project_id: input.projectId,
+      title: input.title,
+      description: input.description,
+      deadline: input.deadline,
+      status: input.status,
+      priority: input.priority,
+      progress: input.progress,
+    })
+    .select("id,project_id,title,description,deadline,status,priority,progress,created_at,updated_at")
+    .single();
 
   if (error) {
     throw new Error(error.message);
   }
+
+  return mapObjective(data as ObjectiveRow, []);
 }
 
 export async function createTrajectoireAction({
@@ -447,17 +559,207 @@ export async function createTrajectoireAction({
   userId: string;
 }) {
   const supabase = getTrajectoireClient();
-  const { error } = await supabase.from("trajectoire_actions").insert({
-    user_id: userId,
-    objective_id: input.objectiveId,
-    title: input.title,
-    status: input.status,
-    due_date: input.dueDate,
-  });
+  const { data, error } = await supabase
+    .from("trajectoire_actions")
+    .insert({
+      user_id: userId,
+      objective_id: input.objectiveId,
+      title: input.title,
+      status: input.status,
+      due_date: input.dueDate,
+    })
+    .select("id,objective_id,title,status,due_date,created_at,updated_at")
+    .single();
 
   if (error) {
     throw new Error(error.message);
   }
+
+  return mapAction(data as ActionRow);
+}
+
+function projectCategoryFromProposal(
+  proposal: TrajectoireAssistantProposal,
+): TrajectoireProjectCategory {
+  const text = normalizeComparable(`${proposal.project} ${proposal.objective}`);
+
+  if (
+    text.includes("edifice") ||
+    text.includes("short") ||
+    text.includes("pinterest") ||
+    text.includes("tiktok")
+  ) {
+    return "L'Edifice";
+  }
+
+  if (text.includes("sport")) {
+    return "Sport";
+  }
+
+  if (text.includes("ecriture") || text.includes("livre")) {
+    return "Ecriture";
+  }
+
+  if (text.includes("alternance") || text.includes("travail")) {
+    return "Alternance / travail";
+  }
+
+  if (text.includes("sante")) {
+    return "Sante";
+  }
+
+  return "Autre";
+}
+
+function formatProposalDescription(proposal: TrajectoireAssistantProposal) {
+  const lines = [
+    "Cree depuis l'Assistant Edifice apres confirmation utilisateur.",
+    "",
+    "POPAM",
+    `Projet: ${proposal.project}`,
+    `Objectif: ${proposal.objective}`,
+    "",
+    "Plan d'action:",
+    ...(proposal.planAction.length
+      ? proposal.planAction.map((item) => `- ${item}`)
+      : ["- A preciser"]),
+    "",
+    "Actions:",
+    ...(proposal.actions.length
+      ? proposal.actions.map((item) => `- ${item}`)
+      : ["- A preciser"]),
+    "",
+    "Moyens:",
+    ...(proposal.means.length
+      ? proposal.means.map((item) => `- ${item}`)
+      : ["- A preciser"]),
+  ];
+
+  if (proposal.memoryContext?.length) {
+    lines.push("", "Memoire projet prise en compte:");
+    lines.push(...proposal.memoryContext.map((item) => `- ${item}`));
+  }
+
+  return lines.join("\n");
+}
+
+export async function createTrajectoireFromAssistantProposal({
+  proposal,
+  userId,
+}: {
+  proposal: TrajectoireAssistantProposal;
+  userId: string;
+}): Promise<TrajectoireAssistantCreationResult> {
+  const snapshot = await readTrajectoire(userId);
+  const existingProject =
+    snapshot.projects.find((project) => project.id === proposal.existingProjectId) ??
+    findSimilarProject(snapshot.projects, proposal.project);
+
+  let project = existingProject;
+  let reusedProject = Boolean(project);
+
+  if (!project) {
+    project = await createTrajectoireProject({
+      input: {
+        title: proposal.project,
+        description: formatProposalDescription(proposal),
+        category: projectCategoryFromProposal(proposal),
+        status: "actif",
+        priority: "haute",
+        deadline: proposal.deadline,
+        progress: proposal.initialProgress,
+      },
+      userId,
+    });
+    reusedProject = false;
+  }
+
+  const existingObjective =
+    project.objectives.find(
+      (objective) => objective.id === proposal.existingObjectiveId,
+    ) ?? findSimilarObjective(project.objectives, proposal.objective);
+
+  let objective = existingObjective;
+  let reusedObjective = Boolean(objective);
+
+  if (!objective) {
+    objective = await createTrajectoireObjective({
+      input: {
+        projectId: project.id,
+        title: proposal.objective,
+        description: formatProposalDescription(proposal),
+        deadline: proposal.deadline,
+        status: "non commence",
+        priority: "haute",
+        progress: proposal.initialProgress,
+      },
+      userId,
+    });
+    reusedObjective = false;
+  }
+
+  const createdActions: TrajectoireAction[] = [];
+  const skippedActions: string[] = [];
+
+  for (const actionTitle of proposal.actions) {
+    if (findSimilarAction(objective.actions, actionTitle)) {
+      skippedActions.push(actionTitle);
+      continue;
+    }
+
+    const action = await createTrajectoireAction({
+      input: {
+        objectiveId: objective.id,
+        title: actionTitle,
+        status: "a faire",
+        dueDate: proposal.deadline,
+      },
+      userId,
+    });
+    createdActions.push(action);
+  }
+
+  return {
+    project,
+    objective,
+    actions: createdActions,
+    reusedProject,
+    reusedObjective,
+    skippedActions,
+  };
+}
+
+export async function enrichTrajectoireAssistantProposal({
+  proposal,
+  userId,
+}: {
+  proposal: TrajectoireAssistantProposal;
+  userId: string;
+}) {
+  const snapshot = await readTrajectoire(userId);
+  const existingProject = findSimilarProject(snapshot.projects, proposal.project);
+  const existingObjective = existingProject
+    ? findSimilarObjective(existingProject.objectives, proposal.objective)
+    : null;
+
+  if (!existingProject) {
+    return {
+      ...proposal,
+      mode: "create" as const,
+      existingProjectId: null,
+      existingObjectiveId: null,
+    };
+  }
+
+  return {
+    ...proposal,
+    mode: "update" as const,
+    existingProjectId: existingProject.id,
+    existingObjectiveId: existingObjective?.id ?? null,
+    rationale: existingObjective
+      ? `Un objectif similaire existe deja dans ${existingProject.title}. Les nouvelles actions seront ajoutees sans doublon apres confirmation.`
+      : `Un projet similaire existe deja: ${existingProject.title}. L'objectif sera rattache a ce projet apres confirmation.`,
+  };
 }
 
 export async function updateTrajectoireProject({

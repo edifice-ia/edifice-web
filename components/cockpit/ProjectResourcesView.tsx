@@ -46,6 +46,29 @@ export function ProjectResourcesView() {
       />
 
       <div className="grid gap-6">
+        <SectionContainer>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
+                Memoire projet
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
+                Etat editable par confirmation assistant
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+                Consulter les cles, statuts, valeurs et sources que l&apos;Assistant
+                Edifice peut mettre a jour apres confirmation.
+              </p>
+            </div>
+            <Link
+              href="/interface/resources/memory"
+              className="inline-flex w-fit rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44]"
+            >
+              Ouvrir memoire projet
+            </Link>
+          </div>
+        </SectionContainer>
+
         {projectResourceCategories.map((category) => {
           const resources = projectResources.filter(
             (resource) => resource.category === category,

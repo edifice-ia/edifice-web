@@ -73,23 +73,29 @@ export type ProjectMemoryEntry = {
   id: string;
   createdAt: string;
   updatedAt: string;
+  key: string | null;
   category: string | null;
   status: string | null;
   title: string;
+  value: string | null;
   content: string | null;
   nextAction: string | null;
   priority: string | null;
   source: string | null;
+  confidence: number | null;
 };
 
 export type ProjectMemoryCreateInput = {
+  key?: string | null;
   category?: string | null;
   status?: string | null;
   title: string;
+  value?: string | null;
   content?: string | null;
   nextAction?: string | null;
   priority?: string | null;
   source?: string | null;
+  confidence?: number | null;
 };
 
 export type AssistantQuestion =

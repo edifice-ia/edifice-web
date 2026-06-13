@@ -112,6 +112,28 @@ export default async function OverviewPage() {
     "Garder les connexions en lecture claire sans modifier les tokens.",
   ];
   const recommendations = Array.from(new Set(baseRecommendations)).slice(0, 3);
+  const connectionByKey = new Map(
+    cockpitState.platformStatuses.map((platform) => [platform.key, platform]),
+  );
+  const connectionState = (key: string) => {
+    const platform = connectionByKey.get(key);
+
+    if (platform?.status === "CONNECTED") {
+      return "connecte" as const;
+    }
+
+    if (platform?.status === "SANDBOX") {
+      return "sandbox" as const;
+    }
+
+    if (platform?.status === "DISABLED") {
+      return "reporte" as const;
+    }
+
+    return "actif" as const;
+  };
+  const connectionDetail = (key: string, fallback: string) =>
+    connectionByKey.get(key)?.summary ?? fallback;
 
   return (
     <OverviewDashboardClient
@@ -145,11 +167,31 @@ export default async function OverviewPage() {
           pinterestReadyPins: pinterestReadyPins.length,
         },
         connections: [
-          { name: "YouTube", state: "connecte", detail: "OAuth valide" },
-          { name: "Meta", state: "connecte", detail: "API active" },
-          { name: "Instagram", state: "actif", detail: "Relie via Meta" },
-          { name: "Pinterest", state: "actif", detail: "OAuth multi-comptes" },
-          { name: "TikTok Sandbox", state: "sandbox", detail: "Production reportee" },
+          {
+            name: "YouTube",
+            state: connectionState("youtube"),
+            detail: connectionDetail("youtube", "OAuth valide"),
+          },
+          {
+            name: "Meta",
+            state: connectionState("meta"),
+            detail: connectionDetail("meta", "API active"),
+          },
+          {
+            name: "Instagram",
+            state: connectionState("instagram"),
+            detail: connectionDetail("instagram", "Relie via Meta"),
+          },
+          {
+            name: "Pinterest",
+            state: connectionState("pinterest"),
+            detail: connectionDetail("pinterest", "OAuth multi-comptes"),
+          },
+          {
+            name: "TikTok Sandbox",
+            state: connectionState("tiktok"),
+            detail: connectionDetail("tiktok", "Production reportee"),
+          },
         ],
         recommendations: {
           actions: recommendations,

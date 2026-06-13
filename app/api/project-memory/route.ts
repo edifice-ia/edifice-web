@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import {
   createProjectMemoryEntry,
+  inferProjectMemoryUpdate,
   readProjectMemoryEntries,
   sanitizeProjectMemoryInput,
+  updateProjectMemory,
 } from "@/lib/server/project-memory";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -13,10 +15,10 @@ async function authorizeProjectMemoryAccess() {
   const user = await getCurrentUser();
 
   if (!user || !canAccessPrivateCockpit(user)) {
-    return false;
+    return null;
   }
 
-  return true;
+  return user;
 }
 
 export async function GET() {
@@ -36,7 +38,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  if (!(await authorizeProjectMemoryAccess())) {
+  const user = await authorizeProjectMemoryAccess();
+
+  if (!user) {
     return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
   }
 
@@ -52,6 +56,38 @@ export async function POST(request: Request) {
   }
 
   try {
+    const record = payload && typeof payload === "object"
+      ? payload as Record<string, unknown>
+      : {};
+
+    if (record.action === "propose_update") {
+      const message = typeof record.message === "string" ? record.message : "";
+      const proposal = inferProjectMemoryUpdate(message);
+
+      return NextResponse.json({
+        proposal,
+        requiresConfirmation: Boolean(proposal),
+      });
+    }
+
+    if (record.action === "confirm_update") {
+      const proposal = record.proposal;
+
+      if (!proposal || typeof proposal !== "object") {
+        return NextResponse.json(
+          { error: "Proposition memoire manquante." },
+          { status: 400 },
+        );
+      }
+
+      const entry = await updateProjectMemory({
+        proposal: proposal as Parameters<typeof updateProjectMemory>[0]["proposal"],
+        userId: user.id,
+      });
+
+      return NextResponse.json({ entry });
+    }
+
     const input = sanitizeProjectMemoryInput(payload);
     const entry = await createProjectMemoryEntry(input);
     return NextResponse.json({ entry }, { status: 201 });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildProjectContext } from "@/lib/server/assistant/build-project-context";
+import { inferProjectMemoryUpdate } from "@/lib/server/project-memory";
 import {
   globalAssistant,
   type GlobalAssistantMode,
@@ -56,8 +57,25 @@ export async function POST(request: Request) {
   try {
     const context = await buildProjectContext();
     console.info("[Global Assistant] project context loaded");
+    const memoryProposal = inferProjectMemoryUpdate(message);
+    const response = await globalAssistant({ message, mode, context });
 
-    return NextResponse.json(await globalAssistant({ message, mode, context }));
+    if (memoryProposal) {
+      return NextResponse.json({
+        ...response,
+        memoryProposal,
+        requiresConfirmation: true,
+        answer: [
+          response.answer,
+          "",
+          "Je peux proposer une mise a jour memoire projet :",
+          `${memoryProposal.title} -> ${memoryProposal.value}`,
+          "Confirmer ?",
+        ].join("\n"),
+      });
+    }
+
+    return NextResponse.json(response);
   } catch {
     return NextResponse.json(
       { error: "Assistant global indisponible." },

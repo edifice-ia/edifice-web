@@ -23,6 +23,8 @@ type AssistantExchange = {
   role: "user" | "assistant";
   message: string;
   recommendation?: AssistantRecommendation;
+  memoryProposal?: ProjectMemoryProposal;
+  memoryConfirmed?: boolean;
 };
 
 type AssistantRecommendation = {
@@ -30,6 +32,16 @@ type AssistantRecommendation = {
   reason: string;
   dependency: string | null;
   feasibleNow: boolean;
+};
+
+type ProjectMemoryProposal = {
+  key: string;
+  category: string;
+  title: string;
+  value: string;
+  status: string;
+  source: string;
+  confidence: number;
 };
 
 const contexts: Record<
@@ -142,6 +154,7 @@ export function AssistantCommandCenter({
   const [draft, setDraft] = useState("");
   const [exchanges, setExchanges] = useState<AssistantExchange[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [confirmingProposalId, setConfirmingProposalId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeQuestion, setActiveQuestion] = useState<AssistantQuestion>(
     "Que dois-je faire maintenant ?",
@@ -210,6 +223,8 @@ export function AssistantCommandCenter({
         ok?: boolean;
         answer?: string;
         recommendation?: AssistantRecommendation;
+        memoryProposal?: ProjectMemoryProposal;
+        requiresConfirmation?: boolean;
         error?: string;
       };
 
@@ -226,6 +241,7 @@ export function AssistantCommandCenter({
           role: "assistant",
           message: answer,
           recommendation: payload.recommendation,
+          memoryProposal: payload.memoryProposal,
         },
       ]);
     } catch (requestError) {
@@ -236,6 +252,55 @@ export function AssistantCommandCenter({
       );
     } finally {
       setIsSending(false);
+    }
+  }
+
+  async function confirmMemoryProposal(
+    exchangeId: string,
+    proposal: ProjectMemoryProposal,
+  ) {
+    setConfirmingProposalId(exchangeId);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/project-memory", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "confirm_update",
+          proposal,
+        }),
+      });
+      const payload = (await response.json()) as {
+        entry?: unknown;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.entry) {
+        throw new Error(payload.error ?? "Mise a jour memoire indisponible.");
+      }
+
+      setExchanges((current) =>
+        current.map((exchange) =>
+          exchange.id === exchangeId
+            ? {
+                ...exchange,
+                memoryConfirmed: true,
+                message: `${exchange.message}\n\nMemoire projet mise a jour.`,
+              }
+            : exchange,
+        ),
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Mise a jour memoire indisponible.",
+      );
+    } finally {
+      setConfirmingProposalId(null);
     }
   }
 
@@ -300,6 +365,11 @@ export function AssistantCommandCenter({
                   tone={exchange.role === "user" ? "blue" : "jade"}
                   align={exchange.role === "user" ? "right" : "left"}
                   recommendation={exchange.recommendation}
+                  memoryProposal={exchange.memoryProposal}
+                  memoryConfirmed={exchange.memoryConfirmed}
+                  confirmingProposalId={confirmingProposalId}
+                  exchangeId={exchange.id}
+                  onConfirmMemoryProposal={confirmMemoryProposal}
                 >
                   {exchange.message}
                 </ChatMessage>
@@ -499,12 +569,25 @@ function ChatMessage({
   align = "left",
   children,
   recommendation,
+  memoryProposal,
+  memoryConfirmed,
+  confirmingProposalId,
+  exchangeId,
+  onConfirmMemoryProposal,
 }: {
   label: string;
   tone: "jade" | "blue";
   align?: "left" | "right";
   children: React.ReactNode;
   recommendation?: AssistantRecommendation;
+  memoryProposal?: ProjectMemoryProposal;
+  memoryConfirmed?: boolean;
+  confirmingProposalId?: string | null;
+  exchangeId?: string;
+  onConfirmMemoryProposal?: (
+    exchangeId: string,
+    proposal: ProjectMemoryProposal,
+  ) => Promise<void>;
 }) {
   const color = tone === "jade" ? "text-[#39E6D0]" : "text-[#38BDF8]";
 
@@ -532,6 +615,37 @@ function ChatMessage({
             value={recommendation.feasibleNow ? "oui" : "non"}
           />
         </div>
+      ) : null}
+      {memoryProposal && !memoryConfirmed ? (
+        <div className="mt-4 rounded-md border border-[#39E6D0]/30 bg-[#03070B] p-3 text-sm">
+          <p className="font-semibold text-[#F8FAFC]">
+            Mise a jour proposee
+          </p>
+          <p className="mt-2 text-[#A7B0C0]">
+            {memoryProposal.title} -&gt; {memoryProposal.value}
+          </p>
+          <p className="mt-1 text-xs text-[#64748b]">
+            Cle: {memoryProposal.key} / confiance{" "}
+            {Math.round(memoryProposal.confidence * 100)}%
+          </p>
+          <button
+            className="mt-3 rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-50"
+            disabled={!exchangeId || confirmingProposalId === exchangeId}
+            onClick={() =>
+              exchangeId
+                ? onConfirmMemoryProposal?.(exchangeId, memoryProposal)
+                : undefined
+            }
+            type="button"
+          >
+            {confirmingProposalId === exchangeId ? "Confirmation..." : "Confirmer"}
+          </button>
+        </div>
+      ) : null}
+      {memoryProposal && memoryConfirmed ? (
+        <p className="mt-4 rounded-md border border-[#39E6D0]/30 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+          Mise a jour confirmee.
+        </p>
       ) : null}
     </div>
   );

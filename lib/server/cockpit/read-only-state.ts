@@ -7,6 +7,7 @@ import {
   isPlatformInReview,
 } from "@/lib/cockpit/platform-status";
 import { projectResources } from "@/lib/resources/project-resources";
+import { readProjectMemoryEntries } from "@/lib/server/project-memory";
 import {
   getMetaOAuthStatusPayload,
   getPinterestOAuthStatusPayload,
@@ -171,6 +172,68 @@ async function readOAuthState(): Promise<CockpitOAuthState[]> {
   );
 }
 
+function applyProjectMemoryToPlatforms(
+  platforms: ReturnType<typeof getCanonicalPlatformStatuses>,
+  entries: Awaited<ReturnType<typeof readProjectMemoryEntries>>,
+) {
+  const byKey = new Map(
+    entries
+      .filter((entry) => entry.key)
+      .map((entry) => [entry.key as string, entry]),
+  );
+
+  return platforms.map((platform) => {
+    const tiktokOverride =
+      platform.key === "tiktok"
+        ? byKey.get("tiktok_review_status") ?? byKey.get("tiktok_access_status")
+        : null;
+    const pinterestOverride =
+      platform.key === "pinterest" ? byKey.get("pinterest_access_status") : null;
+    const youtubeOverride =
+      platform.key === "youtube" ? byKey.get("youtube_connection_status") : null;
+    const metaOverride =
+      platform.key === "meta" ? byKey.get("meta_connection_status") : null;
+    const instagramOverride =
+      platform.key === "instagram"
+        ? byKey.get("instagram_connection_status")
+        : null;
+    const override =
+      tiktokOverride ??
+      pinterestOverride ??
+      youtubeOverride ??
+      metaOverride ??
+      instagramOverride;
+
+    if (!override) {
+      return platform;
+    }
+
+    const normalizedStatus = override.status?.toLowerCase() ?? "";
+    const isValidated =
+      normalizedStatus.includes("valid") ||
+      normalizedStatus.includes("connect") ||
+      normalizedStatus.includes("actif");
+    const isSandbox = normalizedStatus.includes("sandbox");
+    const isPostponed =
+      normalizedStatus.includes("report") ||
+      normalizedStatus.includes("plus tard");
+
+    return {
+      ...platform,
+      status: isValidated ? "CONNECTED" : isSandbox ? "SANDBOX" : isPostponed ? "DISABLED" : platform.status,
+      label: override.value ?? override.status ?? platform.label,
+      summary: override.content ?? `${override.title}: ${override.value ?? override.status}`,
+      details: [
+        `Memoire projet: ${override.title}`,
+        `Statut: ${override.status ?? "non renseigne"}`,
+        `Valeur: ${override.value ?? "non renseignee"}`,
+      ],
+      source: override.source ?? "project_memory",
+      updatedAt: override.updatedAt,
+    };
+  });
+}
+
 function readModulesState() {
   const modules = [...cockpitModules, ...publisherModules];
 
@@ -261,12 +324,16 @@ function buildNextActions(options: {
 }
 
 export async function readCockpitState(): Promise<CockpitReadOnlyState> {
-  const [contentDrafts, oauthStatuses] = await Promise.all([
+  const [contentDrafts, oauthStatuses, projectMemoryEntries] = await Promise.all([
     readContentDraftState(),
     readOAuthState(),
+    readProjectMemoryEntries().catch(() => []),
   ]);
   const modules = readModulesState();
-  const platformStatuses = getCanonicalPlatformStatuses();
+  const platformStatuses = applyProjectMemoryToPlatforms(
+    getCanonicalPlatformStatuses(),
+    projectMemoryEntries,
+  );
   const externalReviews = readExternalReviews();
   const dependencies = readDependencies();
   const blockers = buildBlockers({

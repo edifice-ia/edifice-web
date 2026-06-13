@@ -7,7 +7,6 @@ import {
   projectMemoryForAssistant,
 } from "@/lib/cockpit/observatory";
 import {
-  getCanonicalPlatformStatuses,
   platformStatusToCockpitStatus,
 } from "@/lib/cockpit/platform-status";
 import {
@@ -219,7 +218,7 @@ export async function getLiveProjectMemory() {
     readCockpitState(),
   ]);
   const vercelStatus = readVercelStatus();
-  const platformStatuses = getCanonicalPlatformStatuses();
+  const platformStatuses = cockpitState.platformStatuses;
 
   const items = observatoryItems.map((item) => {
     if (item.area === "OAuth") {

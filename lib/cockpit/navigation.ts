@@ -66,6 +66,14 @@ export const cockpitNavigation: CockpitNavItem[] = [
     showStatus: true,
   },
   {
+    id: "trajectory",
+    href: "/interface/trajectoire",
+    label: "Trajectoire",
+    description: "Objectifs, projets et deadlines",
+    status: "Experimental",
+    showStatus: true,
+  },
+  {
     id: "personnel",
     href: "/interface/personnel",
     label: "Espace interieur",

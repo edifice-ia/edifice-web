@@ -48,6 +48,14 @@ export const cockpitModules: CockpitModule[] = [
     status: "Experimental",
   },
   {
+    id: "trajectory",
+    title: "Trajectoire",
+    description: "Objectifs, projets, progression et deadlines.",
+    href: "/interface/trajectoire",
+    status: "Experimental",
+    accent: "blue",
+  },
+  {
     id: "personnel-light",
     title: "Espace interieur",
     description: "Vision du jour, routines, notes, energie et objectifs.",

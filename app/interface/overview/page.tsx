@@ -29,7 +29,7 @@ export default async function OverviewPage() {
 
       <div className="mb-6 grid gap-4 md:grid-cols-3">
         {[
-          ["Modules principaux", "8", "En migration"],
+          ["Modules principaux", "9", "En migration"],
           ["Garde-fous", "Validation requise", "A securiser"],
           ["Publication réelle", "Bloquée par défaut", "A securiser"],
         ].map(([label, value, status]) => (

@@ -5,7 +5,6 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import {
   formatVisualPrompts,
   normalizeVisualPrompts,
-  parseVisualPrompts,
 } from "@/lib/content/visual-prompts";
 
 type ContentDraft = {
@@ -256,8 +255,8 @@ function getGenerationProgressDelay(progress: number) {
 }
 
 const statusOptions: StatusOption[] = [
-  { value: "draft", label: "Brouillon" },
-  { value: "approved", label: "Approuve" },
+  { value: "draft", label: "Brouillon texte" },
+  { value: "approved", label: "Texte valide" },
   { value: "rejected", label: "Rejete" },
   { value: "ready_to_publish", label: "Pret a publier" },
 ];
@@ -520,6 +519,7 @@ export function ContentWorkshopClient() {
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
   const [isPreparingMedia, setIsPreparingMedia] = useState(false);
   const [showGenerationConfirm, setShowGenerationConfirm] = useState(false);
+  const [manualReadyToPublish, setManualReadyToPublish] = useState(false);
   const [isUploadingAsset, setIsUploadingAsset] = useState(false);
   const [isSavingVariant, setIsSavingVariant] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -548,6 +548,12 @@ export function ContentWorkshopClient() {
   const canPrepareMedia = isDraftValidatedForMedia(selectedDraft?.status);
   const canRequestVisualGeneration =
     canPrepareMedia && Boolean(mediaPipeline?.visualDecision);
+  const mediaReadyForPublishing =
+    mediaPipeline?.mediaPipelineStatus === "media_ready" ||
+    mediaPipeline?.mediaPipelineStatus === "ready_to_publish";
+  const canMarkReadyToPublish = mediaReadyForPublishing || manualReadyToPublish;
+  const showDraftVisualPromptEditor = Boolean(false);
+  const showDraftMediaTools = Boolean(false);
   const selectedAverageScore = useMemo(() => {
     const selectedScores = mediaPipeline?.selectedAssets.map((asset) => asset.score) ?? [];
     const matchedScores =
@@ -608,14 +614,6 @@ export function ContentWorkshopClient() {
 
     return variants.filter((variant) => variant.value.trim().length > 0);
   }, [selectedDraft]);
-
-  const editorVisualPrompts = useMemo(() => {
-    if (!editor) {
-      return [];
-    }
-
-    return parseVisualPrompts(editor.visualPrompt);
-  }, [editor]);
 
   async function loadDrafts(filter = statusFilter) {
     setIsLoadingDrafts(true);
@@ -743,6 +741,7 @@ export function ContentWorkshopClient() {
     setVariantEditor(null);
     setAssets([]);
     setMediaPipeline(null);
+    setManualReadyToPublish(false);
     setNotice(null);
     setError(null);
     void loadAssets(draft.id);
@@ -839,6 +838,7 @@ export function ContentWorkshopClient() {
       setEditor(null);
       setAssets([]);
       setMediaPipeline(null);
+      setManualReadyToPublish(false);
       setNotice("3 variantes generees. Choisis une variante avant sauvegarde.");
     } catch (caughtError) {
       setError(
@@ -963,6 +963,16 @@ export function ContentWorkshopClient() {
       return null;
     }
 
+    const nextStatus = statusOverride ?? editor.status;
+
+    if (nextStatus === "ready_to_publish" && !canMarkReadyToPublish) {
+      setError(
+        "Impossible de marquer pret a publier tant que les visuels et la voix requis ne sont pas prets. Active le mode manuel explicite si tu prends la responsabilite de ce passage.",
+      );
+      setNotice(null);
+      return null;
+    }
+
     setIsSaving(true);
     setError(null);
     setNotice(null);
@@ -975,7 +985,7 @@ export function ContentWorkshopClient() {
         },
         body: JSON.stringify({
           ...buildUpdatePayload(editor),
-          status: statusOverride ?? editor.status,
+          status: nextStatus,
         }),
       });
       const payload = await response.json() as {
@@ -1021,6 +1031,14 @@ export function ContentWorkshopClient() {
 
   async function handleStatusAction(status: StatusOption["value"]) {
     if (!selectedDraft) {
+      return;
+    }
+
+    if (status === "ready_to_publish" && !canMarkReadyToPublish) {
+      setError(
+        "Impossible de marquer pret a publier tant que les visuels et la voix requis ne sont pas prets. Active le mode manuel explicite si tu prends la responsabilite de ce passage.",
+      );
+      setNotice(null);
       return;
     }
 
@@ -1082,12 +1100,6 @@ export function ContentWorkshopClient() {
     setError(null);
   }
 
-  function updateEditorVisualPrompt(index: number, value: string) {
-    const visualPrompts = [...editorVisualPrompts];
-    visualPrompts[index] = value;
-    updateEditor("visualPrompt", formatVisualPrompts(visualPrompts));
-  }
-
   async function handleDelete() {
     if (!selectedDraft) {
       return;
@@ -1112,6 +1124,7 @@ export function ContentWorkshopClient() {
       setEditor(null);
       setAssets([]);
       setMediaPipeline(null);
+      setManualReadyToPublish(false);
       setNotice("Brouillon supprime.");
     } catch (caughtError) {
       setError(
@@ -1601,9 +1614,25 @@ export function ContentWorkshopClient() {
                     );
                   })}
                 </div>
+                {selectedVariant && variantEditor ? (
+                  <div className="mt-4 flex flex-col gap-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-4 lg:flex-row lg:items-center lg:justify-between">
+                    <p className="text-sm leading-6 text-[#A7B0C0]">
+                      Variante choisie. Les prompts visuels sont conserves avec
+                      le brouillon et se gerent ensuite dans Visuels.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={isSavingVariant}
+                      onClick={() => void handleSaveSelectedVariant()}
+                      className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {isSavingVariant ? "Sauvegarde..." : "Sauvegarder cette variante"}
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
-              {selectedVariant && variantEditor ? (
+              {showDraftVisualPromptEditor && selectedVariant && variantEditor ? (
                 <div className="rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
@@ -1676,8 +1705,6 @@ export function ContentWorkshopClient() {
                       ["Script", selectedDraft.script],
                       ["Legende", selectedDraft.caption],
                       ["Hashtags", selectedDraft.hashtags.join(" ")],
-                      ["Prompt visuel", selectedDraft.visualPrompt],
-                      ["Style voix", selectedDraft.voiceStyle],
                     ].map(([label, value]) => (
                       <div
                         key={label}
@@ -1807,53 +1834,10 @@ export function ContentWorkshopClient() {
                     maxLength={240}
                   />
                 </Field>
-                <div className="rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
-                    Pipeline visuel
-                  </p>
-                  <h3 className="mt-2 text-lg font-semibold text-[#F8FAFC]">
-                    Prompts sauvegardes
-                  </h3>
-                  <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
-                    Ces prompts restent du texte editorial. Ils sont editables,
-                    copiables et sauvegardes dans `visual_prompt`.
-                  </p>
-                  <div className="mt-4 grid gap-4">
-                    {editorVisualPrompts.map((prompt, index) => (
-                      <div
-                        key={index}
-                        className="rounded-md border border-[#1D2A44] bg-[#03070B] p-3"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-semibold text-[#F8FAFC]">
-                            Prompt {index + 1}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => void handleCopyVisualPrompt(index, prompt)}
-                            className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-xs font-semibold text-[#7DD3FC] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
-                          >
-                            Copier
-                          </button>
-                        </div>
-                        <TextArea
-                          value={prompt}
-                          onChange={(value) => updateEditorVisualPrompt(index, value)}
-                          minHeight="min-h-40"
-                          maxLength={1800}
-                          required={false}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <Field label="Style voix">
-                  <TextArea
-                    value={editor.voiceStyle}
-                    onChange={(value) => updateEditor("voiceStyle", value)}
-                    maxLength={240}
-                  />
-                </Field>
+                <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm leading-6 text-[#A7B0C0]">
+                  Les prompts visuels et la voix sont conserves avec le
+                  brouillon, mais se gerent dans les sous-modules Visuels et Voix.
+                </p>
 
                 <div className="flex flex-wrap gap-3">
                   <button
@@ -1889,7 +1873,7 @@ export function ContentWorkshopClient() {
                   </button>
                   <button
                     type="button"
-                    disabled={isSaving}
+                    disabled={isSaving || !canMarkReadyToPublish}
                     onClick={() => void handleStatusAction("ready_to_publish")}
                     className="rounded-md border border-[#38BDF8]/45 bg-[#38BDF8]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#0C4A6E]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
                   >
@@ -1904,8 +1888,22 @@ export function ContentWorkshopClient() {
                     {isDeleting ? "Suppression..." : "Supprimer le brouillon"}
                   </button>
                 </div>
+                <label className="flex items-start gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm leading-6 text-[#A7B0C0]">
+                  <input
+                    type="checkbox"
+                    checked={manualReadyToPublish}
+                    onChange={(event) => setManualReadyToPublish(event.target.checked)}
+                    className="mt-1"
+                  />
+                  <span>
+                    Mode manuel explicite: autoriser le passage en pret a publier
+                    meme si les visuels ou la voix ne sont pas marques prets.
+                  </span>
+                </label>
               </form>
 
+              {showDraftMediaTools ? (
+              <>
               <div className="rounded-lg border border-[#1D2A44] bg-[#08111A] p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
@@ -2168,6 +2166,8 @@ export function ContentWorkshopClient() {
                   ))}
                 </div>
               </div>
+              </>
+              ) : null}
             </div>
           ) : generatedVariants.length === 0 ? (
             <p className="mt-6 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-4 leading-7 text-[#A7B0C0]">

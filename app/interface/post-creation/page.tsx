@@ -15,7 +15,7 @@ const workshopModules: CockpitModule[] = [
     title: "Shorts",
     description:
       "Creation, generation, scoring et correction de brouillons pour formats courts.",
-    href: "/interface/post-creation/shorts",
+    href: "/interface/post-creation/shorts/drafts",
     status: "En migration",
     accent: "blue",
   },

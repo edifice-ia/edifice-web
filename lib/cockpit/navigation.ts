@@ -33,7 +33,7 @@ export const cockpitNavigation: CockpitNavItem[] = [
     children: [
       {
         id: "post-creation-shorts",
-        href: "/interface/post-creation/shorts",
+        href: "/interface/post-creation/shorts/drafts",
         label: "Shorts",
       },
       {

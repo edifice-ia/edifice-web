@@ -5,7 +5,10 @@ import {
   globalAssistant,
   type GlobalAssistantMode,
 } from "@/lib/server/assistant/global-assistant";
-import { enrichTrajectoireAssistantProposal } from "@/lib/server/trajectoire";
+import {
+  enrichTrajectoireAssistantProposal,
+  readTrajectoire,
+} from "@/lib/server/trajectoire";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -62,7 +65,13 @@ export async function POST(request: Request) {
       message,
       context.projectMemoryEntries,
     );
-    const response = await globalAssistant({ message, mode, context });
+    const trajectoire = await readTrajectoire(user.id);
+    const response = await globalAssistant({
+      message,
+      mode,
+      context,
+      trajectoire,
+    });
     const trajectoryProposal = response.trajectoryProposal
       ? await enrichTrajectoireAssistantProposal({
           proposal: response.trajectoryProposal,

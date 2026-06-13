@@ -4,6 +4,10 @@ import type {
   AssistantActionablePriority,
   ProjectContext,
 } from "@/types/cockpit";
+import type {
+  TrajectoireObjective,
+  TrajectoireProject,
+} from "@/lib/server/trajectoire";
 
 export type GlobalAssistantMode = "project" | "interior" | "balance";
 
@@ -11,6 +15,9 @@ export type GlobalAssistantInput = {
   message: string;
   mode: GlobalAssistantMode;
   context: ProjectContext;
+  trajectoire?: {
+    projects: TrajectoireProject[];
+  };
 };
 
 export type TrajectoryObjectiveProposal = {
@@ -39,6 +46,16 @@ type OpenAIResponsePayload = {
   }>;
 };
 
+type AssistantSubject =
+  | "Shorts"
+  | "Pinterest"
+  | "TikTok"
+  | "Assistant"
+  | "Trajectoire"
+  | "Connexions"
+  | "Personnel"
+  | "General";
+
 const systemPrompt = [
   "Tu es l'Assistant de L'Edifice, copilote de chantier du projet.",
   "Tu aides Vincent a prioriser, comprendre les blocages, suivre les modules et choisir la prochaine pierre a poser.",
@@ -60,6 +77,392 @@ function normalizeMessage(message: string) {
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "");
+}
+
+function detectSubject(message: string): AssistantSubject {
+  const normalized = normalizeMessage(message);
+
+  if (normalized.includes("short") || normalized.includes("visuel")) {
+    return "Shorts";
+  }
+
+  if (normalized.includes("pinterest")) {
+    return "Pinterest";
+  }
+
+  if (normalized.includes("tiktok")) {
+    return "TikTok";
+  }
+
+  if (normalized.includes("assistant") || normalized.includes("memoire")) {
+    return "Assistant";
+  }
+
+  if (normalized.includes("trajectoire") || normalized.includes("popam")) {
+    return "Trajectoire";
+  }
+
+  if (
+    normalized.includes("connexion") ||
+    normalized.includes("oauth") ||
+    normalized.includes("meta") ||
+    normalized.includes("instagram") ||
+    normalized.includes("youtube")
+  ) {
+    return "Connexions";
+  }
+
+  if (
+    normalized.includes("sport") ||
+    normalized.includes("sante") ||
+    normalized.includes("routine") ||
+    normalized.includes("personnel") ||
+    normalized.includes("ecriture") ||
+    normalized.includes("alternance")
+  ) {
+    return "Personnel";
+  }
+
+  return "General";
+}
+
+function subjectTerms(subject: AssistantSubject) {
+  const terms: Record<AssistantSubject, string[]> = {
+    Shorts: ["short", "atelier", "visuel", "voix", "pipeline", "contenu"],
+    Pinterest: ["pinterest", "publisher", "pin", "tableau"],
+    TikTok: ["tiktok", "sandbox", "production"],
+    Assistant: ["assistant", "memoire", "project memory", "popam"],
+    Trajectoire: ["trajectoire", "objectif", "action", "popam"],
+    Connexions: ["connexion", "oauth", "youtube", "meta", "instagram", "tiktok", "pinterest"],
+    Personnel: ["personnel", "sport", "sante", "ecriture", "routine", "alternance"],
+    General: [],
+  };
+
+  return terms[subject];
+}
+
+function textForProject(project: TrajectoireProject) {
+  return normalizeMessage(
+    [
+      project.title,
+      project.description,
+      project.category,
+      ...project.objectives.flatMap((objective) => [
+        objective.title,
+        objective.description,
+        ...objective.actions.map((action) => action.title),
+      ]),
+    ].join(" "),
+  );
+}
+
+function findSubjectProject(
+  subject: AssistantSubject,
+  trajectoire?: { projects: TrajectoireProject[] },
+) {
+  const projects = trajectoire?.projects ?? [];
+  const terms = subjectTerms(subject);
+
+  if (!projects.length || !terms.length) {
+    return null;
+  }
+
+  return (
+    projects.find((project) => {
+      const text = textForProject(project);
+      return terms.some((term) => text.includes(normalizeMessage(term)));
+    }) ?? null
+  );
+}
+
+function scoreObjectiveForSubject(
+  objective: TrajectoireObjective,
+  subject: AssistantSubject,
+) {
+  const terms = subjectTerms(subject);
+  const text = normalizeMessage(
+    [
+      objective.title,
+      objective.description,
+      ...objective.actions.map((action) => action.title),
+    ].join(" "),
+  );
+
+  return terms.filter((term) => text.includes(normalizeMessage(term))).length;
+}
+
+function selectObjective(
+  project: TrajectoireProject,
+  subject: AssistantSubject,
+) {
+  if (!project.objectives.length) {
+    return null;
+  }
+
+  return [...project.objectives].sort((left, right) => {
+    const rightScore = scoreObjectiveForSubject(right, subject);
+    const leftScore = scoreObjectiveForSubject(left, subject);
+
+    if (rightScore !== leftScore) {
+      return rightScore - leftScore;
+    }
+
+    return right.updatedAt.localeCompare(left.updatedAt);
+  })[0];
+}
+
+function calculatedObjectiveProgress(objective: TrajectoireObjective) {
+  if (!objective.actions.length) {
+    return null;
+  }
+
+  const done = objective.actions.filter((action) => action.status === "fait").length;
+  return Math.round((done / objective.actions.length) * 100);
+}
+
+function retainedObjectiveProgress(objective: TrajectoireObjective) {
+  return calculatedObjectiveProgress(objective) ?? objective.progress;
+}
+
+function extractDescriptionSection(description: string, label: string) {
+  const lines = description.split("\n");
+  const normalizedLabel = normalizeMessage(label).replace(/:$/, "");
+  const start = lines.findIndex((line) =>
+    normalizeMessage(line).replace(/:$/, "") === normalizedLabel,
+  );
+
+  if (start === -1) {
+    return [];
+  }
+
+  const items: string[] = [];
+
+  for (const line of lines.slice(start + 1)) {
+    const trimmed = line.trim();
+    const normalized = normalizeMessage(trimmed).replace(/:$/, "");
+
+    if (
+      trimmed &&
+      !trimmed.startsWith("-") &&
+      ["projet", "objectif", "plan d'action", "actions", "moyens", "memoire projet prise en compte"].includes(normalized)
+    ) {
+      break;
+    }
+
+    if (trimmed.startsWith("-")) {
+      items.push(trimmed.replace(/^-+\s*/, ""));
+    }
+  }
+
+  return items;
+}
+
+function subjectDefaultPlan(subject: AssistantSubject, objectiveTitle: string) {
+  if (subject === "Shorts") {
+    return [
+      "Finaliser brouillons",
+      "Finaliser visuels",
+      "Brancher generation visuelle",
+      "Preparer voix",
+      "Tester un cycle complet",
+    ];
+  }
+
+  if (subject === "Pinterest") {
+    return [
+      "Verifier l'environnement actif",
+      "Controler les comptes et tableaux",
+      "Tester une publication sans automatisme",
+      "Documenter les points reportes",
+    ];
+  }
+
+  if (subject === "Assistant") {
+    return [
+      "Lire project_memory",
+      "Lire Trajectoire",
+      "Construire une reponse POPAM",
+      "Proposer les ecritures avec confirmation",
+    ];
+  }
+
+  return objectiveTitle
+    ? ["Clarifier le perimetre", "Lister les actions", "Valider la prochaine etape"]
+    : [];
+}
+
+function subjectMeans(subject: AssistantSubject, existingMeans: string[] = []) {
+  const defaults: Record<AssistantSubject, string[]> = {
+    Shorts: ["L'Edifice", "Atelier de contenu", "Supabase", "OpenAI", "bibliotheque visuelle"],
+    Pinterest: ["Pinterest Publisher", "OAuth Pinterest", "Supabase", "API Pinterest", "tableaux"],
+    TikTok: ["TikTok Sandbox", "OAuth TikTok", "Supabase", "Observatoire"],
+    Assistant: ["project_memory", "Trajectoire", "Supabase", "POPAM"],
+    Trajectoire: ["Trajectoire", "Supabase", "POPAM", "Assistant Edifice"],
+    Connexions: ["OAuth", "Supabase", "Observatoire", "Connexions cockpit"],
+    Personnel: ["Espace interieur", "Trajectoire", "routine", "sante"],
+    General: ["L'Edifice", "Observatoire", "Trajectoire"],
+  };
+
+  return Array.from(new Set([...existingMeans, ...defaults[subject]])).slice(0, 8);
+}
+
+function formatContextUsed(options: {
+  subject: AssistantSubject;
+  memoryCount: number;
+  project: TrajectoireProject | null;
+  objective: TrajectoireObjective | null;
+}) {
+  return [
+    "Contexte utilise :",
+    `- Memoire projet : ${options.memoryCount} entree(s)`,
+    `- Trajectoire : ${options.project ? "projet trouve" : "aucun projet correspondant"}`,
+    `- Module detecte : ${options.subject}`,
+    `- Projet detecte : ${options.project?.title ?? "non detecte"}`,
+    `- Objectif detecte : ${options.objective?.title ?? "non detecte"}`,
+  ].join("\n");
+}
+
+function missingContextAnswer(subject: AssistantSubject, context: ProjectContext) {
+  const missing = [
+    "un projet Trajectoire rattache au sujet",
+    "un objectif actif avec plan d'action",
+    "des actions avec statut a faire / en cours / fait",
+  ];
+
+  if (!context.projectMemoryEntries.length) {
+    missing.push("des entrees project_memory recentes");
+  }
+
+  return [
+    "Donnees insuffisantes pour repondre precisement.",
+    "",
+    "Infos manquantes :",
+    ...missing.map((item) => `- ${item}`),
+    "",
+    formatContextUsed({
+      subject,
+      memoryCount: context.projectMemoryEntries.length,
+      project: null,
+      objective: null,
+    }),
+  ].join("\n");
+}
+
+function buildGeneralContextAnswer(input: GlobalAssistantInput) {
+  const project = input.trajectoire?.projects.find(
+    (item) => item.status === "actif",
+  ) ?? null;
+  const objective = project
+    ? project.objectives.find((item) => item.status !== "termine") ?? null
+    : null;
+
+  if (!project && !input.context.projectMemoryEntries.length) {
+    return missingContextAnswer("General", input.context);
+  }
+
+  return [
+    "Etat general :",
+    input.context.projectSummary,
+    "",
+    "Prochaine action :",
+    objective?.actions.find((action) => action.status !== "fait")?.title ??
+      input.context.nextPriorityAction,
+    "",
+    formatContextUsed({
+      subject: "General",
+      memoryCount: input.context.projectMemoryEntries.length,
+      project,
+      objective,
+    }),
+  ].join("\n");
+}
+
+function buildPopamAnswer({
+  context,
+  objective,
+  project,
+  subject,
+}: {
+  context: ProjectContext;
+  objective: TrajectoireObjective;
+  project: TrajectoireProject;
+  subject: AssistantSubject;
+}) {
+  const manualProgress = objective.progress;
+  const calculatedProgress = calculatedObjectiveProgress(objective);
+  const retainedProgress = retainedObjectiveProgress(objective);
+  const planFromDescription = extractDescriptionSection(
+    objective.description || project.description,
+    "Plan d'action",
+  ).filter(
+    (item) => normalizeMessage(item) !== normalizeMessage(objective.title),
+  );
+  const meansFromDescription = [
+    ...extractDescriptionSection(objective.description, "Moyens"),
+    ...extractDescriptionSection(project.description, "Moyens"),
+  ];
+  const plan = planFromDescription.length
+    ? planFromDescription
+    : subjectDefaultPlan(subject, objective.title);
+  const nextAction =
+    objective.actions.find((action) => action.status === "en cours") ??
+    objective.actions.find((action) => action.status === "a faire") ??
+    null;
+
+  return [
+    "Projet :",
+    project.title,
+    "",
+    "Objectif :",
+    objective.title,
+    "",
+    "Plan d'action :",
+    ...plan.map((item) => `- ${item}`),
+    "",
+    "Actions :",
+    ...(objective.actions.length
+      ? objective.actions.map((action) => `- ${action.title} (${action.status})`)
+      : ["- Aucune action renseignee"]),
+    "",
+    "Moyens :",
+    ...subjectMeans(subject, meansFromDescription).map((item) => `- ${item}`),
+    "",
+    "Progression :",
+    `- Manuelle : ${manualProgress}%`,
+    `- Calculee : ${calculatedProgress === null ? "non disponible" : `${calculatedProgress}%`}`,
+    `- Retenue : ${retainedProgress}%`,
+    "",
+    "Prochaine action :",
+    nextAction?.title ?? "A definir dans Trajectoire.",
+    "",
+    formatContextUsed({
+      subject,
+      memoryCount: context.projectMemoryEntries.length,
+      project,
+      objective,
+    }),
+  ].join("\n");
+}
+
+function buildContextualOperationalAnswer(input: GlobalAssistantInput) {
+  const subject = detectSubject(input.message);
+  const project = findSubjectProject(subject, input.trajectoire);
+  const objective = project ? selectObjective(project, subject) : null;
+
+  if (project && objective) {
+    return buildPopamAnswer({
+      context: input.context,
+      objective,
+      project,
+      subject,
+    });
+  }
+
+  if (subject !== "General") {
+    return missingContextAnswer(subject, input.context);
+  }
+
+  return buildGeneralContextAnswer(input);
 }
 
 function formatModuleList(
@@ -89,46 +492,6 @@ function getPrimaryRecommendation(
       feasibleNow: true,
     }
   );
-}
-
-function confidenceForContext(context: ProjectContext) {
-  const hasMemory = context.projectMemoryEntries.length > 0;
-  const hasDrafts = context.cockpitState.contentDrafts.total > 0;
-  const hasPlatforms = context.cockpitState.platformStatuses.length > 0;
-  const score = 70 + (hasMemory ? 10 : 0) + (hasDrafts ? 8 : 0) + (hasPlatforms ? 7 : 0);
-
-  return Math.min(95, score);
-}
-
-function buildShortOperationalAnswer(context: ProjectContext) {
-  const priority = getPrimaryRecommendation(context);
-  const blockers = context.cockpitState.blockers
-    .filter((blocker) => !blocker.toLowerCase().includes("review externe"))
-    .slice(0, 2);
-  const actions = context.actionablePriorities.slice(0, 3);
-  const actionLines = (actions.length ? actions : [priority])
-    .slice(0, 3)
-    .map((action, index) => `${index + 1}. ${action.action}`);
-
-  return [
-    "Etat du jour :",
-    `${context.cockpitState.contentDrafts.total} brouillon(s) lus, ${context.cockpitState.contentDrafts.readyToPublish.length} pret(s) a publier. Connexions suivies: ${context.cockpitState.platformStatuses.length}.`,
-    "",
-    "Priorite :",
-    priority.action,
-    "",
-    "Blocages :",
-    blockers.length ? blockers.join(" ; ") : "Aucun blocage critique detecte.",
-    "",
-    "Actions recommandees :",
-    actionLines.join("\n"),
-    "",
-    "Prochaine action :",
-    priority.action,
-    "",
-    "Confiance :",
-    `${confidenceForContext(context)}%`,
-  ].join("\n");
 }
 
 function detectTrajectoryObjectiveProposal(
@@ -785,6 +1148,34 @@ function buildSafeContextForLLM(context: ProjectContext) {
   };
 }
 
+function buildSafeTrajectoireForLLM(
+  trajectoire: GlobalAssistantInput["trajectoire"],
+) {
+  return {
+    projects: (trajectoire?.projects ?? []).map((project) => ({
+      title: project.title,
+      category: project.category,
+      status: project.status,
+      priority: project.priority,
+      deadline: project.deadline,
+      progress: project.progress,
+      objectives: project.objectives.map((objective) => ({
+        title: objective.title,
+        status: objective.status,
+        priority: objective.priority,
+        deadline: objective.deadline,
+        manualProgress: objective.progress,
+        calculatedProgress: calculatedObjectiveProgress(objective),
+        actions: objective.actions.map((action) => ({
+          title: action.title,
+          status: action.status,
+          dueDate: action.dueDate,
+        })),
+      })),
+    })),
+  };
+}
+
 function extractOpenAIText(payload: OpenAIResponsePayload) {
   if (payload.output_text?.trim()) {
     return payload.output_text.trim();
@@ -815,6 +1206,8 @@ async function generateOpenAIAnswer(input: GlobalAssistantInput) {
     `Question utilisateur: ${input.message}`,
     "Contexte projet JSON sans secrets:",
     JSON.stringify(buildSafeContextForLLM(input.context), null, 2),
+    "Trajectoire JSON sans secrets:",
+    JSON.stringify(buildSafeTrajectoireForLLM(input.trajectoire), null, 2),
     "Reponds en francais, de facon concrete. Si la question demande une priorisation, donne 1 a 3 actions numerotees avec une justification courte.",
     "Pour chaque recommandation, indique: action recommandee, raison, dependance eventuelle, faisable maintenant oui/non.",
     "Pour les questions sur les brouillons, utilise contentDrafts.byStatus, readyToPublish, inProgress et recent.",
@@ -922,7 +1315,7 @@ export async function globalAssistant(input: GlobalAssistantInput) {
 
   const { context } = input;
   const recommendation = getPrimaryRecommendation(context);
-  const answer = buildShortOperationalAnswer(context);
+  const answer = buildContextualOperationalAnswer(input);
 
   return {
     ok: true,

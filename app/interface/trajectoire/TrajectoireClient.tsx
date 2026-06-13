@@ -327,12 +327,7 @@ function deadlineLabel(
 
 function calculatedProjectProgress(project: TrajectoireProject) {
   const objectiveScores = project.objectives.map((objective) => {
-    if (!objective.actions.length) {
-      return objective.progress;
-    }
-
-    const doneActions = objective.actions.filter((action) => action.status === "fait");
-    return Math.round((doneActions.length / objective.actions.length) * 100);
+    return retainedObjectiveProgress(objective);
   });
 
   if (!objectiveScores.length) {
@@ -342,6 +337,19 @@ function calculatedProjectProgress(project: TrajectoireProject) {
   return Math.round(
     objectiveScores.reduce((sum, value) => sum + value, 0) / objectiveScores.length,
   );
+}
+
+function calculatedObjectiveProgress(objective: TrajectoireObjective) {
+  if (!objective.actions.length) {
+    return null;
+  }
+
+  const doneActions = objective.actions.filter((action) => action.status === "fait");
+  return Math.round((doneActions.length / objective.actions.length) * 100);
+}
+
+function retainedObjectiveProgress(objective: TrajectoireObjective) {
+  return calculatedObjectiveProgress(objective) ?? objective.progress;
 }
 
 function ProgressBar({ value }: { value: number }) {
@@ -718,6 +726,29 @@ export function TrajectoireClient() {
     );
   }
 
+  async function updateActionStatus(
+    action: TrajectoireAction,
+    status: ActionStatus,
+  ) {
+    if (action.status === status) {
+      return;
+    }
+
+    await runMutation(
+      `/api/trajectoire/action/${action.id}`,
+      "PATCH",
+      {
+        data: {
+          objectiveId: action.objectiveId,
+          title: action.title,
+          status,
+          dueDate: action.dueDate,
+        },
+      },
+      "Statut action mis a jour.",
+    );
+  }
+
   async function runMutation(
     url: string,
     method: "PATCH" | "DELETE",
@@ -953,6 +984,7 @@ export function TrajectoireClient() {
                     key={project.id}
                     project={project}
                     setEditor={setEditor}
+                    updateActionStatus={updateActionStatus}
                   />
                 ))}
               </div>
@@ -1150,11 +1182,16 @@ function ProjectCard({
   deleteEntity,
   project,
   setEditor,
+  updateActionStatus,
 }: {
   archiveProject: (projectId: string) => Promise<void>;
   deleteEntity: (type: EntityType, id: string) => Promise<void>;
   project: TrajectoireProject;
   setEditor: (editor: EditorState | null) => void;
+  updateActionStatus: (
+    action: TrajectoireAction,
+    status: ActionStatus,
+  ) => Promise<void>;
 }) {
   const calculatedProgress = calculatedProjectProgress(project);
 
@@ -1233,6 +1270,7 @@ function ProjectCard({
               key={objective.id}
               objective={objective}
               setEditor={setEditor}
+              updateActionStatus={updateActionStatus}
             />
           ))
         ) : (
@@ -1249,12 +1287,19 @@ function ObjectiveCard({
   deleteEntity,
   objective,
   setEditor,
+  updateActionStatus,
 }: {
   deleteEntity: (type: EntityType, id: string) => Promise<void>;
   objective: TrajectoireObjective;
   setEditor: (editor: EditorState | null) => void;
+  updateActionStatus: (
+    action: TrajectoireAction,
+    status: ActionStatus,
+  ) => Promise<void>;
 }) {
   const late = isObjectiveLate(objective);
+  const calculatedProgress = calculatedObjectiveProgress(objective);
+  const retainedProgress = retainedObjectiveProgress(objective);
 
   return (
     <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
@@ -1284,11 +1329,20 @@ function ObjectiveCard({
           warning={late}
         />
         <InfoBox label="Priorite" value={objective.priority} />
-        <InfoBox label="Progression" value={`${objective.progress}%`} />
+        <InfoBox label="Retenue" value={`${retainedProgress}%`} />
+      </div>
+
+      <div className="mt-3 grid gap-3 text-sm md:grid-cols-3">
+        <InfoBox label="Manuelle" value={`${objective.progress}%`} />
+        <InfoBox
+          label="Calculee"
+          value={calculatedProgress === null ? "non disponible" : `${calculatedProgress}%`}
+        />
+        <InfoBox label="Actions faites" value={`${objective.actions.filter((action) => action.status === "fait").length}/${objective.actions.length}`} />
       </div>
 
       <div className="mt-3">
-        <ProgressBar value={objective.progress} />
+        <ProgressBar value={retainedProgress} />
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -1339,6 +1393,16 @@ function ObjectiveCard({
                 <StatusPill className={actionStatusClasses[action.status]}>
                   {action.status}
                 </StatusPill>
+                <div className="flex flex-wrap gap-1">
+                  {actionStatuses.map((status) => (
+                    <SmallButton
+                      key={status}
+                      onClick={() => updateActionStatus(action, status)}
+                    >
+                      {status}
+                    </SmallButton>
+                  ))}
+                </div>
                 <SmallButton
                   onClick={() =>
                     setEditor({

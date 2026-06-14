@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import {
+  applyTrajectoireAssistantUpdate,
   createTrajectoireAction,
   createTrajectoireFromAssistantProposal,
   createTrajectoireObjective,
   createTrajectoireProject,
   readTrajectoire,
+  recalculateTrajectoireProgress,
   sanitizeActionInput,
   sanitizeAssistantProposalInput,
+  sanitizeAssistantUpdateProposalInput,
   sanitizeObjectiveInput,
   sanitizeProjectInput,
 } from "@/lib/server/trajectoire";
@@ -79,9 +82,20 @@ export async function POST(request: Request) {
         proposal: sanitizeAssistantProposalInput(record.proposal),
         userId: user.id,
       });
+      await recalculateTrajectoireProgress(user.id);
       const trajectoire = await readTrajectoire(user.id);
 
       return NextResponse.json({ ...trajectoire, result }, { status: 201 });
+    }
+
+    if (action === "confirm_assistant_update") {
+      const result = await applyTrajectoireAssistantUpdate({
+        proposal: sanitizeAssistantUpdateProposalInput(record.proposal),
+        userId: user.id,
+      });
+      const trajectoire = await readTrajectoire(user.id);
+
+      return NextResponse.json({ ...trajectoire, result }, { status: 200 });
     }
 
     if (type === "project") {
@@ -105,6 +119,8 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+
+    await recalculateTrajectoireProgress(user.id);
 
     return NextResponse.json(await readTrajectoire(user.id), { status: 201 });
   } catch (error) {

@@ -7,6 +7,7 @@ import {
 } from "@/lib/server/assistant/global-assistant";
 import {
   enrichTrajectoireAssistantProposal,
+  inferTrajectoireUpdateFromMessage,
   readTrajectoire,
 } from "@/lib/server/trajectoire";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
@@ -78,9 +79,14 @@ export async function POST(request: Request) {
           userId: user.id,
         })
       : null;
+    const trajectoryUpdateProposal = await inferTrajectoireUpdateFromMessage({
+      message,
+      userId: user.id,
+    });
     const enrichedResponse = {
       ...response,
       trajectoryProposal,
+      trajectoryUpdateProposal,
     };
 
     if (memoryProposal) {

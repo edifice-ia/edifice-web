@@ -66,6 +66,8 @@ type TrajectoireProject = {
 type ProjectForm = {
   title: string;
   description: string;
+  planAction: string;
+  means: string;
   category: ProjectCategory;
   status: ProjectStatus;
   priority: Priority;
@@ -77,6 +79,7 @@ type ObjectiveForm = {
   projectId: string;
   title: string;
   description: string;
+  planAction: string;
   deadline: string;
   status: ObjectiveStatus;
   priority: Priority;
@@ -149,6 +152,8 @@ function emptyProjectForm(): ProjectForm {
   return {
     title: "",
     description: "",
+    planAction: "",
+    means: "",
     category: "L'Edifice",
     status: "actif",
     priority: "moyenne",
@@ -162,6 +167,7 @@ function emptyObjectiveForm(projectId = ""): ObjectiveForm {
     projectId,
     title: "",
     description: "",
+    planAction: "",
     deadline: "",
     status: "non commence",
     priority: "moyenne",
@@ -181,7 +187,9 @@ function emptyActionForm(objectiveId = ""): ActionForm {
 function projectToForm(project: TrajectoireProject): ProjectForm {
   return {
     title: project.title,
-    description: project.description,
+    description: baseDescription(project.description),
+    planAction: extractDescriptionList(project.description, "Plan d'action").join("\n"),
+    means: extractDescriptionList(project.description, "Moyens").join("\n"),
     category: project.category,
     status: project.status,
     priority: project.priority,
@@ -194,7 +202,8 @@ function objectiveToForm(objective: TrajectoireObjective): ObjectiveForm {
   return {
     projectId: objective.projectId,
     title: objective.title,
-    description: objective.description,
+    description: baseDescription(objective.description),
+    planAction: extractDescriptionList(objective.description, "Plan d'action").join("\n"),
     deadline: objective.deadline ?? "",
     status: objective.status,
     priority: objective.priority,
@@ -221,10 +230,77 @@ function normalizedProgress(value: string | number) {
   return Math.max(0, Math.min(100, Math.round(number)));
 }
 
+function splitLines(value: string) {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function extractDescriptionList(description: string, label: string) {
+  const lines = description.split("\n");
+  const start = lines.findIndex(
+    (line) => line.trim().toLowerCase().replace(/:$/, "") === label.toLowerCase(),
+  );
+
+  if (start === -1) {
+    return [];
+  }
+
+  const items: string[] = [];
+
+  for (const line of lines.slice(start + 1)) {
+    const trimmed = line.trim();
+
+    if (trimmed && !trimmed.startsWith("-")) {
+      break;
+    }
+
+    if (trimmed.startsWith("-")) {
+      items.push(trimmed.replace(/^-+\s*/, ""));
+    }
+  }
+
+  return items;
+}
+
+function baseDescription(description: string) {
+  const marker = "\n\nPlan d'action:";
+  const markerIndex = description.indexOf(marker);
+
+  if (markerIndex >= 0) {
+    return description.slice(0, markerIndex).trim();
+  }
+
+  return description.trim();
+}
+
+function withPopamSections(
+  description: string,
+  options: { means?: string; planAction?: string },
+) {
+  const parts = [description.trim()].filter(Boolean);
+  const planAction = splitLines(options.planAction ?? "");
+  const means = splitLines(options.means ?? "");
+
+  if (planAction.length) {
+    parts.push(["Plan d'action:", ...planAction.map((item) => `- ${item}`)].join("\n"));
+  }
+
+  if (means.length) {
+    parts.push(["Moyens:", ...means.map((item) => `- ${item}`)].join("\n"));
+  }
+
+  return parts.join("\n\n");
+}
+
 function toProjectPayload(values: ProjectForm) {
   return {
     title: values.title,
-    description: values.description,
+    description: withPopamSections(values.description, {
+      means: values.means,
+      planAction: values.planAction,
+    }),
     category: values.category,
     status: values.status,
     priority: values.priority,
@@ -237,7 +313,9 @@ function toObjectivePayload(values: ObjectiveForm) {
   return {
     projectId: values.projectId,
     title: values.title,
-    description: values.description,
+    description: withPopamSections(values.description, {
+      planAction: values.planAction,
+    }),
     deadline: values.deadline || null,
     status: values.status,
     priority: values.priority,
@@ -1108,6 +1186,8 @@ function ProjectEditor({
       <TextInput label="Deadline" onChange={(deadline) => update({ deadline })} type="date" value={values.deadline} />
       <TextInput label="Progression %" onChange={(progress) => update({ progress })} type="number" value={values.progress} />
       <TextAreaInput label="Description" onChange={(description) => update({ description })} value={values.description} />
+      <TextAreaInput label="Plan d'action" onChange={(planAction) => update({ planAction })} value={values.planAction} />
+      <TextAreaInput label="Moyens" onChange={(means) => update({ means })} value={values.means} />
     </div>
   );
 }
@@ -1142,6 +1222,7 @@ function ObjectiveEditor({
       <TextInput label="Deadline" onChange={(deadline) => update({ deadline })} type="date" value={values.deadline} />
       <TextInput label="Progression %" onChange={(progress) => update({ progress })} type="number" value={values.progress} />
       <TextAreaInput label="Description" onChange={(description) => update({ description })} value={values.description} />
+      <TextAreaInput label="Plan d'action" onChange={(planAction) => update({ planAction })} value={values.planAction} />
     </div>
   );
 }

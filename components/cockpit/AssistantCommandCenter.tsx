@@ -31,6 +31,10 @@ type AssistantExchange = {
   trajectoryConfirmed?: boolean;
   trajectoryCancelled?: boolean;
   trajectoryCreationSummary?: string;
+  trajectoryUpdateProposal?: TrajectoryUpdateProposal;
+  trajectoryUpdateConfirmed?: boolean;
+  trajectoryUpdateCancelled?: boolean;
+  trajectoryUpdateSummary?: string;
 };
 
 type AssistantRecommendation = {
@@ -66,6 +70,20 @@ type TrajectoryProposal = {
   existingObjectiveId?: string | null;
   rationale?: string;
   memoryContext?: string[];
+};
+
+type TrajectoryUpdateProposal = {
+  type: "action_status" | "objective_status";
+  projectId: string;
+  projectTitle: string;
+  objectiveId: string;
+  objectiveTitle: string;
+  actionId?: string | null;
+  actionTitle?: string | null;
+  previousValue: string;
+  nextValue: string;
+  impact: string;
+  confidence: number;
 };
 
 const contexts: Record<
@@ -181,6 +199,8 @@ export function AssistantCommandCenter({
   const [confirmingProposalId, setConfirmingProposalId] = useState<string | null>(null);
   const [confirmingTrajectoryProposalId, setConfirmingTrajectoryProposalId] =
     useState<string | null>(null);
+  const [confirmingTrajectoryUpdateId, setConfirmingTrajectoryUpdateId] =
+    useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeQuestion, setActiveQuestion] = useState<AssistantQuestion>(
     "Que dois-je faire maintenant ?",
@@ -252,6 +272,7 @@ export function AssistantCommandCenter({
         recommendation?: AssistantRecommendation;
         memoryProposal?: ProjectMemoryProposal;
         trajectoryProposal?: TrajectoryProposal | null;
+        trajectoryUpdateProposal?: TrajectoryUpdateProposal | null;
         requiresConfirmation?: boolean;
         error?: string;
       };
@@ -272,6 +293,7 @@ export function AssistantCommandCenter({
           recommendation: payload.recommendation,
           memoryProposal: payload.memoryProposal,
           trajectoryProposal: payload.trajectoryProposal ?? undefined,
+          trajectoryUpdateProposal: payload.trajectoryUpdateProposal ?? undefined,
         },
       ]);
     } catch (requestError) {
@@ -425,6 +447,64 @@ export function AssistantCommandCenter({
     }
   }
 
+  function cancelTrajectoryUpdate(exchangeId: string) {
+    setExchanges((current) =>
+      current.map((exchange) =>
+        exchange.id === exchangeId
+          ? { ...exchange, trajectoryUpdateCancelled: true }
+          : exchange,
+      ),
+    );
+  }
+
+  async function confirmTrajectoryUpdate(
+    exchangeId: string,
+    proposal: TrajectoryUpdateProposal,
+  ) {
+    setConfirmingTrajectoryUpdateId(exchangeId);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/trajectoire", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "confirm_assistant_update",
+          proposal,
+        }),
+      });
+      const payload = (await response.json()) as {
+        result?: { updated?: boolean };
+        error?: string;
+      };
+
+      if (!response.ok || !payload.result?.updated) {
+        throw new Error(payload.error ?? "Mise a jour Trajectoire indisponible.");
+      }
+
+      setExchanges((current) =>
+        current.map((exchange) =>
+          exchange.id === exchangeId
+            ? {
+                ...exchange,
+                trajectoryUpdateConfirmed: true,
+                trajectoryUpdateSummary:
+                  "Mise a jour Trajectoire appliquee et progression recalculee.",
+              }
+            : exchange,
+        ),
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Mise a jour Trajectoire indisponible.",
+      );
+    } finally {
+      setConfirmingTrajectoryUpdateId(null);
+    }
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
       <div className="space-y-6">
@@ -494,13 +574,20 @@ export function AssistantCommandCenter({
                   trajectoryConfirmed={exchange.trajectoryConfirmed}
                   trajectoryCancelled={exchange.trajectoryCancelled}
                   trajectoryCreationSummary={exchange.trajectoryCreationSummary}
+                  trajectoryUpdateProposal={exchange.trajectoryUpdateProposal}
+                  trajectoryUpdateConfirmed={exchange.trajectoryUpdateConfirmed}
+                  trajectoryUpdateCancelled={exchange.trajectoryUpdateCancelled}
+                  trajectoryUpdateSummary={exchange.trajectoryUpdateSummary}
                   confirmingProposalId={confirmingProposalId}
                   confirmingTrajectoryProposalId={confirmingTrajectoryProposalId}
+                  confirmingTrajectoryUpdateId={confirmingTrajectoryUpdateId}
                   exchangeId={exchange.id}
                   onConfirmMemoryProposal={confirmMemoryProposal}
                   onCancelMemoryProposal={cancelMemoryProposal}
                   onConfirmTrajectoryProposal={confirmTrajectoryProposal}
                   onCancelTrajectoryProposal={cancelTrajectoryProposal}
+                  onConfirmTrajectoryUpdate={confirmTrajectoryUpdate}
+                  onCancelTrajectoryUpdate={cancelTrajectoryUpdate}
                 >
                   {exchange.message}
                 </ChatMessage>
@@ -708,13 +795,20 @@ function ChatMessage({
   trajectoryConfirmed,
   trajectoryCancelled,
   trajectoryCreationSummary,
+  trajectoryUpdateProposal,
+  trajectoryUpdateConfirmed,
+  trajectoryUpdateCancelled,
+  trajectoryUpdateSummary,
   confirmingProposalId,
   confirmingTrajectoryProposalId,
+  confirmingTrajectoryUpdateId,
   exchangeId,
   onConfirmMemoryProposal,
   onCancelMemoryProposal,
   onConfirmTrajectoryProposal,
   onCancelTrajectoryProposal,
+  onConfirmTrajectoryUpdate,
+  onCancelTrajectoryUpdate,
 }: {
   label: string;
   tone: "jade" | "blue";
@@ -729,8 +823,13 @@ function ChatMessage({
   trajectoryConfirmed?: boolean;
   trajectoryCancelled?: boolean;
   trajectoryCreationSummary?: string;
+  trajectoryUpdateProposal?: TrajectoryUpdateProposal;
+  trajectoryUpdateConfirmed?: boolean;
+  trajectoryUpdateCancelled?: boolean;
+  trajectoryUpdateSummary?: string;
   confirmingProposalId?: string | null;
   confirmingTrajectoryProposalId?: string | null;
+  confirmingTrajectoryUpdateId?: string | null;
   exchangeId?: string;
   onConfirmMemoryProposal?: (
     exchangeId: string,
@@ -742,6 +841,11 @@ function ChatMessage({
     proposal: TrajectoryProposal,
   ) => Promise<void>;
   onCancelTrajectoryProposal?: (exchangeId: string) => void;
+  onConfirmTrajectoryUpdate?: (
+    exchangeId: string,
+    proposal: TrajectoryUpdateProposal,
+  ) => Promise<void>;
+  onCancelTrajectoryUpdate?: (exchangeId: string) => void;
 }) {
   const color = tone === "jade" ? "text-[#39E6D0]" : "text-[#38BDF8]";
   const [isEditingTrajectory, setIsEditingTrajectory] = useState(false);
@@ -749,6 +853,16 @@ function ChatMessage({
     trajectoryProposal ?? null,
   );
   const displayedTrajectoryProposal = trajectoryDraft ?? trajectoryProposal;
+  const [isEditingTrajectoryUpdate, setIsEditingTrajectoryUpdate] =
+    useState(false);
+  const [trajectoryUpdateDraft, setTrajectoryUpdateDraft] =
+    useState<TrajectoryUpdateProposal | null>(trajectoryUpdateProposal ?? null);
+  const displayedTrajectoryUpdateProposal =
+    trajectoryUpdateDraft ?? trajectoryUpdateProposal;
+  const trajectoryUpdateValues =
+    displayedTrajectoryUpdateProposal?.type === "objective_status"
+      ? ["non commence", "en cours", "bloque", "reporte", "termine"]
+      : ["a faire", "en cours", "fait"];
 
   return (
     <div
@@ -838,6 +952,153 @@ function ChatMessage({
       {memoryProposal && memoryCancelled ? (
         <p className="mt-4 rounded-md border border-[#64748b]/30 bg-[#64748b]/10 px-3 py-2 text-sm font-semibold text-[#cbd5e1]">
           Mise à jour annulée.
+        </p>
+      ) : null}
+      {displayedTrajectoryUpdateProposal &&
+      !trajectoryUpdateConfirmed &&
+      !trajectoryUpdateCancelled ? (
+        <div className="mt-4 rounded-md border border-[#38BDF8]/30 bg-[#03070B] p-3 text-sm">
+          <p className="font-semibold text-[#F8FAFC]">
+            Mise a jour Trajectoire proposee
+          </p>
+          {isEditingTrajectoryUpdate ? (
+            <div className="mt-3 grid gap-3 text-[#A7B0C0]">
+              <TrajectoryField
+                label="Projet"
+                value={displayedTrajectoryUpdateProposal.projectTitle}
+                onChange={(value) =>
+                  setTrajectoryUpdateDraft({
+                    ...displayedTrajectoryUpdateProposal,
+                    projectTitle: value,
+                  })
+                }
+              />
+              <TrajectoryField
+                label="Objectif"
+                value={displayedTrajectoryUpdateProposal.objectiveTitle}
+                onChange={(value) =>
+                  setTrajectoryUpdateDraft({
+                    ...displayedTrajectoryUpdateProposal,
+                    objectiveTitle: value,
+                  })
+                }
+              />
+              <label className="grid gap-1">
+                <span className="font-semibold text-[#F8FAFC]">
+                  Nouvelle valeur
+                </span>
+                <select
+                  value={displayedTrajectoryUpdateProposal.nextValue}
+                  onChange={(event) =>
+                    setTrajectoryUpdateDraft({
+                      ...displayedTrajectoryUpdateProposal,
+                      nextValue: event.target.value,
+                    })
+                  }
+                  className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#F8FAFC] outline-none"
+                >
+                  {trajectoryUpdateValues.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <TrajectoryTextarea
+                label="Impact"
+                value={displayedTrajectoryUpdateProposal.impact}
+                onChange={(value) =>
+                  setTrajectoryUpdateDraft({
+                    ...displayedTrajectoryUpdateProposal,
+                    impact: value,
+                  })
+                }
+              />
+            </div>
+          ) : (
+            <div className="mt-3 grid gap-2 text-[#A7B0C0]">
+              <RecommendationLine
+                label="Projet"
+                value={displayedTrajectoryUpdateProposal.projectTitle}
+              />
+              <RecommendationLine
+                label="Objectif"
+                value={displayedTrajectoryUpdateProposal.objectiveTitle}
+              />
+              <RecommendationLine
+                label="Action"
+                value={displayedTrajectoryUpdateProposal.actionTitle ?? "Objectif"}
+              />
+              <RecommendationLine
+                label="Ancienne valeur"
+                value={displayedTrajectoryUpdateProposal.previousValue}
+              />
+              <RecommendationLine
+                label="Nouvelle valeur"
+                value={displayedTrajectoryUpdateProposal.nextValue}
+              />
+              <RecommendationLine
+                label="Impact"
+                value={displayedTrajectoryUpdateProposal.impact}
+              />
+            </div>
+          )}
+          <p className="mt-2 text-xs text-[#64748b]">
+            Confiance{" "}
+            {Math.round(displayedTrajectoryUpdateProposal.confidence * 100)}%.
+            Aucune modification Trajectoire sans confirmation.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              className="rounded-md border border-[#38BDF8]/50 bg-[#38BDF8]/10 px-3 py-2 text-xs font-semibold text-[#7dd3fc] transition hover:text-[#F8FAFC] disabled:opacity-50"
+              disabled={
+                !exchangeId || confirmingTrajectoryUpdateId === exchangeId
+              }
+              onClick={() =>
+                exchangeId
+                  ? onConfirmTrajectoryUpdate?.(
+                      exchangeId,
+                      displayedTrajectoryUpdateProposal,
+                    )
+                  : undefined
+              }
+              type="button"
+            >
+              {confirmingTrajectoryUpdateId === exchangeId
+                ? "Confirmation..."
+                : "Confirmer"}
+            </button>
+            <button
+              className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC]"
+              disabled={confirmingTrajectoryUpdateId === exchangeId}
+              onClick={() => setIsEditingTrajectoryUpdate((current) => !current)}
+              type="button"
+            >
+              {isEditingTrajectoryUpdate ? "Fermer l'edition" : "Modifier"}
+            </button>
+            <button
+              className="rounded-md border border-[#64748b]/50 bg-[#64748b]/10 px-3 py-2 text-xs font-semibold text-[#cbd5e1] transition hover:text-[#F8FAFC]"
+              disabled={!exchangeId || confirmingTrajectoryUpdateId === exchangeId}
+              onClick={() =>
+                exchangeId
+                  ? onCancelTrajectoryUpdate?.(exchangeId)
+                  : undefined
+              }
+              type="button"
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {trajectoryUpdateProposal && trajectoryUpdateConfirmed ? (
+        <p className="mt-4 rounded-md border border-[#38BDF8]/30 bg-[#38BDF8]/10 px-3 py-2 text-sm font-semibold text-[#7dd3fc]">
+          {trajectoryUpdateSummary ?? "Mise a jour Trajectoire appliquee."}
+        </p>
+      ) : null}
+      {trajectoryUpdateProposal && trajectoryUpdateCancelled ? (
+        <p className="mt-4 rounded-md border border-[#64748b]/30 bg-[#64748b]/10 px-3 py-2 text-sm font-semibold text-[#cbd5e1]">
+          Mise a jour Trajectoire annulee.
         </p>
       ) : null}
       {displayedTrajectoryProposal && !trajectoryConfirmed && !trajectoryCancelled ? (

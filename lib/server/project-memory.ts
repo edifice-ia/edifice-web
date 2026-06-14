@@ -458,6 +458,22 @@ export function inferProjectMemoryUpdate(
     }, entries);
   }
 
+  if (
+    normalized.includes("voix") &&
+    (normalized.includes("prete") || normalized.includes("pret") || normalized.includes("termine"))
+  ) {
+    return withPreviousValue({
+      key: "shorts_voice_status",
+      category: "contenu",
+      title: "Shorts voice status",
+      value: "prete",
+      status: "pret",
+      source,
+      confidence: 0.86,
+      impact: "La voix Shorts peut etre consideree prete et rattachee a l'action Trajectoire correspondante.",
+    }, entries);
+  }
+
   if (normalized.includes("youtube") && normalized.includes("valid")) {
     return withPreviousValue({
       key: "youtube_connection_status",

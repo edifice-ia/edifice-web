@@ -3,6 +3,7 @@ import {
   archiveTrajectoireProject,
   deleteTrajectoireEntity,
   readTrajectoire,
+  recalculateTrajectoireProgress,
   sanitizeActionInput,
   sanitizeObjectiveInput,
   sanitizeProjectInput,
@@ -92,6 +93,8 @@ export async function PATCH(
         userId: user.id,
       });
     }
+
+    await recalculateTrajectoireProgress(user.id);
 
     return NextResponse.json(await readTrajectoire(user.id));
   } catch (error) {

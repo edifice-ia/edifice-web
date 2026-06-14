@@ -102,6 +102,25 @@ export type TrajectoireAssistantCreationResult = {
   skippedActions: string[];
 };
 
+export type TrajectoireAssistantUpdateProposal = {
+  type: "action_status" | "objective_status";
+  projectId: string;
+  projectTitle: string;
+  objectiveId: string;
+  objectiveTitle: string;
+  actionId?: string | null;
+  actionTitle?: string | null;
+  previousValue: string;
+  nextValue: string;
+  impact: string;
+  confidence: number;
+};
+
+export type TrajectoireAssistantUpdateResult = {
+  proposal: TrajectoireAssistantUpdateProposal;
+  updated: boolean;
+};
+
 type ProjectRow = {
   id: string;
   title: string | null;
@@ -264,6 +283,19 @@ function findSimilarAction(actions: TrajectoireAction[], title: string) {
   return actions.find((action) => isSimilarTitle(action.title, title)) ?? null;
 }
 
+function actionProgress(actions: TrajectoireAction[]) {
+  if (!actions.length) {
+    return null;
+  }
+
+  const done = actions.filter((action) => action.status === "fait").length;
+  return Math.round((done / actions.length) * 100);
+}
+
+function retainedObjectiveProgress(objective: TrajectoireObjective) {
+  return actionProgress(objective.actions) ?? objective.progress;
+}
+
 function enumValue<T extends readonly string[]>(
   value: unknown,
   values: T,
@@ -408,6 +440,36 @@ export function sanitizeAssistantProposalInput(
     existingObjectiveId: stringValue(record.existingObjectiveId) || null,
     rationale: stringValue(record.rationale),
     memoryContext,
+  };
+}
+
+export function sanitizeAssistantUpdateProposalInput(
+  payload: unknown,
+): TrajectoireAssistantUpdateProposal {
+  const record = asRecord(payload);
+  const type =
+    record.type === "objective_status" ? "objective_status" : "action_status";
+  const nextValue =
+    type === "objective_status"
+      ? enumValue(record.nextValue, trajectoireObjectiveStatuses, "en cours")
+      : enumValue(record.nextValue, trajectoireActionStatuses, "fait");
+  const confidenceValue = Number(record.confidence);
+  const confidence = Number.isFinite(confidenceValue)
+    ? Math.max(0, Math.min(1, confidenceValue > 1 ? confidenceValue / 100 : confidenceValue))
+    : 0.75;
+
+  return {
+    type,
+    projectId: requiredText(record.projectId, "Le projet"),
+    projectTitle: stringValue(record.projectTitle),
+    objectiveId: requiredText(record.objectiveId, "L'objectif"),
+    objectiveTitle: stringValue(record.objectiveTitle),
+    actionId: stringValue(record.actionId) || null,
+    actionTitle: stringValue(record.actionTitle) || null,
+    previousValue: stringValue(record.previousValue),
+    nextValue,
+    impact: stringValue(record.impact),
+    confidence,
   };
 }
 
@@ -760,6 +822,231 @@ export async function enrichTrajectoireAssistantProposal({
       ? `Un objectif similaire existe deja dans ${existingProject.title}. Les nouvelles actions seront ajoutees sans doublon apres confirmation.`
       : `Un projet similaire existe deja: ${existingProject.title}. L'objectif sera rattache a ce projet apres confirmation.`,
   };
+}
+
+function findProjectByTerms(projects: TrajectoireProject[], terms: string[]) {
+  return projects.find((project) => {
+    const text = normalizeComparable(
+      `${project.title} ${project.description} ${project.objectives
+        .map((objective) => `${objective.title} ${objective.description}`)
+        .join(" ")}`,
+    );
+
+    return terms.some((term) => text.includes(normalizeComparable(term)));
+  }) ?? null;
+}
+
+function findObjectiveByTerms(
+  project: TrajectoireProject,
+  terms: string[],
+) {
+  return project.objectives.find((objective) => {
+    const text = normalizeComparable(
+      `${objective.title} ${objective.description} ${objective.actions
+        .map((action) => action.title)
+        .join(" ")}`,
+    );
+
+    return terms.some((term) => text.includes(normalizeComparable(term)));
+  }) ?? project.objectives[0] ?? null;
+}
+
+function findActionByTerms(
+  objective: TrajectoireObjective,
+  terms: string[],
+) {
+  return objective.actions.find((action) => {
+    const text = normalizeComparable(action.title);
+    return terms.some((term) => text.includes(normalizeComparable(term)));
+  }) ?? null;
+}
+
+export async function inferTrajectoireUpdateFromMessage({
+  message,
+  userId,
+}: {
+  message: string;
+  userId: string;
+}): Promise<TrajectoireAssistantUpdateProposal | null> {
+  const normalized = normalizeComparable(message);
+  const snapshot = await readTrajectoire(userId);
+
+  if (
+    normalized.includes("short") &&
+    normalized.includes("visuel") &&
+    (normalized.includes("termine") || normalized.includes("fini") || normalized.includes("pret"))
+  ) {
+    const project = findProjectByTerms(snapshot.projects, ["short", "atelier"]);
+    const objective = project ? findObjectiveByTerms(project, ["short", "pipeline", "visuel"]) : null;
+    const action = objective ? findActionByTerms(objective, ["visuel", "finaliser visuels"]) : null;
+
+    if (project && objective && action) {
+      return {
+        type: "action_status",
+        projectId: project.id,
+        projectTitle: project.title,
+        objectiveId: objective.id,
+        objectiveTitle: objective.title,
+        actionId: action.id,
+        actionTitle: action.title,
+        previousValue: action.status,
+        nextValue: "fait",
+        impact: "L'action Visuels passera en fait et la progression retenue de l'objectif sera recalculee depuis les actions.",
+        confidence: 0.88,
+      };
+    }
+  }
+
+  if (
+    normalized.includes("voix") &&
+    (normalized.includes("prete") || normalized.includes("pret") || normalized.includes("termine"))
+  ) {
+    const project = findProjectByTerms(snapshot.projects, ["short", "atelier"]);
+    const objective = project ? findObjectiveByTerms(project, ["short", "pipeline", "voix"]) : null;
+    const action = objective ? findActionByTerms(objective, ["voix", "preparer voix"]) : null;
+
+    if (project && objective && action) {
+      return {
+        type: "action_status",
+        projectId: project.id,
+        projectTitle: project.title,
+        objectiveId: objective.id,
+        objectiveTitle: objective.title,
+        actionId: action.id,
+        actionTitle: action.title,
+        previousValue: action.status,
+        nextValue: "fait",
+        impact: "L'action Voix passera en fait et la progression retenue sera recalculee depuis les actions.",
+        confidence: 0.84,
+      };
+    }
+  }
+
+  if (
+    normalized.includes("pinterest") &&
+    normalized.includes("production") &&
+    normalized.includes("report")
+  ) {
+    const project = findProjectByTerms(snapshot.projects, ["pinterest"]);
+    const objective = project ? findObjectiveByTerms(project, ["production", "pinterest"]) : null;
+
+    if (project && objective) {
+      return {
+        type: "objective_status",
+        projectId: project.id,
+        projectTitle: project.title,
+        objectiveId: objective.id,
+        objectiveTitle: objective.title,
+        actionId: null,
+        actionTitle: null,
+        previousValue: objective.status,
+        nextValue: "reporte",
+        impact: "L'objectif Pinterest Production sera reporte et ne comptera plus comme retard reel.",
+        confidence: 0.86,
+      };
+    }
+  }
+
+  return null;
+}
+
+export async function applyTrajectoireAssistantUpdate({
+  proposal,
+  userId,
+}: {
+  proposal: TrajectoireAssistantUpdateProposal;
+  userId: string;
+}): Promise<TrajectoireAssistantUpdateResult> {
+  const supabase = getTrajectoireClient();
+
+  if (proposal.type === "action_status") {
+    if (!proposal.actionId) {
+      throw new Error("Action Trajectoire manquante.");
+    }
+
+    const { error } = await supabase
+      .from("trajectoire_actions")
+      .update({ status: proposal.nextValue })
+      .eq("id", proposal.actionId)
+      .eq("user_id", userId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  } else {
+    const { error } = await supabase
+      .from("trajectoire_objectives")
+      .update({ status: proposal.nextValue })
+      .eq("id", proposal.objectiveId)
+      .eq("user_id", userId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  await recalculateTrajectoireProgress(userId);
+
+  return { proposal, updated: true };
+}
+
+export async function recalculateTrajectoireProgress(userId: string) {
+  const supabase = getTrajectoireClient();
+  const snapshot = await readTrajectoire(userId);
+
+  for (const project of snapshot.projects) {
+    for (const objective of project.objectives) {
+      if (!objective.actions.length) {
+        continue;
+      }
+
+      const progress = actionProgress(objective.actions) ?? objective.progress;
+      const allDone = objective.actions.every((action) => action.status === "fait");
+      const nextStatus = allDone ? "termine" : objective.status;
+      const { error } = await supabase
+        .from("trajectoire_objectives")
+        .update({
+          progress: allDone ? 100 : progress,
+          status: nextStatus,
+        })
+        .eq("id", objective.id)
+        .eq("user_id", userId);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+    }
+  }
+
+  const refreshed = await readTrajectoire(userId);
+
+  for (const project of refreshed.projects) {
+    if (!project.objectives.length) {
+      continue;
+    }
+
+    const progress = Math.round(
+      project.objectives.reduce(
+        (sum, objective) => sum + retainedObjectiveProgress(objective),
+        0,
+      ) / project.objectives.length,
+    );
+    const allDone = project.objectives.every(
+      (objective) => objective.status === "termine",
+    );
+    const { error } = await supabase
+      .from("trajectoire_projects")
+      .update({
+        progress: allDone ? 100 : progress,
+        status: allDone ? "termine" : project.status,
+      })
+      .eq("id", project.id)
+      .eq("user_id", userId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
 }
 
 export async function updateTrajectoireProject({

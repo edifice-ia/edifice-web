@@ -12,13 +12,16 @@ type MediaPipelineStatus =
 
 type VisualDecisionMode = "reuse_existing" | "generate_new";
 type AssetSource = "library" | "generated";
-type GenerationSource = "library" | "generated" | "regenerated";
+type GenerationSource = "library" | "generated" | "regenerated" | "upload";
 type GenerationQuality = "low" | "medium" | "high";
 type GenerationStatus =
   | "pending"
-  | "generated"
-  | "failed"
-  | "selected"
+  | "searching_library"
+  | "selected_from_library"
+  | "generating"
+  | "uploading"
+  | "ready"
+  | "error"
   | "retained"
   | "rejected";
 type ScoreSource = "heuristic" | "gpt_vision" | "none";
@@ -43,6 +46,7 @@ type MediaPipelineErrorContext = {
   draftStatus?: string | null;
   contentAssetsCount?: number;
   mediaPipelineStatus?: MediaPipelineStatus;
+  sceneIndex?: number;
   visualDecisionMode?: VisualDecisionMode;
   validation?: string;
 };
@@ -106,9 +110,9 @@ type VisualSceneRow = {
   asset_id: string | null;
   visual_prompt_index: number;
   visual_prompt_text: string;
-  generation_source: GenerationSource;
+  generation_source: string;
   generation_quality: GenerationQuality | null;
-  generation_status: GenerationStatus;
+  generation_status: string;
   image_url: string | null;
   storage_path: string | null;
   score_total: number | null;
@@ -530,7 +534,83 @@ function normalizeGenerationQuality(value: unknown): GenerationQuality {
     : "medium";
 }
 
-function extractBase64Image(payload: unknown) {
+function normalizeGenerationSource(value: unknown): GenerationSource {
+  return value === "generated" ||
+    value === "regenerated" ||
+    value === "upload" ||
+    value === "library"
+    ? value
+    : "library";
+}
+
+function normalizeGenerationStatus(value: unknown): GenerationStatus {
+  if (
+    value === "pending" ||
+    value === "searching_library" ||
+    value === "selected_from_library" ||
+    value === "generating" ||
+    value === "uploading" ||
+    value === "ready" ||
+    value === "error" ||
+    value === "retained" ||
+    value === "rejected"
+  ) {
+    return value;
+  }
+
+  if (value === "selected") {
+    return "selected_from_library";
+  }
+
+  if (value === "generated") {
+    return "ready";
+  }
+
+  if (value === "failed") {
+    return "error";
+  }
+
+  return "pending";
+}
+
+function logVisualPipeline({
+  action,
+  draftId,
+  durationMs,
+  endpoint,
+  error,
+  model,
+  sceneIndex,
+  success,
+}: {
+  action: "library_search" | "vision_score" | "image_generation" | "upload";
+  draftId: string;
+  durationMs: number;
+  endpoint: string;
+  error?: unknown;
+  model: string;
+  sceneIndex: number;
+  success: boolean;
+}) {
+  const payload = {
+    action,
+    draft_id: draftId,
+    duration_ms: durationMs,
+    endpoint,
+    error: error instanceof Error ? error.message : error ? String(error) : null,
+    model,
+    scene_index: sceneIndex,
+    success,
+  };
+
+  if (success) {
+    console.info("[Shorts Visual Pipeline]", payload);
+  } else {
+    console.warn("[Shorts Visual Pipeline]", payload);
+  }
+}
+
+async function extractImageBytes(payload: unknown, draftId: string, sceneIndex: number) {
   const record = payload && typeof payload === "object"
     ? payload as Record<string, unknown>
     : {};
@@ -542,11 +622,26 @@ function extractBase64Image(payload: unknown) {
       : {};
 
     if (typeof image.b64_json === "string" && image.b64_json) {
-      return image.b64_json;
+      return Buffer.from(image.b64_json, "base64");
+    }
+
+    if (typeof image.url === "string" && image.url) {
+      const response = await fetch(image.url);
+
+      if (!response.ok) {
+        throw new MediaPipelineError("Image OpenAI distante inaccessible.", {
+          draftId,
+          validation: "openai.image_url.fetch",
+        });
+      }
+
+      return Buffer.from(await response.arrayBuffer());
     }
   }
 
   throw new MediaPipelineError("OpenAI n'a pas renvoye d'image exploitable.", {
+    draftId,
+    sceneIndex,
     validation: "openai.image.empty",
   });
 }
@@ -563,6 +658,9 @@ async function generateOpenAIImage({
   sceneIndex: number;
 }) {
   const apiKey = openAIKey();
+  const endpoint = "https://api.openai.com/v1/images/generations";
+  const model = imageGenerationModel();
+  const startedAt = Date.now();
 
   if (!apiKey) {
     throw new MediaPipelineError(
@@ -574,40 +672,65 @@ async function generateOpenAIImage({
     );
   }
 
-  const response = await fetch("https://api.openai.com/v1/images/generations", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: imageGenerationModel(),
-      prompt: [
-        "Vertical 9:16 photorealistic cinematic frame for a short video.",
-        "No text, no subtitles, no logo, no watermark.",
-        `Draft title: ${draft.title ?? draft.theme ?? "Shorts"}.`,
-        `Narrative angle: ${draft.angle ?? "intimate cinematic story"}.`,
-        `Scene ${sceneIndex}: ${prompt}`,
-      ].join("\n"),
-      size: "1024x1536",
-      quality,
-      n: 1,
-      response_format: "b64_json",
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new MediaPipelineError(
-      `Generation OpenAI impossible: ${text.slice(0, 300)}`,
-      {
-        draftId: draft.id,
-        validation: "openai.image_generation",
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-    );
-  }
+      body: JSON.stringify({
+        model,
+        prompt: [
+          "Vertical 9:16 photorealistic cinematic frame for a short video.",
+          "No text, no subtitles, no logo, no watermark.",
+          `Draft title: ${draft.title ?? draft.theme ?? "Shorts"}.`,
+          `Narrative angle: ${draft.angle ?? "intimate cinematic story"}.`,
+          `Scene ${sceneIndex}: ${prompt}`,
+        ].join("\n"),
+        size: "1024x1536",
+        quality,
+        n: 1,
+      }),
+    });
 
-  return Buffer.from(extractBase64Image(await response.json()), "base64");
+    if (!response.ok) {
+      const text = await response.text();
+      throw new MediaPipelineError(
+        `Generation OpenAI impossible: ${text.slice(0, 300)}`,
+        {
+          draftId: draft.id,
+          sceneIndex,
+          validation: "openai.image_generation",
+        },
+      );
+    }
+
+    const bytes = await extractImageBytes(await response.json(), draft.id, sceneIndex);
+    logVisualPipeline({
+      action: "image_generation",
+      draftId: draft.id,
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      model,
+      sceneIndex,
+      success: true,
+    });
+
+    return bytes;
+  } catch (error) {
+    logVisualPipeline({
+      action: "image_generation",
+      draftId: draft.id,
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      error,
+      model,
+      sceneIndex,
+      success: false,
+    });
+    throw error;
+  }
 }
 
 async function storeGeneratedImage({
@@ -629,64 +752,92 @@ async function storeGeneratedImage({
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const fileName = `shorts-scene-${sceneIndex}-${timestamp}.png`;
   const storagePath = `drafts/${draft.id}/images/${fileName}`;
+  const endpoint = "supabase.storage.content-assets";
+  const startedAt = Date.now();
 
-  const { error: uploadError } = await supabase.storage
-    .from("content-assets")
-    .upload(storagePath, bytes, {
-      contentType: "image/png",
-      upsert: true,
-    });
+  try {
+    const { error: uploadError } = await supabase.storage
+      .from("content-assets")
+      .upload(storagePath, bytes, {
+        contentType: "image/png",
+        upsert: true,
+      });
 
-  if (uploadError) {
-    throw new MediaPipelineError(
-      `Upload du visuel genere impossible: ${uploadError.message}`,
-      {
+    if (uploadError) {
+      throw new MediaPipelineError(
+        `Upload du visuel genere impossible: ${uploadError.message}`,
+        {
+          draftId: draft.id,
+          sceneIndex,
+          validation: "supabase.storage.upload",
+        },
+      );
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from("content-assets")
+      .getPublicUrl(storagePath);
+
+    const publicUrl = publicUrlData.publicUrl;
+    const { data, error } = await supabase
+      .from("content_assets")
+      .insert({
+        asset_type: "image",
+        file_name: fileName,
+        bucket_name: "content-assets",
+        storage_path: storagePath,
+        public_url: publicUrl,
+        source: "shorts_visual_generation",
+        status: "available",
+        linked_draft_id: draft.id,
+        metadata: {
+          visual_prompt: prompt,
+          scene_prompt: prompt,
+          scene_index: sceneIndex,
+          generation_source: generationSource,
+          generation_quality: generationQuality,
+          generated_by: "openai",
+          image_model: imageGenerationModel(),
+          aspect_ratio: "9:16",
+        },
+      })
+      .select(
+        "id, asset_type, file_name, bucket_name, storage_path, public_url, source, status, metadata, usage_count, linked_draft_id, created_at",
+      )
+      .single<ContentAssetRow>();
+
+    if (error) {
+      throw new MediaPipelineError(`Trace du visuel genere impossible: ${error.message}`, {
         draftId: draft.id,
-        validation: "supabase.storage.upload",
-      },
-    );
-  }
+        sceneIndex,
+        validation: "content_assets.generated_insert",
+      });
+    }
 
-  const { data: publicUrlData } = supabase.storage
-    .from("content-assets")
-    .getPublicUrl(storagePath);
-
-  const publicUrl = publicUrlData.publicUrl;
-  const { data, error } = await supabase
-    .from("content_assets")
-    .insert({
-      asset_type: "image",
-      file_name: fileName,
-      bucket_name: "content-assets",
-      storage_path: storagePath,
-      public_url: publicUrl,
-      source: "shorts_visual_generation",
-      status: "available",
-      linked_draft_id: draft.id,
-      metadata: {
-        visual_prompt: prompt,
-        scene_prompt: prompt,
-        scene_index: sceneIndex,
-        generation_source: generationSource,
-        generation_quality: generationQuality,
-        generated_by: "openai",
-        image_model: imageGenerationModel(),
-        aspect_ratio: "9:16",
-      },
-    })
-    .select(
-      "id, asset_type, file_name, bucket_name, storage_path, public_url, source, status, metadata, usage_count, linked_draft_id, created_at",
-    )
-    .single<ContentAssetRow>();
-
-  if (error) {
-    throw new MediaPipelineError(`Trace du visuel genere impossible: ${error.message}`, {
+    logVisualPipeline({
+      action: "upload",
       draftId: draft.id,
-      validation: "content_assets.generated_insert",
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      model: "supabase",
+      sceneIndex,
+      success: true,
     });
-  }
 
-  return data;
+    return data;
+  } catch (error) {
+    logVisualPipeline({
+      action: "upload",
+      draftId: draft.id,
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      error,
+      model: "supabase",
+      sceneIndex,
+      success: false,
+    });
+    throw error;
+  }
 }
 
 function normalizeVisionScore(value: unknown, max: number) {
@@ -738,6 +889,9 @@ async function scoreImageWithVision({
   sceneIndex: number;
 }) {
   const apiKey = openAIKey();
+  const endpoint = "https://api.openai.com/v1/chat/completions";
+  const model = visionScoringModel();
+  const startedAt = Date.now();
 
   if (!apiKey) {
     throw new MediaPipelineError(
@@ -749,68 +903,95 @@ async function scoreImageWithVision({
     );
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: visionScoringModel(),
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: [
-                "Analyse cette image pour un Short L'Edifice.",
-                "Compare l'image au prompt, au script, et a la position narrative.",
-                "Retourne uniquement ce JSON strict:",
-                '{"total":number,"prompt_image":number,"image_draft":number,"quality":number,"continuity":number,"safety_style":number,"decision":"retain|review|reject","reason":"courte explication","warnings":[]}',
-                "Baremes: prompt_image /30, image_draft /25, quality /20, continuity /15, safety_style /10, total /100.",
-                `Scene: ${sceneIndex}/7`,
-                `Prompt scene: ${prompt}`,
-                `Titre: ${draft.title ?? ""}`,
-                `Angle: ${draft.angle ?? ""}`,
-                `Script: ${(draft.script ?? "").slice(0, 2500)}`,
-              ].join("\n"),
-            },
-            {
-              type: "image_url",
-              image_url: { url: imageUrl },
-            },
-          ],
-        },
-      ],
-      max_completion_tokens: 500,
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new MediaPipelineError(
-      `Analyse Vision impossible: ${text.slice(0, 300)}`,
-      {
-        draftId: draft.id,
-        validation: "openai.vision_scoring",
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-    );
-  }
-
-  const payload = await response.json() as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const content = payload.choices?.[0]?.message?.content;
-
-  if (!content) {
-    throw new MediaPipelineError("Analyse Vision sans reponse exploitable.", {
-      draftId: draft.id,
-      validation: "openai.vision_empty",
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: [
+                  "Analyse cette image pour un Short L'Edifice.",
+                  "Compare l'image au prompt, au script, et a la position narrative.",
+                  "Retourne uniquement ce JSON strict:",
+                  '{"total":number,"prompt_image":number,"image_draft":number,"quality":number,"continuity":number,"safety_style":number,"decision":"retain|review|reject","reason":"courte explication","warnings":[]}',
+                  "Baremes: prompt_image /30, image_draft /25, quality /20, continuity /15, safety_style /10, total /100.",
+                  `Scene: ${sceneIndex}/7`,
+                  `Prompt scene: ${prompt}`,
+                  `Titre: ${draft.title ?? ""}`,
+                  `Angle: ${draft.angle ?? ""}`,
+                  `Script: ${(draft.script ?? "").slice(0, 2500)}`,
+                ].join("\n"),
+              },
+              {
+                type: "image_url",
+                image_url: { url: imageUrl },
+              },
+            ],
+          },
+        ],
+        max_completion_tokens: 500,
+      }),
     });
-  }
 
-  return parseVisionJson(content);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new MediaPipelineError(
+        `Analyse Vision impossible: ${text.slice(0, 300)}`,
+        {
+          draftId: draft.id,
+          sceneIndex,
+          validation: "openai.vision_scoring",
+        },
+      );
+    }
+
+    const payload = await response.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const content = payload.choices?.[0]?.message?.content;
+
+    if (!content) {
+      throw new MediaPipelineError("Analyse Vision sans reponse exploitable.", {
+        draftId: draft.id,
+        sceneIndex,
+        validation: "openai.vision_empty",
+      });
+    }
+
+    const score = parseVisionJson(content);
+    logVisualPipeline({
+      action: "vision_score",
+      draftId: draft.id,
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      model,
+      sceneIndex,
+      success: true,
+    });
+
+    return score;
+  } catch (error) {
+    logVisualPipeline({
+      action: "vision_score",
+      draftId: draft.id,
+      durationMs: Date.now() - startedAt,
+      endpoint,
+      error,
+      model,
+      sceneIndex,
+      success: false,
+    });
+    throw error;
+  }
 }
 
 function visionScoreToBreakdown(score: ReturnType<typeof parseVisionJson>) {
@@ -869,6 +1050,17 @@ async function fallbackLibraryScene({
   generationQuality: GenerationQuality;
   sceneIndex: number;
 }) {
+  const startedAt = Date.now();
+  await upsertVisualScene({
+    draft,
+    errorMessage,
+    generationQuality,
+    generationSource: "library",
+    generationStatus: "searching_library",
+    scoreSource: "none",
+    visualPromptIndex: sceneIndex,
+  });
+
   const suggestions = await scoreLibraryForDraft(draft);
   const asset =
     suggestions.find(
@@ -881,9 +1073,19 @@ async function fallbackLibraryScene({
       errorMessage,
       generationQuality,
       generationSource: "library",
-      generationStatus: "failed",
+      generationStatus: "error",
       scoreSource: "none",
       visualPromptIndex: sceneIndex,
+    });
+    logVisualPipeline({
+      action: "library_search",
+      draftId: draft.id,
+      durationMs: Date.now() - startedAt,
+      endpoint: "content_assets.library",
+      error: errorMessage,
+      model: "heuristic",
+      sceneIndex,
+      success: false,
     });
     return;
   }
@@ -894,13 +1096,22 @@ async function fallbackLibraryScene({
     errorMessage,
     generationQuality,
     generationSource: "library",
-    generationStatus: "selected",
+    generationStatus: "selected_from_library",
     imageUrl: asset.publicUrl,
     scoreBreakdown: asset.scoreBreakdown,
     scoreSource: "heuristic",
     scoreTotal: asset.score,
     storagePath: asset.storagePath,
     visualPromptIndex: sceneIndex,
+  });
+  logVisualPipeline({
+    action: "library_search",
+    draftId: draft.id,
+    durationMs: Date.now() - startedAt,
+    endpoint: "content_assets.library",
+    model: "heuristic",
+    sceneIndex,
+    success: true,
   });
 }
 
@@ -921,7 +1132,7 @@ async function generateSceneVisual({
     draft,
     generationQuality,
     generationSource,
-    generationStatus: "pending",
+    generationStatus: "generating",
     scoreSource: "none",
     visualPromptIndex: sceneIndex,
   });
@@ -932,6 +1143,14 @@ async function generateSceneVisual({
       prompt,
       quality: generationQuality,
       sceneIndex,
+    });
+    await upsertVisualScene({
+      draft,
+      generationQuality,
+      generationSource,
+      generationStatus: "uploading",
+      scoreSource: "none",
+      visualPromptIndex: sceneIndex,
     });
     const asset = await storeGeneratedImage({
       bytes,
@@ -977,7 +1196,7 @@ async function generateSceneVisual({
       draft,
       generationQuality,
       generationSource,
-      generationStatus: "generated",
+      generationStatus: "ready",
       imageUrl: asset.public_url,
       scoreBreakdown,
       scoreSource,
@@ -1045,9 +1264,9 @@ function mapVisualScene(row: VisualSceneRow): VisualScene {
     assetId: row.asset_id,
     visualPromptIndex: row.visual_prompt_index,
     visualPromptText: row.visual_prompt_text,
-    generationSource: row.generation_source,
+    generationSource: normalizeGenerationSource(row.generation_source),
     generationQuality: normalizeGenerationQuality(row.generation_quality),
-    generationStatus: row.generation_status,
+    generationStatus: normalizeGenerationStatus(row.generation_status),
     imageUrl: row.image_url,
     storagePath: row.storage_path,
     scoreTotal: row.score_total,
@@ -1679,7 +1898,7 @@ export async function requestDraftVisualGeneration({
         reason:
           typeof scene.scoreBreakdown.reason === "string"
             ? scene.scoreBreakdown.reason
-            : scene.errorMessage ?? "Scene visuelle preparee.",
+            : "Scene visuelle preparee.",
         score_breakdown: scene.scoreBreakdown as VisualScoreBreakdown,
       })),
     missing_visual_needs: currentState.visualScenes

@@ -78,13 +78,16 @@ type VisualScene = {
   assetId: string | null;
   visualPromptIndex: number;
   visualPromptText: string;
-  generationSource: "library" | "generated" | "regenerated";
+  generationSource: "library" | "generated" | "regenerated" | "upload";
   generationQuality: GenerationQuality;
   generationStatus:
     | "pending"
-    | "generated"
-    | "failed"
-    | "selected"
+    | "searching_library"
+    | "selected_from_library"
+    | "generating"
+    | "uploading"
+    | "ready"
+    | "error"
     | "retained"
     | "rejected";
   imageUrl: string | null;
@@ -119,18 +122,22 @@ const mediaStatusLabels: Record<MediaPipelineState["mediaPipelineStatus"], strin
 };
 
 const generationSourceLabels: Record<VisualScene["generationSource"], string> = {
-  generated: "generee",
+  generated: "generee par IA",
   library: "bibliotheque",
-  regenerated: "regeneree",
+  regenerated: "regeneree par IA",
+  upload: "upload",
 };
 
 const generationStatusLabels: Record<VisualScene["generationStatus"], string> = {
-  failed: "erreur",
-  generated: "image generee",
-  pending: "generation en cours",
+  error: "Erreur image",
+  generating: "Generation IA en cours...",
+  pending: "En attente",
+  ready: "Image prete",
   rejected: "rejetee",
   retained: "retenue",
-  selected: "selectionnee",
+  searching_library: "Recherche bibliotheque...",
+  selected_from_library: "Bibliotheque selectionnee",
+  uploading: "Upload en cours...",
 };
 
 const generationQualityLabels: Record<GenerationQuality, string> = {
@@ -152,6 +159,35 @@ function scoreOutOf100(value: number) {
 function scoreNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.round(number) : 0;
+}
+
+function isSceneLoading(scene: VisualScene) {
+  return (
+    scene.generationStatus === "pending" ||
+    scene.generationStatus === "searching_library" ||
+    scene.generationStatus === "generating" ||
+    scene.generationStatus === "uploading"
+  );
+}
+
+function sceneStatusClass(scene: VisualScene) {
+  if (scene.generationStatus === "error") {
+    return "border-[#F97316]/45 bg-[#F97316]/10 text-[#FDBA74]";
+  }
+
+  if (scene.imageUrl) {
+    return "border-[#39E6D0]/35 bg-[#39E6D0]/10 text-[#39E6D0]";
+  }
+
+  return "border-[#1D2A44] bg-[#03070B] text-[#A7B0C0]";
+}
+
+function sceneDebugValue(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return "non disponible";
+  }
+
+  return String(value);
 }
 
 function visualActionNotice(action: string) {
@@ -282,7 +318,7 @@ function SceneScoreDetails({ scene }: { scene: VisualScene }) {
   const reason =
     typeof breakdown.reason === "string" && breakdown.reason.trim()
       ? breakdown.reason
-      : scene.errorMessage ?? "Score non disponible.";
+      : "Score non disponible.";
   const warnings = Array.isArray(breakdown.warnings)
     ? breakdown.warnings.filter((warning): warning is string => typeof warning === "string")
     : [];
@@ -314,6 +350,31 @@ function SceneScoreDetails({ scene }: { scene: VisualScene }) {
         ) : null}
         <p>Raison: {reason}</p>
         {warnings.length ? <p>Alertes: {warnings.join(" ; ")}</p> : null}
+      </div>
+    </details>
+  );
+}
+
+function SceneDebugDetails({ scene }: { scene: VisualScene }) {
+  return (
+    <details className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-xs">
+      <summary className="cursor-pointer font-semibold text-[#64748b]">
+        Debug scene
+      </summary>
+      <div className="mt-3 grid gap-2 text-[#A7B0C0]">
+        <p>Source brute: {scene.generationSource}</p>
+        <p>Statut brut: {scene.generationStatus}</p>
+        <p>Prompt utilise: {scene.visualPromptText || "non renseigne"}</p>
+        <p>Image URL: {sceneDebugValue(scene.imageUrl)}</p>
+        <p>Asset ID: {sceneDebugValue(scene.assetId)}</p>
+        <p>
+          Score:{" "}
+          {scene.scoreTotal === null
+            ? "non disponible"
+            : `${scoreOutOf100(scene.scoreTotal)}/100`}
+        </p>
+        <p>Source score: {scene.scoreSource}</p>
+        <p>Erreur technique: {sceneDebugValue(scene.errorMessage)}</p>
       </div>
     </details>
   );
@@ -746,9 +807,18 @@ export function ShortsVisualsClient() {
                       role="img"
                       style={{ backgroundImage: `url(${scene.imageUrl})` }}
                     />
+                  ) : isSceneLoading(scene) ? (
+                    <div className="flex aspect-[9/16] w-full flex-col items-center justify-center gap-3 rounded-md border border-dashed border-[#1D2A44] bg-[#03070B] px-4 text-center text-xs font-semibold text-[#A7B0C0]">
+                      <span className="h-6 w-6 animate-spin rounded-full border-2 border-[#1D2A44] border-t-[#39E6D0]" />
+                      <span>{generationStatusLabels[scene.generationStatus]}</span>
+                    </div>
+                  ) : scene.generationStatus === "error" ? (
+                    <div className="flex aspect-[9/16] w-full items-center justify-center rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-4 text-center text-xs font-semibold text-[#FDBA74]">
+                      Erreur image. Ouvre le debug de la scene pour le detail technique.
+                    </div>
                   ) : (
                     <div className="flex aspect-[9/16] w-full items-center justify-center rounded-md border border-dashed border-[#1D2A44] bg-[#03070B] px-4 text-center text-xs font-semibold text-[#64748b]">
-                      Image non disponible
+                      Visuel en attente
                     </div>
                   )}
                 </div>
@@ -762,7 +832,7 @@ export function ShortsVisualsClient() {
                         Prompt : {scene.visualPromptText || "Non renseigne"}
                       </p>
                     </div>
-                    <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-2 py-1 text-xs font-semibold text-[#A7B0C0]">
+                    <span className={`rounded-md border px-2 py-1 text-xs font-semibold ${sceneStatusClass(scene)}`}>
                       {generationSourceLabels[scene.generationSource]} /{" "}
                       {generationStatusLabels[scene.generationStatus]}
                     </span>
@@ -795,12 +865,8 @@ export function ShortsVisualsClient() {
                       </span>
                     </p>
                   </div>
-                  {scene.errorMessage ? (
-                    <p className="mt-3 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-xs font-semibold text-[#FDBA74]">
-                      {scene.errorMessage}
-                    </p>
-                  ) : null}
                   <SceneScoreDetails scene={scene} />
+                  <SceneDebugDetails scene={scene} />
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"

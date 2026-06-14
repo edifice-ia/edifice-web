@@ -44,17 +44,27 @@ function mediaErrorPayload(error: unknown, body?: unknown) {
     error instanceof Error ? error.message : "Pipeline media indisponible.";
   const context =
     error instanceof MediaPipelineError ? error.context : undefined;
+  const isTechnicalMediaError =
+    typeof context?.validation === "string" &&
+    (context.validation.startsWith("openai.") ||
+      context.validation.startsWith("supabase.") ||
+      context.validation.startsWith("content_assets.") ||
+      context.validation.startsWith("content_draft_visual_scenes."));
 
   return {
-    error: message,
+    error: isTechnicalMediaError
+      ? "Action visuelle indisponible. Le detail technique est disponible dans les logs serveur."
+      : message,
     details: {
       body: summarizeMediaBody(body),
       validation: context?.validation ?? "media_pipeline",
       draftId: context?.draftId,
+      sceneIndex: context?.sceneIndex,
       draftStatus: context?.draftStatus,
       contentAssetsCount: context?.contentAssetsCount,
       mediaPipelineStatus: context?.mediaPipelineStatus,
       visualDecisionMode: context?.visualDecisionMode,
+      technicalError: isTechnicalMediaError ? message : undefined,
     },
   };
 }

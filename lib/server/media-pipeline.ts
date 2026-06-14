@@ -8,6 +8,7 @@ type MediaPipelineStatus =
   | "validated"
   | "media_preparing"
   | "media_ready"
+  | "visual_ready"
   | "ready_to_publish";
 
 type VisualDecisionMode = "reuse_existing" | "generate_new";
@@ -48,6 +49,10 @@ type DraftRow = {
   visual_prompt: string | null;
   voice_style: string | null;
   status: string | null;
+  protected: boolean | null;
+  protected_at: string | null;
+  visual_status: string | null;
+  visuals_validated_at: string | null;
 };
 
 type MediaPipelineErrorContext = {
@@ -129,6 +134,9 @@ type VisualSceneRow = {
   score_breakdown: Record<string, unknown>;
   score_source: ScoreSource;
   error_message: string | null;
+  locked: boolean | null;
+  retained_at: string | null;
+  retained_by: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -220,6 +228,9 @@ export type VisualScene = {
   scoreBreakdown: Record<string, unknown>;
   scoreSource: ScoreSource;
   errorMessage: string | null;
+  locked: boolean;
+  retainedAt: string | null;
+  retainedBy: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -1662,7 +1673,7 @@ async function generateSceneVisual({
 }
 
 function shouldRetryVisualScene(scene: VisualScene) {
-  return scene.generationStatus === "pending" || scene.generationStatus === "error";
+  return !scene.locked && (scene.generationStatus === "pending" || scene.generationStatus === "error");
 }
 
 async function processDraftVisualScenes({
@@ -1679,7 +1690,7 @@ async function processDraftVisualScenes({
   const prompts = parseVisualPrompts(draft.visual_prompt ?? "");
   const currentScenes = await readVisualScenes(draft);
   const targetScenes = currentScenes.filter((scene) =>
-    onlyBlocked ? shouldRetryVisualScene(scene) : scene.visualPromptIndex >= 1,
+    onlyBlocked ? shouldRetryVisualScene(scene) : !scene.locked,
   );
 
   for (const scene of targetScenes) {
@@ -1775,6 +1786,9 @@ function mapVisualScene(row: VisualSceneRow): VisualScene {
     scoreBreakdown: row.score_breakdown ?? {},
     scoreSource: row.score_source,
     errorMessage: row.error_message,
+    locked: Boolean(row.locked),
+    retainedAt: row.retained_at,
+    retainedBy: row.retained_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1799,6 +1813,9 @@ function defaultVisualScenes(draft: DraftRow): VisualScene[] {
     scoreBreakdown: {},
     scoreSource: "none" as ScoreSource,
     errorMessage: null,
+    locked: false,
+    retainedAt: null,
+    retainedBy: null,
     createdAt: now,
     updatedAt: now,
   }));
@@ -1815,7 +1832,32 @@ function defaultVisualDecision(): VisualDecision {
 }
 
 function isDraftValidatedForMedia(status: string | null) {
-  return status === "approved" || status === "validated" || status === "ready_to_publish";
+  return (
+    status === "approved" ||
+    status === "validated" ||
+    status === "visual_ready" ||
+    status === "visuels_prets" ||
+    status === "ready_to_publish"
+  );
+}
+
+function isDraftProtectedForVisuals(draft: DraftRow) {
+  return Boolean(
+    draft.protected ||
+      draft.status === "visual_ready" ||
+      draft.status === "visuels_prets" ||
+      draft.visual_status === "visual_ready",
+  );
+}
+
+function assertDraftVisualsCanChange(draft: DraftRow, draftId: string) {
+  if (isDraftProtectedForVisuals(draft)) {
+    throw new MediaPipelineError("Ce brouillon est protege car ses visuels sont prets.", {
+      draftId,
+      draftStatus: draft.status,
+      validation: "draft.protected",
+    });
+  }
 }
 
 async function readDraft(draftId: string, userId: string) {
@@ -1823,7 +1865,7 @@ async function readDraft(draftId: string, userId: string) {
   const { data, error } = await supabase
     .from("content_drafts")
     .select(
-      "id, user_id, theme, angle, hook, script, title, caption, hashtags, visual_prompt, voice_style, status",
+      "id, user_id, theme, angle, hook, script, title, caption, hashtags, visual_prompt, voice_style, status, protected, protected_at, visual_status, visuals_validated_at",
     )
     .eq("id", draftId)
     .eq("user_id", userId)
@@ -1994,7 +2036,7 @@ async function readVisualScenes(draft: DraftRow) {
   const { data, error } = await supabase
     .from("content_draft_visual_scenes")
     .select(
-      "id, draft_id, asset_id, visual_prompt_index, visual_prompt_text, generation_source, generation_quality, generation_status, image_url, storage_path, score_total, score_breakdown, score_source, error_message, created_at, updated_at",
+      "id, draft_id, asset_id, visual_prompt_index, visual_prompt_text, generation_source, generation_quality, generation_status, image_url, storage_path, score_total, score_breakdown, score_source, error_message, locked, retained_at, retained_by, created_at, updated_at",
     )
     .eq("draft_id", draft.id)
     .order("visual_prompt_index", { ascending: true })
@@ -2079,6 +2121,9 @@ async function upsertVisualScene({
   generationSource,
   generationStatus,
   imageUrl = null,
+  locked = false,
+  retainedAt = null,
+  retainedBy = null,
   scoreBreakdown = {},
   scoreSource = "none",
   scoreTotal = null,
@@ -2092,6 +2137,9 @@ async function upsertVisualScene({
   generationSource: GenerationSource;
   generationStatus: GenerationStatus;
   imageUrl?: string | null;
+  locked?: boolean;
+  retainedAt?: string | null;
+  retainedBy?: string | null;
   scoreBreakdown?: Record<string, unknown>;
   scoreSource?: ScoreSource;
   scoreTotal?: number | null;
@@ -2112,6 +2160,9 @@ async function upsertVisualScene({
         generation_quality: generationQuality,
         generation_status: generationStatus,
         image_url: imageUrl,
+        locked,
+        retained_at: retainedAt,
+        retained_by: retainedBy,
         storage_path: storagePath,
         score_total: scoreTotal,
         score_breakdown: scoreBreakdown,
@@ -2339,6 +2390,7 @@ export async function prepareDraftMedia({
       validation: "draft.status",
     });
   }
+  assertDraftVisualsCanChange(draft, draftId);
 
   const suggestedAssets = await scoreLibraryForDraft(draft);
   const relevantAssets = suggestedAssets.filter((asset) => asset.score >= 18);
@@ -2417,6 +2469,7 @@ export async function requestDraftVisualGeneration({
       validation: "draft.status",
     });
   }
+  assertDraftVisualsCanChange(draft, draftId);
 
   const generationInput = buildVisualGenerationInput(draft);
   await processDraftVisualScenes({
@@ -2492,6 +2545,7 @@ export async function retryBlockedDraftVisualScenes({
       validation: "draft.status",
     });
   }
+  assertDraftVisualsCanChange(draft, draftId);
 
   await processDraftVisualScenes({
     draft,
@@ -2516,6 +2570,10 @@ export async function regenerateDraftVisualScene({
 }) {
   const draft = await readDraft(draftId, userId);
   const normalizedGenerationQuality = normalizeGenerationQuality(generationQuality);
+  const normalizedSceneIndex = Math.max(1, Math.min(7, Math.round(sceneIndex)));
+  const scene = (await readVisualScenes(draft)).find(
+    (item) => item.visualPromptIndex === normalizedSceneIndex,
+  );
 
   if (!isDraftValidatedForMedia(draft.status)) {
     throw new MediaPipelineError("Valide le brouillon avant de regenerer une scene.", {
@@ -2524,12 +2582,21 @@ export async function regenerateDraftVisualScene({
       validation: "draft.status",
     });
   }
+  assertDraftVisualsCanChange(draft, draftId);
+
+  if (scene?.locked) {
+    throw new MediaPipelineError("Cette scene est verrouillee. Clique sur Modifier pour la remplacer.", {
+      draftId,
+      sceneIndex: normalizedSceneIndex,
+      validation: "visual_scene.locked",
+    });
+  }
 
   await generateSceneVisual({
     draft,
     generationQuality: normalizedGenerationQuality,
     generationSource: "regenerated",
-    sceneIndex: Math.max(1, Math.min(7, Math.round(sceneIndex))),
+    sceneIndex: normalizedSceneIndex,
   });
 
   return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
@@ -2554,6 +2621,14 @@ export async function analyzeDraftVisualScene({
     throw new MediaPipelineError("Aucune image a analyser pour cette scene.", {
       draftId,
       validation: "visual_scene.image_required",
+    });
+  }
+
+  if (scene.locked) {
+    throw new MediaPipelineError("Cette scene est verrouillee. Clique sur Modifier pour l'analyser ou la remplacer.", {
+      draftId,
+      sceneIndex: normalizedSceneIndex,
+      validation: "visual_scene.locked",
     });
   }
 
@@ -2614,6 +2689,14 @@ export async function updateDraftVisualSceneStatus({
     });
   }
 
+  if (scene.locked && status !== "retained") {
+    throw new MediaPipelineError("Cette scene est verrouillee. Clique sur Modifier avant de la modifier.", {
+      draftId,
+      sceneIndex: normalizedSceneIndex,
+      validation: "visual_scene.locked",
+    });
+  }
+
   await upsertVisualScene({
     assetId: scene.assetId,
     draft,
@@ -2621,6 +2704,9 @@ export async function updateDraftVisualSceneStatus({
     generationSource: scene.generationSource,
     generationStatus: status,
     imageUrl: scene.imageUrl,
+    locked: status === "retained",
+    retainedAt: status === "retained" ? new Date().toISOString() : scene.retainedAt,
+    retainedBy: status === "retained" ? userId : scene.retainedBy,
     scoreBreakdown: scene.scoreBreakdown,
     scoreSource: scene.scoreSource,
     scoreTotal: scene.scoreTotal,
@@ -2636,6 +2722,100 @@ export async function updateDraftVisualSceneStatus({
       userId,
     });
   }
+
+  return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
+}
+
+export async function unlockDraftVisualScene({
+  draftId,
+  sceneIndex,
+  userId,
+}: {
+  draftId: string;
+  sceneIndex: number;
+  userId: string;
+}) {
+  const draft = await readDraft(draftId, userId);
+  const normalizedSceneIndex = Math.max(1, Math.min(7, Math.round(sceneIndex)));
+  const scene = (await readVisualScenes(draft)).find(
+    (item) => item.visualPromptIndex === normalizedSceneIndex,
+  );
+
+  if (!scene) {
+    throw new MediaPipelineError("Scene visuelle introuvable.", {
+      draftId,
+      validation: "visual_scene.missing",
+    });
+  }
+
+  await upsertVisualScene({
+    assetId: scene.assetId,
+    draft,
+    generationQuality: scene.generationQuality,
+    generationSource: scene.generationSource,
+    generationStatus: scene.imageUrl ? "ready" : "pending",
+    imageUrl: scene.imageUrl,
+    locked: false,
+    retainedAt: null,
+    retainedBy: null,
+    scoreBreakdown: scene.scoreBreakdown,
+    scoreSource: scene.scoreSource,
+    scoreTotal: scene.scoreTotal,
+    storagePath: scene.storagePath,
+    visualPromptIndex: normalizedSceneIndex,
+  });
+
+  return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
+}
+
+export async function validateDraftVisuals({
+  draftId,
+  userId,
+}: {
+  draftId: string;
+  userId: string;
+}) {
+  const draft = await readDraft(draftId, userId);
+  const scenes = await readVisualScenes(draft);
+  const retainedScenes = scenes.filter((scene) => scene.locked || scene.generationStatus === "retained");
+
+  if (retainedScenes.length !== 7) {
+    throw new MediaPipelineError(`${retainedScenes.length}/7 visuels retenus.`, {
+      draftId,
+      validation: "visual_scenes.retained_count",
+    });
+  }
+
+  const supabase = getMediaPipelineClient();
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("content_drafts")
+    .update({
+      protected: true,
+      protected_at: now,
+      status: "visual_ready",
+      visual_status: "visual_ready",
+      visuals_validated_at: now,
+    })
+    .eq("id", draftId)
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new MediaPipelineError(`Validation des visuels impossible: ${error.message}`, {
+      draftId,
+      validation: "content_drafts.visuals_validate",
+    });
+  }
+
+  await savePlan({
+    draftId,
+    mediaPipelineStatus: "visual_ready",
+    visualDecision: defaultVisualDecision(),
+    assetsFound: retainedScenes.length,
+    assetsSelected: retainedScenes.length,
+    generationRequested: false,
+    generationReason: "visuals_validated",
+  });
 
   return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
 }
@@ -2656,6 +2836,7 @@ export async function refreshDraftMediaSuggestions({
       validation: "draft.status",
     });
   }
+  assertDraftVisualsCanChange(draft, draftId);
 
   return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
 }
@@ -2680,6 +2861,7 @@ export async function selectDraftVisualAsset({
       validation: "draft.status",
     });
   }
+  assertDraftVisualsCanChange(draft, draftId);
 
   const suggestedAssets = await scoreLibraryForDraft(draft);
   const selectedAsset =
@@ -2775,6 +2957,7 @@ export async function removeDraftVisualAsset({
       validation: "draft.status",
     });
   }
+  assertDraftVisualsCanChange(draft, draftId);
 
   const supabase = getMediaPipelineClient();
   const { error } = await supabase

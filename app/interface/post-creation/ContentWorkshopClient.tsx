@@ -29,6 +29,10 @@ type ContentDraft = {
   visualPrompt: string;
   voiceStyle: string;
   status: string;
+  protected: boolean;
+  protectedAt: string | null;
+  visualStatus: string;
+  visualsValidatedAt: string | null;
   source: string;
   userId: string | null;
   score: {
@@ -126,6 +130,7 @@ type MediaPipelineState = {
     | "validated"
     | "media_preparing"
     | "media_ready"
+    | "visual_ready"
     | "ready_to_publish";
   visualDecision: VisualDecision | null;
   selectedAssets: SelectedDraftAsset[];
@@ -159,7 +164,7 @@ type DraftEditorState = {
 };
 
 type StatusOption = {
-  value: "draft" | "approved" | "rejected" | "ready_to_publish";
+  value: "draft" | "approved" | "rejected" | "visual_ready" | "ready_to_publish";
   label: string;
 };
 
@@ -258,6 +263,7 @@ const statusOptions: StatusOption[] = [
   { value: "draft", label: "Brouillon texte" },
   { value: "approved", label: "Texte valide" },
   { value: "rejected", label: "Rejete" },
+  { value: "visual_ready", label: "Visuels prets" },
   { value: "ready_to_publish", label: "Pret a publier" },
 ];
 
@@ -404,7 +410,22 @@ function getStatusLabel(status: string) {
 }
 
 function isDraftValidatedForMedia(status: string | null | undefined) {
-  return status === "approved" || status === "validated" || status === "ready_to_publish";
+  return (
+    status === "approved" ||
+    status === "validated" ||
+    status === "visual_ready" ||
+    status === "visuels_prets" ||
+    status === "ready_to_publish"
+  );
+}
+
+function isProtectedDraft(draft: ContentDraft | null | undefined) {
+  return Boolean(
+    draft?.protected ||
+      draft?.status === "visual_ready" ||
+      draft?.status === "visuels_prets" ||
+      draft?.visualStatus === "visual_ready",
+  );
 }
 
 function getMediaPipelineStatusLabel(status: MediaPipelineState["mediaPipelineStatus"]) {
@@ -413,6 +434,7 @@ function getMediaPipelineStatusLabel(status: MediaPipelineState["mediaPipelineSt
     validated: "Valide",
     media_preparing: "Preparation media",
     media_ready: "Medias prets",
+    visual_ready: "Visuels prets",
     ready_to_publish: "Pret a publier",
   };
 
@@ -529,6 +551,7 @@ export function ContentWorkshopClient() {
     () => drafts.find((draft) => draft.id === selectedDraftId) ?? null,
     [drafts, selectedDraftId],
   );
+  const selectedDraftProtected = isProtectedDraft(selectedDraft);
 
   const recommendedVariantId = useMemo(() => {
     if (generatedVariants.length === 0) {
@@ -550,6 +573,7 @@ export function ContentWorkshopClient() {
     canPrepareMedia && Boolean(mediaPipeline?.visualDecision);
   const mediaReadyForPublishing =
     mediaPipeline?.mediaPipelineStatus === "media_ready" ||
+    mediaPipeline?.mediaPipelineStatus === "visual_ready" ||
     mediaPipeline?.mediaPipelineStatus === "ready_to_publish";
   const canMarkReadyToPublish = mediaReadyForPublishing || manualReadyToPublish;
   const showDraftVisualPromptEditor = Boolean(false);
@@ -1034,6 +1058,12 @@ export function ContentWorkshopClient() {
       return;
     }
 
+    if (status === "rejected" && selectedDraftProtected) {
+      setError("Ce brouillon est protege car ses visuels sont prets.");
+      setNotice(null);
+      return;
+    }
+
     if (status === "ready_to_publish" && !canMarkReadyToPublish) {
       setError(
         "Impossible de marquer pret a publier tant que les visuels et la voix requis ne sont pas prets. Active le mode manuel explicite si tu prends la responsabilite de ce passage.",
@@ -1102,6 +1132,12 @@ export function ContentWorkshopClient() {
 
   async function handleDelete() {
     if (!selectedDraft) {
+      return;
+    }
+
+    if (selectedDraftProtected) {
+      setError("Ce brouillon est protege car ses visuels sont prets.");
+      setNotice(null);
       return;
     }
 
@@ -1490,9 +1526,16 @@ export function ContentWorkshopClient() {
               </p>
             </div>
             {selectedDraft ? (
-              <span className="rounded-md border border-[#38BDF8]/35 bg-[#38BDF8]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#7DD3FC]">
-                {getStatusLabel(selectedDraft.status)}
-              </span>
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-md border border-[#38BDF8]/35 bg-[#38BDF8]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#7DD3FC]">
+                  {getStatusLabel(selectedDraft.status)}
+                </span>
+                {selectedDraftProtected ? (
+                  <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+                    Brouillon protege - visuels prets
+                  </span>
+                ) : null}
+              </div>
             ) : null}
           </div>
 
@@ -1863,14 +1906,16 @@ export function ContentWorkshopClient() {
                   >
                     Approuver
                   </button>
-                  <button
-                    type="button"
-                    disabled={isSaving}
-                    onClick={() => void handleStatusAction("rejected")}
-                    className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-4 py-2.5 text-sm font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                  >
-                    Rejeter
-                  </button>
+                  {selectedDraftProtected ? null : (
+                    <button
+                      type="button"
+                      disabled={isSaving}
+                      onClick={() => void handleStatusAction("rejected")}
+                      className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-4 py-2.5 text-sm font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                    >
+                      Rejeter
+                    </button>
+                  )}
                   <button
                     type="button"
                     disabled={isSaving || !canMarkReadyToPublish}
@@ -1879,14 +1924,20 @@ export function ContentWorkshopClient() {
                   >
                     Marquer pret a publier
                   </button>
-                  <button
-                    type="button"
-                    disabled={isDeleting}
-                    onClick={handleDelete}
-                    className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-4 py-2.5 text-sm font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {isDeleting ? "Suppression..." : "Supprimer le brouillon"}
-                  </button>
+                  {selectedDraftProtected ? (
+                    <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0]">
+                      Brouillon protege - visuels prets
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={isDeleting}
+                      onClick={handleDelete}
+                      className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-4 py-2.5 text-sm font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {isDeleting ? "Suppression..." : "Supprimer le brouillon"}
+                    </button>
+                  )}
                 </div>
                 <label className="flex items-start gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm leading-6 text-[#A7B0C0]">
                   <input
@@ -2252,6 +2303,11 @@ export function ContentWorkshopClient() {
                   <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-2 py-1 text-[#7DD3FC]">
                     {getStatusLabel(draft.status)}
                   </span>
+                  {isProtectedDraft(draft) ? (
+                    <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-2 py-1 text-[#39E6D0]">
+                      Visuels prets
+                    </span>
+                  ) : null}
                   <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-2 py-1 text-[#A7B0C0]">
                     {draft.platformTargets.join(", ") || "Sans plateforme"}
                   </span>

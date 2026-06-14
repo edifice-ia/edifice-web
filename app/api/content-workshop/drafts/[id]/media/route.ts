@@ -10,7 +10,9 @@ import {
   requestDraftVisualGeneration,
   retryBlockedDraftVisualScenes,
   selectDraftVisualAsset,
+  unlockDraftVisualScene,
   updateDraftVisualSceneStatus,
+  validateDraftVisuals,
 } from "@/lib/server/media-pipeline";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -221,6 +223,27 @@ export async function POST(
         draftId: id,
         sceneIndex,
         status: action === "retain_scene" ? "retained" : "rejected",
+        userId: user.id,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "unlock_scene") {
+      const sceneIndex =
+        typeof payload.sceneIndex === "number" ? payload.sceneIndex : 1;
+      const media = await unlockDraftVisualScene({
+        draftId: id,
+        sceneIndex,
+        userId: user.id,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "validate_visuals") {
+      const media = await validateDraftVisuals({
+        draftId: id,
         userId: user.id,
       });
 

@@ -53,6 +53,7 @@ type MediaPipelineState = {
     | "validated"
     | "media_preparing"
     | "media_ready"
+    | "visual_ready"
     | "ready_to_publish";
   visualDecision: {
     mode: "reuse_existing" | "generate_new";
@@ -97,6 +98,9 @@ type VisualScene = {
   scoreBreakdown: Record<string, unknown>;
   scoreSource: "heuristic" | "gpt_vision" | "none";
   errorMessage: string | null;
+  locked: boolean;
+  retainedAt: string | null;
+  retainedBy: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -113,6 +117,8 @@ const statusLabels: Record<string, string> = {
   approved: "Texte validé",
   rejected: "Rejeté",
   validated: "Texte validé",
+  visual_ready: "Visuels prêts",
+  visuels_prets: "Visuels prêts",
   ready_to_publish: "Prêt à publier",
 };
 
@@ -121,6 +127,7 @@ const mediaStatusLabels: Record<MediaPipelineState["mediaPipelineStatus"], strin
   validated: "Texte validé",
   media_preparing: "Visuels en préparation",
   media_ready: "Visuels prêts",
+  visual_ready: "Visuels prêts",
   ready_to_publish: "Prêt à publier",
 };
 
@@ -350,6 +357,8 @@ function visualActionNotice(action: string) {
     request_visual_generation: "Generation lancee pour les scenes de ce brouillon.",
     retry_blocked_scenes: "Relance des scenes bloquees lancee.",
     retain_scene: "Scene retenue.",
+    unlock_scene: "Scene deverrouillee.",
+    validate_visuals: "Les 7 visuels sont valides. Le brouillon est maintenant protege.",
     select_asset: "Visuel retenu mis a jour.",
   };
 
@@ -607,12 +616,23 @@ export function ShortsVisualsClient() {
     () => visualPreparationProgress(media?.visualScenes ?? []),
     [media?.visualScenes],
   );
+  const retainedSceneCount = useMemo(
+    () =>
+      (media?.visualScenes ?? []).filter(
+        (scene) => scene.locked || scene.generationStatus === "retained",
+      ).length,
+    [media?.visualScenes],
+  );
+  const visualsAreValidated = retainedSceneCount === 7;
+  const visualActionsLocked =
+    visualsAreValidated || media?.mediaPipelineStatus === "visual_ready";
   const retainedAssetIds = useMemo(
     () => new Set(retainedVisuals.map((asset) => asset.id)),
     [retainedVisuals],
   );
   const mediaReady =
     media?.mediaPipelineStatus === "media_ready" ||
+    media?.mediaPipelineStatus === "visual_ready" ||
     media?.mediaPipelineStatus === "ready_to_publish";
 
   async function loadDrafts() {
@@ -689,6 +709,8 @@ export function ShortsVisualsClient() {
       | "analyze_scene"
       | "retain_scene"
       | "reject_scene"
+      | "unlock_scene"
+      | "validate_visuals"
       | "select_asset"
       | "replace_asset"
       | "remove_asset",
@@ -731,6 +753,9 @@ export function ShortsVisualsClient() {
       }
 
       setMedia(payload.media);
+      if (action === "validate_visuals") {
+        void loadDrafts();
+      }
       setNotice(visualActionNotice(action));
     } catch (caughtError) {
       setError(
@@ -1096,73 +1121,96 @@ export function ShortsVisualsClient() {
                       </span>
                     </p>
                   </div>
-                  <div className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
-                    <div className="flex items-center justify-between gap-3 text-xs">
-                      <span className="font-semibold text-[#F8FAFC]">
-                        {sceneProgressMessage(scene)}
-                      </span>
-                      <span className="font-semibold text-[#A7B0C0]">
-                        {sceneProgressValue(scene)}%
-                      </span>
+                  {scene.locked ? (
+                    <p className="mt-3 rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0]">
+                      Retenu le {formatDate(scene.retainedAt ?? scene.updatedAt)}
+                    </p>
+                  ) : (
+                    <div className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="font-semibold text-[#F8FAFC]">
+                          {sceneProgressMessage(scene)}
+                        </span>
+                        <span className="font-semibold text-[#A7B0C0]">
+                          {sceneProgressValue(scene)}%
+                        </span>
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#08111A]">
+                        <div
+                          className="h-full rounded-full bg-[#7DD3FC] transition-all"
+                          style={{ width: `${sceneProgressValue(scene)}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#08111A]">
-                      <div
-                        className="h-full rounded-full bg-[#7DD3FC] transition-all"
-                        style={{ width: `${sceneProgressValue(scene)}%` }}
-                      />
-                    </div>
-                  </div>
+                  )}
                   <SceneScoreDetails scene={scene} />
-                  <SceneDebugDetails scene={scene} />
+                  {!scene.locked ? <SceneDebugDetails scene={scene} /> : null}
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={isRunningAction}
-                      onClick={() =>
-                        void runVisualAction("regenerate_scene", {
-                          sceneIndex: scene.visualPromptIndex,
-                        })
-                      }
-                      className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-3 py-1.5 text-xs font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                    >
-                      Regenerer / remplacer
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isRunningAction || !scene.imageUrl}
-                      onClick={() =>
-                        void runVisualAction("analyze_scene", {
-                          sceneIndex: scene.visualPromptIndex,
-                        })
-                      }
-                      className="rounded-md border border-[#39E6D0]/45 bg-[#39E6D0]/10 px-3 py-1.5 text-xs font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                    >
-                      Analyser avec Vision
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isRunningAction || !scene.imageUrl}
-                      onClick={() =>
-                        void runVisualAction("retain_scene", {
-                          sceneIndex: scene.visualPromptIndex,
-                        })
-                      }
-                      className="rounded-md border border-[#39E6D0]/45 bg-[#39E6D0]/10 px-3 py-1.5 text-xs font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                    >
-                      Retenir
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isRunningAction}
-                      onClick={() =>
-                        void runVisualAction("reject_scene", {
-                          sceneIndex: scene.visualPromptIndex,
-                        })
-                      }
-                      className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-3 py-1.5 text-xs font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                    >
-                      Rejeter
-                    </button>
+                    {scene.locked ? (
+                      <button
+                        type="button"
+                        disabled={isRunningAction}
+                        onClick={() =>
+                          void runVisualAction("unlock_scene", {
+                            sceneIndex: scene.visualPromptIndex,
+                          })
+                        }
+                        className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-3 py-1.5 text-xs font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                      >
+                        Modifier
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          disabled={isRunningAction}
+                          onClick={() =>
+                            void runVisualAction("regenerate_scene", {
+                              sceneIndex: scene.visualPromptIndex,
+                            })
+                          }
+                          className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-3 py-1.5 text-xs font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                        >
+                          Regenerer / remplacer
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isRunningAction || !scene.imageUrl}
+                          onClick={() =>
+                            void runVisualAction("analyze_scene", {
+                              sceneIndex: scene.visualPromptIndex,
+                            })
+                          }
+                          className="rounded-md border border-[#39E6D0]/45 bg-[#39E6D0]/10 px-3 py-1.5 text-xs font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                        >
+                          Analyser avec Vision
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isRunningAction || !scene.imageUrl}
+                          onClick={() =>
+                            void runVisualAction("retain_scene", {
+                              sceneIndex: scene.visualPromptIndex,
+                            })
+                          }
+                          className="rounded-md border border-[#39E6D0]/45 bg-[#39E6D0]/10 px-3 py-1.5 text-xs font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                        >
+                          Retenir
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isRunningAction}
+                          onClick={() =>
+                            void runVisualAction("reject_scene", {
+                              sceneIndex: scene.visualPromptIndex,
+                            })
+                          }
+                          className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-3 py-1.5 text-xs font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                        >
+                          Rejeter
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </article>
@@ -1172,6 +1220,29 @@ export function ShortsVisualsClient() {
                 Lance la generation ou la preparation pour creer les 7 scenes.
               </p>
             ) : null}
+          </div>
+          <div className="mt-5 rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-[#F8FAFC]">
+                  {retainedSceneCount}/7 visuels retenus
+                </p>
+                <p className="mt-1 text-sm text-[#A7B0C0]">
+                  Statut du short :{" "}
+                  {visualsAreValidated
+                    ? "visuels prets / pret a proteger"
+                    : "visuels en cours"}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={!visualsAreValidated || isRunningAction}
+                onClick={() => void runVisualAction("validate_visuals")}
+                className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                Valider les visuels du short
+              </button>
+            </div>
           </div>
         </SectionContainer>
 
@@ -1207,18 +1278,20 @@ export function ShortsVisualsClient() {
                     </p>
                   </div>
                   <ScoreDetails asset={asset} isRetained />
-                  <button
-                    type="button"
-                    disabled={isRunningAction}
-                    onClick={() =>
-                      void runVisualAction("remove_asset", {
-                        assetId: asset.id,
-                      })
-                    }
-                    className="mt-3 rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-3 py-1.5 text-xs font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                  >
-                    Retirer
-                  </button>
+                  {visualActionsLocked ? null : (
+                    <button
+                      type="button"
+                      disabled={isRunningAction}
+                      onClick={() =>
+                        void runVisualAction("remove_asset", {
+                          assetId: asset.id,
+                        })
+                      }
+                      className="mt-3 rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-3 py-1.5 text-xs font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                    >
+                      Retirer
+                    </button>
+                  )}
                 </div>
               </article>
             ))}
@@ -1265,6 +1338,7 @@ export function ShortsVisualsClient() {
                       </p>
                     </div>
                     <ScoreDetails asset={asset} isRetained={isRetained} />
+                    {visualActionsLocked ? null : (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <select
                         value={usageOrder}
@@ -1310,6 +1384,7 @@ export function ShortsVisualsClient() {
                         </button>
                       ) : null}
                     </div>
+                    )}
                   </div>
                 </article>
               );

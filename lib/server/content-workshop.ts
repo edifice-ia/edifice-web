@@ -77,6 +77,10 @@ export type SavedContentDraft = ContentDraft & {
   status: string;
   source: string;
   userId: string | null;
+  protected: boolean;
+  protectedAt: string | null;
+  visualStatus: string;
+  visualsValidatedAt: string | null;
 };
 
 type ContentDraftRow = {
@@ -98,6 +102,10 @@ type ContentDraftRow = {
   source: string | null;
   user_id: string | null;
   score: Record<string, unknown> | null;
+  protected: boolean | null;
+  protected_at: string | null;
+  visual_status: string | null;
+  visuals_validated_at: string | null;
 };
 
 const hashtagBuckets = [
@@ -226,6 +234,8 @@ const contentDraftStatuses = [
   "draft",
   "approved",
   "rejected",
+  "visual_ready",
+  "visuels_prets",
   "ready_to_publish",
 ] as const;
 
@@ -236,7 +246,58 @@ const contentDraftSelectColumns = [
   "created_at",
   "updated_at",
   ...contentDraftInsertColumns,
+  "protected",
+  "protected_at",
+  "visual_status",
+  "visuals_validated_at",
 ].join(", ");
+
+function isProtectedDraft(row: Pick<ContentDraftRow, "protected" | "status" | "visual_status">) {
+  return Boolean(row.protected) ||
+    row.status === "visual_ready" ||
+    row.status === "visuels_prets" ||
+    row.visual_status === "visual_ready";
+}
+
+async function readDraftProtection({
+  draftId,
+  userId,
+}: {
+  draftId: string;
+  userId: string;
+}) {
+  const supabase = getContentDraftsClient();
+  const { data, error } = await supabase
+    .from("content_drafts")
+    .select("id, status, protected, visual_status")
+    .eq("id", draftId)
+    .eq("user_id", userId)
+    .maybeSingle<Pick<ContentDraftRow, "id" | "status" | "protected" | "visual_status">>();
+
+  if (error) {
+    throw new Error(`Failed to read content draft protection: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error("Brouillon introuvable ou non autorise.");
+  }
+
+  return data;
+}
+
+async function assertDraftCanBeRejectedOrDeleted({
+  draftId,
+  userId,
+}: {
+  draftId: string;
+  userId: string;
+}) {
+  const draft = await readDraftProtection({ draftId, userId });
+
+  if (isProtectedDraft(draft)) {
+    throw new Error("Ce brouillon est protege car ses visuels sont prets.");
+  }
+}
 
 let contentDraftsClient: SupabaseClient | null = null;
 
@@ -1014,6 +1075,10 @@ function mapContentDraftRow(row: ContentDraftRow): SavedContentDraft {
     status: row.status ?? "draft",
     source: row.source ?? "content_workshop",
     userId: row.user_id,
+    protected: Boolean(row.protected),
+    protectedAt: row.protected_at,
+    visualStatus: row.visual_status ?? "draft",
+    visualsValidatedAt: row.visuals_validated_at,
     concept: `${theme}: ${angle}`,
     angle,
     hook: row.hook ?? "",
@@ -1121,6 +1186,10 @@ export async function updateContentDraft({
 
   console.info("[Content Workshop] update draft");
 
+  if (input.status === "rejected") {
+    await assertDraftCanBeRejectedOrDeleted({ draftId, userId });
+  }
+
   const { data, error } = await supabase
     .from("content_drafts")
     .update(input)
@@ -1152,6 +1221,10 @@ export async function updateContentDraftStatus({
     status,
   });
 
+  if (status === "rejected") {
+    await assertDraftCanBeRejectedOrDeleted({ draftId, userId });
+  }
+
   const { data, error } = await supabase
     .from("content_drafts")
     .update({ status })
@@ -1177,6 +1250,8 @@ export async function deleteContentDraft({
   const supabase = getContentDraftsClient();
 
   console.info("[Content Workshop] delete draft");
+
+  await assertDraftCanBeRejectedOrDeleted({ draftId, userId });
 
   const { error } = await supabase
     .from("content_drafts")

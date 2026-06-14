@@ -25,6 +25,20 @@ type VisualAsset = {
   createdAt: string;
   score: number;
   scoreReason: string;
+  scoreBreakdown: VisualScoreBreakdown;
+};
+
+type VisualScoreBreakdown = {
+  total: number;
+  promptImage: number;
+  imageDraft: number;
+  visualQuality: number;
+  narrativeContinuity: number;
+  editorialSafety: number;
+  estimatedWithoutVision: boolean;
+  reason: string;
+  matchedTerms: string[];
+  sceneIndex: number | null;
 };
 
 type SelectedDraftAsset = VisualAsset & {
@@ -123,6 +137,61 @@ function visualPromptSource(
     ]) ??
     visualPrompts[Math.max(0, (usageOrder ?? 1) - 1)] ??
     asset.scoreReason
+  );
+}
+
+function scoreReason(asset: VisualAsset, isRetained: boolean) {
+  if (isRetained) {
+    return asset.scoreReason || "Retenu pour ce brouillon.";
+  }
+
+  return asset.score >= 50
+    ? "Proposition pertinente mais non retenue dans les 7 emplacements."
+    : "Non retenu: score estime plus faible ou coherence a valider.";
+}
+
+function ScoreDetails({ asset, isRetained }: { asset: VisualAsset; isRetained: boolean }) {
+  const breakdown = asset.scoreBreakdown;
+  const items = [
+    ["Prompt / image", breakdown.promptImage, 30],
+    ["Image / brouillon", breakdown.imageDraft, 25],
+    ["Qualite", breakdown.visualQuality, 20],
+    ["Continuite", breakdown.narrativeContinuity, 15],
+    ["Securite / style", breakdown.editorialSafety, 10],
+  ] as const;
+
+  return (
+    <details className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-xs">
+      <summary className="cursor-pointer font-semibold text-[#7DD3FC]">
+        Voir le score
+      </summary>
+      <div className="mt-3 grid gap-2 text-[#A7B0C0]">
+        <p>
+          Score total:{" "}
+          <span className="font-semibold text-[#F8FAFC]">
+            {scoreOutOf100(asset.score)}/100
+          </span>
+        </p>
+        {items.map(([label, value, max]) => (
+          <div key={label} className="grid grid-cols-[1fr_auto] gap-3">
+            <span>{label}</span>
+            <span className="font-semibold text-[#F8FAFC]">
+              {value}/{max}
+            </span>
+          </div>
+        ))}
+        {breakdown.estimatedWithoutVision ? (
+          <p className="rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-2 py-1.5 font-semibold text-[#FDBA74]">
+            Estime sans analyse visuelle IA.
+          </p>
+        ) : null}
+        <p>Decision: {scoreReason(asset, isRetained)}</p>
+        <p>Raison: {breakdown.reason || asset.scoreReason}</p>
+        {breakdown.matchedTerms.length ? (
+          <p>Termes reconnus: {breakdown.matchedTerms.join(", ")}</p>
+        ) : null}
+      </div>
+    </details>
   );
 }
 
@@ -537,10 +606,12 @@ export function ShortsVisualsClient() {
                     <p>Score: <span className="font-semibold text-[#F8FAFC]">{scoreOutOf100(asset.score)}/100</span></p>
                     <p>Date de génération: <span className="font-semibold text-[#F8FAFC]">{formatDate(asset.createdAt)}</span></p>
                     <p>Statut: <span className="font-semibold text-[#39E6D0]">retenu</span></p>
+                    <p>Raison: {scoreReason(asset, true)}</p>
                     <p className="line-clamp-4 leading-5">
                       Prompt source: {visualPromptSource(asset, visualPrompts, asset.usageOrder)}
                     </p>
                   </div>
+                  <ScoreDetails asset={asset} isRetained />
                   <button
                     type="button"
                     disabled={isRunningAction}
@@ -593,10 +664,12 @@ export function ShortsVisualsClient() {
                           {isRetained ? "retenu" : "non retenu"}
                         </span>
                       </p>
+                      <p>Raison: {scoreReason(asset, isRetained)}</p>
                       <p className="line-clamp-4 leading-5">
                         Prompt source: {visualPromptSource(asset, visualPrompts, index + 1)}
                       </p>
                     </div>
+                    <ScoreDetails asset={asset} isRetained={isRetained} />
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <select
                         value={usageOrder}

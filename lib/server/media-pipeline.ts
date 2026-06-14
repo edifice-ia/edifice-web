@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { parseVisualPrompts } from "@/lib/content/visual-prompts";
 
 type MediaPipelineStatus =
   | "draft"
@@ -104,6 +105,7 @@ export type VisualAsset = {
   createdAt: string;
   score: number;
   scoreReason: string;
+  scoreBreakdown: VisualScoreBreakdown;
 };
 
 export type SelectedDraftAsset = VisualAsset & {
@@ -121,8 +123,22 @@ export type VisualDecision = {
     file_name: string;
     score: number;
     reason: string;
+    score_breakdown?: VisualScoreBreakdown;
   }>;
   missing_visual_needs: string[];
+};
+
+export type VisualScoreBreakdown = {
+  total: number;
+  promptImage: number;
+  imageDraft: number;
+  visualQuality: number;
+  narrativeContinuity: number;
+  editorialSafety: number;
+  estimatedWithoutVision: boolean;
+  reason: string;
+  matchedTerms: string[];
+  sceneIndex: number | null;
 };
 
 export type VisualGenerationInput = {
@@ -235,6 +251,18 @@ function assetKeywords(asset: ContentAssetRow) {
   const metadataKeywords = Array.isArray(asset.metadata.keywords)
     ? asset.metadata.keywords.filter((item): item is string => typeof item === "string")
     : [];
+  const metadataText = [
+    asset.metadata.prompt,
+    asset.metadata.visual_prompt,
+    asset.metadata.source_prompt,
+    asset.metadata.generation_prompt,
+    asset.metadata.scene_prompt,
+    asset.metadata.mood,
+    asset.metadata.subject,
+    asset.metadata.style,
+  ]
+    .filter((item): item is string => typeof item === "string")
+    .join(" ");
 
   return tokenize(
     [
@@ -242,6 +270,7 @@ function assetKeywords(asset: ContentAssetRow) {
       asset.storage_path,
       asset.source,
       metadataKeywords.join(" "),
+      metadataText,
     ].join(" "),
   );
 }
@@ -262,24 +291,200 @@ function draftSearchText(draft: DraftRow) {
     .join(" ");
 }
 
-function scoreAsset(draftTokens: string[], asset: ContentAssetRow) {
-  const keywords = assetKeywords(asset);
-  const matches = keywords.filter((keyword) => draftTokens.includes(keyword));
-  const keywordScore = Math.min(matches.length * 16, 72);
-  const eliteBonus = asset.storage_path.includes("lignes-interieures/elite")
-    ? 10
-    : 0;
-  const statusBonus = asset.status === "available" ? 8 : 0;
-  const score = Math.min(keywordScore + eliteBonus + statusBonus, 100);
-  const reason =
-    matches.length > 0
-      ? `Correspondances: ${matches.slice(0, 5).join(", ")}.`
-      : "Visuel disponible dans la bibliotheque Elite, coherence a valider manuellement.";
+function metadataString(asset: ContentAssetRow, keys: string[]) {
+  for (const key of keys) {
+    const value = asset.metadata[key];
 
-  return { score, reason };
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return "";
 }
 
-function mapAsset(asset: ContentAssetRow, score = 0, scoreReason = ""): VisualAsset {
+function metadataNumber(asset: ContentAssetRow, keys: string[]) {
+  for (const key of keys) {
+    const value = asset.metadata[key];
+    const number = typeof value === "number" ? value : Number(value);
+
+    if (Number.isFinite(number)) {
+      return number;
+    }
+  }
+
+  return null;
+}
+
+function numericScore(value: number, max: number) {
+  return Math.max(0, Math.min(max, Math.round(value)));
+}
+
+function visualPromptsForDraft(draft: DraftRow) {
+  return parseVisualPrompts(draft.visual_prompt ?? "").filter(Boolean);
+}
+
+function scenePromptForAsset(
+  draft: DraftRow,
+  asset: ContentAssetRow,
+  sceneIndex?: number | null,
+) {
+  const prompts = visualPromptsForDraft(draft);
+  const metadataSceneIndex = metadataNumber(asset, ["scene_index", "sceneIndex"]);
+  const normalizedSceneIndex =
+    typeof sceneIndex === "number"
+      ? sceneIndex
+      : metadataSceneIndex
+        ? metadataSceneIndex - 1
+        : null;
+
+  if (
+    normalizedSceneIndex !== null &&
+    prompts[normalizedSceneIndex]
+  ) {
+    return {
+      prompt: prompts[normalizedSceneIndex],
+      sceneIndex: normalizedSceneIndex,
+    };
+  }
+
+  const assetTokens = assetKeywords(asset);
+  const scoredPrompts = prompts.map((prompt, index) => {
+    const promptTokens = tokenize(prompt);
+    const matches = promptTokens.filter((token) => assetTokens.includes(token));
+    return { index, matches, prompt };
+  });
+  const best = scoredPrompts.sort(
+    (left, right) => right.matches.length - left.matches.length,
+  )[0];
+
+  return {
+    prompt: best?.prompt ?? "",
+    sceneIndex: best && best.matches.length > 0 ? best.index : null,
+  };
+}
+
+function scoreAsset(
+  draft: DraftRow,
+  asset: ContentAssetRow,
+  sceneIndex?: number | null,
+) {
+  const draftTokens = tokenize(draftSearchText(draft));
+  const keywords = assetKeywords(asset);
+  const draftMatches = keywords.filter((keyword) => draftTokens.includes(keyword));
+  const scene = scenePromptForAsset(draft, asset, sceneIndex);
+  const promptTokens = tokenize(scene.prompt);
+  const promptMatches = keywords.filter((keyword) => promptTokens.includes(keyword));
+  const declaredPrompt = metadataString(asset, [
+    "prompt",
+    "visual_prompt",
+    "source_prompt",
+    "generation_prompt",
+    "scene_prompt",
+  ]);
+  const declaredSubject = metadataString(asset, ["subject", "theme"]);
+  const declaredMood = metadataString(asset, ["mood", "emotion", "tone"]);
+  const declaredStyle = metadataString(asset, ["style", "visual_style"]);
+  const promptImage = numericScore(
+    promptMatches.length * 5 +
+      (declaredPrompt ? 6 : 0) +
+      (scene.prompt ? 4 : 0),
+    30,
+  );
+  const imageDraft = numericScore(
+    draftMatches.length * 4 +
+      (declaredSubject && draftSearchText(draft).toLowerCase().includes(declaredSubject.toLowerCase()) ? 5 : 0) +
+      (declaredMood && draftSearchText(draft).toLowerCase().includes(declaredMood.toLowerCase()) ? 4 : 0),
+    25,
+  );
+  const qualityHints = [
+    asset.storage_path.includes("9x16") || asset.storage_path.includes("vertical"),
+    asset.file_name.includes("9x16") || asset.file_name.includes("vertical"),
+    metadataString(asset, ["aspect_ratio", "ratio"]).includes("9:16"),
+    metadataString(asset, ["quality", "resolution"]).length > 0,
+  ].filter(Boolean).length;
+  const visualQuality = numericScore(
+    8 +
+      qualityHints * 3 +
+      (asset.status === "available" ? 3 : 0) +
+      (asset.public_url ? 3 : 0),
+    20,
+  );
+  const continuityHints = [
+    scene.sceneIndex !== null,
+    declaredSubject.length > 0,
+    declaredMood.length > 0,
+    declaredStyle.length > 0,
+  ].filter(Boolean).length;
+  const narrativeContinuity = numericScore(
+    5 + continuityHints * 2.5,
+    15,
+  );
+  const unsafeTerms = ["logo", "watermark", "texte", "text", "caption"];
+  const hasUnsafeHint = unsafeTerms.some((term) =>
+    [...keywords, asset.storage_path.toLowerCase(), asset.file_name.toLowerCase()].some(
+      (value) => value.includes(term),
+    ),
+  );
+  const editorialSafety = numericScore(
+    5 +
+      (asset.storage_path.includes("lignes-interieures") ? 3 : 0) +
+      (declaredStyle.toLowerCase().includes("edifice") ||
+      declaredStyle.toLowerCase().includes("lignes") ? 2 : 0) -
+      (hasUnsafeHint ? 4 : 0),
+    10,
+  );
+  const score =
+    promptImage +
+    imageDraft +
+    visualQuality +
+    narrativeContinuity +
+    editorialSafety;
+  const matches = Array.from(new Set([...promptMatches, ...draftMatches]));
+  const reason =
+    matches.length > 0
+      ? `Estime sans analyse visuelle IA. Correspondances: ${matches.slice(0, 6).join(", ")}.`
+      : "Estime sans analyse visuelle IA. Coherence visuelle a valider manuellement.";
+  const scoreBreakdown: VisualScoreBreakdown = {
+    total: score,
+    promptImage,
+    imageDraft,
+    visualQuality,
+    narrativeContinuity,
+    editorialSafety,
+    estimatedWithoutVision: true,
+    reason,
+    matchedTerms: matches.slice(0, 12),
+    sceneIndex: scene.sceneIndex,
+  };
+
+  return { score, reason, scoreBreakdown };
+}
+
+function fallbackScoreBreakdown(
+  score: number,
+  scoreReason: string,
+): VisualScoreBreakdown {
+  return {
+    total: score,
+    promptImage: 0,
+    imageDraft: 0,
+    visualQuality: 0,
+    narrativeContinuity: 0,
+    editorialSafety: 0,
+    estimatedWithoutVision: true,
+    reason: scoreReason || "Score historique sans detail.",
+    matchedTerms: [],
+    sceneIndex: null,
+  };
+}
+
+function mapAsset(
+  asset: ContentAssetRow,
+  score = 0,
+  scoreReason = "",
+  scoreBreakdown: VisualScoreBreakdown = fallbackScoreBreakdown(score, scoreReason),
+): VisualAsset {
   return {
     id: asset.id,
     assetType: asset.asset_type,
@@ -295,6 +500,7 @@ function mapAsset(asset: ContentAssetRow, score = 0, scoreReason = ""): VisualAs
     createdAt: asset.created_at,
     score,
     scoreReason,
+    scoreBreakdown,
   };
 }
 
@@ -370,13 +576,12 @@ async function readLibraryAssets() {
 }
 
 async function scoreLibraryForDraft(draft: DraftRow) {
-  const draftTokens = tokenize(draftSearchText(draft));
   const assets = await readLibraryAssets();
 
   return assets
     .map((asset) => {
-      const { score, reason } = scoreAsset(draftTokens, asset);
-      return mapAsset(asset, score, reason);
+      const { score, reason, scoreBreakdown } = scoreAsset(draft, asset);
+      return mapAsset(asset, score, reason, scoreBreakdown);
     })
     .sort((a, b) => b.score - a.score || a.usageCount - b.usageCount)
     .slice(0, 12);
@@ -407,12 +612,13 @@ async function readPlan(draftId: string) {
   return data;
 }
 
-async function readSelectedAssets(draftId: string) {
+async function readSelectedAssets(draft: DraftRow) {
   const supabase = getMediaPipelineClient();
+  const draftId = draft.id;
   const { data: links, error } = await supabase
     .from("content_draft_asset_links")
     .select("id, draft_id, asset_id, asset_source, score, position, metadata, created_at")
-    .eq("draft_id", draftId)
+    .eq("draft_id", draft.id)
     .order("position", { ascending: true })
     .returns<AssetLinkRow[]>();
 
@@ -464,9 +670,14 @@ async function readSelectedAssets(draftId: string) {
       if (!asset) {
         return null;
       }
+      const { score, reason, scoreBreakdown } = scoreAsset(
+        draft,
+        asset,
+        (link.position ?? 1) - 1,
+      );
 
       return {
-        ...mapAsset(asset, Number(link.score), "Selection persistante du brouillon."),
+        ...mapAsset(asset, score, reason, scoreBreakdown),
         linkId: link.id,
         assetSource: link.asset_source,
         usageOrder: link.position ?? 1,
@@ -575,6 +786,8 @@ async function replaceSelectedAssets({
       position: index + 1,
       metadata: {
         score_reason: asset.scoreReason,
+        score_breakdown: asset.scoreBreakdown,
+        estimated_without_vision: asset.scoreBreakdown.estimatedWithoutVision,
       },
     })),
   );
@@ -606,7 +819,7 @@ export async function readMediaPipelineState({
   const draft = await readDraft(draftId, userId);
   const [plan, selectedAssets] = await Promise.all([
     readPlan(draft.id),
-    readSelectedAssets(draft.id),
+    readSelectedAssets(draft),
   ]);
 
   return {
@@ -699,6 +912,7 @@ export async function prepareDraftMedia({
       file_name: asset.fileName,
       score: asset.score,
       reason: asset.scoreReason,
+      score_breakdown: asset.scoreBreakdown,
     })),
     missing_visual_needs: missingVisualNeeds,
   };
@@ -773,6 +987,7 @@ export async function requestDraftVisualGeneration({
       file_name: asset.fileName,
       score: asset.score,
       reason: asset.scoreReason,
+      score_breakdown: asset.scoreBreakdown,
     })),
     missing_visual_needs: currentState.visualDecision.missing_visual_needs,
   };
@@ -877,6 +1092,9 @@ export async function selectDraftVisualAsset({
         position: normalizedOrder,
         metadata: {
           score_reason: selectedAsset.scoreReason,
+          score_breakdown: selectedAsset.scoreBreakdown,
+          estimated_without_vision:
+            selectedAsset.scoreBreakdown.estimatedWithoutVision,
           selected_manually: true,
         },
       },

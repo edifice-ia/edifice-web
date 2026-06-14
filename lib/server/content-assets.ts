@@ -3,6 +3,8 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 export const CONTENT_ASSETS_BUCKET = "content-assets";
+export const VISUAL_LIBRARY_BUCKET = "content-assets";
+export const VISUAL_LIBRARY_PATH = "lignes-interieures/visuels";
 
 type ContentAssetType = "image" | "audio" | "video" | "subtitle";
 
@@ -98,6 +100,64 @@ function mapAssetRow(row: ContentAssetRow): ContentAsset {
     metadata: row.metadata,
     usageCount: row.usage_count,
   };
+}
+
+function visualLibraryStoragePath(fileName: string) {
+  return `${VISUAL_LIBRARY_PATH}/${fileName}`;
+}
+
+function readableVisualSlug(input: string) {
+  const stopWords = new Set([
+    "avec",
+    "dans",
+    "des",
+    "les",
+    "pour",
+    "the",
+    "with",
+  ]);
+  const words = input
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s_-]/g, " ")
+    .split(/[\s_-]+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length >= 3 && !stopWords.has(word))
+    .slice(0, 4);
+
+  return (words.length ? words : ["visuel", "short"]).join("_");
+}
+
+async function uniqueVisualFileName(baseName: string) {
+  const supabase = getContentAssetsClient();
+  const cleanSlug = readableVisualSlug(baseName);
+  const { data, error } = await supabase
+    .from("content_assets")
+    .select("storage_path")
+    .eq("bucket_name", VISUAL_LIBRARY_BUCKET)
+    .like("storage_path", `${VISUAL_LIBRARY_PATH}/${cleanSlug}%`);
+
+  if (error) {
+    throw new Error(`Verification du nom de visuel impossible: ${error.message}`);
+  }
+
+  const existing = new Set((data ?? []).map((row) => row.storage_path));
+  const firstName = `${cleanSlug}.png`;
+
+  if (!existing.has(visualLibraryStoragePath(firstName))) {
+    return firstName;
+  }
+
+  for (let index = 1; index < 100; index += 1) {
+    const candidate = `${cleanSlug}_${String(index).padStart(2, "0")}.png`;
+
+    if (!existing.has(visualLibraryStoragePath(candidate))) {
+      return candidate;
+    }
+  }
+
+  throw new Error("Impossible de trouver un nom disponible pour ce visuel.");
 }
 
 function getAssetType(contentType: string): ContentAssetType {
@@ -223,8 +283,12 @@ export async function uploadContentAsset({
   const assetType = getAssetType(contentType);
   const folder = getAssetFolder(assetType);
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const filename = normalizeFilename(file.name);
-  const storagePath = `drafts/${draftId}/${folder}/${timestamp}-${filename}`;
+  const filename = assetType === "image"
+    ? await uniqueVisualFileName(file.name)
+    : normalizeFilename(file.name);
+  const storagePath = assetType === "image"
+    ? visualLibraryStoragePath(filename)
+    : `drafts/${draftId}/${folder}/${timestamp}-${filename}`;
   const supabase = getContentAssetsClient();
   const bytes = Buffer.from(await file.arrayBuffer());
 

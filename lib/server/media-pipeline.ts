@@ -31,6 +31,8 @@ const LIBRARY_SEARCH_TIMEOUT_MS = 20_000;
 const IMAGE_GENERATION_TIMEOUT_MS = 90_000;
 const UPLOAD_TIMEOUT_MS = 30_000;
 const VISION_SCORING_TIMEOUT_MS = 30_000;
+export const VISUAL_LIBRARY_BUCKET = "content-assets";
+export const VISUAL_LIBRARY_PATH = "lignes-interieures/visuels";
 
 type DraftRow = {
   id: string;
@@ -525,6 +527,83 @@ function openAIKey() {
   return process.env.OPENAI_API_KEY?.trim() ?? "";
 }
 
+function visualLibraryStoragePath(fileName: string) {
+  return `${VISUAL_LIBRARY_PATH}/${fileName}`;
+}
+
+function readableVisualSlug(input: string) {
+  const fallback = "visuel_short";
+  const stopWords = new Set([
+    "a",
+    "an",
+    "and",
+    "avec",
+    "dans",
+    "de",
+    "des",
+    "du",
+    "for",
+    "in",
+    "la",
+    "le",
+    "les",
+    "of",
+    "on",
+    "pour",
+    "the",
+    "to",
+    "un",
+    "une",
+    "with",
+  ]);
+  const words = input
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s_-]/g, " ")
+    .split(/[\s_-]+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length >= 3 && !stopWords.has(word))
+    .slice(0, 4);
+
+  return (words.length ? words : fallback.split("_")).join("_");
+}
+
+async function uniqueVisualFileName(baseSlug: string) {
+  const supabase = getMediaPipelineClient();
+  const cleanSlug = readableVisualSlug(baseSlug);
+  const { data, error } = await supabase
+    .from("content_assets")
+    .select("storage_path")
+    .eq("bucket_name", VISUAL_LIBRARY_BUCKET)
+    .like("storage_path", `${VISUAL_LIBRARY_PATH}/${cleanSlug}%`);
+
+  if (error) {
+    throw new MediaPipelineError(`Verification du nom de visuel impossible: ${error.message}`, {
+      validation: "content_assets.visual_name_unique",
+    });
+  }
+
+  const existing = new Set((data ?? []).map((row) => row.storage_path));
+  const firstName = `${cleanSlug}.png`;
+
+  if (!existing.has(visualLibraryStoragePath(firstName))) {
+    return firstName;
+  }
+
+  for (let index = 1; index < 100; index += 1) {
+    const candidate = `${cleanSlug}_${String(index).padStart(2, "0")}.png`;
+
+    if (!existing.has(visualLibraryStoragePath(candidate))) {
+      return candidate;
+    }
+  }
+
+  throw new MediaPipelineError("Impossible de trouver un nom disponible pour ce visuel.", {
+    validation: "content_assets.visual_name_exhausted",
+  });
+}
+
 function imageGenerationModel() {
   return process.env.OPENAI_IMAGE_MODEL?.trim() || "gpt-image-1";
 }
@@ -829,9 +908,10 @@ async function storeGeneratedImage({
   sceneIndex: number;
 }) {
   const supabase = getMediaPipelineClient();
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const fileName = `shorts-scene-${sceneIndex}-${timestamp}.png`;
-  const storagePath = `drafts/${draft.id}/images/${fileName}`;
+  const fileName = await uniqueVisualFileName(
+    `${prompt} ${draft.title ?? draft.theme ?? ""}`,
+  );
+  const storagePath = visualLibraryStoragePath(fileName);
   const endpoint = "supabase.storage.content-assets";
   const startedAt = Date.now();
 
@@ -840,10 +920,10 @@ async function storeGeneratedImage({
       draftId: draft.id,
       label: "Upload Supabase",
       promise: supabase.storage
-        .from("content-assets")
+        .from(VISUAL_LIBRARY_BUCKET)
         .upload(storagePath, bytes, {
           contentType: "image/png",
-          upsert: true,
+          upsert: false,
         }),
       sceneIndex,
       timeoutMs: UPLOAD_TIMEOUT_MS,
@@ -862,7 +942,7 @@ async function storeGeneratedImage({
     }
 
     const { data: publicUrlData } = supabase.storage
-      .from("content-assets")
+      .from(VISUAL_LIBRARY_BUCKET)
       .getPublicUrl(storagePath);
 
     const publicUrl = publicUrlData.publicUrl;
@@ -871,7 +951,7 @@ async function storeGeneratedImage({
       .insert({
         asset_type: "image",
         file_name: fileName,
-        bucket_name: "content-assets",
+        bucket_name: VISUAL_LIBRARY_BUCKET,
         storage_path: storagePath,
         public_url: publicUrl,
         source: "shorts_visual_generation",
@@ -1137,6 +1217,111 @@ async function updateGeneratedAssetScore({
       },
     })
     .eq("id", assetId);
+}
+
+function isCanonicalVisualAsset(asset: Pick<ContentAssetRow, "bucket_name" | "storage_path">) {
+  return (
+    asset.bucket_name === VISUAL_LIBRARY_BUCKET &&
+    asset.storage_path.startsWith(`${VISUAL_LIBRARY_PATH}/`)
+  );
+}
+
+function shouldMigrateVisualAsset(asset: ContentAssetRow) {
+  return (
+    asset.asset_type === "image" &&
+    asset.bucket_name === VISUAL_LIBRARY_BUCKET &&
+    !isCanonicalVisualAsset(asset) &&
+    (
+      asset.storage_path.includes("drafts/") ||
+      asset.storage_path.includes("draft-assets") ||
+      asset.storage_path.includes("lignes-interieures/visuel/") ||
+      asset.source === "shorts_visual_generation"
+    )
+  );
+}
+
+async function migrateVisualAssetToCanonicalLibrary(asset: ContentAssetRow) {
+  if (!shouldMigrateVisualAsset(asset)) {
+    return asset;
+  }
+
+  const supabase = getMediaPipelineClient();
+  const metadataPrompt = [
+    asset.metadata?.scene_prompt,
+    asset.metadata?.visual_prompt,
+    asset.file_name,
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+  const fileName = await uniqueVisualFileName(metadataPrompt || asset.file_name);
+  const storagePath = visualLibraryStoragePath(fileName);
+
+  const { error: copyError } = await supabase.storage
+    .from(VISUAL_LIBRARY_BUCKET)
+    .copy(asset.storage_path, storagePath);
+
+  if (copyError) {
+    console.warn("[Shorts Visual Library] migration skipped", {
+      asset_id: asset.id,
+      error: copyError.message,
+      source_bucket: VISUAL_LIBRARY_BUCKET,
+      source_path: asset.storage_path,
+      target_bucket: VISUAL_LIBRARY_BUCKET,
+      target_path: storagePath,
+    });
+    return asset;
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from(VISUAL_LIBRARY_BUCKET)
+    .getPublicUrl(storagePath);
+  const publicUrl = publicUrlData.publicUrl;
+  const { data, error } = await supabase
+    .from("content_assets")
+    .update({
+      bucket_name: VISUAL_LIBRARY_BUCKET,
+      file_name: fileName,
+      metadata: {
+        ...(asset.metadata ?? {}),
+        migrated_from_bucket: asset.bucket_name,
+        migrated_from_path: asset.storage_path,
+        visual_library_path: VISUAL_LIBRARY_PATH,
+      },
+      public_url: publicUrl,
+      storage_path: storagePath,
+    })
+    .eq("id", asset.id)
+    .select(
+      "id, asset_type, file_name, bucket_name, storage_path, public_url, source, status, metadata, usage_count, linked_draft_id, created_at",
+    )
+    .single<ContentAssetRow>();
+
+  if (error) {
+    console.warn("[Shorts Visual Library] migration metadata update failed", {
+      asset_id: asset.id,
+      error: error.message,
+      target_path: storagePath,
+    });
+    return asset;
+  }
+
+  console.info("[Shorts Visual Library] asset migrated", {
+    asset_id: asset.id,
+    source_path: asset.storage_path,
+    target_path: storagePath,
+  });
+
+  return data;
+}
+
+async function migrateVisualAssetsToCanonicalLibrary(assets: ContentAssetRow[]) {
+  const migrated: ContentAssetRow[] = [];
+
+  for (const asset of assets) {
+    migrated.push(await migrateVisualAssetToCanonicalLibrary(asset));
+  }
+
+  return migrated;
 }
 
 async function fallbackLibraryScene({
@@ -1561,10 +1746,11 @@ async function readLibraryAssets() {
       "id, asset_type, file_name, bucket_name, storage_path, public_url, source, status, metadata, usage_count, linked_draft_id, created_at",
     )
     .eq("asset_type", "image")
+    .eq("bucket_name", VISUAL_LIBRARY_BUCKET)
     .eq("status", "available")
     .order("usage_count", { ascending: true })
     .order("created_at", { ascending: false })
-    .limit(120)
+    .limit(240)
     .returns<ContentAssetRow[]>();
 
   if (error) {
@@ -1576,7 +1762,11 @@ async function readLibraryAssets() {
     );
   }
 
-  return data ?? [];
+  const migratedAssets = await migrateVisualAssetsToCanonicalLibrary(data ?? []);
+
+  return migratedAssets
+    .filter((asset) => isCanonicalVisualAsset(asset))
+    .slice(0, 120);
 }
 
 async function scoreLibraryForDraft(draft: DraftRow) {
@@ -1666,7 +1856,8 @@ async function readSelectedAssets(draft: DraftRow) {
     );
   }
 
-  const assetById = new Map((assets ?? []).map((asset) => [asset.id, asset]));
+  const migratedAssets = await migrateVisualAssetsToCanonicalLibrary(assets ?? []);
+  const assetById = new Map(migratedAssets.map((asset) => [asset.id, asset]));
 
   return (links ?? [])
     .map((link) => {
@@ -1715,8 +1906,57 @@ async function readVisualScenes(draft: DraftRow) {
     );
   }
 
+  const rows = data ?? [];
+  const assetIds = rows
+    .map((scene) => scene.asset_id)
+    .filter((assetId): assetId is string => Boolean(assetId));
+  const assetById = new Map<string, ContentAssetRow>();
+
+  if (assetIds.length > 0) {
+    const { data: assets } = await supabase
+      .from("content_assets")
+      .select(
+        "id, asset_type, file_name, bucket_name, storage_path, public_url, source, status, metadata, usage_count, linked_draft_id, created_at",
+      )
+      .in("id", assetIds)
+      .returns<ContentAssetRow[]>();
+    const migratedAssets = await migrateVisualAssetsToCanonicalLibrary(assets ?? []);
+    migratedAssets.forEach((asset) => assetById.set(asset.id, asset));
+  }
+
+  const normalizedRows: VisualSceneRow[] = [];
+
+  for (const scene of rows) {
+    const asset = scene.asset_id ? assetById.get(scene.asset_id) : null;
+    const normalizedScene = asset
+      ? {
+          ...scene,
+          image_url: asset.public_url,
+          storage_path: asset.storage_path,
+        }
+      : scene;
+
+    if (
+      asset &&
+      (scene.image_url !== asset.public_url || scene.storage_path !== asset.storage_path)
+    ) {
+      await supabase
+        .from("content_draft_visual_scenes")
+        .update({
+          image_url: asset.public_url,
+          storage_path: asset.storage_path,
+        })
+        .eq("id", scene.id);
+    }
+
+    normalizedRows.push(normalizedScene);
+  }
+
   const byIndex = new Map(
-    (data ?? []).map((scene) => [scene.visual_prompt_index, mapVisualScene(scene)]),
+    normalizedRows.map((scene) => [
+      scene.visual_prompt_index,
+      mapVisualScene(scene),
+    ]),
   );
 
   return defaultVisualScenes(draft).map(

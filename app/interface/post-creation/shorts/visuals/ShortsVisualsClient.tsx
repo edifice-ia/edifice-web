@@ -106,6 +106,8 @@ type ApiErrorPayload = {
   details?: Record<string, unknown>;
 };
 
+const VISUAL_LIBRARY_BUCKET = "content-assets";
+
 const statusLabels: Record<string, string> = {
   draft: "Brouillon texte",
   approved: "Texte validé",
@@ -191,6 +193,14 @@ function sceneDebugValue(value: unknown) {
   }
 
   return String(value);
+}
+
+function fileNameFromStoragePath(storagePath: string | null) {
+  if (!storagePath) {
+    return null;
+  }
+
+  return storagePath.split("/").filter(Boolean).at(-1) ?? null;
 }
 
 function sceneProgressValue(scene: VisualScene) {
@@ -486,11 +496,15 @@ function SceneDebugDetails({ scene }: { scene: VisualScene }) {
         Debug scene
       </summary>
       <div className="mt-3 grid gap-2 text-[#A7B0C0]">
+        <p>Bucket: {VISUAL_LIBRARY_BUCKET}</p>
+        <p>Storage path: {sceneDebugValue(scene.storagePath)}</p>
+        <p>Filename: {sceneDebugValue(fileNameFromStoragePath(scene.storagePath))}</p>
+        <p>Asset ID: {sceneDebugValue(scene.assetId)}</p>
+        <p>Source: {scene.generationSource}</p>
         <p>Source brute: {scene.generationSource}</p>
         <p>Statut brut: {scene.generationStatus}</p>
         <p>Prompt utilise: {scene.visualPromptText || "non renseigne"}</p>
         <p>Image URL: {sceneDebugValue(scene.imageUrl)}</p>
-        <p>Asset ID: {sceneDebugValue(scene.assetId)}</p>
         <p>
           Score:{" "}
           {scene.scoreTotal === null

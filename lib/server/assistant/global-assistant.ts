@@ -56,6 +56,14 @@ type AssistantSubject =
   | "Personnel"
   | "General";
 
+type AssistantIntent =
+  | "permission"
+  | "project_status"
+  | "trajectory_creation"
+  | "memory_update"
+  | "recommendation"
+  | "general";
+
 type AssistantSourceUsage = {
   trajectoire: boolean;
   memory: boolean;
@@ -97,6 +105,106 @@ function normalizeMessage(message: string) {
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "");
+}
+
+function detectIntent(message: string): AssistantIntent {
+  const normalized = normalizeMessage(message);
+  const asksCapability =
+    normalized.includes("qu est ce que tu peux") ||
+    normalized.includes("tu peux") ||
+    normalized.includes("qu est ce que tu as le droit") ||
+    normalized.includes("droit de") ||
+    normalized.includes("pas le droit") ||
+    normalized.includes("permission") ||
+    normalized.includes("garde fou") ||
+    normalized.includes("garde-fou");
+  const mentionsSensitiveAction =
+    normalized.includes("modifier") ||
+    normalized.includes("faire") ||
+    normalized.includes("creer") ||
+    normalized.includes("supprimer") ||
+    normalized.includes("publier") ||
+    normalized.includes("tokens") ||
+    normalized.includes("oauth") ||
+    normalized.includes("changer") ||
+    normalized.includes("declencher");
+
+  if (asksCapability && mentionsSensitiveAction) {
+    return "permission";
+  }
+
+  if (
+    normalized.includes("review") ||
+    normalized.includes("est valide") ||
+    normalized.includes("est validee") ||
+    normalized.includes("est report") ||
+    normalized.includes("reste en sandbox") ||
+    normalized.includes("est termine")
+  ) {
+    return "memory_update";
+  }
+
+  if (
+    normalized.includes("objectif") ||
+    normalized.includes("fixe-moi") ||
+    normalized.includes("cree-moi") ||
+    normalized.includes("creer") ||
+    normalized.includes("avant le") ||
+    normalized.includes("avant fin")
+  ) {
+    return "trajectory_creation";
+  }
+
+  if (
+    normalized.includes("ou en est") ||
+    normalized.includes("etat") ||
+    normalized.includes("avancement") ||
+    normalized.includes("statut")
+  ) {
+    return "project_status";
+  }
+
+  if (
+    normalized.includes("que faire") ||
+    normalized.includes("prochaine") ||
+    normalized.includes("recommande") ||
+    normalized.includes("priorite")
+  ) {
+    return "recommendation";
+  }
+
+  return "general";
+}
+
+function buildPermissionAnswer() {
+  return [
+    "Je peux lire :",
+    "- Memoire projet",
+    "- Trajectoire",
+    "- etat cockpit",
+    "- brouillons / modules selon acces",
+    "",
+    "Je peux proposer :",
+    "- mise a jour memoire",
+    "- creation d'objectif Trajectoire",
+    "- prochaine action",
+    "- plan POPAM",
+    "",
+    "Je peux modifier uniquement apres confirmation :",
+    "- project_memory",
+    "- projets Trajectoire",
+    "- objectifs",
+    "- actions",
+    "- statuts",
+    "",
+    "Je ne peux pas faire seul :",
+    "- supprimer un projet",
+    "- publier du contenu",
+    "- modifier des tokens",
+    "- changer une deadline sensible",
+    "- declencher une action OAuth",
+    "- lancer une publication automatique",
+  ].join("\n");
 }
 
 function detectSubject(message: string): AssistantSubject {
@@ -701,6 +809,12 @@ function buildPopamAnswer({
 }
 
 function buildContextualOperationalAnswer(input: GlobalAssistantInput) {
+  const intent = detectIntent(input.message);
+
+  if (intent === "permission") {
+    return buildPermissionAnswer();
+  }
+
   const subject = detectSubject(input.message);
   const project = findSubjectProject(subject, input.trajectoire);
   const objective = project ? selectObjective(project, subject) : null;

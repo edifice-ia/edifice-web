@@ -107,6 +107,11 @@ function visualLibraryStoragePath(fileName: string) {
 }
 
 function readableVisualSlug(input: string) {
+  const normalized = input
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s_-]/g, " ");
   const stopWords = new Set([
     "avec",
     "dans",
@@ -116,17 +121,57 @@ function readableVisualSlug(input: string) {
     "the",
     "with",
   ]);
-  const words = input
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s_-]/g, " ")
+  const concepts: Array<[RegExp, string]> = [
+    [/\b(man|male|person|protagonist|homme)\b/, "homme"],
+    [/\b(woman|female|femme)\b/, "femme"],
+    [/\b(colleague|coworker|collegue)\b/, "collegue"],
+    [/\b(calm|quiet|peaceful|calme)\b/, "calme"],
+    [/\b(angry|anger|colere|rage)\b/, "colere"],
+    [/\b(tension|stress|conflict|conflit)\b/, "tension"],
+    [/\b(reflection|thinking|thoughtful|introspection|reflexion)\b/, "reflexion"],
+    [/\b(discussion|conversation|meeting|dialogue)\b/, "discussion"],
+    [/\b(office|workplace|bureau)\b/, "bureau"],
+    [/\b(rooftop|roof|terrace|toit)\b/, "toit"],
+    [/\b(city|urban|street|ville)\b/, "ville"],
+    [/\b(skyline|horizon)\b/, "skyline"],
+    [/\b(sunset|dusk|evening|twilight|soir)\b/, "soir"],
+    [/\b(night|nuit)\b/, "nuit"],
+    [/\b(window|fenetre)\b/, "fenetre"],
+    [/\b(silhouette|shadow)\b/, "silhouette"],
+    [/\b(interior|inside|room|interieur)\b/, "interieur"],
+  ];
+  const conceptWords = concepts
+    .filter(([pattern]) => pattern.test(normalized))
+    .map(([, word]) => word);
+  const rawWords = normalized
     .split(/[\s_-]+/)
     .map((word) => word.trim())
-    .filter((word) => word.length >= 3 && !stopWords.has(word))
-    .slice(0, 4);
+    .filter((word) => {
+      if (word.length < 3 || stopWords.has(word)) {
+        return false;
+      }
 
-  return (words.length ? words : ["visuel", "short"]).join("_");
+      return ![
+        "cinematic",
+        "frame",
+        "hook",
+        "image",
+        "photo",
+        "photorealistic",
+        "prompt",
+        "scene",
+        "short",
+        "shorts",
+        "vertical",
+        "visual",
+        "visuel",
+      ].includes(word);
+    });
+  const words = [...conceptWords, ...rawWords].filter(
+    (word, index, list) => list.indexOf(word) === index,
+  ).slice(0, 4);
+
+  return (words.length ? words : ["calme", "interieur"]).join("_");
 }
 
 async function uniqueVisualFileName(baseName: string) {

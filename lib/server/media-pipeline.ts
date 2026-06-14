@@ -532,7 +532,7 @@ function visualLibraryStoragePath(fileName: string) {
 }
 
 function readableVisualSlug(input: string) {
-  const fallback = "visuel_short";
+  const fallback = "calme_interieur";
   const stopWords = new Set([
     "a",
     "an",
@@ -556,15 +556,61 @@ function readableVisualSlug(input: string) {
     "une",
     "with",
   ]);
-  const words = input
+  const normalized = input
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9\s_-]/g, " ")
+    .replace(/[^a-z0-9\s_-]/g, " ");
+  const concepts: Array<[RegExp, string]> = [
+    [/\b(man|male|person|protagonist|homme)\b/, "homme"],
+    [/\b(woman|female|femme)\b/, "femme"],
+    [/\b(colleague|coworker|collegue)\b/, "collegue"],
+    [/\b(calm|quiet|peaceful|calme)\b/, "calme"],
+    [/\b(angry|anger|colere|rage)\b/, "colere"],
+    [/\b(tension|stress|conflict|conflit)\b/, "tension"],
+    [/\b(reflection|thinking|thoughtful|introspection|reflexion)\b/, "reflexion"],
+    [/\b(determined|determination|resolve|determination)\b/, "determination"],
+    [/\b(discussion|conversation|meeting|dialogue)\b/, "discussion"],
+    [/\b(office|workplace|bureau)\b/, "bureau"],
+    [/\b(rooftop|roof|terrace|toit)\b/, "toit"],
+    [/\b(city|urban|street|ville)\b/, "ville"],
+    [/\b(skyline|horizon)\b/, "skyline"],
+    [/\b(sunset|dusk|evening|twilight|soir)\b/, "soir"],
+    [/\b(night|nuit)\b/, "nuit"],
+    [/\b(window|fenetre)\b/, "fenetre"],
+    [/\b(silhouette|shadow)\b/, "silhouette"],
+    [/\b(interior|inside|room|interieur)\b/, "interieur"],
+  ];
+  const conceptWords = concepts
+    .filter(([pattern]) => pattern.test(normalized))
+    .map(([, word]) => word);
+  const rawWords = normalized
     .split(/[\s_-]+/)
     .map((word) => word.trim())
-    .filter((word) => word.length >= 3 && !stopWords.has(word))
-    .slice(0, 4);
+    .filter((word) => {
+      if (word.length < 3 || stopWords.has(word)) {
+        return false;
+      }
+
+      return ![
+        "cinematic",
+        "frame",
+        "hook",
+        "image",
+        "photo",
+        "photorealistic",
+        "prompt",
+        "scene",
+        "short",
+        "shorts",
+        "vertical",
+        "visual",
+        "visuel",
+      ].includes(word);
+    });
+  const words = [...conceptWords, ...rawWords].filter(
+    (word, index, list) => list.indexOf(word) === index,
+  ).slice(0, 4);
 
   return (words.length ? words : fallback.split("_")).join("_");
 }
@@ -1226,104 +1272,6 @@ function isCanonicalVisualAsset(asset: Pick<ContentAssetRow, "bucket_name" | "st
   );
 }
 
-function shouldMigrateVisualAsset(asset: ContentAssetRow) {
-  return (
-    asset.asset_type === "image" &&
-    asset.bucket_name === VISUAL_LIBRARY_BUCKET &&
-    !isCanonicalVisualAsset(asset) &&
-    (
-      asset.storage_path.includes("drafts/") ||
-      asset.storage_path.includes("draft-assets") ||
-      asset.storage_path.includes("lignes-interieures/visuel/") ||
-      asset.source === "shorts_visual_generation"
-    )
-  );
-}
-
-async function migrateVisualAssetToCanonicalLibrary(asset: ContentAssetRow) {
-  if (!shouldMigrateVisualAsset(asset)) {
-    return asset;
-  }
-
-  const supabase = getMediaPipelineClient();
-  const metadataPrompt = [
-    asset.metadata?.scene_prompt,
-    asset.metadata?.visual_prompt,
-    asset.file_name,
-  ]
-    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-    .join(" ");
-  const fileName = await uniqueVisualFileName(metadataPrompt || asset.file_name);
-  const storagePath = visualLibraryStoragePath(fileName);
-
-  const { error: copyError } = await supabase.storage
-    .from(VISUAL_LIBRARY_BUCKET)
-    .copy(asset.storage_path, storagePath);
-
-  if (copyError) {
-    console.warn("[Shorts Visual Library] migration skipped", {
-      asset_id: asset.id,
-      error: copyError.message,
-      source_bucket: VISUAL_LIBRARY_BUCKET,
-      source_path: asset.storage_path,
-      target_bucket: VISUAL_LIBRARY_BUCKET,
-      target_path: storagePath,
-    });
-    return asset;
-  }
-
-  const { data: publicUrlData } = supabase.storage
-    .from(VISUAL_LIBRARY_BUCKET)
-    .getPublicUrl(storagePath);
-  const publicUrl = publicUrlData.publicUrl;
-  const { data, error } = await supabase
-    .from("content_assets")
-    .update({
-      bucket_name: VISUAL_LIBRARY_BUCKET,
-      file_name: fileName,
-      metadata: {
-        ...(asset.metadata ?? {}),
-        migrated_from_bucket: asset.bucket_name,
-        migrated_from_path: asset.storage_path,
-        visual_library_path: VISUAL_LIBRARY_PATH,
-      },
-      public_url: publicUrl,
-      storage_path: storagePath,
-    })
-    .eq("id", asset.id)
-    .select(
-      "id, asset_type, file_name, bucket_name, storage_path, public_url, source, status, metadata, usage_count, linked_draft_id, created_at",
-    )
-    .single<ContentAssetRow>();
-
-  if (error) {
-    console.warn("[Shorts Visual Library] migration metadata update failed", {
-      asset_id: asset.id,
-      error: error.message,
-      target_path: storagePath,
-    });
-    return asset;
-  }
-
-  console.info("[Shorts Visual Library] asset migrated", {
-    asset_id: asset.id,
-    source_path: asset.storage_path,
-    target_path: storagePath,
-  });
-
-  return data;
-}
-
-async function migrateVisualAssetsToCanonicalLibrary(assets: ContentAssetRow[]) {
-  const migrated: ContentAssetRow[] = [];
-
-  for (const asset of assets) {
-    migrated.push(await migrateVisualAssetToCanonicalLibrary(asset));
-  }
-
-  return migrated;
-}
-
 async function fallbackLibraryScene({
   draft,
   errorMessage,
@@ -1762,9 +1710,7 @@ async function readLibraryAssets() {
     );
   }
 
-  const migratedAssets = await migrateVisualAssetsToCanonicalLibrary(data ?? []);
-
-  return migratedAssets
+  return (data ?? [])
     .filter((asset) => isCanonicalVisualAsset(asset))
     .slice(0, 120);
 }
@@ -1856,8 +1802,7 @@ async function readSelectedAssets(draft: DraftRow) {
     );
   }
 
-  const migratedAssets = await migrateVisualAssetsToCanonicalLibrary(assets ?? []);
-  const assetById = new Map(migratedAssets.map((asset) => [asset.id, asset]));
+  const assetById = new Map((assets ?? []).map((asset) => [asset.id, asset]));
 
   return (links ?? [])
     .map((link) => {
@@ -1920,8 +1865,7 @@ async function readVisualScenes(draft: DraftRow) {
       )
       .in("id", assetIds)
       .returns<ContentAssetRow[]>();
-    const migratedAssets = await migrateVisualAssetsToCanonicalLibrary(assets ?? []);
-    migratedAssets.forEach((asset) => assetById.set(asset.id, asset));
+    (assets ?? []).forEach((asset) => assetById.set(asset.id, asset));
   }
 
   const normalizedRows: VisualSceneRow[] = [];

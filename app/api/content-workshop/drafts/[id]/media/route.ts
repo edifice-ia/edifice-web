@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import {
   MediaPipelineError,
+  analyzeDraftVisualScene,
   prepareDraftMedia,
   readMediaPipelineState,
   refreshDraftMediaSuggestions,
+  regenerateDraftVisualScene,
   removeDraftVisualAsset,
   requestDraftVisualGeneration,
   selectDraftVisualAsset,
+  updateDraftVisualSceneStatus,
 } from "@/lib/server/media-pipeline";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -23,6 +26,8 @@ function summarizeMediaBody(body: unknown) {
     keys: Object.keys(payload),
     action: payload.action,
     assetId: payload.assetId,
+    generationQuality: payload.generationQuality,
+    sceneIndex: payload.sceneIndex,
     usageOrder: payload.usageOrder,
     missing: [
       payload.action === "select_asset" ||
@@ -162,6 +167,39 @@ export async function POST(
     if (action === "request_visual_generation") {
       const media = await requestDraftVisualGeneration({
         draftId: id,
+        generationQuality: payload.generationQuality,
+        userId: user.id,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "regenerate_scene" || action === "analyze_scene") {
+      const sceneIndex =
+        typeof payload.sceneIndex === "number" ? payload.sceneIndex : 1;
+      const media = action === "regenerate_scene"
+        ? await regenerateDraftVisualScene({
+            draftId: id,
+            generationQuality: payload.generationQuality,
+            sceneIndex,
+            userId: user.id,
+          })
+        : await analyzeDraftVisualScene({
+            draftId: id,
+            sceneIndex,
+            userId: user.id,
+          });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "retain_scene" || action === "reject_scene") {
+      const sceneIndex =
+        typeof payload.sceneIndex === "number" ? payload.sceneIndex : 1;
+      const media = await updateDraftVisualSceneStatus({
+        draftId: id,
+        sceneIndex,
+        status: action === "retain_scene" ? "retained" : "rejected",
         userId: user.id,
       });
 

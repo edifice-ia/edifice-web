@@ -84,6 +84,11 @@ type SubjectEvidence = {
   sourceUsage: AssistantSourceUsage;
 };
 
+type OperationalAnswer = {
+  answer: string;
+  sources: string;
+};
+
 const systemPrompt = [
   "Tu es l'Assistant de L'Edifice, copilote de chantier du projet.",
   "Tu aides Vincent a prioriser, comprendre les blocages, suivre les modules et choisir la prochaine pierre a poser.",
@@ -178,6 +183,24 @@ function detectIntent(message: string): AssistantIntent {
 
 function buildPermissionAnswer() {
   return [
+    "Etat actuel :",
+    "Mode copilote actif, avec garde-fous stricts.",
+    "",
+    "Priorite :",
+    "Repondre clairement sur ce que je peux faire et ce qui exige une confirmation.",
+    "",
+    "Blocages :",
+    "Aucune action sensible autorisee sans validation humaine.",
+    "",
+    "Action recommandee :",
+    "Utiliser l'assistant pour lire, proposer et preparer; confirmer avant toute ecriture.",
+    "",
+    "Prochaine etape :",
+    "Me donner l'information ou l'objectif a traiter, puis confirmer si une mise a jour est proposee.",
+    "",
+    "Confiance :",
+    "100%",
+    "",
     "Je peux lire :",
     "- Memoire projet",
     "- Trajectoire",
@@ -204,6 +227,67 @@ function buildPermissionAnswer() {
     "- changer une deadline sensible",
     "- declencher une action OAuth",
     "- lancer une publication automatique",
+  ].join("\n");
+}
+
+function confidenceFromSources(sourceUsage: AssistantSourceUsage) {
+  const score =
+    45 +
+    (sourceUsage.trajectoire ? 25 : 0) +
+    (sourceUsage.memory ? 15 : 0) +
+    (sourceUsage.cockpit ? 10 : 0) +
+    (sourceUsage.observatory ? 5 : 0);
+
+  return `${Math.min(95, score)}%`;
+}
+
+function splitSourcesFromAnswer(text: string): OperationalAnswer {
+  const marker = "\nSource utilisee :";
+  const index = text.indexOf(marker);
+
+  if (index === -1) {
+    return { answer: text, sources: "" };
+  }
+
+  return {
+    answer: text.slice(0, index).trim(),
+    sources: text.slice(index + 1).trim(),
+  };
+}
+
+function buildCopilotSummary({
+  action,
+  blockers,
+  confidence,
+  currentState,
+  nextStep,
+  priority,
+}: {
+  action: string;
+  blockers: string[];
+  confidence: string;
+  currentState: string;
+  nextStep: string;
+  priority: string;
+}) {
+  return [
+    "Etat actuel :",
+    currentState,
+    "",
+    "Priorite :",
+    priority,
+    "",
+    "Blocages :",
+    blockers.length ? blockers.join(" ; ") : "Aucun blocage critique detecte.",
+    "",
+    "Action recommandee :",
+    action,
+    "",
+    "Prochaine etape :",
+    nextStep,
+    "",
+    "Confiance :",
+    confidence,
   ].join("\n");
 }
 
@@ -609,6 +693,156 @@ function nextActionFromEvidence(
   );
 }
 
+function daysUntilDate(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(target.getTime())) {
+    return null;
+  }
+
+  return Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
+}
+
+function getGlobalPriority(input: GlobalAssistantInput) {
+  const activeObjectives = (input.trajectoire?.projects ?? [])
+    .flatMap((project) =>
+      project.objectives.map((objective) => ({ objective, project })),
+    )
+    .filter(({ objective }) =>
+      ["non commence", "en cours", "bloque"].includes(objective.status),
+    );
+  const datedObjective = activeObjectives
+    .filter(({ objective }) => objective.deadline)
+    .sort((left, right) => {
+      const leftDays = daysUntilDate(left.objective.deadline) ?? 9999;
+      const rightDays = daysUntilDate(right.objective.deadline) ?? 9999;
+      return leftDays - rightDays;
+    })[0];
+
+  if (datedObjective) {
+    const action =
+      datedObjective.objective.actions.find((item) => item.status === "en cours") ??
+      datedObjective.objective.actions.find((item) => item.status === "a faire") ??
+      null;
+
+    return {
+      action: action?.title ?? `Avancer l'objectif: ${datedObjective.objective.title}`,
+      blocker:
+        datedObjective.objective.status === "bloque"
+          ? `Pipeline non valide ou objectif bloque: ${datedObjective.objective.title}`
+          : null,
+      confidence: "90%",
+      currentState: `${datedObjective.project.title} / ${datedObjective.objective.title}, echeance ${datedObjective.objective.deadline}.`,
+      priority: datedObjective.objective.title,
+      sourceUsage: {
+        trajectoire: true,
+        memory: input.context.projectMemoryEntries.length > 0,
+        cockpit: false,
+        observatory: false,
+      },
+    };
+  }
+
+  const blocker =
+    input.context.cockpitState.blockers[0] ??
+    input.context.blockedModules[0]?.summary ??
+    null;
+
+  if (blocker) {
+    return {
+      action: input.context.nextPriorityAction,
+      blocker,
+      confidence: "80%",
+      currentState: "Blocage critique detecte dans le cockpit.",
+      priority: "Lever le blocage critique.",
+      sourceUsage: {
+        trajectoire: false,
+        memory: input.context.projectMemoryEntries.length > 0,
+        cockpit: true,
+        observatory: input.context.blockedModules.length > 0,
+      },
+    };
+  }
+
+  return {
+    action: input.context.nextPriorityAction,
+    blocker: null,
+    confidence: "70%",
+    currentState: input.context.projectSummary,
+    priority: "Executer la prochaine action disponible.",
+    sourceUsage: {
+      trajectoire: false,
+      memory: input.context.projectMemoryEntries.length > 0,
+      cockpit: true,
+      observatory: input.context.observatoryItems.length > 0,
+    },
+  };
+}
+
+function twoDigits(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function extractUserDate(message: string) {
+  const normalized = normalizeMessage(message);
+  const isoMatch = normalized.match(/\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
+
+  if (isoMatch) {
+    return `${isoMatch[1]}-${twoDigits(Number(isoMatch[2]))}-${twoDigits(Number(isoMatch[3]))}`;
+  }
+
+  const slashMatch = normalized.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](20\d{2}))?\b/);
+
+  if (slashMatch) {
+    const year = slashMatch[3] ?? String(new Date().getFullYear());
+    return `${year}-${twoDigits(Number(slashMatch[2]))}-${twoDigits(Number(slashMatch[1]))}`;
+  }
+
+  const months: Record<string, number> = {
+    janvier: 1,
+    fevrier: 2,
+    mars: 3,
+    avril: 4,
+    mai: 5,
+    juin: 6,
+    juillet: 7,
+    aout: 8,
+    septembre: 9,
+    octobre: 10,
+    novembre: 11,
+    decembre: 12,
+  };
+  const monthPattern = Object.keys(months).join("|");
+  const frenchMatch = normalized.match(
+    new RegExp(`\\b(\\d{1,2})\\s+(${monthPattern})(?:\\s+(20\\d{2}))?\\b`),
+  );
+
+  if (!frenchMatch) {
+    return null;
+  }
+
+  const year = frenchMatch[3] ?? String(new Date().getFullYear());
+  return `${year}-${twoDigits(months[frenchMatch[2]])}-${twoDigits(Number(frenchMatch[1]))}`;
+}
+
+function inferDefaultDeadline(normalizedMessage: string) {
+  if (normalizedMessage.includes("juillet")) {
+    return `${new Date().getFullYear()}-07-31`;
+  }
+
+  if (normalizedMessage.includes("fin juin")) {
+    return `${new Date().getFullYear()}-06-30`;
+  }
+
+  return null;
+}
+
 function buildSubjectEvidenceAnswer({
   context,
   evidence,
@@ -661,8 +895,28 @@ function buildSubjectEvidenceAnswer({
         ]
       : [];
 
+  const summary = buildCopilotSummary({
+    currentState:
+      evidence.platforms[0]?.summary ??
+      evidence.memory[0]?.value ??
+      evidence.memory[0]?.status ??
+      (subject === "Shorts"
+        ? `${evidence.drafts.total} brouillon(s), ${evidence.drafts.inProgress.length} en cours.`
+        : `${subject} suivi via cockpit et observatoire.`),
+    priority:
+      subject === "Connexions"
+        ? "Stabiliser les connexions utiles sans action OAuth automatique."
+        : `Clarifier l'etat ${subject} et choisir une seule action faisable.`,
+    blockers,
+    action: nextAction ?? "Verifier les donnees du cockpit et de l'Observatoire.",
+    nextStep: nextAction ?? "Ouvrir le module concerne et valider le statut exact.",
+    confidence: confidenceFromSources(evidence.sourceUsage),
+  });
+
   return [
-    `Etat ${subject} :`,
+    summary,
+    "",
+    `Details ${subject} :`,
     ...platformLines,
     ...shortsLines,
     "",
@@ -709,24 +963,31 @@ function buildGeneralContextAnswer(input: GlobalAssistantInput) {
   const objective = project
     ? project.objectives.find((item) => item.status !== "termine") ?? null
     : null;
+  const priority = getGlobalPriority(input);
 
   if (!project && !input.context.projectMemoryEntries.length) {
     return missingContextAnswer("General", input.context);
   }
 
   return [
-    "Etat general :",
-    input.context.projectSummary,
+    buildCopilotSummary({
+      currentState: priority.currentState,
+      priority: priority.priority,
+      blockers: priority.blocker ? [priority.blocker] : [],
+      action: priority.action,
+      nextStep: priority.action,
+      confidence: priority.confidence,
+    }),
     "",
-    "Prochaine action :",
-    objective?.actions.find((action) => action.status !== "fait")?.title ??
-      input.context.nextPriorityAction,
+    "Details :",
+    input.context.projectSummary,
     "",
     formatContextUsed({
       subject: "General",
       memoryCount: input.context.projectMemoryEntries.length,
       project,
       objective,
+      sourceUsage: priority.sourceUsage,
     }),
   ].join("\n");
 }
@@ -764,8 +1025,31 @@ function buildPopamAnswer({
     objective.actions.find((action) => action.status === "en cours") ??
     objective.actions.find((action) => action.status === "a faire") ??
     null;
+  const effectiveSourceUsage = sourceUsage
+    ? { ...sourceUsage, trajectoire: true }
+    : {
+        trajectoire: true,
+        memory: context.projectMemoryEntries.length > 0,
+        cockpit: false,
+        observatory: false,
+      };
+  const summary = buildCopilotSummary({
+    currentState: `${project.title} / ${objective.title} est a ${retainedProgress}% retenu.`,
+    priority: objective.title,
+    blockers:
+      objective.status === "bloque"
+        ? [`Objectif bloque: ${objective.title}`]
+        : objective.actions.length && !nextAction
+          ? ["Toutes les actions connues sont faites; definir le prochain jalon."]
+          : [],
+    action: nextAction?.title ?? "Definir la prochaine action dans Trajectoire.",
+    nextStep: nextAction?.title ?? "Ajouter ou valider une action suivante.",
+    confidence: confidenceFromSources(effectiveSourceUsage),
+  });
 
   return [
+    summary,
+    "",
     "Projet :",
     project.title,
     "",
@@ -796,14 +1080,7 @@ function buildPopamAnswer({
       memoryCount: context.projectMemoryEntries.length,
       project,
       objective,
-      sourceUsage: sourceUsage
-        ? { ...sourceUsage, trajectoire: true }
-        : {
-            trajectoire: true,
-            memory: context.projectMemoryEntries.length > 0,
-            cockpit: false,
-            observatory: false,
-          },
+      sourceUsage: effectiveSourceUsage,
     }),
   ].join("\n");
 }
@@ -918,12 +1195,8 @@ function detectTrajectoryObjectiveProposal(
     .map((entry) =>
       `${entry.key ?? entry.title}: ${entry.value ?? entry.status ?? "non renseigne"}`,
     );
-  const deadline =
-    normalized.includes("31 juillet") || normalized.includes("juillet")
-      ? "2026-07-31"
-      : normalized.includes("30 juin") || normalized.includes("fin juin")
-        ? "2026-06-30"
-        : null;
+  const userDate = extractUserDate(message);
+  const deadline = userDate ?? inferDefaultDeadline(normalized);
 
   if (mentionsShorts) {
     return {
@@ -1695,12 +1968,20 @@ export async function globalAssistant(input: GlobalAssistantInput) {
 
   const { context } = input;
   const recommendation = getPrimaryRecommendation(context);
-  const answer = buildContextualOperationalAnswer(input);
+  const operationalAnswer = splitSourcesFromAnswer(
+    buildContextualOperationalAnswer(input),
+  );
+  const detailedParts = [
+    operationalAnswer.sources
+      ? `Sources utilisees :\n${operationalAnswer.sources}`
+      : null,
+    detailedAnalysis,
+  ].filter((part): part is string => Boolean(part?.trim()));
 
   return {
     ok: true,
-    answer,
-    detailedAnalysis,
+    answer: operationalAnswer.answer,
+    detailedAnalysis: detailedParts.join("\n\n"),
     recommendation,
     trajectoryProposal: detectTrajectoryObjectiveProposal(input.message, context),
     context: buildResponseContext(context),

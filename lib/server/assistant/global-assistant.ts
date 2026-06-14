@@ -57,11 +57,12 @@ type AssistantSubject =
   | "General";
 
 type AssistantIntent =
-  | "permission"
-  | "project_status"
-  | "trajectory_creation"
-  | "memory_update"
-  | "recommendation"
+  | "etat"
+  | "priorite"
+  | "modification"
+  | "creation"
+  | "capacites"
+  | "explication"
   | "general";
 
 type AssistantSourceUsage = {
@@ -85,6 +86,11 @@ type SubjectEvidence = {
 };
 
 type OperationalAnswer = {
+  answer: string;
+  sources: string;
+};
+
+type IntentionalOperationalAnswer = {
   answer: string;
   sources: string;
 };
@@ -113,13 +119,17 @@ function normalizeMessage(message: string) {
 }
 
 function detectIntent(message: string): AssistantIntent {
-  const normalized = normalizeMessage(message);
+  const normalized = normalizeMessage(message).replace(/[^a-z0-9]+/g, " ").trim();
   const asksCapability =
     normalized.includes("qu est ce que tu peux") ||
+    normalized.includes("que peux tu") ||
+    normalized.includes("peux tu") ||
     normalized.includes("tu peux") ||
     normalized.includes("qu est ce que tu as le droit") ||
     normalized.includes("droit de") ||
     normalized.includes("pas le droit") ||
+    normalized.includes("limite") ||
+    normalized.includes("limites") ||
     normalized.includes("permission") ||
     normalized.includes("garde fou") ||
     normalized.includes("garde-fou");
@@ -133,31 +143,79 @@ function detectIntent(message: string): AssistantIntent {
     normalized.includes("oauth") ||
     normalized.includes("changer") ||
     normalized.includes("declencher");
+  const asksConcreteChange =
+    normalized.includes("mets a jour") ||
+    normalized.includes("mettre a jour") ||
+    normalized.includes("marque") ||
+    normalized.includes("change la") ||
+    normalized.includes("ajoute") ||
+    normalized.includes("supprime") ||
+    normalized.includes("reporter") ||
+    normalized.includes("termine cette") ||
+    normalized.includes("termine la");
 
-  if (asksCapability && mentionsSensitiveAction) {
-    return "permission";
+  if (asksCapability && (mentionsSensitiveAction || normalized.includes("limite")) && !asksConcreteChange) {
+    return "capacites";
   }
 
   if (
-    normalized.includes("review") ||
-    normalized.includes("est valide") ||
-    normalized.includes("est validee") ||
-    normalized.includes("est report") ||
-    normalized.includes("reste en sandbox") ||
-    normalized.includes("est termine")
-  ) {
-    return "memory_update";
-  }
-
-  if (
+    normalized.includes("je veux") ||
     normalized.includes("objectif") ||
     normalized.includes("fixe-moi") ||
     normalized.includes("cree-moi") ||
-    normalized.includes("creer") ||
+    normalized.includes("creer un projet") ||
+    normalized.includes("cree un projet") ||
+    normalized.includes("ajoute un objectif") ||
     normalized.includes("avant le") ||
     normalized.includes("avant fin")
   ) {
-    return "trajectory_creation";
+    return "creation";
+  }
+
+  if (
+    normalized.includes("mets a jour") ||
+    normalized.includes("mettre a jour") ||
+    normalized.includes("modifie") ||
+    normalized.includes("modifier") ||
+    normalized.includes("marque") ||
+    normalized.includes("termine") ||
+    normalized.includes("terminee") ||
+    normalized.includes("terminer") ||
+    normalized.includes("reporter") ||
+    normalized.includes("reporte") ||
+    normalized.includes("ajoute une action") ||
+    normalized.includes("supprime") ||
+    normalized.includes("supprimer") ||
+    normalized.includes("change la deadline") ||
+    normalized.includes("change l echeance") ||
+    normalized.includes("progression") ||
+    normalized.includes("est valide") ||
+    normalized.includes("est validee") ||
+    normalized.includes("reste en sandbox")
+  ) {
+    return "modification";
+  }
+
+  if (
+    normalized.includes("pourquoi") ||
+    normalized.includes("explique") ||
+    normalized.includes("raison") ||
+    normalized.includes("justifie")
+  ) {
+    return "explication";
+  }
+
+  if (
+    normalized.includes("quelle est ma priorite") ||
+    normalized.includes("ma priorite") ||
+    normalized.includes("que dois je faire") ||
+    normalized.includes("sur quoi dois je travailler") ||
+    normalized.includes("ou dois je avancer") ||
+    normalized.includes("que me conseilles tu") ||
+    normalized.includes("priorite aujourd") ||
+    normalized.includes("travailler aujourd")
+  ) {
+    return "priorite";
   }
 
   if (
@@ -166,68 +224,10 @@ function detectIntent(message: string): AssistantIntent {
     normalized.includes("avancement") ||
     normalized.includes("statut")
   ) {
-    return "project_status";
-  }
-
-  if (
-    normalized.includes("que faire") ||
-    normalized.includes("prochaine") ||
-    normalized.includes("recommande") ||
-    normalized.includes("priorite")
-  ) {
-    return "recommendation";
+    return "etat";
   }
 
   return "general";
-}
-
-function buildPermissionAnswer() {
-  return [
-    "Etat actuel :",
-    "Mode copilote actif, avec garde-fous stricts.",
-    "",
-    "Priorite :",
-    "Repondre clairement sur ce que je peux faire et ce qui exige une confirmation.",
-    "",
-    "Blocages :",
-    "Aucune action sensible autorisee sans validation humaine.",
-    "",
-    "Action recommandee :",
-    "Utiliser l'assistant pour lire, proposer et preparer; confirmer avant toute ecriture.",
-    "",
-    "Prochaine etape :",
-    "Me donner l'information ou l'objectif a traiter, puis confirmer si une mise a jour est proposee.",
-    "",
-    "Confiance :",
-    "100%",
-    "",
-    "Je peux lire :",
-    "- Memoire projet",
-    "- Trajectoire",
-    "- etat cockpit",
-    "- brouillons / modules selon acces",
-    "",
-    "Je peux proposer :",
-    "- mise a jour memoire",
-    "- creation d'objectif Trajectoire",
-    "- prochaine action",
-    "- plan POPAM",
-    "",
-    "Je peux modifier uniquement apres confirmation :",
-    "- project_memory",
-    "- projets Trajectoire",
-    "- objectifs",
-    "- actions",
-    "- statuts",
-    "",
-    "Je ne peux pas faire seul :",
-    "- supprimer un projet",
-    "- publier du contenu",
-    "- modifier des tokens",
-    "- changer une deadline sensible",
-    "- declencher une action OAuth",
-    "- lancer une publication automatique",
-  ].join("\n");
 }
 
 function confidenceFromSources(sourceUsage: AssistantSourceUsage) {
@@ -289,6 +289,396 @@ function buildCopilotSummary({
     "Confiance :",
     confidence,
   ].join("\n");
+}
+
+function toIntentionalAnswer(
+  answer: string,
+  options: {
+    intent: AssistantIntent;
+    subject: AssistantSubject;
+    memoryCount: number;
+    project: TrajectoireProject | null;
+    objective: TrajectoireObjective | null;
+    sourceUsage?: AssistantSourceUsage;
+    extra?: string[];
+  },
+): IntentionalOperationalAnswer {
+  const sources = [
+    formatContextUsed({
+      subject: options.subject,
+      memoryCount: options.memoryCount,
+      project: options.project,
+      objective: options.objective,
+      sourceUsage: options.sourceUsage,
+    }),
+    "",
+    "Intention detectee :",
+    `- ${options.intent}`,
+    ...(options.extra?.length ? ["", "Elements d'analyse :", ...options.extra.map((item) => `- ${item}`)] : []),
+  ].join("\n");
+
+  return { answer, sources };
+}
+
+function formatShortList(items: string[], fallback: string) {
+  return items.length ? items.slice(0, 4).map((item) => `- ${item}`).join("\n") : fallback;
+}
+
+function buildCapabilitiesAnswer(
+  context: ProjectContext,
+): IntentionalOperationalAnswer {
+  return {
+    answer: [
+      "Ce que je peux lire :",
+      "- Memoire projet",
+      "- Trajectoire",
+      "- etat cockpit",
+      "- brouillons / modules selon acces",
+      "",
+      "Ce que je peux proposer :",
+      "- mise a jour memoire",
+      "- creation ou mise a jour d'objectif Trajectoire",
+      "- prochaine action",
+      "- plan POPAM",
+      "",
+      "Ce que je peux modifier apres confirmation :",
+      "- project_memory",
+      "- projets Trajectoire",
+      "- objectifs",
+      "- actions",
+      "- statuts",
+      "",
+      "Ce qui reste interdit :",
+      "- supprimer un projet sans demande explicite",
+      "- publier du contenu",
+      "- modifier des tokens",
+      "- changer une deadline sensible sans confirmation",
+      "- declencher une action OAuth",
+      "- lancer une publication automatique",
+    ].join("\n"),
+    sources: [
+      "Source utilisee :",
+      "- Regles de securite Assistant : oui",
+      "- Garde-fous cockpit : oui",
+      "",
+      "Contexte utilise :",
+      `- Garde-fous : ${context.guardrails.length} regle(s)`,
+      "- Intention detectee : capacites",
+    ].join("\n"),
+  };
+}
+
+function buildPriorityIntentAnswer(input: GlobalAssistantInput) {
+  const priority = getGlobalPriority(input);
+  const subject = detectSubject(input.message);
+  const project = findSubjectProject(subject, input.trajectoire);
+  const objective = project ? selectObjective(project, subject) : null;
+  const evidence = collectSubjectEvidence(input.context, subject);
+  const popamContext = objective && project
+    ? [
+        `Projet: ${project.title}`,
+        `Objectif: ${objective.title}`,
+        `Plan d'action: ${subjectDefaultPlan(subject, objective.title).join(" ; ")}`,
+        `Actions: ${objective.actions.map((action) => `${action.title} (${action.status})`).join(" ; ") || "non renseignees"}`,
+        `Moyens: ${subjectMeans(subject).join(" ; ")}`,
+      ]
+    : [
+        `Projet: ${subject}`,
+        `Objectif: ${priority.priority}`,
+        `Plan d'action: ${input.context.actionablePriorities.slice(0, 3).map((item) => item.action).join(" ; ") || priority.action}`,
+        `Moyens: ${subjectMeans(subject).join(" ; ")}`,
+      ];
+  const answer = [
+    "Objectif principal :",
+    priority.priority,
+    "",
+    "Pourquoi :",
+    priority.blocker
+      ? `Un blocage reel est visible: ${priority.blocker}`
+      : priority.currentState,
+    "",
+    "Action recommandee :",
+    priority.action,
+    "",
+    "Impact attendu :",
+    "Avancer le chantier le plus proche d'une echeance ou d'un resultat verifiable, sans ouvrir d'action sensible.",
+  ].join("\n");
+
+  return toIntentionalAnswer(answer, {
+    intent: "priorite",
+    subject,
+    memoryCount: input.context.projectMemoryEntries.length,
+    project,
+    objective,
+    sourceUsage: {
+      trajectoire: priority.sourceUsage.trajectoire || Boolean(project),
+      memory: priority.sourceUsage.memory || evidence.sourceUsage.memory,
+      cockpit: priority.sourceUsage.cockpit || evidence.sourceUsage.cockpit,
+      observatory: priority.sourceUsage.observatory || evidence.sourceUsage.observatory,
+    },
+    extra: popamContext,
+  });
+}
+
+function buildStateIntentAnswer(input: GlobalAssistantInput) {
+  const subject = detectSubject(input.message);
+  const project = findSubjectProject(subject, input.trajectoire);
+  const objective = project ? selectObjective(project, subject) : null;
+  const evidence = collectSubjectEvidence(input.context, subject);
+
+  if (project && objective) {
+    const retainedProgress = retainedObjectiveProgress(objective);
+    const nextAction =
+      objective.actions.find((action) => action.status === "en cours") ??
+      objective.actions.find((action) => action.status === "a faire") ??
+      null;
+    const answer = [
+      "Etat actuel :",
+      `${project.title} / ${objective.title} est a ${retainedProgress}% retenu.`,
+      "",
+      "Priorite :",
+      objective.title,
+      "",
+      "Blocages :",
+      objective.status === "bloque"
+        ? `Objectif bloque: ${objective.title}`
+        : "Aucun blocage critique detecte.",
+      "",
+      "Prochaine etape :",
+      nextAction?.title ?? "Definir la prochaine action dans Trajectoire.",
+    ].join("\n");
+
+    return toIntentionalAnswer(answer, {
+      intent: "etat",
+      subject,
+      memoryCount: input.context.projectMemoryEntries.length,
+      project,
+      objective,
+      sourceUsage: { ...evidence.sourceUsage, trajectoire: true },
+      extra: [
+        `Progression manuelle: ${objective.progress}%`,
+        `Progression calculee: ${calculatedObjectiveProgress(objective) ?? "non disponible"}`,
+        `Actions: ${objective.actions.map((action) => `${action.title} (${action.status})`).join(" ; ") || "aucune"}`,
+      ],
+    });
+  }
+
+  if (hasSubjectEvidence(evidence)) {
+    const blockers = evidence.blockers.length
+      ? evidence.blockers
+      : evidence.observatory
+          .filter((item) => ["Bloque", "A securiser", "Non connecte", "Review"].includes(item.status))
+          .map((item) => `${item.name}: ${item.summary}`);
+    const nextAction = nextActionFromEvidence(input.context, evidence);
+    const answer = [
+      "Etat actuel :",
+      evidence.platforms[0]?.summary ??
+        evidence.memory[0]?.value ??
+        evidence.memory[0]?.status ??
+        (subject === "Shorts"
+          ? `${evidence.drafts.total} brouillon(s), ${evidence.drafts.inProgress.length} en cours.`
+          : `${subject} suivi via cockpit, memoire ou observatoire.`),
+      "",
+      "Priorite :",
+      subject === "Connexions"
+        ? "Stabiliser les connexions utiles sans action OAuth automatique."
+        : `Clarifier l'etat ${subject} et choisir une seule action faisable.`,
+      "",
+      "Blocages :",
+      blockers.length ? blockers.join(" ; ") : "Aucun blocage critique detecte.",
+      "",
+      "Prochaine etape :",
+      nextAction ?? "Ouvrir le module concerne et valider le statut exact.",
+    ].join("\n");
+
+    return toIntentionalAnswer(answer, {
+      intent: "etat",
+      subject,
+      memoryCount: evidence.memory.length,
+      project: null,
+      objective: null,
+      sourceUsage: evidence.sourceUsage,
+      extra: [
+        `Memoire: ${evidence.memory.map((entry) => `${entry.title}: ${entry.value ?? entry.status ?? "renseigne"}`).join(" ; ") || "aucune"}`,
+        `OAuth: ${evidence.oauth.map(formatOAuthLine).join(" ; ") || "aucun"}`,
+        `Observatoire: ${evidence.observatory.map((item) => `${item.name}: ${item.status}`).join(" ; ") || "aucun"}`,
+      ],
+    });
+  }
+
+  const missing = splitSourcesFromAnswer(missingContextAnswer(subject, input.context));
+  return { answer: missing.answer, sources: missing.sources };
+}
+
+function buildModificationIntentAnswer(input: GlobalAssistantInput) {
+  const subject = detectSubject(input.message);
+  const project = findSubjectProject(subject, input.trajectoire);
+  const objective = project ? selectObjective(project, subject) : null;
+  const evidence = collectSubjectEvidence(input.context, subject);
+  const targetProject = project?.title ?? (subject === "General" ? "A confirmer" : subject);
+  const targetObjective = objective?.title ?? "A confirmer";
+  const modification = inferModificationLabel(input.message, subject);
+  const impact = objective
+    ? "La modification sera appliquee seulement apres confirmation, puis la progression sera recalculee depuis les actions si possible."
+    : "Je dois d'abord confirmer l'element exact a modifier pour eviter un doublon ou une mauvaise cible.";
+  const answer = [
+    "Modification detectee",
+    "",
+    "Projet :",
+    targetProject,
+    "",
+    "Objectif :",
+    targetObjective,
+    "",
+    "Modification proposee :",
+    modification,
+    "",
+    "Impact :",
+    impact,
+    "",
+    "Confirmer ?",
+    "J'afficherai une carte de confirmation si une mise a jour memoire ou Trajectoire peut etre rattachee avec assez de confiance.",
+  ].join("\n");
+
+  return toIntentionalAnswer(answer, {
+    intent: "modification",
+    subject,
+    memoryCount: evidence.memory.length,
+    project,
+    objective,
+    sourceUsage: { ...evidence.sourceUsage, trajectoire: Boolean(project) },
+    extra: [
+      `Demande utilisateur: ${input.message}`,
+      "Garde-fou: aucune ecriture sans confirmation explicite.",
+    ],
+  });
+}
+
+function inferModificationLabel(message: string, subject: AssistantSubject) {
+  const normalized = normalizeMessage(message).replace(/[^a-z0-9]+/g, " ").trim();
+
+  if (normalized.includes("deadline") || normalized.includes("echeance")) {
+    return "Changer une deadline apres confirmation.";
+  }
+
+  if (normalized.includes("progression")) {
+    return "Mettre a jour la progression apres confirmation.";
+  }
+
+  if (normalized.includes("report")) {
+    return "Reporter le statut concerne apres confirmation.";
+  }
+
+  if (normalized.includes("termine") || normalized.includes("fait") || normalized.includes("prete") || normalized.includes("pret")) {
+    return "Marquer l'action ou le module concerne comme termine / fait apres confirmation.";
+  }
+
+  if (normalized.includes("ajoute")) {
+    return "Ajouter l'element demande apres confirmation.";
+  }
+
+  if (normalized.includes("supprime")) {
+    return "Suppression demandee: confirmation stricte requise, aucune suppression automatique.";
+  }
+
+  return `Modifier ${subject} apres confirmation.`;
+}
+
+function buildCreationIntentAnswer(input: GlobalAssistantInput) {
+  const subject = detectSubject(input.message);
+  const proposal = detectTrajectoryObjectiveProposal(input.message, input.context);
+  const project = findSubjectProject(subject, input.trajectoire);
+  const objective = project ? selectObjective(project, subject) : null;
+  const evidence = collectSubjectEvidence(input.context, subject);
+
+  if (!proposal) {
+    const missing = splitSourcesFromAnswer(missingContextAnswer(subject, input.context));
+    return { answer: missing.answer, sources: missing.sources };
+  }
+
+  const answer = [
+    "Projet propose :",
+    proposal.project,
+    "",
+    "Objectif :",
+    proposal.objective,
+    "",
+    "Date :",
+    proposal.deadline ?? "A confirmer",
+    "",
+    "Plan d'action :",
+    formatShortList(proposal.planAction, "- A definir"),
+    "",
+    "Actions :",
+    formatShortList(proposal.actions, "- A definir"),
+    "",
+    "Moyens :",
+    formatShortList(proposal.means, "- A confirmer"),
+    "",
+    "Confirmer ?",
+    "Aucune creation Trajectoire ne sera faite sans validation.",
+  ].join("\n");
+
+  return toIntentionalAnswer(answer, {
+    intent: "creation",
+    subject,
+    memoryCount: evidence.memory.length,
+    project,
+    objective,
+    sourceUsage: { ...evidence.sourceUsage, trajectoire: Boolean(project) },
+    extra: [
+      `Mode proposition: ${proposal.mode ?? "create"}`,
+      `Confiance: ${Math.round(proposal.confidence * 100)}%`,
+      ...(proposal.memoryContext ?? []),
+    ],
+  });
+}
+
+function buildExplanationIntentAnswer(input: GlobalAssistantInput) {
+  const subject = detectSubject(input.message);
+  const project = findSubjectProject(subject, input.trajectoire);
+  const objective = project ? selectObjective(project, subject) : null;
+  const evidence = collectSubjectEvidence(input.context, subject);
+  const priority = getGlobalPriority(input);
+  const contextLine = project && objective
+    ? `${project.title} / ${objective.title}`
+    : hasSubjectEvidence(evidence)
+      ? `${subject} est documente dans les sources cockpit ou memoire.`
+      : priority.currentState;
+  const reasoning = priority.blocker
+    ? `La priorite remonte car un blocage est visible: ${priority.blocker}`
+    : "La priorite remonte d'abord depuis les objectifs actifs avec echeance, puis les blocages critiques, puis les actions disponibles.";
+  const answer = [
+    "Contexte :",
+    contextLine,
+    "",
+    "Analyse :",
+    reasoning,
+    "",
+    "Raisonnement :",
+    "Je compare Trajectoire, memoire projet, cockpit et observatoire, puis je retiens ce qui est actionnable maintenant sans action sensible.",
+    "",
+    "Conclusion :",
+    priority.action,
+  ].join("\n");
+
+  return toIntentionalAnswer(answer, {
+    intent: "explication",
+    subject,
+    memoryCount: evidence.memory.length,
+    project,
+    objective,
+    sourceUsage: {
+      trajectoire: Boolean(project) || priority.sourceUsage.trajectoire,
+      memory: evidence.sourceUsage.memory || priority.sourceUsage.memory,
+      cockpit: evidence.sourceUsage.cockpit || priority.sourceUsage.cockpit,
+      observatory: evidence.sourceUsage.observatory || priority.sourceUsage.observatory,
+    },
+    extra: [
+      `Ordre de priorisation: objectif avec echeance, blocage critique, action disponible.`,
+      `Action retenue: ${priority.action}`,
+    ],
+  });
 }
 
 function detectSubject(message: string): AssistantSubject {
@@ -1085,11 +1475,33 @@ function buildPopamAnswer({
   ].join("\n");
 }
 
-function buildContextualOperationalAnswer(input: GlobalAssistantInput) {
+function buildContextualOperationalAnswer(
+  input: GlobalAssistantInput,
+): IntentionalOperationalAnswer {
   const intent = detectIntent(input.message);
 
-  if (intent === "permission") {
-    return buildPermissionAnswer();
+  if (intent === "capacites") {
+    return buildCapabilitiesAnswer(input.context);
+  }
+
+  if (intent === "creation") {
+    return buildCreationIntentAnswer(input);
+  }
+
+  if (intent === "modification") {
+    return buildModificationIntentAnswer(input);
+  }
+
+  if (intent === "priorite") {
+    return buildPriorityIntentAnswer(input);
+  }
+
+  if (intent === "etat") {
+    return buildStateIntentAnswer(input);
+  }
+
+  if (intent === "explication") {
+    return buildExplanationIntentAnswer(input);
   }
 
   const subject = detectSubject(input.message);
@@ -1098,28 +1510,30 @@ function buildContextualOperationalAnswer(input: GlobalAssistantInput) {
   const evidence = collectSubjectEvidence(input.context, subject);
 
   if (project && objective) {
-    return buildPopamAnswer({
+    const answer = buildPopamAnswer({
       context: input.context,
       objective,
       project,
       sourceUsage: evidence.sourceUsage,
       subject,
     });
+    return splitSourcesFromAnswer(answer);
   }
 
   if (hasSubjectEvidence(evidence)) {
-    return buildSubjectEvidenceAnswer({
+    const answer = buildSubjectEvidenceAnswer({
       context: input.context,
       evidence,
       subject,
     });
+    return splitSourcesFromAnswer(answer);
   }
 
   if (subject !== "General") {
-    return missingContextAnswer(subject, input.context);
+    return splitSourcesFromAnswer(missingContextAnswer(subject, input.context));
   }
 
-  return buildGeneralContextAnswer(input);
+  return splitSourcesFromAnswer(buildGeneralContextAnswer(input));
 }
 
 function formatModuleList(
@@ -1968,9 +2382,7 @@ export async function globalAssistant(input: GlobalAssistantInput) {
 
   const { context } = input;
   const recommendation = getPrimaryRecommendation(context);
-  const operationalAnswer = splitSourcesFromAnswer(
-    buildContextualOperationalAnswer(input),
-  );
+  const operationalAnswer = buildContextualOperationalAnswer(input);
   const detailedParts = [
     operationalAnswer.sources
       ? `Sources utilisees :\n${operationalAnswer.sources}`

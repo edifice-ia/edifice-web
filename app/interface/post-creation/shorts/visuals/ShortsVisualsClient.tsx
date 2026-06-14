@@ -255,6 +255,17 @@ function sceneProgressMessage(scene: VisualScene) {
   }
 
   if (scene.generationStatus === "selected_from_library") {
+    const decision = scene.scoreBreakdown.selection_decision;
+    const score = scoreNumber(scene.scoreBreakdown.total_score ?? scene.scoreTotal);
+
+    if (decision === "selected") {
+      return `Bibliotheque validee ${score}/100`;
+    }
+
+    if (decision === "proposed") {
+      return `Bibliotheque acceptable ${score}/100`;
+    }
+
     return "Bibliotheque selectionnee.";
   }
 
@@ -263,6 +274,12 @@ function sceneProgressMessage(scene: VisualScene) {
   }
 
   if (scene.generationStatus === "ready") {
+    const score = scoreNumber(scene.scoreBreakdown.total_score ?? scene.scoreTotal);
+
+    if (scene.scoreBreakdown.selection_decision === "generated") {
+      return `Image generee validee ${score}/100`;
+    }
+
     return "Image prete.";
   }
 
@@ -442,17 +459,33 @@ function ScoreDetails({ asset, isRetained }: { asset: VisualAsset; isRetained: b
 
 function SceneScoreDetails({ scene }: { scene: VisualScene }) {
   const breakdown = scene.scoreBreakdown;
-  const items = [
-    ["Prompt / image", scoreNumber(breakdown.prompt_image ?? breakdown.promptImage), 30],
-    ["Image / brouillon", scoreNumber(breakdown.image_draft ?? breakdown.imageDraft), 25],
-    ["Qualite", scoreNumber(breakdown.quality ?? breakdown.visualQuality), 20],
-    ["Continuite", scoreNumber(breakdown.continuity ?? breakdown.narrativeContinuity), 15],
-    ["Securite / style", scoreNumber(breakdown.safety_style ?? breakdown.editorialSafety), 10],
-  ] as const;
+  const hasSelectionScore =
+    breakdown.subject_score !== undefined ||
+    breakdown.location_score !== undefined ||
+    breakdown.mood_score !== undefined;
+  const items = hasSelectionScore
+    ? ([
+        ["Sujet", scoreNumber(breakdown.subject_score), 25],
+        ["Lieu", scoreNumber(breakdown.location_score), 25],
+        ["Ambiance", scoreNumber(breakdown.mood_score), 20],
+        ["Composition", scoreNumber(breakdown.composition_score), 15],
+        ["Couleurs", scoreNumber(breakdown.color_score), 15],
+      ] as const)
+    : ([
+        ["Prompt / image", scoreNumber(breakdown.prompt_image ?? breakdown.promptImage), 30],
+        ["Image / brouillon", scoreNumber(breakdown.image_draft ?? breakdown.imageDraft), 25],
+        ["Qualite", scoreNumber(breakdown.quality ?? breakdown.visualQuality), 20],
+        ["Continuite", scoreNumber(breakdown.continuity ?? breakdown.narrativeContinuity), 15],
+        ["Securite / style", scoreNumber(breakdown.safety_style ?? breakdown.editorialSafety), 10],
+      ] as const);
   const reason =
-    typeof breakdown.reason === "string" && breakdown.reason.trim()
-      ? breakdown.reason
-      : "Score non disponible.";
+    typeof breakdown.selection_reason === "string" && breakdown.selection_reason.trim()
+      ? breakdown.selection_reason
+      : typeof breakdown.explanation === "string" && breakdown.explanation.trim()
+        ? breakdown.explanation
+        : typeof breakdown.reason === "string" && breakdown.reason.trim()
+          ? breakdown.reason
+          : "Score non disponible.";
   const warnings = Array.isArray(breakdown.warnings)
     ? breakdown.warnings.filter((warning): warning is string => typeof warning === "string")
     : [];

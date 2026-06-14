@@ -14,6 +14,7 @@ type VisualDecisionMode = "reuse_existing" | "generate_new";
 type AssetSource = "library" | "generated";
 type GenerationSource = "library" | "generated" | "regenerated" | "upload";
 type GenerationQuality = "low" | "medium" | "high";
+type VisualSelectionDecision = "selected" | "proposed" | "rejected" | "generated";
 type GenerationStatus =
   | "pending"
   | "searching_library"
@@ -757,7 +758,12 @@ function logVisualPipeline({
   step,
   success,
 }: {
-  action: "library_search" | "vision_score" | "image_generation" | "upload";
+  action:
+    | "library_search"
+    | "vision_score"
+    | "image_generation"
+    | "upload"
+    | "visual_selection";
   assetId?: string | null;
   draftId: string;
   durationMs: number;
@@ -1075,12 +1081,20 @@ function parseVisionJson(text: string) {
   const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned) as Record<string, unknown>;
 
   return {
-    total: normalizeVisionScore(parsed.total, 100),
-    prompt_image: normalizeVisionScore(parsed.prompt_image, 30),
-    image_draft: normalizeVisionScore(parsed.image_draft, 25),
-    quality: normalizeVisionScore(parsed.quality, 20),
-    continuity: normalizeVisionScore(parsed.continuity, 15),
-    safety_style: normalizeVisionScore(parsed.safety_style, 10),
+    color_score: normalizeVisionScore(parsed.color_score, 15),
+    composition_score: normalizeVisionScore(parsed.composition_score, 15),
+    explanation:
+      typeof parsed.explanation === "string" ? parsed.explanation.slice(0, 700) : "",
+    location_score: normalizeVisionScore(parsed.location_score, 25),
+    mood_score: normalizeVisionScore(parsed.mood_score, 20),
+    subject_score: normalizeVisionScore(parsed.subject_score, 25),
+    total_score: normalizeVisionScore(parsed.total_score ?? parsed.total, 100),
+    total: normalizeVisionScore(parsed.total ?? parsed.total_score, 100),
+    prompt_image: normalizeVisionScore(parsed.prompt_image ?? parsed.subject_score, 30),
+    image_draft: normalizeVisionScore(parsed.image_draft ?? parsed.location_score, 25),
+    quality: normalizeVisionScore(parsed.quality ?? parsed.mood_score, 20),
+    continuity: normalizeVisionScore(parsed.continuity ?? parsed.composition_score, 15),
+    safety_style: normalizeVisionScore(parsed.safety_style ?? parsed.color_score, 10),
     decision:
       parsed.decision === "retain" ||
       parsed.decision === "review" ||
@@ -1140,10 +1154,12 @@ async function scoreImageWithVision({
                   type: "text",
                   text: [
                     "Analyse cette image pour un Short L'Edifice.",
-                    "Compare l'image au prompt, au script, et a la position narrative.",
+                    "Compare strictement l'image au prompt, au script, et a la position narrative.",
+                    "Si le lieu demande par le prompt est absent ou contradictoire, baisse fortement location_score et total_score.",
                     "Retourne uniquement ce JSON strict:",
-                    '{"total":number,"prompt_image":number,"image_draft":number,"quality":number,"continuity":number,"safety_style":number,"decision":"retain|review|reject","reason":"courte explication","warnings":[]}',
-                    "Baremes: prompt_image /30, image_draft /25, quality /20, continuity /15, safety_style /10, total /100.",
+                    '{"subject_score":number,"location_score":number,"mood_score":number,"composition_score":number,"color_score":number,"total_score":number,"explanation":"courte explication"}',
+                    "Baremes: subject_score /25, location_score /25, mood_score /20, composition_score /15, color_score /15, total_score /100.",
+                    "Exemple: prompt toit/ville/coucher de soleil + image interieur sombre => location_score faible et total_score sous 70.",
                     `Scene: ${sceneIndex}/7`,
                     `Prompt scene: ${prompt}`,
                     `Titre: ${draft.title ?? ""}`,
@@ -1222,14 +1238,21 @@ async function scoreImageWithVision({
 
 function visionScoreToBreakdown(score: ReturnType<typeof parseVisionJson>) {
   return {
-    total: score.total,
+    total: score.total_score || score.total,
+    total_score: score.total_score || score.total,
+    subject_score: score.subject_score,
+    location_score: score.location_score,
+    mood_score: score.mood_score,
+    composition_score: score.composition_score,
+    color_score: score.color_score,
     promptImage: score.prompt_image,
     imageDraft: score.image_draft,
     visualQuality: score.quality,
     narrativeContinuity: score.continuity,
     editorialSafety: score.safety_style,
     estimatedWithoutVision: false,
-    reason: score.reason,
+    reason: score.explanation || score.reason,
+    explanation: score.explanation || score.reason,
     matchedTerms: [],
     sceneIndex: null,
     decision: score.decision,
@@ -1272,21 +1295,94 @@ function isCanonicalVisualAsset(asset: Pick<ContentAssetRow, "bucket_name" | "st
   );
 }
 
+function libraryVisionDecision(scoreBreakdown: Record<string, unknown>): VisualSelectionDecision {
+  const total = Number(scoreBreakdown.total_score ?? scoreBreakdown.total ?? 0);
+  const location = Number(scoreBreakdown.location_score ?? 0);
+
+  if (!Number.isFinite(total) || total < 70 || location < 18) {
+    return "rejected";
+  }
+
+  return total >= 80 ? "selected" : "proposed";
+}
+
+function visualSelectionReason(
+  decision: VisualSelectionDecision,
+  scoreBreakdown: Record<string, unknown>,
+) {
+  const total = Number(scoreBreakdown.total_score ?? scoreBreakdown.total ?? 0);
+  const explanation =
+    typeof scoreBreakdown.explanation === "string"
+      ? scoreBreakdown.explanation
+      : typeof scoreBreakdown.reason === "string"
+        ? scoreBreakdown.reason
+        : "";
+
+  if (decision === "selected") {
+    return `Bibliotheque validee ${Math.round(total)}/100. ${explanation}`.trim();
+  }
+
+  if (decision === "proposed") {
+    return `Bibliotheque acceptable / ameliorable ${Math.round(total)}/100. ${explanation}`.trim();
+  }
+
+  if (decision === "generated") {
+    return `Image generee validee ${Math.round(total)}/100. ${explanation}`.trim();
+  }
+
+  return `Bibliotheque rejetee ${Math.round(total)}/100. ${explanation}`.trim();
+}
+
+function logVisualSelection({
+  assetId,
+  decision,
+  draftId,
+  reason,
+  sceneIndex,
+  score,
+}: {
+  assetId: string | null;
+  decision: VisualSelectionDecision;
+  draftId: string;
+  reason: string;
+  sceneIndex: number;
+  score: number;
+}) {
+  logVisualPipeline({
+    action: "visual_selection",
+    assetId,
+    draftId,
+    durationMs: 0,
+    endpoint: "content_assets.library",
+    error: decision === "rejected" ? reason : undefined,
+    model: "gpt_vision",
+    sceneIndex,
+    step: decision,
+    success: decision !== "rejected",
+  });
+  console.info("[Shorts Visual Selection]", {
+    asset_id: assetId,
+    decision,
+    draft_id: draftId,
+    reason,
+    scene_index: sceneIndex,
+    score,
+  });
+}
+
 async function fallbackLibraryScene({
   draft,
-  errorMessage,
   generationQuality,
   sceneIndex,
 }: {
   draft: DraftRow;
-  errorMessage: string;
   generationQuality: GenerationQuality;
   sceneIndex: number;
 }) {
   const startedAt = Date.now();
+  const prompt = parseVisualPrompts(draft.visual_prompt ?? "")[sceneIndex - 1] ?? "";
   await upsertVisualScene({
     draft,
-    errorMessage,
     generationQuality,
     generationSource: "library",
     generationStatus: "searching_library",
@@ -1327,65 +1423,102 @@ async function fallbackLibraryScene({
       step: "library_search",
       success: false,
     });
-    return;
+    return false;
   }
-  const asset =
-    suggestions.find(
-      (item) => item.scoreBreakdown.sceneIndex === sceneIndex - 1,
-    ) ?? suggestions[sceneIndex - 1] ?? suggestions[0] ?? null;
 
-  if (!asset) {
-    await upsertVisualScene({
-      draft,
-      errorMessage,
-      generationQuality,
-      generationSource: "library",
-      generationStatus: "error",
-      scoreSource: "none",
-      visualPromptIndex: sceneIndex,
-    });
-    logVisualPipeline({
-      action: "library_search",
+  const candidates = suggestions
+    .filter((item) =>
+      item.scoreBreakdown.sceneIndex === sceneIndex - 1 ||
+      item.score >= 35,
+    )
+    .slice(0, 5);
+
+  for (const asset of candidates) {
+    let scoreBreakdown: Record<string, unknown>;
+    let scoreTotal = asset.score;
+
+    try {
+      const visionScore = await scoreImageWithVision({
+        draft,
+        imageUrl: asset.publicUrl,
+        prompt,
+        sceneIndex,
+      });
+      scoreBreakdown = {
+        ...visionScoreToBreakdown(visionScore),
+        selection_source: "library",
+      };
+      scoreTotal = visionScore.total_score || visionScore.total;
+    } catch (error) {
+      scoreBreakdown = {
+        ...asset.scoreBreakdown,
+        selection_source: "library",
+        selection_warning: error instanceof Error ? error.message : String(error),
+      };
+      scoreTotal = asset.score;
+    }
+
+    const decision = libraryVisionDecision(scoreBreakdown);
+    const reason = visualSelectionReason(decision, scoreBreakdown);
+
+    logVisualSelection({
+      assetId: asset.id,
+      decision,
       draftId: draft.id,
-      durationMs: Date.now() - startedAt,
-      endpoint: "content_assets.library",
-      error: errorMessage,
-      assetId: null,
-      imageUrl: null,
-      model: "heuristic",
+      reason,
       sceneIndex,
-      step: "library_search",
-      success: false,
+      score: scoreTotal,
     });
-    return;
+
+    if (decision === "selected" || decision === "proposed") {
+      await upsertVisualScene({
+        assetId: asset.id,
+        draft,
+        errorMessage: null,
+        generationQuality,
+        generationSource: "library",
+        generationStatus: "selected_from_library",
+        imageUrl: asset.publicUrl,
+        scoreBreakdown: {
+          ...scoreBreakdown,
+          selection_decision: decision,
+          selection_reason: reason,
+        },
+        scoreSource: "gpt_vision",
+        scoreTotal,
+        storagePath: asset.storagePath,
+        visualPromptIndex: sceneIndex,
+      });
+      logVisualPipeline({
+        action: "library_search",
+        draftId: draft.id,
+        durationMs: Date.now() - startedAt,
+        endpoint: "content_assets.library",
+        assetId: asset.id,
+        imageUrl: asset.publicUrl,
+        model: "gpt_vision",
+        sceneIndex,
+        step: decision,
+        success: true,
+      });
+
+      return true;
+    }
   }
 
-  await upsertVisualScene({
-    assetId: asset.id,
-    draft,
-    errorMessage,
-    generationQuality,
-    generationSource: "library",
-    generationStatus: "selected_from_library",
-    imageUrl: asset.publicUrl,
-    scoreBreakdown: asset.scoreBreakdown,
-    scoreSource: "heuristic",
-    scoreTotal: asset.score,
-    storagePath: asset.storagePath,
-    visualPromptIndex: sceneIndex,
-  });
   logVisualPipeline({
     action: "library_search",
     draftId: draft.id,
     durationMs: Date.now() - startedAt,
     endpoint: "content_assets.library",
-    assetId: asset.id,
-    imageUrl: asset.publicUrl,
-    model: "heuristic",
+    error: "Aucun candidat bibliotheque n'atteint 70/100 avec lieu coherent.",
+    model: "gpt_vision",
     sceneIndex,
-    step: "library_search",
-    success: true,
+    step: "rejected",
+    success: false,
   });
+
+  return false;
 }
 
 async function generateSceneVisual({
@@ -1401,10 +1534,21 @@ async function generateSceneVisual({
 }) {
   const prompt = parseVisualPrompts(draft.visual_prompt ?? "")[sceneIndex - 1] ?? "";
 
-  await upsertVisualScene({
+  const librarySelected = await fallbackLibraryScene({
     draft,
     generationQuality,
-    generationSource,
+    sceneIndex,
+  });
+
+  if (librarySelected) {
+    return;
+  }
+
+  await upsertVisualScene({
+    draft,
+    errorMessage: "Generation IA necessaire: aucun visuel bibliotheque pertinent.",
+    generationQuality,
+    generationSource: "generated",
     generationStatus: "generating",
     scoreSource: "none",
     visualPromptIndex: sceneIndex,
@@ -1456,7 +1600,7 @@ async function generateSceneVisual({
         sceneIndex,
       });
       scoreBreakdown = visionScoreToBreakdown(visionScore);
-      scoreTotal = visionScore.total;
+      scoreTotal = visionScore.total_score || visionScore.total;
       scoreSource = "gpt_vision";
     } catch (error) {
       const scored = scoreAsset(draft, asset, sceneIndex - 1);
@@ -1472,7 +1616,11 @@ async function generateSceneVisual({
 
     await updateGeneratedAssetScore({
       assetId: asset.id,
-      scoreBreakdown,
+      scoreBreakdown: {
+        ...scoreBreakdown,
+        selection_decision: "generated",
+        selection_reason: visualSelectionReason("generated", scoreBreakdown),
+      },
       scoreSource,
     });
     await upsertVisualScene({
@@ -1482,18 +1630,33 @@ async function generateSceneVisual({
       generationSource,
       generationStatus: "ready",
       imageUrl: asset.public_url,
-      scoreBreakdown,
+      scoreBreakdown: {
+        ...scoreBreakdown,
+        selection_decision: "generated",
+        selection_reason: visualSelectionReason("generated", scoreBreakdown),
+      },
       scoreSource,
       scoreTotal,
       storagePath: asset.storage_path,
       visualPromptIndex: sceneIndex,
     });
+    logVisualSelection({
+      assetId: asset.id,
+      decision: "generated",
+      draftId: draft.id,
+      reason: visualSelectionReason("generated", scoreBreakdown),
+      sceneIndex,
+      score: scoreTotal,
+    });
   } catch (error) {
-    await fallbackLibraryScene({
+    await upsertVisualScene({
       draft,
       errorMessage: error instanceof Error ? error.message : String(error),
       generationQuality,
-      sceneIndex,
+      generationSource: "generated",
+      generationStatus: "error",
+      scoreSource: "none",
+      visualPromptIndex: sceneIndex,
     });
   }
 }

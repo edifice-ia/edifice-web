@@ -84,6 +84,7 @@ type VisualScene = {
     | "pending"
     | "searching_library"
     | "selected_from_library"
+    | "scoring"
     | "generating"
     | "uploading"
     | "ready"
@@ -135,6 +136,7 @@ const generationStatusLabels: Record<VisualScene["generationStatus"], string> = 
   ready: "Image prete",
   rejected: "rejetee",
   retained: "retenue",
+  scoring: "Analyse / scoring...",
   searching_library: "Recherche bibliotheque...",
   selected_from_library: "Bibliotheque selectionnee",
   uploading: "Upload en cours...",
@@ -165,6 +167,7 @@ function isSceneLoading(scene: VisualScene) {
   return (
     scene.generationStatus === "pending" ||
     scene.generationStatus === "searching_library" ||
+    scene.generationStatus === "scoring" ||
     scene.generationStatus === "generating" ||
     scene.generationStatus === "uploading"
   );
@@ -190,6 +193,126 @@ function sceneDebugValue(value: unknown) {
   return String(value);
 }
 
+function sceneProgressValue(scene: VisualScene) {
+  if (scene.generationStatus === "pending") {
+    return 0;
+  }
+
+  if (scene.generationStatus === "searching_library") {
+    return 25;
+  }
+
+  if (scene.generationStatus === "scoring") {
+    return 45;
+  }
+
+  if (scene.generationStatus === "generating") {
+    return 65;
+  }
+
+  if (scene.generationStatus === "uploading") {
+    return 85;
+  }
+
+  if (
+    scene.generationStatus === "ready" ||
+    scene.generationStatus === "retained" ||
+    scene.generationStatus === "rejected" ||
+    scene.generationStatus === "selected_from_library" ||
+    scene.generationStatus === "error"
+  ) {
+    return 100;
+  }
+
+  return 10;
+}
+
+function sceneProgressMessage(scene: VisualScene) {
+  if (scene.generationStatus === "searching_library") {
+    return `Recherche bibliotheque pour la scene ${scene.visualPromptIndex}...`;
+  }
+
+  if (scene.generationStatus === "scoring") {
+    return `Scene ${scene.visualPromptIndex}/7 : analyse / scoring...`;
+  }
+
+  if (scene.generationStatus === "generating") {
+    return `Scene ${scene.visualPromptIndex}/7 : generation IA en cours...`;
+  }
+
+  if (scene.generationStatus === "uploading") {
+    return "Image sauvegardee dans la bibliotheque...";
+  }
+
+  if (scene.generationStatus === "selected_from_library") {
+    return "Bibliotheque selectionnee.";
+  }
+
+  if (scene.generationStatus === "error") {
+    return "Erreur image. Relance possible.";
+  }
+
+  if (scene.generationStatus === "ready") {
+    return "Image prete.";
+  }
+
+  return "En attente.";
+}
+
+function visualPreparationProgress(scenes: VisualScene[]) {
+  if (scenes.length === 0) {
+    return {
+      activeScene: null as VisualScene | null,
+      blockedCount: 0,
+      loadingCount: 0,
+      message: "0% - initialisation",
+      progress: 0,
+      readyCount: 0,
+      remainingEstimate: "non disponible",
+    };
+  }
+
+  const progress = Math.round(
+    scenes.reduce((total, scene) => total + sceneProgressValue(scene), 0) /
+      scenes.length,
+  );
+  const activeScene =
+    scenes.find((scene) => isSceneLoading(scene)) ??
+    scenes.find((scene) => scene.generationStatus === "error") ??
+    null;
+  const readyCount = scenes.filter((scene) =>
+    scene.imageUrl ||
+    scene.generationStatus === "ready" ||
+    scene.generationStatus === "retained" ||
+    scene.generationStatus === "selected_from_library",
+  ).length;
+  const blockedCount = scenes.filter(
+    (scene) =>
+      scene.generationStatus === "pending" ||
+      scene.generationStatus === "error",
+  ).length;
+  const loadingCount = scenes.filter((scene) => isSceneLoading(scene)).length;
+  const remainingSeconds = loadingCount > 0
+    ? Math.max(30, loadingCount * 45)
+    : 0;
+
+  return {
+    activeScene,
+    blockedCount,
+    loadingCount,
+    message: activeScene
+      ? sceneProgressMessage(activeScene)
+      : readyCount === scenes.length
+        ? "100% - scenes pretes"
+        : `${progress}% - preparation en attente`,
+    progress,
+    readyCount,
+    remainingEstimate: remainingSeconds > 0
+      ? `environ ${Math.ceil(remainingSeconds / 60)} min`
+      : "non disponible",
+  };
+}
+
 function visualActionNotice(action: string) {
   const notices: Record<string, string> = {
     analyze_scene: "Analyse Vision terminee.",
@@ -198,6 +321,7 @@ function visualActionNotice(action: string) {
     regenerate_scene: "Scene regeneree.",
     reject_scene: "Scene rejetee.",
     request_visual_generation: "Generation lancee pour les scenes de ce brouillon.",
+    retry_blocked_scenes: "Relance des scenes bloquees lancee.",
     retain_scene: "Scene retenue.",
     select_asset: "Visuel retenu mis a jour.",
   };
@@ -432,6 +556,10 @@ export function ShortsVisualsClient() {
 
     return scoreOutOf100(scores.reduce((sum, score) => sum + score, 0) / scores.length);
   }, [generatedVisuals, retainedVisuals]);
+  const visualProgress = useMemo(
+    () => visualPreparationProgress(media?.visualScenes ?? []),
+    [media?.visualScenes],
+  );
   const retainedAssetIds = useMemo(
     () => new Set(retainedVisuals.map((asset) => asset.id)),
     [retainedVisuals],
@@ -468,13 +596,15 @@ export function ShortsVisualsClient() {
     }
   }
 
-  async function loadMedia(draftId: string) {
+  async function loadMedia(draftId: string, options: { silent?: boolean } = {}) {
     if (!draftId) {
       setMedia(null);
       return;
     }
 
-    setIsLoadingMedia(true);
+    if (!options.silent) {
+      setIsLoadingMedia(true);
+    }
     setError(null);
 
     try {
@@ -496,7 +626,9 @@ export function ShortsVisualsClient() {
       );
       setMedia(null);
     } finally {
-      setIsLoadingMedia(false);
+      if (!options.silent) {
+        setIsLoadingMedia(false);
+      }
     }
   }
 
@@ -505,6 +637,7 @@ export function ShortsVisualsClient() {
       | "prepare_media"
       | "refresh_suggestions"
       | "request_visual_generation"
+      | "retry_blocked_scenes"
       | "regenerate_scene"
       | "analyze_scene"
       | "retain_scene"
@@ -524,7 +657,9 @@ export function ShortsVisualsClient() {
 
     try {
       const shouldSendGenerationQuality =
-        action === "request_visual_generation" || action === "regenerate_scene";
+        action === "request_visual_generation" ||
+        action === "retry_blocked_scenes" ||
+        action === "regenerate_scene";
       const response = await fetch(`/api/content-workshop/drafts/${selectedDraft.id}/media`, {
         method: "POST",
         headers: {
@@ -576,6 +711,18 @@ export function ShortsVisualsClient() {
 
     return () => window.clearTimeout(timeoutId);
   }, [selectedDraftId]);
+
+  useEffect(() => {
+    if (!isRunningAction || !selectedDraftId) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadMedia(selectedDraftId, { silent: true });
+    }, 2000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isRunningAction, selectedDraftId]);
 
   return (
     <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
@@ -709,6 +856,30 @@ export function ShortsVisualsClient() {
             </p>
           </div>
 
+          <div className="mt-5 rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-[#F8FAFC]">
+                  Preparation des scenes : {visualProgress.progress}%
+                </p>
+                <p className="mt-1 text-sm text-[#A7B0C0]">
+                  {visualProgress.message}
+                </p>
+              </div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
+                {visualProgress.readyCount}/7 pretes ·{" "}
+                {visualProgress.blockedCount} a relancer · temps restant{" "}
+                {visualProgress.remainingEstimate}
+              </p>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#03070B]">
+              <div
+                className="h-full rounded-full bg-[#39E6D0] transition-all"
+                style={{ width: `${visualProgress.progress}%` }}
+              />
+            </div>
+          </div>
+
           <label className="mt-5 block max-w-sm">
             <span className="text-sm font-semibold text-[#F8FAFC]">
               Qualite de generation
@@ -756,6 +927,19 @@ export function ShortsVisualsClient() {
               className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
             >
               Générer ou régénérer
+            </button>
+            <button
+              type="button"
+              disabled={
+                !selectedDraft ||
+                !canPrepareVisuals(selectedDraft.status) ||
+                isRunningAction ||
+                visualProgress.blockedCount === 0
+              }
+              onClick={() => void runVisualAction("retry_blocked_scenes")}
+              className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-4 py-2.5 text-sm font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+            >
+              Relancer les scenes bloquees
             </button>
           </div>
 
@@ -864,6 +1048,22 @@ export function ShortsVisualsClient() {
                         {formatDate(scene.updatedAt)}
                       </span>
                     </p>
+                  </div>
+                  <div className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="font-semibold text-[#F8FAFC]">
+                        {sceneProgressMessage(scene)}
+                      </span>
+                      <span className="font-semibold text-[#A7B0C0]">
+                        {sceneProgressValue(scene)}%
+                      </span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#08111A]">
+                      <div
+                        className="h-full rounded-full bg-[#7DD3FC] transition-all"
+                        style={{ width: `${sceneProgressValue(scene)}%` }}
+                      />
+                    </div>
                   </div>
                   <SceneScoreDetails scene={scene} />
                   <SceneDebugDetails scene={scene} />

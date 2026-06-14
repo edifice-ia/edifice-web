@@ -8,6 +8,7 @@ import {
   regenerateDraftVisualScene,
   removeDraftVisualAsset,
   requestDraftVisualGeneration,
+  retryBlockedDraftVisualScenes,
   selectDraftVisualAsset,
   updateDraftVisualSceneStatus,
 } from "@/lib/server/media-pipeline";
@@ -176,6 +177,16 @@ export async function POST(
 
     if (action === "request_visual_generation") {
       const media = await requestDraftVisualGeneration({
+        draftId: id,
+        generationQuality: payload.generationQuality,
+        userId: user.id,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "retry_blocked_scenes") {
+      const media = await retryBlockedDraftVisualScenes({
         draftId: id,
         generationQuality: payload.generationQuality,
         userId: user.id,

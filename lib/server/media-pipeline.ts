@@ -31,11 +31,12 @@ type GenerationStatus =
 type ScoreSource = "heuristic" | "gpt_vision" | "none";
 
 const PENDING_SCENE_TIMEOUT_MS = 5_000;
-const LIBRARY_SEARCH_TIMEOUT_MS = 10_000;
+const LIBRARY_SEARCH_TIMEOUT_MS = 5_000;
 const SCORING_TIMEOUT_MS = 20_000;
-const IMAGE_GENERATION_TIMEOUT_MS = 90_000;
+const IMAGE_GENERATION_TIMEOUT_MS = 30_000;
 const UPLOAD_TIMEOUT_MS = 30_000;
 const VISION_SCORING_TIMEOUT_MS = SCORING_TIMEOUT_MS;
+const VISUAL_SELECTION_THRESHOLD = 70;
 export const VISUAL_LIBRARY_BUCKET = "content-assets";
 export const VISUAL_LIBRARY_PATH = "lignes-interieures/visuels";
 
@@ -988,6 +989,34 @@ function logVisualSceneStatusTransition({
   });
 }
 
+function logVisualSceneStep({
+  assetId,
+  draftId,
+  error,
+  sceneIndex,
+  step,
+}: {
+  assetId?: string | null;
+  draftId: string;
+  error?: unknown;
+  sceneIndex: number;
+  step:
+    | "asset_found"
+    | "asset_not_found"
+    | "fallback_generation"
+    | "generation_completed"
+    | "search_completed"
+    | "search_started";
+}) {
+  console.info("[Shorts Visual Pipeline Step]", {
+    asset_id: assetId ?? null,
+    draft_id: draftId,
+    error: error instanceof Error ? error.message : error ? String(error) : null,
+    scene_index: sceneIndex,
+    step,
+  });
+}
+
 async function generateOpenAIImage({
   draft,
   prompt,
@@ -1438,7 +1467,7 @@ function libraryVisionDecision(scoreBreakdown: Record<string, unknown>): VisualS
   const total = Number(scoreBreakdown.total_score ?? scoreBreakdown.total ?? 0);
   const location = Number(scoreBreakdown.location_score ?? 0);
 
-  if (!Number.isFinite(total) || total < 70 || location < 18) {
+  if (!Number.isFinite(total) || total < VISUAL_SELECTION_THRESHOLD || location < 18) {
     return "rejected";
   }
 
@@ -1470,6 +1499,12 @@ function visualSelectionReason(
   }
 
   return `Bibliotheque rejetee ${Math.round(total)}/100. ${explanation}`.trim();
+}
+
+function scoreOutOf100(value: unknown) {
+  const score = Number(value);
+
+  return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
 }
 
 function logVisualSelection({
@@ -1509,6 +1544,41 @@ function logVisualSelection({
   });
 }
 
+function visualSceneSelectionDebug({
+  assetsFound,
+  assetsSelected,
+  bestCandidateScore,
+  fallbackTriggered,
+  generationRequested,
+  generationStartedAt = null,
+  generationSource,
+  generationStatus,
+  selectionDecision,
+}: {
+  assetsFound: number;
+  assetsSelected: number;
+  bestCandidateScore: number;
+  fallbackTriggered: boolean;
+  generationRequested: boolean;
+  generationStartedAt?: string | null;
+  generationSource: GenerationSource;
+  generationStatus: GenerationStatus;
+  selectionDecision: string;
+}) {
+  return {
+    assetsFound,
+    assetsSelected,
+    bestCandidateScore,
+    fallbackTriggered,
+    generationRequested,
+    generationStartedAt,
+    generationSource,
+    generationStatus,
+    selectionDecision,
+    selectionThreshold: VISUAL_SELECTION_THRESHOLD,
+  };
+}
+
 async function fallbackLibraryScene({
   draft,
   generationQuality,
@@ -1520,6 +1590,11 @@ async function fallbackLibraryScene({
 }) {
   const startedAt = Date.now();
   const prompt = parseVisualPrompts(draft.visual_prompt ?? "")[sceneIndex - 1] ?? "";
+  logVisualSceneStep({
+    draftId: draft.id,
+    sceneIndex,
+    step: "search_started",
+  });
   await upsertVisualScene({
     draft,
     generationQuality,
@@ -1539,6 +1614,11 @@ async function fallbackLibraryScene({
       sceneIndex,
       timeoutMs: LIBRARY_SEARCH_TIMEOUT_MS,
       validation: "content_assets.library_search_timeout",
+    });
+    logVisualSceneStep({
+      draftId: draft.id,
+      sceneIndex,
+      step: "search_completed",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1571,6 +1651,12 @@ async function fallbackLibraryScene({
       step: "library_search",
       success: false,
     });
+    logVisualSceneStep({
+      draftId: draft.id,
+      error,
+      sceneIndex,
+      step: "fallback_generation",
+    });
     return false;
   }
 
@@ -1580,6 +1666,9 @@ async function fallbackLibraryScene({
       item.score >= 35,
     )
     .slice(0, 5);
+  let bestCandidateScore = candidates.length
+    ? Math.max(...candidates.map((asset) => scoreOutOf100(asset.score)))
+    : 0;
 
   for (const asset of candidates) {
     let scoreBreakdown: Record<string, unknown>;
@@ -1607,6 +1696,7 @@ async function fallbackLibraryScene({
       };
       scoreTotal = asset.score;
     }
+    bestCandidateScore = Math.max(bestCandidateScore, scoreOutOf100(scoreTotal));
 
     await updateGeneratedAssetScore({
       assetId: asset.id,
@@ -1627,16 +1717,32 @@ async function fallbackLibraryScene({
     });
 
     if (decision === "selected" || decision === "proposed") {
+      logVisualSceneStep({
+        assetId: asset.id,
+        draftId: draft.id,
+        sceneIndex,
+        step: "asset_found",
+      });
       await upsertVisualScene({
         assetId: asset.id,
         draft,
         errorMessage: null,
         generationQuality,
         generationSource: "library",
-        generationStatus: "selected_from_library",
+        generationStatus: "ready",
         imageUrl: asset.publicUrl,
         scoreBreakdown: {
           ...scoreBreakdown,
+          ...visualSceneSelectionDebug({
+            assetsFound: suggestions.length,
+            assetsSelected: 1,
+            bestCandidateScore: scoreOutOf100(scoreTotal),
+            fallbackTriggered: false,
+            generationRequested: false,
+            generationSource: "library",
+            generationStatus: "ready",
+            selectionDecision: decision,
+          }),
           selection_decision: decision,
           selection_reason: reason,
         },
@@ -1662,6 +1768,34 @@ async function fallbackLibraryScene({
     }
   }
 
+  logVisualSceneStep({
+    draftId: draft.id,
+    sceneIndex,
+    step: "asset_not_found",
+  });
+  await upsertVisualScene({
+    draft,
+    errorMessage:
+      suggestions.length > 0
+        ? `Aucun visuel pertinent trouve dans la bibliotheque. Meilleur score trouve : ${bestCandidateScore}/100. Seuil requis : ${VISUAL_SELECTION_THRESHOLD}/100. Generation IA lancee automatiquement.`
+        : "Aucun visuel disponible dans la bibliotheque. Generation IA lancee automatiquement.",
+    generationQuality,
+    generationSource: "generated",
+    generationStatus: "generating",
+    scoreBreakdown: visualSceneSelectionDebug({
+      assetsFound: suggestions.length,
+      assetsSelected: 0,
+      bestCandidateScore,
+      fallbackTriggered: true,
+      generationRequested: true,
+      generationStartedAt: new Date().toISOString(),
+      generationSource: "generated",
+      generationStatus: "generating",
+      selectionDecision: suggestions.length > 0 ? "asset_not_relevant" : "library_empty",
+    }),
+    scoreSource: "none",
+    visualPromptIndex: sceneIndex,
+  });
   logVisualPipeline({
     action: "library_search",
     draftId: draft.id,
@@ -1672,6 +1806,11 @@ async function fallbackLibraryScene({
     sceneIndex,
     step: "rejected",
     success: false,
+  });
+  logVisualSceneStep({
+    draftId: draft.id,
+    sceneIndex,
+    step: "fallback_generation",
   });
 
   return false;
@@ -1704,12 +1843,31 @@ async function generateSceneVisual({
     return;
   }
 
+  const currentSceneAfterLibrary = (await readVisualScenes(draft)).find(
+    (scene) => scene.visualPromptIndex === sceneIndex,
+  );
   await upsertVisualScene({
     draft,
-    errorMessage: "Generation IA necessaire: aucun visuel bibliotheque pertinent.",
+    errorMessage:
+      currentSceneAfterLibrary?.errorMessage ??
+      "Generation IA necessaire: aucun visuel bibliotheque pertinent.",
     generationQuality,
     generationSource: "generated",
     generationStatus: "generating",
+    scoreBreakdown:
+      Object.keys(currentSceneAfterLibrary?.scoreBreakdown ?? {}).length > 0
+        ? currentSceneAfterLibrary?.scoreBreakdown ?? {}
+        : visualSceneSelectionDebug({
+            assetsFound: 0,
+            assetsSelected: 0,
+            bestCandidateScore: 0,
+            fallbackTriggered: true,
+            generationRequested: true,
+            generationStartedAt: new Date().toISOString(),
+            generationSource: "generated",
+            generationStatus: "generating",
+            selectionDecision: "fallback_generation",
+          }),
     scoreSource: "none",
     visualPromptIndex: sceneIndex,
   });
@@ -1778,6 +1936,20 @@ async function generateSceneVisual({
       assetId: asset.id,
       scoreBreakdown: {
         ...scoreBreakdown,
+        ...visualSceneSelectionDebug({
+          assetsFound: Number(currentSceneAfterLibrary?.scoreBreakdown.assetsFound ?? 0),
+          assetsSelected: 1,
+          bestCandidateScore: Number(currentSceneAfterLibrary?.scoreBreakdown.bestCandidateScore ?? 0),
+          fallbackTriggered: true,
+          generationRequested: true,
+          generationStartedAt:
+            typeof currentSceneAfterLibrary?.scoreBreakdown.generationStartedAt === "string"
+              ? currentSceneAfterLibrary.scoreBreakdown.generationStartedAt
+              : null,
+          generationSource: "generated",
+          generationStatus: "ready",
+          selectionDecision: "generated",
+        }),
         selection_decision: "generated",
         selection_reason: visualSelectionReason("generated", scoreBreakdown),
       },
@@ -1792,6 +1964,20 @@ async function generateSceneVisual({
       imageUrl: asset.public_url,
       scoreBreakdown: {
         ...scoreBreakdown,
+        ...visualSceneSelectionDebug({
+          assetsFound: Number(currentSceneAfterLibrary?.scoreBreakdown.assetsFound ?? 0),
+          assetsSelected: 1,
+          bestCandidateScore: Number(currentSceneAfterLibrary?.scoreBreakdown.bestCandidateScore ?? 0),
+          fallbackTriggered: true,
+          generationRequested: true,
+          generationStartedAt:
+            typeof currentSceneAfterLibrary?.scoreBreakdown.generationStartedAt === "string"
+              ? currentSceneAfterLibrary.scoreBreakdown.generationStartedAt
+              : null,
+          generationSource: "generated",
+          generationStatus: "ready",
+          selectionDecision: "generated",
+        }),
         selection_decision: "generated",
         selection_reason: visualSelectionReason("generated", scoreBreakdown),
       },
@@ -1799,6 +1985,12 @@ async function generateSceneVisual({
       scoreTotal,
       storagePath: asset.storage_path,
       visualPromptIndex: sceneIndex,
+    });
+    logVisualSceneStep({
+      assetId: asset.id,
+      draftId: draft.id,
+      sceneIndex,
+      step: "generation_completed",
     });
     logVisualSelection({
       assetId: asset.id,
@@ -2699,8 +2891,12 @@ export async function prepareDraftMedia({
     visualDecision,
     assetsFound: relevantAssets.length,
     assetsSelected: hasEnoughLibraryAssets ? selectedAssets.length : 0,
-    generationRequested: false,
-    generationReason: null,
+    generationRequested: !hasEnoughLibraryAssets,
+    generationReason: hasEnoughLibraryAssets
+      ? null
+      : relevantAssets.length > 0
+        ? "library_assets_below_scene_threshold"
+        : "library_empty",
   });
   await replaceSelectedAssets({
     draftId,
@@ -2930,7 +3126,7 @@ export async function recoverStuckDraftVisualScenes({
     await upsertVisualScene({
       assetId: scene.assetId,
       draft,
-      errorMessage: "Scene bloquee par timeout. Relance possible.",
+      errorMessage: "La selection automatique a expire.",
       generationQuality: scene.generationQuality,
       generationSource: scene.generationSource,
       generationStatus: "error",

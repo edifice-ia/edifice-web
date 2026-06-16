@@ -141,7 +141,7 @@ const generationSourceLabels: Record<VisualScene["generationSource"], string> = 
 const generationStatusLabels: Record<VisualScene["generationStatus"], string> = {
   error: "Erreur image",
   generating: "Generation IA en cours...",
-  pending: "En file d'attente...",
+  pending: "Recherche dans la bibliotheque...",
   ready: "Image prete",
   rejected: "rejetee",
   retained: "retenue",
@@ -278,7 +278,7 @@ function sceneProgressMessage(scene: VisualScene) {
       return `Scene ${scene.visualPromptIndex}/7 : relance du traitement...`;
     }
 
-    return `Scene ${scene.visualPromptIndex}/7 : en file d'attente...`;
+    return `Scene ${scene.visualPromptIndex}/7 : recherche dans la bibliotheque...`;
   }
 
   if (scene.generationStatus === "searching_library") {
@@ -294,6 +294,14 @@ function sceneProgressMessage(scene: VisualScene) {
   }
 
   if (scene.generationStatus === "generating") {
+    if (scene.scoreBreakdown.selectionDecision === "asset_not_relevant") {
+      return "Aucun visuel pertinent trouve. Generation IA...";
+    }
+
+    if (scene.scoreBreakdown.selectionDecision === "library_empty") {
+      return "Aucun visuel disponible dans la bibliotheque. Generation IA...";
+    }
+
     return `Scene ${scene.visualPromptIndex}/7 : generation IA en cours...`;
   }
 
@@ -580,6 +588,8 @@ function SceneScoreDetails({ scene }: { scene: VisualScene }) {
 }
 
 function SceneDebugDetails({ scene }: { scene: VisualScene }) {
+  const debug = scene.scoreBreakdown;
+
   return (
     <details className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-xs">
       <summary className="cursor-pointer font-semibold text-[#64748b]">
@@ -593,6 +603,16 @@ function SceneDebugDetails({ scene }: { scene: VisualScene }) {
         <p>Source: {scene.generationSource}</p>
         <p>Source brute: {scene.generationSource}</p>
         <p>Statut brut: {scene.generationStatus}</p>
+        <p>assetsFound: {sceneDebugValue(debug.assetsFound)}</p>
+        <p>assetsSelected: {sceneDebugValue(debug.assetsSelected)}</p>
+        <p>bestCandidateScore: {sceneDebugValue(debug.bestCandidateScore)}</p>
+        <p>selectionThreshold: {sceneDebugValue(debug.selectionThreshold)}</p>
+        <p>selectionDecision: {sceneDebugValue(debug.selectionDecision)}</p>
+        <p>fallbackTriggered: {sceneDebugValue(debug.fallbackTriggered)}</p>
+        <p>generationRequested: {sceneDebugValue(debug.generationRequested)}</p>
+        <p>generationStartedAt: {sceneDebugValue(debug.generationStartedAt)}</p>
+        <p>generationSource: {sceneDebugValue(debug.generationSource)}</p>
+        <p>generationStatus: {sceneDebugValue(debug.generationStatus)}</p>
         <p>Prompt utilise: {scene.visualPromptText || "non renseigne"}</p>
         <p>Image URL: {sceneDebugValue(scene.imageUrl)}</p>
         <p>
@@ -832,7 +852,7 @@ export function ShortsVisualsClient() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: "watchdog_visual_scenes",
+          action: "recover_stuck_visual_scenes",
           generationQuality,
         }),
       });

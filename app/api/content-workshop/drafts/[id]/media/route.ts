@@ -199,7 +199,7 @@ export async function POST(
       return NextResponse.json({ media });
     }
 
-    if (action === "watchdog_visual_scenes") {
+    if (action === "watchdog_visual_scenes" || action === "recover_stuck_visual_scenes") {
       const media = await recoverStuckDraftVisualScenes({
         draftId: id,
         generationQuality: payload.generationQuality,

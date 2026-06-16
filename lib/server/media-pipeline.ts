@@ -30,10 +30,12 @@ type GenerationStatus =
   | "rejected";
 type ScoreSource = "heuristic" | "gpt_vision" | "none";
 
-const LIBRARY_SEARCH_TIMEOUT_MS = 20_000;
+const PENDING_SCENE_TIMEOUT_MS = 5_000;
+const LIBRARY_SEARCH_TIMEOUT_MS = 10_000;
+const SCORING_TIMEOUT_MS = 20_000;
 const IMAGE_GENERATION_TIMEOUT_MS = 90_000;
 const UPLOAD_TIMEOUT_MS = 30_000;
-const VISION_SCORING_TIMEOUT_MS = 30_000;
+const VISION_SCORING_TIMEOUT_MS = SCORING_TIMEOUT_MS;
 export const VISUAL_LIBRARY_BUCKET = "content-assets";
 export const VISUAL_LIBRARY_PATH = "lignes-interieures/visuels";
 
@@ -957,6 +959,34 @@ async function extractImageBytes(payload: unknown, draftId: string, sceneIndex: 
   });
 }
 
+function logVisualSceneStatusTransition({
+  draftId,
+  elapsedMs,
+  newStatus,
+  previousStatus,
+  sceneIndex,
+  startedAt,
+  timeoutReason,
+}: {
+  draftId: string;
+  elapsedMs: number;
+  newStatus: GenerationStatus;
+  previousStatus: GenerationStatus;
+  sceneIndex: number;
+  startedAt: string | null;
+  timeoutReason: string;
+}) {
+  console.info("[Shorts Visual Scene Status]", {
+    draft_id: draftId,
+    elapsed_time: elapsedMs,
+    new_status: newStatus,
+    previous_status: previousStatus,
+    scene_index: sceneIndex,
+    started_at: startedAt,
+    timeout_reason: timeoutReason,
+  });
+}
+
 async function generateOpenAIImage({
   draft,
   prompt,
@@ -1513,12 +1543,21 @@ async function fallbackLibraryScene({
     const message = error instanceof Error ? error.message : String(error);
     await upsertVisualScene({
       draft,
-      errorMessage: message,
+      errorMessage: `Bibliotheque trop lente, generation IA. ${message}`,
       generationQuality,
       generationSource: "library",
-      generationStatus: "error",
+      generationStatus: "generating",
       scoreSource: "none",
       visualPromptIndex: sceneIndex,
+    });
+    logVisualSceneStatusTransition({
+      draftId: draft.id,
+      elapsedMs: Date.now() - startedAt,
+      newStatus: "generating",
+      previousStatus: "searching_library",
+      sceneIndex,
+      startedAt: new Date(startedAt).toISOString(),
+      timeoutReason: "library_search_timeout",
     });
     logVisualPipeline({
       action: "library_search",
@@ -1642,19 +1681,23 @@ async function generateSceneVisual({
   generationQuality,
   generationSource,
   sceneIndex,
+  skipLibrary = false,
 }: {
   draft: DraftRow;
   generationQuality: GenerationQuality;
   generationSource: GenerationSource;
   sceneIndex: number;
+  skipLibrary?: boolean;
 }) {
   const prompt = parseVisualPrompts(draft.visual_prompt ?? "")[sceneIndex - 1] ?? "";
 
-  const librarySelected = await fallbackLibraryScene({
-    draft,
-    generationQuality,
-    sceneIndex,
-  });
+  const librarySelected = skipLibrary
+    ? false
+    : await fallbackLibraryScene({
+        draft,
+        generationQuality,
+        sceneIndex,
+      });
 
   if (librarySelected) {
     return;
@@ -1778,7 +1821,51 @@ async function generateSceneVisual({
 }
 
 function shouldRetryVisualScene(scene: VisualScene) {
-  return !scene.locked && (scene.generationStatus === "pending" || scene.generationStatus === "error");
+  return !scene.locked && (
+    scene.generationStatus === "pending" ||
+    scene.generationStatus === "error" ||
+    isStuckVisualScene(scene)
+  );
+}
+
+function visualSceneStatusTimeoutMs(status: GenerationStatus) {
+  if (status === "pending") {
+    return PENDING_SCENE_TIMEOUT_MS;
+  }
+
+  if (status === "searching_library") {
+    return LIBRARY_SEARCH_TIMEOUT_MS;
+  }
+
+  if (status === "scoring") {
+    return SCORING_TIMEOUT_MS;
+  }
+
+  if (status === "generating") {
+    return IMAGE_GENERATION_TIMEOUT_MS;
+  }
+
+  if (status === "uploading") {
+    return UPLOAD_TIMEOUT_MS;
+  }
+
+  return null;
+}
+
+function visualSceneElapsedMs(scene: VisualScene) {
+  const updatedAt = new Date(scene.updatedAt).getTime();
+
+  return Number.isFinite(updatedAt) ? Date.now() - updatedAt : 0;
+}
+
+function isStuckVisualScene(scene: VisualScene) {
+  if (scene.locked) {
+    return false;
+  }
+
+  const timeout = visualSceneStatusTimeoutMs(scene.generationStatus);
+
+  return timeout !== null && visualSceneElapsedMs(scene) > timeout;
 }
 
 async function processDraftVisualScenes({
@@ -1801,6 +1888,31 @@ async function processDraftVisualScenes({
   for (const scene of targetScenes) {
     const prompt = prompts[scene.visualPromptIndex - 1]?.trim() ?? "";
 
+    if (prompt) {
+      await upsertVisualScene({
+        draft,
+        errorMessage: null,
+        generationQuality,
+        generationSource: "library",
+        generationStatus: "searching_library",
+        scoreSource: "none",
+        visualPromptIndex: scene.visualPromptIndex,
+      });
+      logVisualSceneStatusTransition({
+        draftId: draft.id,
+        elapsedMs: 0,
+        newStatus: "searching_library",
+        previousStatus: scene.generationStatus,
+        sceneIndex: scene.visualPromptIndex,
+        startedAt: scene.updatedAt,
+        timeoutReason: onlyBlocked ? "retry_blocked_scene" : "prepare_visuals_start",
+      });
+    }
+  }
+
+  for (const scene of targetScenes) {
+    const prompt = prompts[scene.visualPromptIndex - 1]?.trim() ?? "";
+
     if (!prompt) {
       await upsertVisualScene({
         draft,
@@ -1813,15 +1925,6 @@ async function processDraftVisualScenes({
       });
       continue;
     }
-
-    await upsertVisualScene({
-      draft,
-      generationQuality,
-      generationSource,
-      generationStatus: "pending",
-      scoreSource: "none",
-      visualPromptIndex: scene.visualPromptIndex,
-    });
 
     await generateSceneVisual({
       draft,
@@ -2658,6 +2761,138 @@ export async function retryBlockedDraftVisualScenes({
     generationSource: "regenerated",
     onlyBlocked: true,
   });
+
+  return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
+}
+
+export async function recoverStuckDraftVisualScenes({
+  draftId,
+  generationQuality,
+  userId,
+}: {
+  draftId: string;
+  generationQuality?: unknown;
+  userId: string;
+}) {
+  const draft = await readDraft(draftId, userId);
+  const normalizedGenerationQuality = normalizeGenerationQuality(generationQuality);
+
+  if (!isDraftValidatedForMedia(draft.status)) {
+    throw new MediaPipelineError("Valide le brouillon avant de surveiller les scenes.", {
+      draftId,
+      draftStatus: draft.status,
+      validation: "draft.status",
+    });
+  }
+  assertDraftVisualsCanChange(draft, draftId);
+
+  const scenes = await readVisualScenes(draft);
+  const stuckScenes = scenes.filter(isStuckVisualScene);
+
+  for (const scene of stuckScenes) {
+    const elapsedMs = visualSceneElapsedMs(scene);
+    const previousStatus = scene.generationStatus;
+    const timeoutReason = `${previousStatus}_timeout`;
+
+    if (previousStatus === "pending") {
+      logVisualSceneStatusTransition({
+        draftId,
+        elapsedMs,
+        newStatus: "searching_library",
+        previousStatus,
+        sceneIndex: scene.visualPromptIndex,
+        startedAt: scene.updatedAt,
+        timeoutReason,
+      });
+      await generateSceneVisual({
+        draft,
+        generationQuality: normalizedGenerationQuality,
+        generationSource: "regenerated",
+        sceneIndex: scene.visualPromptIndex,
+      });
+      continue;
+    }
+
+    if (previousStatus === "searching_library") {
+      await upsertVisualScene({
+        draft,
+        errorMessage: "Recherche trop longue, generation IA...",
+        generationQuality: normalizedGenerationQuality,
+        generationSource: "generated",
+        generationStatus: "generating",
+        scoreSource: "none",
+        visualPromptIndex: scene.visualPromptIndex,
+      });
+      logVisualSceneStatusTransition({
+        draftId,
+        elapsedMs,
+        newStatus: "generating",
+        previousStatus,
+        sceneIndex: scene.visualPromptIndex,
+        startedAt: scene.updatedAt,
+        timeoutReason,
+      });
+      await generateSceneVisual({
+        draft,
+        generationQuality: normalizedGenerationQuality,
+        generationSource: "generated",
+        sceneIndex: scene.visualPromptIndex,
+        skipLibrary: true,
+      });
+      continue;
+    }
+
+    if (previousStatus === "scoring" && scene.imageUrl) {
+      await upsertVisualScene({
+        assetId: scene.assetId,
+        draft,
+        errorMessage: "Scoring trop long, image conservee sans nouvelle analyse.",
+        generationQuality: scene.generationQuality,
+        generationSource: scene.generationSource,
+        generationStatus: "ready",
+        imageUrl: scene.imageUrl,
+        scoreBreakdown: scene.scoreBreakdown,
+        scoreSource: scene.scoreSource,
+        scoreTotal: scene.scoreTotal,
+        storagePath: scene.storagePath,
+        visualPromptIndex: scene.visualPromptIndex,
+      });
+      logVisualSceneStatusTransition({
+        draftId,
+        elapsedMs,
+        newStatus: "ready",
+        previousStatus,
+        sceneIndex: scene.visualPromptIndex,
+        startedAt: scene.updatedAt,
+        timeoutReason,
+      });
+      continue;
+    }
+
+    await upsertVisualScene({
+      assetId: scene.assetId,
+      draft,
+      errorMessage: "Scene bloquee par timeout. Relance possible.",
+      generationQuality: scene.generationQuality,
+      generationSource: scene.generationSource,
+      generationStatus: "error",
+      imageUrl: scene.imageUrl,
+      scoreBreakdown: scene.scoreBreakdown,
+      scoreSource: scene.scoreSource,
+      scoreTotal: scene.scoreTotal,
+      storagePath: scene.storagePath,
+      visualPromptIndex: scene.visualPromptIndex,
+    });
+    logVisualSceneStatusTransition({
+      draftId,
+      elapsedMs,
+      newStatus: "error",
+      previousStatus,
+      sceneIndex: scene.visualPromptIndex,
+      startedAt: scene.updatedAt,
+      timeoutReason,
+    });
+  }
 
   return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
 }

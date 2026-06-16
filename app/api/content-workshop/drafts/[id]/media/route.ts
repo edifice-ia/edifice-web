@@ -4,6 +4,7 @@ import {
   analyzeDraftVisualScene,
   prepareDraftMedia,
   readMediaPipelineState,
+  recoverStuckDraftVisualScenes,
   refreshDraftMediaSuggestions,
   regenerateDraftVisualScene,
   removeDraftVisualAsset,
@@ -189,6 +190,16 @@ export async function POST(
 
     if (action === "retry_blocked_scenes") {
       const media = await retryBlockedDraftVisualScenes({
+        draftId: id,
+        generationQuality: payload.generationQuality,
+        userId: user.id,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "watchdog_visual_scenes") {
+      const media = await recoverStuckDraftVisualScenes({
         draftId: id,
         generationQuality: payload.generationQuality,
         userId: user.id,

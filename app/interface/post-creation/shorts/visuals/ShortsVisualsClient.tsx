@@ -141,7 +141,7 @@ const generationSourceLabels: Record<VisualScene["generationSource"], string> = 
 const generationStatusLabels: Record<VisualScene["generationStatus"], string> = {
   error: "Erreur image",
   generating: "Generation IA en cours...",
-  pending: "En attente",
+  pending: "En file d'attente...",
   ready: "Image prete",
   rejected: "rejetee",
   retained: "retenue",
@@ -155,6 +155,14 @@ const generationQualityLabels: Record<GenerationQuality, string> = {
   high: "high - meilleure qualite",
   low: "low - economique / test rapide",
   medium: "medium - recommande",
+};
+
+const CLIENT_SCENE_TIMEOUTS: Partial<Record<VisualScene["generationStatus"], number>> = {
+  generating: 90_000,
+  pending: 5_000,
+  scoring: 20_000,
+  searching_library: 10_000,
+  uploading: 30_000,
 };
 
 const scoreSourceLabels: Record<VisualScene["scoreSource"], string> = {
@@ -180,6 +188,22 @@ function isSceneLoading(scene: VisualScene) {
     scene.generationStatus === "generating" ||
     scene.generationStatus === "uploading"
   );
+}
+
+function sceneElapsedMs(scene: VisualScene) {
+  const updatedAt = new Date(scene.updatedAt).getTime();
+
+  return Number.isFinite(updatedAt) ? Date.now() - updatedAt : 0;
+}
+
+function isSceneStuck(scene: VisualScene) {
+  if (scene.locked) {
+    return false;
+  }
+
+  const timeout = CLIENT_SCENE_TIMEOUTS[scene.generationStatus];
+
+  return typeof timeout === "number" && sceneElapsedMs(scene) > timeout;
 }
 
 function sceneStatusClass(scene: VisualScene) {
@@ -212,7 +236,7 @@ function fileNameFromStoragePath(storagePath: string | null) {
 
 function sceneProgressValue(scene: VisualScene) {
   if (scene.generationStatus === "pending") {
-    return 0;
+    return 10;
   }
 
   if (scene.generationStatus === "searching_library") {
@@ -245,7 +269,15 @@ function sceneProgressValue(scene: VisualScene) {
 }
 
 function sceneProgressMessage(scene: VisualScene) {
+  if (scene.generationStatus === "pending") {
+    return `Scene ${scene.visualPromptIndex}/7 : en file d'attente...`;
+  }
+
   if (scene.generationStatus === "searching_library") {
+    if (isSceneStuck(scene)) {
+      return `Scene ${scene.visualPromptIndex}/7 : recherche trop longue, generation IA...`;
+    }
+
     return `Recherche bibliotheque pour la scene ${scene.visualPromptIndex}...`;
   }
 
@@ -277,7 +309,14 @@ function sceneProgressMessage(scene: VisualScene) {
   }
 
   if (scene.generationStatus === "error") {
-    return "Erreur image. Relance possible.";
+    const message =
+      typeof scene.errorMessage === "string" && scene.errorMessage.length > 0
+        ? scene.errorMessage
+        : "Erreur image. Relance possible.";
+
+    return message.toLowerCase().includes("bibliotheque")
+      ? "Erreur recherche bibliotheque. Relance possible."
+      : message;
   }
 
   if (scene.generationStatus === "ready") {
@@ -290,7 +329,7 @@ function sceneProgressMessage(scene: VisualScene) {
     return "Image prete.";
   }
 
-  return "En attente.";
+  return "En file d'attente...";
 }
 
 function visualPreparationProgress(scenes: VisualScene[]) {
@@ -323,7 +362,8 @@ function visualPreparationProgress(scenes: VisualScene[]) {
   const blockedCount = scenes.filter(
     (scene) =>
       scene.generationStatus === "pending" ||
-      scene.generationStatus === "error",
+      scene.generationStatus === "error" ||
+      isSceneStuck(scene),
   ).length;
   const loadingCount = scenes.filter((scene) => isSceneLoading(scene)).length;
   const remainingSeconds = loadingCount > 0
@@ -582,6 +622,7 @@ export function ShortsVisualsClient() {
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
   const [isRunningAction, setIsRunningAction] = useState(false);
+  const [isRunningWatchdog, setIsRunningWatchdog] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -765,6 +806,36 @@ export function ShortsVisualsClient() {
       );
     } finally {
       setIsRunningAction(false);
+    }
+  }
+
+  async function runVisualWatchdog() {
+    if (!selectedDraft || isRunningWatchdog) {
+      return;
+    }
+
+    setIsRunningWatchdog(true);
+
+    try {
+      const response = await fetch(`/api/content-workshop/drafts/${selectedDraft.id}/media`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "watchdog_visual_scenes",
+          generationQuality,
+        }),
+      });
+      const payload = (await response.json()) as {
+        media?: MediaPipelineState;
+      } & ApiErrorPayload;
+
+      if (response.ok && payload.media) {
+        setMedia(payload.media);
+      }
+    } finally {
+      setIsRunningWatchdog(false);
     }
   }
 

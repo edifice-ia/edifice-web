@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { parseVisualPrompts } from "@/lib/content/visual-prompts";
+import { buildVisualMetadata, saveVisualMetadata } from "@/lib/server/content-assets";
 
 type MediaPipelineStatus =
   | "draft"
@@ -662,6 +663,85 @@ async function uniqueVisualFileName(baseSlug: string) {
   });
 }
 
+function inferVisualMetadata({
+  draft,
+  generationQuality,
+  prompt,
+  sceneIndex,
+}: {
+  draft: DraftRow;
+  generationQuality: GenerationQuality;
+  prompt: string;
+  sceneIndex: number;
+}) {
+  const scenePrompt = prompt.match(/Scene\s+\d+\s*:\s*(.+)$/im)?.[1] ?? prompt;
+  const title = readableVisualSlug(scenePrompt).replace(/_/g, " ");
+  const promptText = prompt.trim();
+  const combined = [
+    scenePrompt,
+    draft.title,
+    draft.theme,
+    draft.angle,
+    draft.voice_style,
+  ]
+    .filter((item): item is string => typeof item === "string")
+    .join(" ")
+    .toLowerCase();
+  const has = (pattern: RegExp) => pattern.test(combined);
+  const sceneType = has(/\b(toit|rooftop|skyline|ville|city|street)\b/)
+    ? "exterieur urbain"
+    : has(/\b(bureau|office|meeting|workplace)\b/)
+      ? "bureau"
+      : has(/\b(fenetre|interieur|inside|room)\b/)
+        ? "interieur"
+        : "scene narrative";
+  const characterType = has(/\b(femme|woman|female)\b/)
+    ? "femme"
+    : has(/\b(collegue|coworker|colleague)\b/)
+      ? "collegue"
+      : has(/\b(homme|man|male|protagonist|personnage)\b/)
+        ? "homme"
+        : "personnage";
+  const emotion = has(/\b(colere|angry|anger|rage)\b/)
+    ? "colere"
+    : has(/\b(tension|stress|conflict|conflit)\b/)
+      ? "tension"
+      : has(/\b(reflexion|thinking|thoughtful|introspection)\b/)
+        ? "reflexion"
+        : has(/\b(calme|calm|peaceful|silence)\b/)
+          ? "calme"
+          : draft.voice_style ?? "";
+  const ambiance = has(/\b(nuit|night)\b/)
+    ? "nuit"
+    : has(/\b(soir|sunset|dusk|evening|twilight)\b/)
+      ? "soir"
+      : has(/\b(sombre|dark|shadow)\b/)
+        ? "sombre"
+        : "cinematographique";
+  const colorPalette = [
+    has(/\b(nuit|night|dark|sombre)\b/) ? "bleu nuit" : null,
+    has(/\b(soir|sunset|dusk|orange|warm)\b/) ? "chaud" : null,
+    has(/\b(bureau|office|interieur|inside)\b/) ? "neutre" : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return buildVisualMetadata({
+    title,
+    description: `Scene ${sceneIndex}/7 - ${scenePrompt.trim().slice(0, 180)}`,
+    prompt: promptText,
+    tags: [],
+    theme: draft.theme ?? draft.title ?? "",
+    emotion,
+    ambiance,
+    visual_style: "cinematique vertical 9:16",
+    scene_type: sceneType,
+    character_type: characterType,
+    color_palette: colorPalette,
+    generation_quality: generationQuality,
+    source_draft_id: draft.id,
+    source_scene_number: sceneIndex,
+  });
+}
+
 function imageGenerationModel() {
   return process.env.OPENAI_IMAGE_MODEL?.trim() || "gpt-image-1";
 }
@@ -676,6 +756,24 @@ function normalizeGenerationQuality(value: unknown): GenerationQuality {
   return value === "low" || value === "high" || value === "medium"
     ? value
     : "medium";
+}
+
+function buildImageGenerationPrompt({
+  draft,
+  prompt,
+  sceneIndex,
+}: {
+  draft: DraftRow;
+  prompt: string;
+  sceneIndex: number;
+}) {
+  return [
+    "Vertical 9:16 photorealistic cinematic frame for a short video.",
+    "No text, no subtitles, no logo, no watermark.",
+    `Draft title: ${draft.title ?? draft.theme ?? "Shorts"}.`,
+    `Narrative angle: ${draft.angle ?? "intimate cinematic story"}.`,
+    `Scene ${sceneIndex}: ${prompt}`,
+  ].join("\n");
 }
 
 function normalizeGenerationSource(value: unknown): GenerationSource {
@@ -874,6 +972,7 @@ async function generateOpenAIImage({
   const endpoint = "https://api.openai.com/v1/images/generations";
   const model = imageGenerationModel();
   const startedAt = Date.now();
+  const generationPrompt = buildImageGenerationPrompt({ draft, prompt, sceneIndex });
 
   if (!apiKey) {
     throw new MediaPipelineError(
@@ -897,13 +996,7 @@ async function generateOpenAIImage({
         },
         body: JSON.stringify({
           model,
-          prompt: [
-            "Vertical 9:16 photorealistic cinematic frame for a short video.",
-            "No text, no subtitles, no logo, no watermark.",
-            `Draft title: ${draft.title ?? draft.theme ?? "Shorts"}.`,
-            `Narrative angle: ${draft.angle ?? "intimate cinematic story"}.`,
-            `Scene ${sceneIndex}: ${prompt}`,
-          ].join("\n"),
+          prompt: generationPrompt,
           size: "1024x1536",
           quality,
           n: 1,
@@ -977,6 +1070,12 @@ async function storeGeneratedImage({
   const storagePath = visualLibraryStoragePath(fileName);
   const endpoint = "supabase.storage.content-assets";
   const startedAt = Date.now();
+  const visualMetadata = inferVisualMetadata({
+    draft,
+    generationQuality,
+    prompt: buildImageGenerationPrompt({ draft, prompt, sceneIndex }),
+    sceneIndex,
+  });
 
   try {
     const { error: uploadError } = await withTimeout({
@@ -1021,6 +1120,7 @@ async function storeGeneratedImage({
         status: "available",
         linked_draft_id: draft.id,
         metadata: {
+          ...visualMetadata,
           visual_prompt: prompt,
           scene_prompt: prompt,
           scene_index: sceneIndex,
@@ -1043,6 +1143,11 @@ async function storeGeneratedImage({
         validation: "content_assets.generated_insert",
       });
     }
+
+    await saveVisualMetadata({
+      ...visualMetadata,
+      assetId: data.id,
+    });
 
     logVisualPipeline({
       action: "upload",
@@ -1280,23 +1385,15 @@ async function updateGeneratedAssetScore({
   scoreBreakdown: Record<string, unknown>;
   scoreSource: ScoreSource;
 }) {
-  const supabase = getMediaPipelineClient();
-  const { data } = await supabase
-    .from("content_assets")
-    .select("metadata")
-    .eq("id", assetId)
-    .maybeSingle<{ metadata: Record<string, unknown> }>();
-
-  await supabase
-    .from("content_assets")
-    .update({
-      metadata: {
-        ...(data?.metadata ?? {}),
-        score_breakdown: scoreBreakdown,
-        score_source: scoreSource,
-      },
-    })
-    .eq("id", assetId);
+  await saveVisualMetadata({
+    assetId,
+    gpt_vision_score:
+      scoreSource === "gpt_vision"
+        ? Number(scoreBreakdown.total_score ?? scoreBreakdown.total ?? 0)
+        : null,
+    scoreBreakdown,
+    scoreSource,
+  });
 }
 
 function isCanonicalVisualAsset(asset: Pick<ContentAssetRow, "bucket_name" | "storage_path">) {
@@ -1446,6 +1543,7 @@ async function fallbackLibraryScene({
 
   for (const asset of candidates) {
     let scoreBreakdown: Record<string, unknown>;
+    let scoreSource: ScoreSource = "gpt_vision";
     let scoreTotal = asset.score;
 
     try {
@@ -1461,6 +1559,7 @@ async function fallbackLibraryScene({
       };
       scoreTotal = visionScore.total_score || visionScore.total;
     } catch (error) {
+      scoreSource = "heuristic";
       scoreBreakdown = {
         ...asset.scoreBreakdown,
         selection_source: "library",
@@ -1468,6 +1567,12 @@ async function fallbackLibraryScene({
       };
       scoreTotal = asset.score;
     }
+
+    await updateGeneratedAssetScore({
+      assetId: asset.id,
+      scoreBreakdown,
+      scoreSource,
+    });
 
     const decision = libraryVisionDecision(scoreBreakdown);
     const reason = visualSelectionReason(decision, scoreBreakdown);
@@ -2720,6 +2825,21 @@ export async function updateDraftVisualSceneStatus({
       draftId,
       usageOrder: normalizedSceneIndex,
       userId,
+    });
+    await saveVisualMetadata({
+      assetId: scene.assetId,
+      generation_quality: scene.generationQuality,
+      gpt_vision_score:
+        scene.scoreSource === "gpt_vision" && scene.scoreTotal !== null
+          ? scene.scoreTotal
+          : null,
+      prompt: scene.visualPromptText,
+      scoreBreakdown: scene.scoreBreakdown,
+      scoreSource: scene.scoreSource,
+      source_draft_id: draftId,
+      source_scene_number: normalizedSceneIndex,
+      validated: true,
+      validated_at: new Date().toISOString(),
     });
   }
 

@@ -8,6 +8,32 @@ export const VISUAL_LIBRARY_PATH = "lignes-interieures/visuels";
 
 type ContentAssetType = "image" | "audio" | "video" | "subtitle";
 
+export type VisualAssetMetadata = {
+  title: string;
+  description: string;
+  prompt: string;
+  tags: string[];
+  theme: string;
+  emotion: string;
+  ambiance: string;
+  visual_style: string;
+  scene_type: string;
+  character_type: string;
+  color_palette: string[];
+  generation_quality: string;
+  gpt_vision_score: number | null;
+  validated: boolean;
+  validated_at: string | null;
+  source_draft_id: string | null;
+  source_scene_number: number | null;
+};
+
+export type SaveVisualMetadataInput = Partial<VisualAssetMetadata> & {
+  assetId: string;
+  scoreBreakdown?: Record<string, unknown>;
+  scoreSource?: string;
+};
+
 type ContentAssetRow = {
   id: string;
   created_at: string;
@@ -42,6 +68,26 @@ export type ContentAsset = {
 };
 
 let contentAssetsClient: SupabaseClient | null = null;
+
+const visualMetadataDefaults: VisualAssetMetadata = {
+  title: "",
+  description: "",
+  prompt: "",
+  tags: [],
+  theme: "",
+  emotion: "",
+  ambiance: "",
+  visual_style: "",
+  scene_type: "",
+  character_type: "",
+  color_palette: [],
+  generation_quality: "",
+  gpt_vision_score: null,
+  validated: false,
+  validated_at: null,
+  source_draft_id: null,
+  source_scene_number: null,
+};
 
 function getContentAssetsClient() {
   if (contentAssetsClient) {
@@ -258,6 +304,181 @@ function normalizeFilename(filename: string) {
   return normalized || "asset";
 }
 
+function normalizeStringList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((item, index, list) => list.indexOf(item) === index);
+}
+
+function normalizeScore(value: unknown) {
+  const score = Number(value);
+
+  return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : null;
+}
+
+function inferVisualTags(input: Partial<VisualAssetMetadata>) {
+  const sourceText = [
+    input.title,
+    input.description,
+    input.prompt,
+    input.theme,
+    input.emotion,
+    input.ambiance,
+    input.visual_style,
+    input.scene_type,
+    input.character_type,
+  ]
+    .filter((item): item is string => typeof item === "string")
+    .join(" ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const concepts: Array<[RegExp, string]> = [
+    [/\b(homme|man|male|personnage|protagonist)\b/, "homme"],
+    [/\b(femme|woman|female)\b/, "femme"],
+    [/\b(collegue|coworker|colleague)\b/, "collegue"],
+    [/\b(toit|rooftop|roof|terrasse)\b/, "toit"],
+    [/\b(ville|city|urban|skyline)\b/, "ville"],
+    [/\b(bureau|office|workplace)\b/, "bureau"],
+    [/\b(fenetre|window)\b/, "fenetre"],
+    [/\b(silhouette|ombre|shadow)\b/, "silhouette"],
+    [/\b(calme|calm|peaceful|silence)\b/, "calme"],
+    [/\b(tension|conflit|conflict|stress)\b/, "tension"],
+    [/\b(colere|anger|angry)\b/, "colere"],
+    [/\b(reflexion|reflection|thinking|introspection)\b/, "reflexion"],
+    [/\b(soir|sunset|dusk|evening|twilight)\b/, "soir"],
+    [/\b(nuit|night)\b/, "nuit"],
+    [/\b(interieur|inside|room|interior)\b/, "interieur"],
+  ];
+
+  return concepts
+    .filter(([pattern]) => pattern.test(sourceText))
+    .map(([, tag]) => tag);
+}
+
+export function buildVisualMetadata(
+  input: Partial<VisualAssetMetadata> & {
+    scoreBreakdown?: Record<string, unknown>;
+    scoreSource?: string;
+  },
+) {
+  const { scoreBreakdown, scoreSource, ...metadataInput } = input;
+  void scoreSource;
+  const inferredTags = inferVisualTags(input);
+  const tags = [
+    ...normalizeStringList(input.tags),
+    ...inferredTags,
+  ].filter((item, index, list) => list.indexOf(item) === index);
+  const score =
+    input.gpt_vision_score ??
+    normalizeScore(scoreBreakdown?.total_score ?? scoreBreakdown?.total);
+
+  return {
+    ...visualMetadataDefaults,
+    ...metadataInput,
+    title: input.title?.trim() ?? "",
+    description: input.description?.trim() ?? "",
+    prompt: input.prompt?.trim() ?? "",
+    tags,
+    theme: input.theme?.trim() ?? "",
+    emotion: input.emotion?.trim() ?? "",
+    ambiance: input.ambiance?.trim() ?? "",
+    visual_style: input.visual_style?.trim() ?? "",
+    scene_type: input.scene_type?.trim() ?? "",
+    character_type: input.character_type?.trim() ?? "",
+    color_palette: normalizeStringList(input.color_palette),
+    generation_quality: input.generation_quality?.trim() ?? "",
+    gpt_vision_score: normalizeScore(score),
+    validated: Boolean(input.validated),
+    validated_at: input.validated_at ?? null,
+    source_draft_id: input.source_draft_id ?? null,
+    source_scene_number:
+      typeof input.source_scene_number === "number" ? input.source_scene_number : null,
+  } satisfies VisualAssetMetadata;
+}
+
+export async function saveVisualMetadata({
+  assetId,
+  scoreBreakdown,
+  scoreSource,
+  ...input
+}: SaveVisualMetadataInput) {
+  const supabase = getContentAssetsClient();
+  const { data, error } = await supabase
+    .from("content_assets")
+    .select("metadata")
+    .eq("id", assetId)
+    .maybeSingle<{ metadata: Record<string, unknown> }>();
+
+  if (error) {
+    throw new Error(`Lecture des metadonnees visuelles impossible: ${error.message}`);
+  }
+
+  const currentMetadata = data?.metadata ?? {};
+  const metadata = {
+    ...currentMetadata,
+    ...buildVisualMetadata({
+      ...currentMetadata,
+      ...input,
+      scoreBreakdown,
+      scoreSource,
+    }),
+    score_breakdown: scoreBreakdown ?? currentMetadata.score_breakdown,
+    score_source: scoreSource ?? currentMetadata.score_source,
+  };
+
+  const { error: updateError } = await supabase
+    .from("content_assets")
+    .update({ metadata })
+    .eq("id", assetId);
+
+  if (updateError) {
+    throw new Error(`Sauvegarde des metadonnees visuelles impossible: ${updateError.message}`);
+  }
+
+  return metadata;
+}
+
+async function searchVisualAssetsByMetadata(metadataFilter: Record<string, unknown>) {
+  const supabase = getContentAssetsClient();
+  const { data, error } = await supabase
+    .from("content_assets")
+    .select(
+      "id, created_at, asset_type, file_name, bucket_name, storage_path, public_url, status, source, metadata, usage_count, linked_draft_id",
+    )
+    .eq("asset_type", "image")
+    .eq("bucket_name", VISUAL_LIBRARY_BUCKET)
+    .like("storage_path", `${VISUAL_LIBRARY_PATH}/%`)
+    .contains("metadata", metadataFilter)
+    .order("created_at", { ascending: false })
+    .limit(50)
+    .returns<ContentAssetRow[]>();
+
+  if (error) {
+    throw new Error(`Recherche visuelle impossible: ${error.message}`);
+  }
+
+  return (data ?? []).map(mapAssetRow);
+}
+
+export async function searchByTags(tags: string[]) {
+  return searchVisualAssetsByMetadata({ tags: normalizeStringList(tags) });
+}
+
+export async function searchByTheme(theme: string) {
+  return searchVisualAssetsByMetadata({ theme });
+}
+
+export async function searchByEmotion(emotion: string) {
+  return searchVisualAssetsByMetadata({ emotion });
+}
+
 async function ensureDraftBelongsToUser({
   draftId,
   userId,
@@ -336,6 +557,15 @@ export async function uploadContentAsset({
     : `drafts/${draftId}/${folder}/${timestamp}-${filename}`;
   const supabase = getContentAssetsClient();
   const bytes = Buffer.from(await file.arrayBuffer());
+  const visualMetadata =
+    assetType === "image"
+      ? buildVisualMetadata({
+          title: filename.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " "),
+          description: `Image importee depuis ${file.name}`,
+          generation_quality: "manual",
+          source_draft_id: draftId,
+        })
+      : {};
 
   console.info("[Content Assets] upload", {
     assetType,
@@ -369,6 +599,7 @@ export async function uploadContentAsset({
       storage_path: storagePath,
       public_url: publicUrl,
       metadata: {
+        ...visualMetadata,
         content_type: contentType,
         original_filename: file.name,
         size_bytes: file.size,

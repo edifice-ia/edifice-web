@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { parseVisualPrompts } from "@/lib/content/visual-prompts";
 
@@ -270,6 +270,14 @@ function sceneProgressValue(scene: VisualScene) {
 
 function sceneProgressMessage(scene: VisualScene) {
   if (scene.generationStatus === "pending") {
+    if (sceneElapsedMs(scene) > 15_000) {
+      return `Scene ${scene.visualPromptIndex}/7 : toujours bloquee, relance serveur requise.`;
+    }
+
+    if (isSceneStuck(scene)) {
+      return `Scene ${scene.visualPromptIndex}/7 : relance du traitement...`;
+    }
+
     return `Scene ${scene.visualPromptIndex}/7 : en file d'attente...`;
   }
 
@@ -767,6 +775,7 @@ export function ShortsVisualsClient() {
 
     try {
       const shouldSendGenerationQuality =
+        action === "prepare_media" ||
         action === "request_visual_generation" ||
         action === "retry_blocked_scenes" ||
         action === "regenerate_scene";
@@ -809,7 +818,7 @@ export function ShortsVisualsClient() {
     }
   }
 
-  async function runVisualWatchdog() {
+  const runVisualWatchdog = useCallback(async () => {
     if (!selectedDraft || isRunningWatchdog) {
       return;
     }
@@ -837,7 +846,7 @@ export function ShortsVisualsClient() {
     } finally {
       setIsRunningWatchdog(false);
     }
-  }
+  }, [generationQuality, isRunningWatchdog, selectedDraft]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -866,6 +875,24 @@ export function ShortsVisualsClient() {
 
     return () => window.clearInterval(intervalId);
   }, [isRunningAction, selectedDraftId]);
+
+  useEffect(() => {
+    if (!selectedDraftId || !media?.visualScenes.some(isSceneStuck)) {
+      return;
+    }
+
+    const initialTimeoutId = window.setTimeout(() => {
+      void runVisualWatchdog();
+    }, 0);
+    const intervalId = window.setInterval(() => {
+      void runVisualWatchdog();
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(initialTimeoutId);
+      window.clearInterval(intervalId);
+    };
+  }, [media?.visualScenes, runVisualWatchdog, selectedDraftId]);
 
   return (
     <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">

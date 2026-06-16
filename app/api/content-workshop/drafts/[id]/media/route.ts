@@ -163,6 +163,7 @@ export async function POST(
     if (action === "prepare_media") {
       const media = await prepareDraftMedia({
         draftId: id,
+        generationQuality: payload.generationQuality,
         userId: user.id,
       });
 

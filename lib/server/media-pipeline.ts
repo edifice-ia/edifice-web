@@ -977,6 +977,7 @@ function logVisualSceneStatusTransition({
   timeoutReason: string;
 }) {
   console.info("[Shorts Visual Scene Status]", {
+    current_step: newStatus,
     draft_id: draftId,
     elapsed_time: elapsedMs,
     new_status: newStatus,
@@ -1935,6 +1936,44 @@ async function processDraftVisualScenes({
   }
 }
 
+async function markDraftVisualScenesSearching({
+  draft,
+  generationQuality,
+}: {
+  draft: DraftRow;
+  generationQuality: GenerationQuality;
+}) {
+  const prompts = parseVisualPrompts(draft.visual_prompt ?? "");
+  const currentScenes = await readVisualScenes(draft);
+
+  for (const scene of currentScenes.filter((item) => !item.locked)) {
+    const prompt = prompts[scene.visualPromptIndex - 1]?.trim() ?? "";
+
+    if (!prompt) {
+      continue;
+    }
+
+    await upsertVisualScene({
+      draft,
+      errorMessage: null,
+      generationQuality,
+      generationSource: "library",
+      generationStatus: "searching_library",
+      scoreSource: "none",
+      visualPromptIndex: scene.visualPromptIndex,
+    });
+    logVisualSceneStatusTransition({
+      draftId: draft.id,
+      elapsedMs: visualSceneElapsedMs(scene),
+      newStatus: "searching_library",
+      previousStatus: scene.generationStatus,
+      sceneIndex: scene.visualPromptIndex,
+      startedAt: scene.updatedAt,
+      timeoutReason: "prepare_visuals_started",
+    });
+  }
+}
+
 function fallbackScoreBreakdown(
   score: number,
   scoreReason: string,
@@ -2579,12 +2618,15 @@ export async function generateNewVisuals(draft: VisualGenerationInput) {
 
 export async function prepareDraftMedia({
   draftId,
+  generationQuality,
   userId,
 }: {
   draftId: string;
+  generationQuality?: unknown;
   userId: string;
 }) {
   const draft = await readDraft(draftId, userId);
+  const normalizedGenerationQuality = normalizeGenerationQuality(generationQuality);
 
   if (!isDraftValidatedForMedia(draft.status)) {
     console.error("[Media Pipeline] prepare blocked", {
@@ -2599,6 +2641,16 @@ export async function prepareDraftMedia({
     });
   }
   assertDraftVisualsCanChange(draft, draftId);
+
+  const initialScenes = await readVisualScenes(draft);
+  console.info("[Media Pipeline] prepare visuals started", {
+    draft_id: draftId,
+    number_of_scenes: initialScenes.length,
+  });
+  await markDraftVisualScenesSearching({
+    draft,
+    generationQuality: normalizedGenerationQuality,
+  });
 
   const suggestedAssets = await scoreLibraryForDraft(draft);
   const relevantAssets = suggestedAssets.filter((asset) => asset.score >= 18);
@@ -2653,6 +2705,12 @@ export async function prepareDraftMedia({
   await replaceSelectedAssets({
     draftId,
     assets: hasEnoughLibraryAssets ? selectedAssets : [],
+  });
+
+  await processDraftVisualScenes({
+    draft,
+    generationQuality: normalizedGenerationQuality,
+    generationSource: "library",
   });
 
   return readMediaPipelineState({ draftId, userId, includeSuggestions: true });

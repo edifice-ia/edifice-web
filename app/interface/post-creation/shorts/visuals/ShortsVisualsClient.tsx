@@ -39,6 +39,16 @@ type VisualScoreBreakdown = {
   reason: string;
   matchedTerms: string[];
   sceneIndex: number | null;
+  tagsMatch?: number;
+  themeMatch?: number;
+  emotionMatch?: number;
+  ambianceMatch?: number;
+  characterMatch?: number;
+  styleMatch?: number;
+  promptMatch?: number;
+  visionScoreBonus?: number;
+  metadataScoreTotal?: number;
+  metadataSourceScores?: Record<string, number>;
 };
 
 type SelectedDraftAsset = VisualAsset & {
@@ -479,6 +489,10 @@ function scoreReason(asset: VisualAsset, isRetained: boolean) {
 
 function ScoreDetails({ asset, isRetained }: { asset: VisualAsset; isRetained: boolean }) {
   const breakdown = asset.scoreBreakdown;
+  const metadataSourceScores =
+    breakdown.metadataSourceScores && typeof breakdown.metadataSourceScores === "object"
+      ? Object.entries(breakdown.metadataSourceScores as Record<string, unknown>)
+      : [];
   const items = [
     ["Prompt / image", breakdown.promptImage, 30],
     ["Image / brouillon", breakdown.imageDraft, 25],
@@ -514,6 +528,19 @@ function ScoreDetails({ asset, isRetained }: { asset: VisualAsset; isRetained: b
         ) : null}
         <p>Decision: {scoreReason(asset, isRetained)}</p>
         <p>Raison: {breakdown.reason || asset.scoreReason}</p>
+        {typeof breakdown.metadataScoreTotal === "number" ? (
+          <p>Score metadata: {breakdown.metadataScoreTotal}/90</p>
+        ) : null}
+        {metadataSourceScores.length ? (
+          <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-2">
+            <p className="font-semibold text-[#F8FAFC]">Detail metadata</p>
+            {metadataSourceScores.map(([key, value]) => (
+              <p key={key}>
+                {key}: {String(value)}
+              </p>
+            ))}
+          </div>
+        ) : null}
         {breakdown.matchedTerms.length ? (
           <p>Termes reconnus: {breakdown.matchedTerms.join(", ")}</p>
         ) : null}
@@ -524,6 +551,10 @@ function ScoreDetails({ asset, isRetained }: { asset: VisualAsset; isRetained: b
 
 function SceneScoreDetails({ scene }: { scene: VisualScene }) {
   const breakdown = scene.scoreBreakdown;
+  const metadataSourceScores =
+    breakdown.metadataSourceScores && typeof breakdown.metadataSourceScores === "object"
+      ? Object.entries(breakdown.metadataSourceScores as Record<string, unknown>)
+      : [];
   const hasSelectionScore =
     breakdown.subject_score !== undefined ||
     breakdown.location_score !== undefined ||
@@ -581,6 +612,19 @@ function SceneScoreDetails({ scene }: { scene: VisualScene }) {
           </p>
         ) : null}
         <p>Raison: {reason}</p>
+        {typeof breakdown.metadataScoreTotal === "number" ? (
+          <p>Score metadata: {breakdown.metadataScoreTotal}/90</p>
+        ) : null}
+        {metadataSourceScores.length ? (
+          <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-2">
+            <p className="font-semibold text-[#F8FAFC]">Detail metadata</p>
+            {metadataSourceScores.map(([key, value]) => (
+              <p key={key}>
+                {key}: {String(value)}
+              </p>
+            ))}
+          </div>
+        ) : null}
         {warnings.length ? <p>Alertes: {warnings.join(" ; ")}</p> : null}
       </div>
     </details>
@@ -604,10 +648,30 @@ function SceneDebugDetails({ scene }: { scene: VisualScene }) {
         <p>Source brute: {scene.generationSource}</p>
         <p>Statut brut: {scene.generationStatus}</p>
         <p>assetsFound: {sceneDebugValue(debug.assetsFound)}</p>
+        <p>assetsScored: {sceneDebugValue(debug.assetsScored)}</p>
+        <p>assetsRejected: {sceneDebugValue(debug.assetsRejected)}</p>
         <p>assetsSelected: {sceneDebugValue(debug.assetsSelected)}</p>
+        <p>bestCandidate: {sceneDebugValue(debug.bestCandidate)}</p>
         <p>bestCandidateScore: {sceneDebugValue(debug.bestCandidateScore)}</p>
         <p>selectionThreshold: {sceneDebugValue(debug.selectionThreshold)}</p>
         <p>selectionDecision: {sceneDebugValue(debug.selectionDecision)}</p>
+        <p>raison rejet: {sceneDebugValue(debug.rejectionReason)}</p>
+        <p>raison selection: {sceneDebugValue(debug.selectionReason)}</p>
+        <p>tagsMatch: {sceneDebugValue(debug.tagsMatch)}</p>
+        <p>themeMatch: {sceneDebugValue(debug.themeMatch)}</p>
+        <p>emotionMatch: {sceneDebugValue(debug.emotionMatch)}</p>
+        <p>ambianceMatch: {sceneDebugValue(debug.ambianceMatch)}</p>
+        <p>characterMatch: {sceneDebugValue(debug.characterMatch)}</p>
+        <p>styleMatch: {sceneDebugValue(debug.styleMatch)}</p>
+        <p>promptMatch: {sceneDebugValue(debug.promptMatch)}</p>
+        <p>visionScoreBonus: {sceneDebugValue(debug.visionScoreBonus)}</p>
+        <p>metadataScoreTotal: {sceneDebugValue(debug.metadataScoreTotal)}</p>
+        <p>
+          metadataSourceScores:{" "}
+          {debug.metadataSourceScores && typeof debug.metadataSourceScores === "object"
+            ? JSON.stringify(debug.metadataSourceScores)
+            : "non disponible"}
+        </p>
         <p>fallbackTriggered: {sceneDebugValue(debug.fallbackTriggered)}</p>
         <p>generationRequested: {sceneDebugValue(debug.generationRequested)}</p>
         <p>generationStartedAt: {sceneDebugValue(debug.generationStartedAt)}</p>

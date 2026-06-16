@@ -194,6 +194,16 @@ export type VisualScoreBreakdown = {
   reason: string;
   matchedTerms: string[];
   sceneIndex: number | null;
+  tagsMatch?: number;
+  themeMatch?: number;
+  emotionMatch?: number;
+  ambianceMatch?: number;
+  characterMatch?: number;
+  styleMatch?: number;
+  promptMatch?: number;
+  visionScoreBonus?: number;
+  metadataScoreTotal?: number;
+  metadataSourceScores?: Record<string, number>;
 };
 
 export type VisualGenerationInput = {
@@ -381,6 +391,24 @@ function metadataString(asset: ContentAssetRow, keys: string[]) {
   return "";
 }
 
+function metadataStringList(asset: ContentAssetRow, keys: string[]) {
+  const values: string[] = [];
+
+  for (const key of keys) {
+    const value = asset.metadata[key];
+
+    if (Array.isArray(value)) {
+      values.push(
+        ...value.filter((item): item is string => typeof item === "string"),
+      );
+    } else if (typeof value === "string" && value.trim()) {
+      values.push(value.trim());
+    }
+  }
+
+  return values;
+}
+
 function metadataNumber(asset: ContentAssetRow, keys: string[]) {
   for (const key of keys) {
     const value = asset.metadata[key];
@@ -396,6 +424,29 @@ function metadataNumber(asset: ContentAssetRow, keys: string[]) {
 
 function numericScore(value: number, max: number) {
   return Math.max(0, Math.min(max, Math.round(value)));
+}
+
+function overlapScore({
+  candidate,
+  max,
+  reference,
+  weight = 1,
+}: {
+  candidate: string;
+  max: number;
+  reference: string;
+  weight?: number;
+}) {
+  const candidateTokens = tokenize(candidate);
+
+  if (candidateTokens.length === 0) {
+    return 0;
+  }
+
+  const referenceTokens = tokenize(reference);
+  const matches = candidateTokens.filter((token) => referenceTokens.includes(token));
+
+  return numericScore(matches.length * weight, max);
 }
 
 function visualPromptsForDraft(draft: DraftRow) {
@@ -460,19 +511,102 @@ function scoreAsset(
     "generation_prompt",
     "scene_prompt",
   ]);
-  const declaredSubject = metadataString(asset, ["subject", "theme"]);
-  const declaredMood = metadataString(asset, ["mood", "emotion", "tone"]);
-  const declaredStyle = metadataString(asset, ["style", "visual_style"]);
+  const declaredTags = metadataStringList(asset, ["tags", "keywords"]);
+  const declaredTheme = metadataString(asset, ["theme", "subject"]);
+  const declaredEmotion = metadataString(asset, ["emotion", "mood", "tone"]);
+  const declaredAmbiance = metadataString(asset, ["ambiance"]);
+  const declaredCharacterType = metadataString(asset, ["character_type", "character"]);
+  const declaredStyle = metadataString(asset, ["visual_style", "style"]);
+  const gptVisionScore = metadataNumber(asset, ["gpt_vision_score", "vision_score"]);
+  const sceneText = scene.prompt;
+  const visualPromptText = draft.visual_prompt ?? "";
+  const sceneReference = `${sceneText} ${visualPromptText}`;
+  const draftReference = `${draft.title ?? ""} ${draft.hook ?? ""} ${draft.angle ?? ""} ${draft.theme ?? ""}`;
+  const sceneReferenceTokens = tokenize(sceneReference);
+  const tagsMatch = numericScore(
+    declaredTags.filter((tag) => {
+      const tagTokens = tokenize(tag);
+
+      return tagTokens.some((token) => sceneReferenceTokens.includes(token));
+    }).length * 4,
+    16,
+  );
+  const themeMatch = Math.max(
+    overlapScore({
+      candidate: declaredTheme,
+      max: 12,
+      reference: sceneReference,
+      weight: 4,
+    }),
+    overlapScore({
+      candidate: declaredTheme,
+      max: 12,
+      reference: draftReference,
+      weight: 4,
+    }),
+  );
+  const emotionMatch = overlapScore({
+    candidate: declaredEmotion,
+    max: 10,
+    reference: sceneReference,
+    weight: 4,
+  });
+  const ambianceMatch = overlapScore({
+    candidate: declaredAmbiance,
+    max: 8,
+    reference: sceneReference,
+    weight: 4,
+  });
+  const characterMatch = overlapScore({
+    candidate: declaredCharacterType,
+    max: 8,
+    reference: sceneReference,
+    weight: 4,
+  });
+  const styleMatch = overlapScore({
+    candidate: declaredStyle,
+    max: 6,
+    reference: `${sceneReference} cinematic cinematique vertical 9:16`,
+    weight: 2,
+  });
+  const promptMatch = overlapScore({
+    candidate: declaredPrompt,
+    max: 20,
+    reference: sceneText,
+    weight: 3,
+  });
+  const visionScoreBonus =
+    gptVisionScore !== null && gptVisionScore >= 90
+      ? 10
+      : gptVisionScore !== null && gptVisionScore >= 80
+        ? 6
+        : 0;
+  const metadataSourceScores = {
+    ambiance: ambianceMatch,
+    character_type: characterMatch,
+    emotion: emotionMatch,
+    gpt_vision_bonus: visionScoreBonus,
+    scene_prompt: promptMatch,
+    tags: tagsMatch,
+    theme: themeMatch,
+    visual_style: styleMatch,
+  };
+  const metadataScoreTotal = Object.values(metadataSourceScores).reduce(
+    (sum, value) => sum + value,
+    0,
+  );
   const promptImage = numericScore(
-    promptMatches.length * 5 +
-      (declaredPrompt ? 6 : 0) +
-      (scene.prompt ? 4 : 0),
+    promptMatch +
+      Math.round(tagsMatch * 0.45) +
+      promptMatches.length * 2,
     30,
   );
   const imageDraft = numericScore(
-    draftMatches.length * 4 +
-      (declaredSubject && draftSearchText(draft).toLowerCase().includes(declaredSubject.toLowerCase()) ? 5 : 0) +
-      (declaredMood && draftSearchText(draft).toLowerCase().includes(declaredMood.toLowerCase()) ? 4 : 0),
+    themeMatch +
+      emotionMatch +
+      ambianceMatch +
+      characterMatch +
+      draftMatches.length,
     25,
   );
   const qualityHints = [
@@ -490,8 +624,10 @@ function scoreAsset(
   );
   const continuityHints = [
     scene.sceneIndex !== null,
-    declaredSubject.length > 0,
-    declaredMood.length > 0,
+    declaredTheme.length > 0,
+    declaredEmotion.length > 0,
+    declaredAmbiance.length > 0,
+    declaredCharacterType.length > 0,
     declaredStyle.length > 0,
   ].filter(Boolean).length;
   const narrativeContinuity = numericScore(
@@ -512,17 +648,25 @@ function scoreAsset(
       (hasUnsafeHint ? 4 : 0),
     10,
   );
-const score =
+  const score = numericScore(
     promptImage +
-    imageDraft +
-    visualQuality +
-    narrativeContinuity +
-    editorialSafety;
+      imageDraft +
+      visualQuality +
+      narrativeContinuity +
+      editorialSafety +
+      visionScoreBonus,
+    100,
+  );
   const matches = Array.from(new Set([...promptMatches, ...draftMatches]));
+  const metadataMatches = Object.entries(metadataSourceScores)
+    .filter(([, value]) => value > 0)
+    .map(([key, value]) => `${key}:${value}`);
   const reason =
-    matches.length > 0
-      ? `Estime sans analyse visuelle IA. Correspondances: ${matches.slice(0, 6).join(", ")}.`
-      : "Estime sans analyse visuelle IA. Coherence visuelle a valider manuellement.";
+    metadataMatches.length > 0
+      ? `Estime sans analyse visuelle IA. Metadata prioritaires: ${metadataMatches.join(", ")}.`
+      : matches.length > 0
+        ? `Estime sans analyse visuelle IA. Correspondances texte: ${matches.slice(0, 6).join(", ")}.`
+        : "Estime sans analyse visuelle IA. Coherence visuelle a valider manuellement.";
   const scoreBreakdown: VisualScoreBreakdown = {
     total: score,
     promptImage,
@@ -534,6 +678,16 @@ const score =
     reason,
     matchedTerms: matches.slice(0, 12),
     sceneIndex: scene.sceneIndex,
+    tagsMatch,
+    themeMatch,
+    emotionMatch,
+    ambianceMatch,
+    characterMatch,
+    styleMatch,
+    promptMatch,
+    visionScoreBonus,
+    metadataScoreTotal,
+    metadataSourceScores,
   };
 
   return { score, reason, scoreBreakdown };
@@ -1546,34 +1700,49 @@ function logVisualSelection({
 
 function visualSceneSelectionDebug({
   assetsFound,
+  assetsRejected = 0,
+  assetsScored = 0,
   assetsSelected,
+  bestCandidate = null,
   bestCandidateScore,
   fallbackTriggered,
   generationRequested,
   generationStartedAt = null,
   generationSource,
   generationStatus,
+  rejectionReason = "",
+  selectionReason = "",
   selectionDecision,
 }: {
   assetsFound: number;
+  assetsRejected?: number;
+  assetsScored?: number;
   assetsSelected: number;
+  bestCandidate?: string | null;
   bestCandidateScore: number;
   fallbackTriggered: boolean;
   generationRequested: boolean;
   generationStartedAt?: string | null;
   generationSource: GenerationSource;
   generationStatus: GenerationStatus;
+  rejectionReason?: string;
+  selectionReason?: string;
   selectionDecision: string;
 }) {
   return {
     assetsFound,
+    assetsRejected,
+    assetsScored,
     assetsSelected,
+    bestCandidate,
     bestCandidateScore,
     fallbackTriggered,
     generationRequested,
     generationStartedAt,
     generationSource,
     generationStatus,
+    rejectionReason,
+    selectionReason,
     selectionDecision,
     selectionThreshold: VISUAL_SELECTION_THRESHOLD,
   };
@@ -1669,6 +1838,10 @@ async function fallbackLibraryScene({
   let bestCandidateScore = candidates.length
     ? Math.max(...candidates.map((asset) => scoreOutOf100(asset.score)))
     : 0;
+  let bestCandidate: VisualAsset | null = candidates
+    .slice()
+    .sort((left, right) => right.score - left.score)[0] ?? null;
+  let lastRejectionReason = "";
 
   for (const asset of candidates) {
     let scoreBreakdown: Record<string, unknown>;
@@ -1697,6 +1870,9 @@ async function fallbackLibraryScene({
       scoreTotal = asset.score;
     }
     bestCandidateScore = Math.max(bestCandidateScore, scoreOutOf100(scoreTotal));
+    if (!bestCandidate || scoreTotal > bestCandidate.score) {
+      bestCandidate = asset;
+    }
 
     await updateGeneratedAssetScore({
       assetId: asset.id,
@@ -1706,6 +1882,9 @@ async function fallbackLibraryScene({
 
     const decision = libraryVisionDecision(scoreBreakdown);
     const reason = visualSelectionReason(decision, scoreBreakdown);
+    if (decision === "rejected") {
+      lastRejectionReason = reason;
+    }
 
     logVisualSelection({
       assetId: asset.id,
@@ -1735,12 +1914,16 @@ async function fallbackLibraryScene({
           ...scoreBreakdown,
           ...visualSceneSelectionDebug({
             assetsFound: suggestions.length,
+            assetsRejected: Math.max(0, candidates.length - 1),
+            assetsScored: candidates.length,
             assetsSelected: 1,
+            bestCandidate: asset.fileName,
             bestCandidateScore: scoreOutOf100(scoreTotal),
             fallbackTriggered: false,
             generationRequested: false,
             generationSource: "library",
             generationStatus: "ready",
+            selectionReason: reason,
             selectionDecision: decision,
           }),
           selection_decision: decision,
@@ -1784,13 +1967,21 @@ async function fallbackLibraryScene({
     generationStatus: "generating",
     scoreBreakdown: visualSceneSelectionDebug({
       assetsFound: suggestions.length,
+      assetsRejected: candidates.length,
+      assetsScored: candidates.length,
       assetsSelected: 0,
+      bestCandidate: bestCandidate?.fileName ?? null,
       bestCandidateScore,
       fallbackTriggered: true,
       generationRequested: true,
       generationStartedAt: new Date().toISOString(),
       generationSource: "generated",
       generationStatus: "generating",
+      rejectionReason:
+        lastRejectionReason ||
+        (suggestions.length > 0
+          ? `Meilleur score ${bestCandidateScore}/100 sous le seuil ${VISUAL_SELECTION_THRESHOLD}/100.`
+          : "Bibliotheque vide."),
       selectionDecision: suggestions.length > 0 ? "asset_not_relevant" : "library_empty",
     }),
     scoreSource: "none",

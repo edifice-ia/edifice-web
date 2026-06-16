@@ -299,6 +299,20 @@ async function assertDraftCanBeRejectedOrDeleted({
   }
 }
 
+async function assertDraftCanBeUpdated({
+  draftId,
+  userId,
+}: {
+  draftId: string;
+  userId: string;
+}) {
+  const draft = await readDraftProtection({ draftId, userId });
+
+  if (isProtectedDraft(draft)) {
+    throw new Error("Ce brouillon est verrouille car ses visuels sont valides.");
+  }
+}
+
 let contentDraftsClient: SupabaseClient | null = null;
 
 function getContentDraftsClient() {
@@ -1186,9 +1200,7 @@ export async function updateContentDraft({
 
   console.info("[Content Workshop] update draft");
 
-  if (input.status === "rejected") {
-    await assertDraftCanBeRejectedOrDeleted({ draftId, userId });
-  }
+  await assertDraftCanBeUpdated({ draftId, userId });
 
   const { data, error } = await supabase
     .from("content_drafts")
@@ -1221,9 +1233,7 @@ export async function updateContentDraftStatus({
     status,
   });
 
-  if (status === "rejected") {
-    await assertDraftCanBeRejectedOrDeleted({ draftId, userId });
-  }
+  await assertDraftCanBeUpdated({ draftId, userId });
 
   const { data, error } = await supabase
     .from("content_drafts")
@@ -1262,6 +1272,51 @@ export async function deleteContentDraft({
   if (error) {
     throw new Error(`Failed to delete content draft: ${error.message}`);
   }
+}
+
+export async function unlockContentDraft({
+  draftId,
+  userId,
+}: {
+  draftId: string;
+  userId: string;
+}) {
+  const supabase = getContentDraftsClient();
+  const draft = await readDraftProtection({ draftId, userId });
+
+  if (!isProtectedDraft(draft)) {
+    const { data, error } = await supabase
+      .from("content_drafts")
+      .select(contentDraftSelectColumns)
+      .eq("id", draftId)
+      .eq("user_id", userId)
+      .single<ContentDraftRow>();
+
+    if (error) {
+      throw new Error(`Failed to read content draft: ${error.message}`);
+    }
+
+    return mapContentDraftRow(data);
+  }
+
+  const { data, error } = await supabase
+    .from("content_drafts")
+    .update({
+      protected: false,
+      protected_at: null,
+      status: "approved",
+      visual_status: "in_progress",
+    })
+    .eq("id", draftId)
+    .eq("user_id", userId)
+    .select(contentDraftSelectColumns)
+    .single<ContentDraftRow>();
+
+  if (error) {
+    throw new Error(`Failed to unlock content draft: ${error.message}`);
+  }
+
+  return mapContentDraftRow(data);
 }
 
 export async function saveContentDraft({

@@ -3,6 +3,7 @@ import {
   deleteContentDraft,
   sanitizeContentDraftStatusInput,
   sanitizeContentDraftUpdateInput,
+  unlockContentDraft,
   updateContentDraft,
   updateContentDraftStatus,
 } from "@/lib/server/content-workshop";
@@ -90,6 +91,15 @@ export async function PATCH(
       draftId: id,
       body: summarizePayload(payload),
     });
+
+    if (action === "unlock_draft") {
+      const draft = await unlockContentDraft({
+        draftId: id,
+        userId: user.id,
+      });
+
+      return NextResponse.json({ draft });
+    }
 
     if (action === "update_status") {
       const status = sanitizeContentDraftStatusInput(payload);

@@ -322,17 +322,20 @@ function TextInput({
   onChange,
   maxLength,
   required = true,
+  disabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   maxLength?: number;
   required?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <input
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm text-[#F8FAFC] outline-none"
+      className="mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm text-[#F8FAFC] outline-none disabled:cursor-not-allowed disabled:opacity-65"
+      disabled={disabled}
       maxLength={maxLength}
       required={required}
     />
@@ -345,18 +348,21 @@ function TextArea({
   minHeight = "min-h-28",
   maxLength,
   required = true,
+  disabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   minHeight?: string;
   maxLength?: number;
   required?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <textarea
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className={`mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm leading-6 text-[#F8FAFC] outline-none ${minHeight}`}
+      className={`mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm leading-6 text-[#F8FAFC] outline-none disabled:cursor-not-allowed disabled:opacity-65 ${minHeight}`}
+      disabled={disabled}
       maxLength={maxLength}
       required={required}
     />
@@ -1173,6 +1179,61 @@ export function ContentWorkshopClient() {
     }
   }
 
+  async function handleUnlockDraft() {
+    if (!selectedDraft) {
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch(`/api/content-workshop/drafts/${selectedDraft.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "unlock_draft",
+        }),
+      });
+      const payload = await response.json() as {
+        draft?: ContentDraft;
+      } & ApiErrorPayload;
+
+      if (!response.ok || !payload.draft) {
+        throw new Error(formatApiError(payload, "Deverrouillage indisponible."));
+      }
+
+      const updatedDraft: ContentDraft = {
+        ...payload.draft,
+        scriptUltraShort: selectedDraft.scriptUltraShort,
+        scriptShort: selectedDraft.scriptShort,
+        scriptMedium: selectedDraft.scriptMedium,
+        scriptLong: selectedDraft.scriptLong,
+        recommendedScript: payload.draft.script,
+      };
+
+      setDrafts((current) =>
+        current.map((draft) => draft.id === updatedDraft.id ? updatedDraft : draft),
+      );
+      setSelectedDraftId(updatedDraft.id);
+      setEditor((current) =>
+        current ? { ...current, status: updatedDraft.status } : current,
+      );
+      setNotice("Brouillon deverrouille. Les modifications sont de nouveau possibles.");
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Deverrouillage indisponible.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   async function handleFilterChange(value: string) {
     setStatusFilter(value);
     await loadDrafts(value);
@@ -1532,7 +1593,7 @@ export function ContentWorkshopClient() {
                 </span>
                 {selectedDraftProtected ? (
                   <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
-                    Brouillon protege - visuels prets
+                    Brouillon verrouillé - Visuels validés
                   </span>
                 ) : null}
               </div>
@@ -1791,8 +1852,9 @@ export function ContentWorkshopClient() {
                           </div>
                           <button
                             type="button"
+                            disabled={selectedDraftProtected}
                             onClick={() => handleUseScriptVariant(variant)}
-                            className="shrink-0 rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC]"
+                            className="shrink-0 rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                           >
                             Utiliser cette variante
                           </button>
@@ -1809,7 +1871,8 @@ export function ContentWorkshopClient() {
                     <select
                       value={editor.status}
                       onChange={(event) => updateEditor("status", event.target.value)}
-                      className="mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm text-[#F8FAFC] outline-none"
+                      disabled={selectedDraftProtected}
+                      className="mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm text-[#F8FAFC] outline-none disabled:cursor-not-allowed disabled:opacity-65"
                     >
                       {statusOptions.map((status) => (
                         <option key={status.value} value={status.value}>
@@ -1822,6 +1885,7 @@ export function ContentWorkshopClient() {
                     <TextInput
                       value={editor.platformTargets}
                       onChange={(value) => updateEditor("platformTargets", value)}
+                      disabled={selectedDraftProtected}
                       maxLength={240}
                     />
                   </Field>
@@ -1829,6 +1893,7 @@ export function ContentWorkshopClient() {
                     <TextInput
                       value={editor.theme}
                       onChange={(value) => updateEditor("theme", value)}
+                      disabled={selectedDraftProtected}
                       maxLength={180}
                     />
                   </Field>
@@ -1836,6 +1901,7 @@ export function ContentWorkshopClient() {
                     <TextInput
                       value={editor.title}
                       onChange={(value) => updateEditor("title", value)}
+                      disabled={selectedDraftProtected}
                       maxLength={120}
                     />
                   </Field>
@@ -1843,6 +1909,7 @@ export function ContentWorkshopClient() {
                     <TextArea
                       value={editor.angle}
                       onChange={(value) => updateEditor("angle", value)}
+                      disabled={selectedDraftProtected}
                       maxLength={240}
                     />
                   </Field>
@@ -1850,6 +1917,7 @@ export function ContentWorkshopClient() {
                     <TextArea
                       value={editor.hook}
                       onChange={(value) => updateEditor("hook", value)}
+                      disabled={selectedDraftProtected}
                       maxLength={240}
                     />
                   </Field>
@@ -1859,6 +1927,7 @@ export function ContentWorkshopClient() {
                   <TextArea
                     value={editor.script}
                     onChange={(value) => updateEditor("script", value)}
+                    disabled={selectedDraftProtected}
                     minHeight="min-h-48"
                     maxLength={4000}
                   />
@@ -1867,6 +1936,7 @@ export function ContentWorkshopClient() {
                   <TextArea
                     value={editor.caption}
                     onChange={(value) => updateEditor("caption", value)}
+                    disabled={selectedDraftProtected}
                     maxLength={500}
                   />
                 </Field>
@@ -1874,6 +1944,7 @@ export function ContentWorkshopClient() {
                   <TextInput
                     value={editor.hashtags}
                     onChange={(value) => updateEditor("hashtags", value)}
+                    disabled={selectedDraftProtected}
                     maxLength={240}
                   />
                 </Field>
@@ -1882,53 +1953,62 @@ export function ContentWorkshopClient() {
                   brouillon, mais se gerent dans les sous-modules Visuels et Voix.
                 </p>
 
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {isSaving ? "Sauvegarde..." : "Sauvegarder les modifications"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isSaving}
-                    onClick={() => void handleStatusAction("draft")}
-                    className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                  >
-                    Brouillon
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isSaving}
-                    onClick={() => void handleStatusAction("approved")}
-                    className="rounded-md border border-[#22C55E]/45 bg-[#22C55E]/10 px-4 py-2.5 text-sm font-semibold text-[#86EFAC] transition hover:bg-[#14532D]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                  >
-                    Approuver
-                  </button>
-                  {selectedDraftProtected ? null : (
+                {selectedDraftProtected ? (
+                  <div className="flex flex-wrap gap-3">
                     <button
                       type="button"
                       disabled={isSaving}
-                      onClick={() => void handleStatusAction("rejected")}
-                      className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-4 py-2.5 text-sm font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                      onClick={() => void handleUnlockDraft()}
+                      className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
                     >
-                      Rejeter
+                      {isSaving ? "Deverrouillage..." : "Modifier le brouillon"}
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    disabled={isSaving || !canMarkReadyToPublish}
-                    onClick={() => void handleStatusAction("ready_to_publish")}
-                    className="rounded-md border border-[#38BDF8]/45 bg-[#38BDF8]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#0C4A6E]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
-                  >
-                    Marquer pret a publier
-                  </button>
-                  {selectedDraftProtected ? (
                     <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0]">
-                      Brouillon protege - visuels prets
+                      Brouillon verrouillé - Visuels validés
                     </span>
-                  ) : (
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="submit"
+                        disabled={isSaving}
+                        className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {isSaving ? "Sauvegarde..." : "Sauvegarder les modifications"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isSaving}
+                        onClick={() => void handleStatusAction("draft")}
+                        className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                      >
+                        Brouillon
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isSaving}
+                        onClick={() => void handleStatusAction("approved")}
+                        className="rounded-md border border-[#22C55E]/45 bg-[#22C55E]/10 px-4 py-2.5 text-sm font-semibold text-[#86EFAC] transition hover:bg-[#14532D]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                      >
+                        Approuver
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isSaving}
+                        onClick={() => void handleStatusAction("rejected")}
+                        className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-4 py-2.5 text-sm font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                      >
+                        Rejeter
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isSaving || !canMarkReadyToPublish}
+                        onClick={() => void handleStatusAction("ready_to_publish")}
+                        className="rounded-md border border-[#38BDF8]/45 bg-[#38BDF8]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#0C4A6E]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                      >
+                        Marquer pret a publier
+                      </button>
                     <button
                       type="button"
                       disabled={isDeleting}
@@ -1937,20 +2017,21 @@ export function ContentWorkshopClient() {
                     >
                       {isDeleting ? "Suppression..." : "Supprimer le brouillon"}
                     </button>
-                  )}
-                </div>
-                <label className="flex items-start gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm leading-6 text-[#A7B0C0]">
-                  <input
-                    type="checkbox"
-                    checked={manualReadyToPublish}
-                    onChange={(event) => setManualReadyToPublish(event.target.checked)}
-                    className="mt-1"
-                  />
-                  <span>
-                    Mode manuel explicite: autoriser le passage en pret a publier
-                    meme si les visuels ou la voix ne sont pas marques prets.
-                  </span>
-                </label>
+                    </div>
+                    <label className="flex items-start gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm leading-6 text-[#A7B0C0]">
+                      <input
+                        type="checkbox"
+                        checked={manualReadyToPublish}
+                        onChange={(event) => setManualReadyToPublish(event.target.checked)}
+                        className="mt-1"
+                      />
+                      <span>
+                        Mode manuel explicite: autoriser le passage en pret a publier
+                        meme si les visuels ou la voix ne sont pas marques prets.
+                      </span>
+                    </label>
+                  </>
+                )}
               </form>
 
               {showDraftMediaTools ? (
@@ -2305,7 +2386,7 @@ export function ContentWorkshopClient() {
                   </span>
                   {isProtectedDraft(draft) ? (
                     <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-2 py-1 text-[#39E6D0]">
-                      Visuels prets
+                      Visuels validés
                     </span>
                   ) : null}
                   <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-2 py-1 text-[#A7B0C0]">

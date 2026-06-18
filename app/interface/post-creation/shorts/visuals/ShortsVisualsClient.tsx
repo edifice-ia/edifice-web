@@ -713,6 +713,9 @@ function SceneLibraryMatches({
   onToggle: () => void;
   scene: VisualScene;
 }) {
+  const [previewErrorByCandidate, setPreviewErrorByCandidate] = useState<Record<string, boolean>>({});
+  const [previewLoadingByCandidate, setPreviewLoadingByCandidate] = useState<Record<string, boolean>>({});
+  const [previewOpenByCandidate, setPreviewOpenByCandidate] = useState<Record<string, boolean>>({});
   const matches = libraryMatchesForScene(scene);
   const threshold = scoreNumber(scene.scoreBreakdown.libraryRelevanceThreshold ?? 60);
   const bestScore = matches.reduce(
@@ -762,6 +765,16 @@ function SceneLibraryMatches({
       {shouldShowResults ? <div className="mt-3 flex w-full max-w-full flex-col gap-3 overflow-hidden">
         {matches.map((match, index) => {
           const assetId = typeof match.assetId === "string" ? match.assetId : "";
+          const candidateKey = assetId || `${String(match.fileName ?? "candidate")}-${index}`;
+          const candidateImageUrl =
+            typeof match.imageUrl === "string" && match.imageUrl.trim()
+              ? match.imageUrl.trim()
+              : typeof match.publicUrl === "string" && match.publicUrl.trim()
+                ? match.publicUrl.trim()
+                : "";
+          const isPreviewOpen = Boolean(previewOpenByCandidate[candidateKey]);
+          const isPreviewLoading = Boolean(previewLoadingByCandidate[candidateKey]);
+          const hasPreviewError = Boolean(previewErrorByCandidate[candidateKey]);
           const tags = stringList(match.tagsMatched);
           const emotions = stringList(match.emotionMatched);
           const themes = stringList(match.themeMatched);
@@ -785,7 +798,36 @@ function SceneLibraryMatches({
                   {scoreNumber(match.pertinenceScore)}/100
                 </span>
               </div>
-              <div className="mt-3">
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!candidateImageUrl}
+                  onClick={() => {
+                    if (isPreviewOpen) {
+                      setPreviewOpenByCandidate((current) => ({
+                        ...current,
+                        [candidateKey]: false,
+                      }));
+                      return;
+                    }
+
+                    setPreviewErrorByCandidate((current) => ({
+                      ...current,
+                      [candidateKey]: false,
+                    }));
+                    setPreviewLoadingByCandidate((current) => ({
+                      ...current,
+                      [candidateKey]: true,
+                    }));
+                    setPreviewOpenByCandidate((current) => ({
+                      ...current,
+                      [candidateKey]: true,
+                    }));
+                  }}
+                  className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-1.5 font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/45 hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  {isPreviewOpen ? "Masquer le visuel" : "Afficher le visuel"}
+                </button>
                 <button
                   type="button"
                   disabled={disabled || !assetId}
@@ -795,6 +837,45 @@ function SceneLibraryMatches({
                   Utiliser ce visuel
                 </button>
               </div>
+              {isPreviewOpen ? (
+                <div className="mt-3 overflow-hidden rounded-md border border-[#1D2A44] bg-[#03070B]">
+                  {isPreviewLoading ? (
+                    <p className="px-3 py-2 font-semibold text-[#A7B0C0]">
+                      Chargement du visuel...
+                    </p>
+                  ) : null}
+                  {hasPreviewError ? (
+                    <p className="px-3 py-2 font-semibold text-[#FDBA74]">
+                      Apercu indisponible
+                    </p>
+                  ) : null}
+                  {candidateImageUrl && !hasPreviewError ? (
+                    <img
+                      alt={`Apercu ${String(match.fileName ?? "visuel bibliotheque")}`}
+                      className={`max-h-[360px] w-full bg-[#03070B] object-contain ${
+                        isPreviewLoading ? "hidden" : "block"
+                      }`}
+                      onError={() => {
+                        setPreviewLoadingByCandidate((current) => ({
+                          ...current,
+                          [candidateKey]: false,
+                        }));
+                        setPreviewErrorByCandidate((current) => ({
+                          ...current,
+                          [candidateKey]: true,
+                        }));
+                      }}
+                      onLoad={() =>
+                        setPreviewLoadingByCandidate((current) => ({
+                          ...current,
+                          [candidateKey]: false,
+                        }))
+                      }
+                      src={candidateImageUrl}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
               <div className="mt-3 grid min-w-0 gap-2 text-[#A7B0C0] lg:grid-cols-3">
                 <p className="min-w-0 [overflow-wrap:anywhere] break-words">
                   Tags correspondants :{" "}

@@ -366,6 +366,12 @@ function getAssetPreviewUrl(asset: Record<string, unknown>) {
     bucketName,
     fallbackUrl: validPublicUrl && validPublicUrl !== rebuiltUrl ? validPublicUrl : "",
     previewUrl: validServerPreviewUrl || rebuiltUrl || validPublicUrl,
+    resolutionMethod:
+      typeof asset.resolutionMethod === "string" && asset.resolutionMethod.trim()
+        ? asset.resolutionMethod.trim()
+        : typeof asset.resolution_method === "string" && asset.resolution_method.trim()
+          ? asset.resolution_method.trim()
+          : "",
     storagePath,
     usedSource: validServerPreviewUrl
       ? "server_preview_url"
@@ -1025,6 +1031,7 @@ function SceneLibraryMatches({
                       <p>bucket_name: {sceneDebugValue(preview.bucketName)}</p>
                       <p>storage_path: {sceneDebugValue(preview.storagePath)}</p>
                       <p>preview_url utilisee: {sceneDebugValue(activePreviewUrl || candidateImageUrl)}</p>
+                      <p>resolution_method: {sceneDebugValue(preview.resolutionMethod || preview.usedSource)}</p>
                       <p>preview_source: {sceneDebugValue(preview.usedSource)}</p>
                       <p>preview_error: {sceneDebugValue(previewError)}</p>
                     </div>

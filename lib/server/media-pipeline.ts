@@ -1945,10 +1945,58 @@ function storagePathFromAssetUrl(url: string) {
   }
 }
 
+function metadataStringValue(metadata: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+function stripBucketPrefix(path: string, bucketName: string) {
+  const normalized = path.trim().replace(/^\/+/, "");
+  const bucketPrefix = `${bucketName}/`;
+
+  return normalized.startsWith(bucketPrefix)
+    ? normalized.slice(bucketPrefix.length)
+    : normalized;
+}
+
+function knownStoragePathsForFile(fileName: string, bucketName: string) {
+  if (!fileName.trim()) {
+    return [];
+  }
+
+  return [
+    `${VISUAL_LIBRARY_PATH}/${fileName}`,
+    `shorts/${fileName}`,
+    `visuels/${fileName}`,
+    `Lignes Interieures/visuels/${fileName}`,
+    `final_pins/${fileName}`,
+  ].map((path) => stripBucketPrefix(path, bucketName));
+}
+
 function normalizedLibraryAsset(asset: ContentAssetRow): ContentAssetRow {
+  const metadataAssetUrl = metadataStringValue(asset.metadata, [
+    "asset_url",
+    "assetUrl",
+    "url",
+    "image_url",
+    "imageUrl",
+  ]);
+  const metadataPath = metadataStringValue(asset.metadata, [
+    "path",
+    "storage_path",
+    "storagePath",
+  ]);
   const storagePath =
     asset.storage_path?.trim() ||
-    storagePathFromAssetUrl(asset.public_url ?? "");
+    stripBucketPrefix(metadataPath, asset.bucket_name || VISUAL_LIBRARY_BUCKET) ||
+    storagePathFromAssetUrl(asset.public_url ?? "") ||
+    storagePathFromAssetUrl(metadataAssetUrl);
 
   return {
     ...asset,
@@ -1965,42 +2013,87 @@ function isCanonicalVisualAsset(asset: Pick<ContentAssetRow, "bucket_name" | "st
 }
 
 async function signedVisualAssetPreviewUrl({
+  assetUrl,
   assetId,
   bucketName,
   fileName,
+  publicUrl,
   storagePath,
 }: {
+  assetUrl?: string;
   assetId: string;
   bucketName: string;
   fileName: string;
+  publicUrl?: string;
   storagePath: string;
 }) {
-  if (!bucketName || !storagePath) {
-    console.info("[BIBLIO]", {
-      asset_id: assetId,
-      bucket: bucketName,
-      file_name: fileName,
-      preview_url: null,
-      storage_path: storagePath,
-    });
-    return "";
+  const supabase = getMediaPipelineClient();
+  const candidatePaths = [
+    storagePath,
+    ...knownStoragePathsForFile(fileName, bucketName),
+  ]
+    .map((path) => stripBucketPrefix(path, bucketName))
+    .filter((path, index, paths): path is string => Boolean(path) && paths.indexOf(path) === index);
+
+  for (const candidatePath of candidatePaths) {
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .createSignedUrl(candidatePath, 60 * 60);
+    const previewUrl = error ? "" : data?.signedUrl ?? "";
+
+    if (previewUrl) {
+      const resolutionMethod = candidatePath === storagePath
+        ? "signed_url_storage_path"
+        : "signed_url_known_path";
+      console.info("[LIBRARY_PREVIEW_DEBUG]", {
+        asset_id: assetId,
+        asset_url: assetUrl ?? null,
+        bucket_name: bucketName,
+        file_name: fileName,
+        public_url: publicUrl ?? null,
+        resolved_preview_url: previewUrl,
+        resolution_method: resolutionMethod,
+        storage_path: candidatePath,
+      });
+      return {
+        bucketName,
+        previewUrl,
+        resolutionMethod,
+        storagePath: candidatePath,
+      };
+    }
   }
 
-  const supabase = getMediaPipelineClient();
-  const { data, error } = await supabase.storage
-    .from(bucketName)
-    .createSignedUrl(storagePath, 60 * 60);
-  const previewUrl = error ? "" : data?.signedUrl ?? "";
+  const fallbackUrl =
+    assetUrl?.startsWith("https://")
+      ? assetUrl
+      : publicUrl?.startsWith("https://")
+        ? publicUrl
+        : "";
+  const fallbackMethod =
+    assetUrl?.startsWith("https://")
+      ? "asset_url"
+      : publicUrl?.startsWith("https://")
+        ? "public_url"
+        : "missing";
 
-  console.info("[BIBLIO]", {
-    asset_id: assetId,
-    bucket: bucketName,
-    file_name: fileName,
-    preview_url: previewUrl,
-    storage_path: storagePath,
+  console.info("[LIBRARY_PREVIEW_DEBUG]", {
+      asset_id: assetId,
+      asset_url: assetUrl ?? null,
+      bucket_name: bucketName,
+      file_name: fileName,
+      public_url: publicUrl ?? null,
+      resolved_preview_url: fallbackUrl || null,
+      resolution_method: fallbackMethod,
+      storage_path: storagePath,
   });
 
-  return previewUrl;
+  return {
+    bucketName,
+    previewUrl: fallbackUrl,
+    resolutionMethod: fallbackMethod,
+    storagePath,
+  };
 }
 
 function libraryVisionDecision(scoreBreakdown: Record<string, unknown>): VisualSelectionDecision {
@@ -2072,27 +2165,39 @@ async function visualLibraryMatchSummary(asset: VisualAsset) {
   const storagePath =
     asset.storagePath || storagePathFromAssetUrl(asset.publicUrl);
   const bucketName = asset.bucketName || VISUAL_LIBRARY_BUCKET;
-  const previewUrl = await signedVisualAssetPreviewUrl({
+  const assetUrl = metadataStringValue(asset.metadata, [
+    "asset_url",
+    "assetUrl",
+    "url",
+    "image_url",
+    "imageUrl",
+  ]);
+  const preview = await signedVisualAssetPreviewUrl({
+    assetUrl,
     assetId: asset.id,
     bucketName,
     fileName: asset.fileName,
+    publicUrl: asset.publicUrl,
     storagePath,
   });
 
   return {
     asset_id: asset.id,
     assetId: asset.id,
-    bucket_name: bucketName,
-    bucketName,
+    bucket_name: preview.bucketName,
+    bucketName: preview.bucketName,
     emotionMatched: metadataMatchValue(matches, "emotion"),
     file_name: asset.fileName,
     fileName: asset.fileName,
-    imageUrl: previewUrl || asset.publicUrl,
+    asset_url: assetUrl,
+    imageUrl: preview.previewUrl || asset.publicUrl || assetUrl,
     publicUrl: asset.publicUrl,
     pertinenceScore: scoreOutOf100(asset.score),
-    preview_url: previewUrl,
-    previewUrl,
+    preview_url: preview.previewUrl,
+    previewUrl: preview.previewUrl,
     reason: asset.scoreReason,
+    resolution_method: preview.resolutionMethod,
+    resolutionMethod: preview.resolutionMethod,
     scoreBreakdown: {
       characterMatch: asset.scoreBreakdown.characterMatch ?? 0,
       ambianceMatch: asset.scoreBreakdown.ambianceMatch ?? 0,
@@ -2111,8 +2216,8 @@ async function visualLibraryMatchSummary(asset: VisualAsset) {
     penalties,
     matched_tags: asset.scoreBreakdown.matched_tags ?? [],
     rejected_because: asset.scoreBreakdown.rejected_because ?? null,
-    storage_path: storagePath,
-    storagePath,
+    storage_path: preview.storagePath,
+    storagePath: preview.storagePath,
     tagsMatched: metadataMatchValue(matches, "tags"),
     themeMatched: metadataMatchValue(matches, "theme"),
     visualStyleMatched: metadataMatchValue(matches, "visualStyle"),
@@ -2949,6 +3054,141 @@ function mapVisualScene(row: VisualSceneRow): VisualScene {
   };
 }
 
+async function enrichStoredLibraryMatches(matches: unknown) {
+  if (!Array.isArray(matches)) {
+    return matches;
+  }
+
+  const assetIds = matches
+    .map((match) => {
+      if (!match || typeof match !== "object") {
+        return "";
+      }
+      const record = match as Record<string, unknown>;
+      return typeof record.assetId === "string"
+        ? record.assetId
+        : typeof record.asset_id === "string"
+          ? record.asset_id
+          : "";
+    })
+    .filter((assetId): assetId is string => Boolean(assetId));
+  const assetById = new Map<string, ContentAssetRow>();
+  const supabase = getMediaPipelineClient();
+
+  if (assetIds.length > 0) {
+    const { data } = await supabase
+      .from("content_assets")
+      .select(
+        "id, asset_type, file_name, bucket_name, storage_path, public_url, source, status, metadata, usage_count, linked_draft_id, created_at",
+      )
+      .in("id", assetIds)
+      .returns<ContentAssetRow[]>();
+
+    (data ?? []).map(normalizedLibraryAsset).forEach((asset) => {
+      assetById.set(asset.id, asset);
+    });
+  }
+
+  return Promise.all(
+    matches.map(async (match) => {
+      if (!match || typeof match !== "object") {
+        return match;
+      }
+
+      const record = match as Record<string, unknown>;
+      const assetId =
+        typeof record.assetId === "string"
+          ? record.assetId
+          : typeof record.asset_id === "string"
+            ? record.asset_id
+            : "";
+      const asset = assetById.get(assetId);
+      const fileName =
+        asset?.file_name ||
+        (typeof record.fileName === "string"
+          ? record.fileName
+          : typeof record.file_name === "string"
+            ? record.file_name
+            : "");
+      const bucketName =
+        asset?.bucket_name ||
+        (typeof record.bucketName === "string"
+          ? record.bucketName
+          : typeof record.bucket_name === "string"
+            ? record.bucket_name
+            : VISUAL_LIBRARY_BUCKET);
+      const publicUrl =
+        asset?.public_url ||
+        (typeof record.publicUrl === "string"
+          ? record.publicUrl
+          : typeof record.public_url === "string"
+            ? record.public_url
+            : typeof record.imageUrl === "string"
+              ? record.imageUrl
+              : "");
+      const assetUrl =
+        metadataStringValue(asset?.metadata ?? {}, [
+          "asset_url",
+          "assetUrl",
+          "url",
+          "image_url",
+          "imageUrl",
+        ]) ||
+        (typeof record.asset_url === "string" ? record.asset_url : "");
+      const storagePath =
+        asset?.storage_path ||
+        (typeof record.storagePath === "string"
+          ? record.storagePath
+          : typeof record.storage_path === "string"
+            ? record.storage_path
+            : storagePathFromAssetUrl(publicUrl) || storagePathFromAssetUrl(assetUrl));
+      const preview = await signedVisualAssetPreviewUrl({
+        assetId,
+        assetUrl,
+        bucketName,
+        fileName,
+        publicUrl,
+        storagePath,
+      });
+
+      return {
+        ...record,
+        asset_id: assetId,
+        assetId,
+        asset_url: assetUrl,
+        bucket_name: preview.bucketName,
+        bucketName: preview.bucketName,
+        file_name: fileName,
+        fileName,
+        imageUrl: preview.previewUrl || publicUrl || assetUrl,
+        publicUrl,
+        preview_url: preview.previewUrl,
+        previewUrl: preview.previewUrl,
+        resolution_method: preview.resolutionMethod,
+        resolutionMethod: preview.resolutionMethod,
+        storage_path: preview.storagePath,
+        storagePath: preview.storagePath,
+      };
+    }),
+  );
+}
+
+async function enrichVisualSceneLibraryMatches(scene: VisualScene) {
+  const libraryMatches = await enrichStoredLibraryMatches(scene.scoreBreakdown.libraryMatches);
+
+  if (!Array.isArray(libraryMatches)) {
+    return scene;
+  }
+
+  return {
+    ...scene,
+    scoreBreakdown: {
+      ...scene.scoreBreakdown,
+      libraryMatches,
+    },
+  };
+}
+
 function defaultVisualScenes(draft: DraftRow): VisualScene[] {
   const prompts = parseVisualPrompts(draft.visual_prompt ?? "");
   const now = new Date().toISOString();
@@ -3269,9 +3509,11 @@ async function readVisualScenes(draft: DraftRow) {
     ]),
   );
 
-  return defaultVisualScenes(draft).map(
+  const scenes = defaultVisualScenes(draft).map(
     (scene) => byIndex.get(scene.visualPromptIndex) ?? scene,
   );
+
+  return Promise.all(scenes.map(enrichVisualSceneLibraryMatches));
 }
 
 async function usedVisualAssetIdsForDraft(draft: DraftRow, currentSceneIndex: number) {

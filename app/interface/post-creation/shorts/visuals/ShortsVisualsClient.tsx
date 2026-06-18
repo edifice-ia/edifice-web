@@ -329,8 +329,16 @@ function getAssetPreviewUrl(asset: Record<string, unknown>) {
   const bucketName =
     typeof asset.bucketName === "string" && asset.bucketName.trim()
       ? asset.bucketName.trim()
+      : typeof asset.bucket_name === "string" && asset.bucket_name.trim()
+        ? asset.bucket_name.trim()
       : VISUAL_LIBRARY_BUCKET;
-  const storagePath = normalizeStoragePath(asset.storagePath);
+  const storagePath = normalizeStoragePath(asset.storagePath || asset.storage_path);
+  const serverPreviewUrl =
+    typeof asset.previewUrl === "string" && asset.previewUrl.trim()
+      ? asset.previewUrl.trim()
+      : typeof asset.preview_url === "string" && asset.preview_url.trim()
+        ? asset.preview_url.trim()
+        : "";
   const publicUrl =
     typeof asset.publicUrl === "string" && asset.publicUrl.trim()
       ? asset.publicUrl.trim()
@@ -349,13 +357,23 @@ function getAssetPreviewUrl(asset: Record<string, unknown>) {
     publicUrlMatchesStoragePath(publicUrl, storagePath)
       ? publicUrl
       : "";
+  const validServerPreviewUrl =
+    serverPreviewUrl.startsWith("https://") && !isInvalidPreviewPath(serverPreviewUrl)
+      ? serverPreviewUrl
+      : "";
 
   return {
     bucketName,
     fallbackUrl: validPublicUrl && validPublicUrl !== rebuiltUrl ? validPublicUrl : "",
-    previewUrl: rebuiltUrl || validPublicUrl,
+    previewUrl: validServerPreviewUrl || rebuiltUrl || validPublicUrl,
     storagePath,
-    usedSource: rebuiltUrl ? "rebuilt_storage_path" : validPublicUrl ? "public_url" : "none",
+    usedSource: validServerPreviewUrl
+      ? "server_preview_url"
+      : rebuiltUrl
+        ? "rebuilt_storage_path"
+        : validPublicUrl
+          ? "public_url"
+          : "none",
   };
 }
 

@@ -1925,11 +1925,82 @@ async function updateGeneratedAssetScore({
   });
 }
 
+function storagePathFromAssetUrl(url: string) {
+  if (!url || url.includes("undefined") || url.includes("null")) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(url);
+    const decodedPath = decodeURIComponent(parsed.pathname);
+    const marker = `${VISUAL_LIBRARY_PATH}/`;
+    const markerIndex = decodedPath.indexOf(marker);
+
+    return markerIndex >= 0 ? decodedPath.slice(markerIndex) : "";
+  } catch {
+    const marker = `${VISUAL_LIBRARY_PATH}/`;
+    const markerIndex = url.indexOf(marker);
+
+    return markerIndex >= 0 ? url.slice(markerIndex) : "";
+  }
+}
+
+function normalizedLibraryAsset(asset: ContentAssetRow): ContentAssetRow {
+  const storagePath =
+    asset.storage_path?.trim() ||
+    storagePathFromAssetUrl(asset.public_url ?? "");
+
+  return {
+    ...asset,
+    bucket_name: asset.bucket_name?.trim() || VISUAL_LIBRARY_BUCKET,
+    storage_path: storagePath,
+  };
+}
+
 function isCanonicalVisualAsset(asset: Pick<ContentAssetRow, "bucket_name" | "storage_path">) {
   return (
     asset.bucket_name === VISUAL_LIBRARY_BUCKET &&
     asset.storage_path.startsWith(`${VISUAL_LIBRARY_PATH}/`)
   );
+}
+
+async function signedVisualAssetPreviewUrl({
+  assetId,
+  bucketName,
+  fileName,
+  storagePath,
+}: {
+  assetId: string;
+  bucketName: string;
+  fileName: string;
+  storagePath: string;
+}) {
+  if (!bucketName || !storagePath) {
+    console.info("[BIBLIO]", {
+      asset_id: assetId,
+      bucket: bucketName,
+      file_name: fileName,
+      preview_url: null,
+      storage_path: storagePath,
+    });
+    return "";
+  }
+
+  const supabase = getMediaPipelineClient();
+  const { data, error } = await supabase.storage
+    .from(bucketName)
+    .createSignedUrl(storagePath, 60 * 60);
+  const previewUrl = error ? "" : data?.signedUrl ?? "";
+
+  console.info("[BIBLIO]", {
+    asset_id: assetId,
+    bucket: bucketName,
+    file_name: fileName,
+    preview_url: previewUrl,
+    storage_path: storagePath,
+  });
+
+  return previewUrl;
 }
 
 function libraryVisionDecision(scoreBreakdown: Record<string, unknown>): VisualSelectionDecision {
@@ -1993,21 +2064,34 @@ function metadataMatchValue(
   return Array.isArray(value) ? value : value ? [value] : [];
 }
 
-function visualLibraryMatchSummary(asset: VisualAsset) {
+async function visualLibraryMatchSummary(asset: VisualAsset) {
   const matches = asset.scoreBreakdown.metadataMatches;
   const penalties = Array.isArray(asset.scoreBreakdown.penalties)
     ? asset.scoreBreakdown.penalties
     : [];
+  const storagePath =
+    asset.storagePath || storagePathFromAssetUrl(asset.publicUrl);
+  const bucketName = asset.bucketName || VISUAL_LIBRARY_BUCKET;
+  const previewUrl = await signedVisualAssetPreviewUrl({
+    assetId: asset.id,
+    bucketName,
+    fileName: asset.fileName,
+    storagePath,
+  });
 
   return {
+    asset_id: asset.id,
     assetId: asset.id,
-    bucketName: asset.bucketName,
+    bucket_name: bucketName,
+    bucketName,
     emotionMatched: metadataMatchValue(matches, "emotion"),
+    file_name: asset.fileName,
     fileName: asset.fileName,
-    imageUrl: asset.publicUrl,
+    imageUrl: previewUrl || asset.publicUrl,
     publicUrl: asset.publicUrl,
     pertinenceScore: scoreOutOf100(asset.score),
-    previewUrl: asset.publicUrl,
+    preview_url: previewUrl,
+    previewUrl,
     reason: asset.scoreReason,
     scoreBreakdown: {
       characterMatch: asset.scoreBreakdown.characterMatch ?? 0,
@@ -2027,7 +2111,8 @@ function visualLibraryMatchSummary(asset: VisualAsset) {
     penalties,
     matched_tags: asset.scoreBreakdown.matched_tags ?? [],
     rejected_because: asset.scoreBreakdown.rejected_because ?? null,
-    storagePath: asset.storagePath,
+    storage_path: storagePath,
+    storagePath,
     tagsMatched: metadataMatchValue(matches, "tags"),
     themeMatched: metadataMatchValue(matches, "theme"),
     visualStyleMatched: metadataMatchValue(matches, "visualStyle"),
@@ -2257,7 +2342,7 @@ async function fallbackLibraryScene({
   }
 
   const candidates = suggestions.slice(0, 5);
-  const topLibraryMatches = candidates.map(visualLibraryMatchSummary);
+  const topLibraryMatches = await Promise.all(candidates.map(visualLibraryMatchSummary));
   const assetsWithMetadata = suggestions.filter((asset) =>
     hasEnrichedVisualMetadata(asset.metadata),
   ).length;
@@ -2986,6 +3071,7 @@ async function readLibraryAssets() {
   }
 
   return (data ?? [])
+    .map(normalizedLibraryAsset)
     .filter((asset) => isCanonicalVisualAsset(asset))
     .slice(0, 120);
 }

@@ -121,6 +121,8 @@ type ApiErrorPayload = {
 };
 
 const VISUAL_LIBRARY_BUCKET = "content-assets";
+const VISUAL_LIBRARY_PATH = "lignes-interieures/visuels";
+const SUPABASE_PUBLIC_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/+$/, "") ?? "";
 const ESTIMATED_GPT_VISION_COST_USD = 0.001;
 const ESTIMATED_IMAGE_GENERATION_COST_USD: Record<GenerationQuality, number> = {
   high: 0.08,
@@ -279,6 +281,82 @@ function penaltyLabels(value: unknown) {
         : "penalite",
     )
     .filter(Boolean);
+}
+
+function normalizeStoragePath(value: unknown) {
+  return typeof value === "string" ? value.trim().replace(/^\/+/, "") : "";
+}
+
+function encodedStoragePath(storagePath: string) {
+  return storagePath
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function isInvalidPreviewPath(value: string) {
+  const normalized = value.toLowerCase();
+
+  return (
+    normalized.includes("lignes-interieures/elite/") ||
+    normalized.includes("drafts/") ||
+    normalized.includes("undefined") ||
+    normalized.includes("null")
+  );
+}
+
+function publicUrlMatchesStoragePath(url: string, storagePath: string) {
+  try {
+    const parsed = new URL(url);
+    const decodedPath = decodeURIComponent(parsed.pathname);
+
+    return decodedPath.includes(`/${storagePath}`);
+  } catch {
+    return false;
+  }
+}
+
+function rebuiltPublicStorageUrl(bucketName: string, storagePath: string) {
+  if (!SUPABASE_PUBLIC_URL || !bucketName || !storagePath) {
+    return "";
+  }
+
+  return `${SUPABASE_PUBLIC_URL}/storage/v1/object/public/${encodeURIComponent(bucketName)}/${encodedStoragePath(storagePath)}`;
+}
+
+function getAssetPreviewUrl(asset: Record<string, unknown>) {
+  const bucketName =
+    typeof asset.bucketName === "string" && asset.bucketName.trim()
+      ? asset.bucketName.trim()
+      : VISUAL_LIBRARY_BUCKET;
+  const storagePath = normalizeStoragePath(asset.storagePath);
+  const publicUrl =
+    typeof asset.publicUrl === "string" && asset.publicUrl.trim()
+      ? asset.publicUrl.trim()
+      : typeof asset.imageUrl === "string" && asset.imageUrl.trim()
+        ? asset.imageUrl.trim()
+        : "";
+  const rebuiltUrl =
+    storagePath.startsWith(`${VISUAL_LIBRARY_PATH}/`) && !isInvalidPreviewPath(storagePath)
+      ? rebuiltPublicStorageUrl(bucketName, storagePath)
+      : "";
+  const validPublicUrl =
+    publicUrl.startsWith("https://") &&
+    storagePath.startsWith(`${VISUAL_LIBRARY_PATH}/`) &&
+    !isInvalidPreviewPath(publicUrl) &&
+    !isInvalidPreviewPath(storagePath) &&
+    publicUrlMatchesStoragePath(publicUrl, storagePath)
+      ? publicUrl
+      : "";
+
+  return {
+    bucketName,
+    fallbackUrl: validPublicUrl && validPublicUrl !== rebuiltUrl ? validPublicUrl : "",
+    previewUrl: rebuiltUrl || validPublicUrl,
+    storagePath,
+    usedSource: rebuiltUrl ? "rebuilt_storage_path" : validPublicUrl ? "public_url" : "none",
+  };
 }
 
 function libraryMatchesForScene(scene: VisualScene) {
@@ -714,8 +792,11 @@ function SceneLibraryMatches({
   scene: VisualScene;
 }) {
   const [previewErrorByCandidate, setPreviewErrorByCandidate] = useState<Record<string, boolean>>({});
+  const [previewErrorDetailByCandidate, setPreviewErrorDetailByCandidate] = useState<Record<string, string>>({});
   const [previewLoadingByCandidate, setPreviewLoadingByCandidate] = useState<Record<string, boolean>>({});
   const [previewOpenByCandidate, setPreviewOpenByCandidate] = useState<Record<string, boolean>>({});
+  const [previewRetryByCandidate, setPreviewRetryByCandidate] = useState<Record<string, boolean>>({});
+  const [previewUrlByCandidate, setPreviewUrlByCandidate] = useState<Record<string, string>>({});
   const matches = libraryMatchesForScene(scene);
   const threshold = scoreNumber(scene.scoreBreakdown.libraryRelevanceThreshold ?? 60);
   const bestScore = matches.reduce(
@@ -766,15 +847,13 @@ function SceneLibraryMatches({
         {matches.map((match, index) => {
           const assetId = typeof match.assetId === "string" ? match.assetId : "";
           const candidateKey = assetId || `${String(match.fileName ?? "candidate")}-${index}`;
-          const candidateImageUrl =
-            typeof match.imageUrl === "string" && match.imageUrl.trim()
-              ? match.imageUrl.trim()
-              : typeof match.publicUrl === "string" && match.publicUrl.trim()
-                ? match.publicUrl.trim()
-                : "";
+          const preview = getAssetPreviewUrl(match);
+          const candidateImageUrl = preview.previewUrl;
+          const activePreviewUrl = previewUrlByCandidate[candidateKey] || candidateImageUrl;
           const isPreviewOpen = Boolean(previewOpenByCandidate[candidateKey]);
           const isPreviewLoading = Boolean(previewLoadingByCandidate[candidateKey]);
           const hasPreviewError = Boolean(previewErrorByCandidate[candidateKey]);
+          const previewError = previewErrorDetailByCandidate[candidateKey] ?? "";
           const tags = stringList(match.tagsMatched);
           const emotions = stringList(match.emotionMatched);
           const themes = stringList(match.themeMatched);
@@ -815,9 +894,21 @@ function SceneLibraryMatches({
                       ...current,
                       [candidateKey]: false,
                     }));
+                    setPreviewErrorDetailByCandidate((current) => ({
+                      ...current,
+                      [candidateKey]: "",
+                    }));
                     setPreviewLoadingByCandidate((current) => ({
                       ...current,
                       [candidateKey]: true,
+                    }));
+                    setPreviewRetryByCandidate((current) => ({
+                      ...current,
+                      [candidateKey]: false,
+                    }));
+                    setPreviewUrlByCandidate((current) => ({
+                      ...current,
+                      [candidateKey]: candidateImageUrl,
                     }));
                     setPreviewOpenByCandidate((current) => ({
                       ...current,
@@ -846,16 +937,29 @@ function SceneLibraryMatches({
                   ) : null}
                   {hasPreviewError ? (
                     <p className="px-3 py-2 font-semibold text-[#FDBA74]">
-                      Apercu indisponible
+                      Apercu indisponible - chemin a verifier
                     </p>
                   ) : null}
-                  {candidateImageUrl && !hasPreviewError ? (
+                  {activePreviewUrl && !hasPreviewError ? (
                     <img
                       alt={`Apercu ${String(match.fileName ?? "visuel bibliotheque")}`}
                       className={`max-h-[360px] w-full bg-[#03070B] object-contain ${
                         isPreviewLoading ? "hidden" : "block"
                       }`}
                       onError={() => {
+                        const alreadyRetried = Boolean(previewRetryByCandidate[candidateKey]);
+                        if (!alreadyRetried && preview.fallbackUrl && preview.fallbackUrl !== activePreviewUrl) {
+                          setPreviewRetryByCandidate((current) => ({
+                            ...current,
+                            [candidateKey]: true,
+                          }));
+                          setPreviewUrlByCandidate((current) => ({
+                            ...current,
+                            [candidateKey]: preview.fallbackUrl,
+                          }));
+                          return;
+                        }
+
                         setPreviewLoadingByCandidate((current) => ({
                           ...current,
                           [candidateKey]: false,
@@ -864,6 +968,10 @@ function SceneLibraryMatches({
                           ...current,
                           [candidateKey]: true,
                         }));
+                        setPreviewErrorDetailByCandidate((current) => ({
+                          ...current,
+                          [candidateKey]: "image_load_error",
+                        }));
                       }}
                       onLoad={() =>
                         setPreviewLoadingByCandidate((current) => ({
@@ -871,9 +979,21 @@ function SceneLibraryMatches({
                           [candidateKey]: false,
                         }))
                       }
-                      src={candidateImageUrl}
+                      src={activePreviewUrl}
                     />
                   ) : null}
+                  <details className="border-t border-[#1D2A44] px-3 py-2 text-[11px] text-[#64748b]">
+                    <summary className="cursor-pointer font-semibold">Debug apercu</summary>
+                    <div className="mt-2 grid gap-1 [overflow-wrap:anywhere]">
+                      <p>asset_id: {sceneDebugValue(assetId)}</p>
+                      <p>file_name: {sceneDebugValue(match.fileName)}</p>
+                      <p>bucket_name: {sceneDebugValue(preview.bucketName)}</p>
+                      <p>storage_path: {sceneDebugValue(preview.storagePath)}</p>
+                      <p>preview_url utilisee: {sceneDebugValue(activePreviewUrl || candidateImageUrl)}</p>
+                      <p>preview_source: {sceneDebugValue(preview.usedSource)}</p>
+                      <p>preview_error: {sceneDebugValue(previewError)}</p>
+                    </div>
+                  </details>
                 </div>
               ) : null}
               <div className="mt-3 grid min-w-0 gap-2 text-[#A7B0C0] lg:grid-cols-3">

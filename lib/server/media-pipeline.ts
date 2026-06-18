@@ -2001,10 +2001,13 @@ function visualLibraryMatchSummary(asset: VisualAsset) {
 
   return {
     assetId: asset.id,
+    bucketName: asset.bucketName,
     emotionMatched: metadataMatchValue(matches, "emotion"),
     fileName: asset.fileName,
     imageUrl: asset.publicUrl,
+    publicUrl: asset.publicUrl,
     pertinenceScore: scoreOutOf100(asset.score),
+    previewUrl: asset.publicUrl,
     reason: asset.scoreReason,
     scoreBreakdown: {
       characterMatch: asset.scoreBreakdown.characterMatch ?? 0,
@@ -2024,6 +2027,7 @@ function visualLibraryMatchSummary(asset: VisualAsset) {
     penalties,
     matched_tags: asset.scoreBreakdown.matched_tags ?? [],
     rejected_because: asset.scoreBreakdown.rejected_because ?? null,
+    storagePath: asset.storagePath,
     tagsMatched: metadataMatchValue(matches, "tags"),
     themeMatched: metadataMatchValue(matches, "theme"),
     visualStyleMatched: metadataMatchValue(matches, "visualStyle"),

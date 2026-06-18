@@ -37,6 +37,7 @@ const IMAGE_GENERATION_TIMEOUT_MS = 30_000;
 const UPLOAD_TIMEOUT_MS = 30_000;
 const VISION_SCORING_TIMEOUT_MS = SCORING_TIMEOUT_MS;
 const VISUAL_SELECTION_THRESHOLD = 70;
+const VISUAL_LIBRARY_RELEVANCE_THRESHOLD = 60;
 export const VISUAL_LIBRARY_BUCKET = "content-assets";
 export const VISUAL_LIBRARY_PATH = "lignes-interieures/visuels";
 
@@ -204,6 +205,13 @@ export type VisualScoreBreakdown = {
   visionScoreBonus?: number;
   metadataScoreTotal?: number;
   metadataSourceScores?: Record<string, number>;
+  metadataMatches?: {
+    emotion: string | null;
+    tags: string[];
+    theme: string | null;
+    visualStyle: string | null;
+    characterType: string | null;
+  };
 };
 
 export type VisualGenerationInput = {
@@ -523,12 +531,15 @@ function scoreAsset(
   const sceneReference = `${sceneText} ${visualPromptText}`;
   const draftReference = `${draft.title ?? ""} ${draft.hook ?? ""} ${draft.angle ?? ""} ${draft.theme ?? ""}`;
   const sceneReferenceTokens = tokenize(sceneReference);
-  const tagsMatch = numericScore(
-    declaredTags.filter((tag) => {
-      const tagTokens = tokenize(tag);
+  const draftReferenceTokens = tokenize(draftReference);
+  const referenceTokens = [...new Set([...sceneReferenceTokens, ...draftReferenceTokens])];
+  const matchingTags = declaredTags.filter((tag) => {
+    const tagTokens = tokenize(tag);
 
-      return tagTokens.some((token) => sceneReferenceTokens.includes(token));
-    }).length * 4,
+    return tagTokens.some((token) => referenceTokens.includes(token));
+  });
+  const tagsMatch = numericScore(
+    matchingTags.length * 4,
     16,
   );
   const themeMatch = Math.max(
@@ -688,6 +699,13 @@ function scoreAsset(
     visionScoreBonus,
     metadataScoreTotal,
     metadataSourceScores,
+    metadataMatches: {
+      characterType: characterMatch > 0 ? declaredCharacterType || null : null,
+      emotion: emotionMatch > 0 ? declaredEmotion || null : null,
+      tags: matchingTags.slice(0, 8),
+      theme: themeMatch > 0 ? declaredTheme || null : null,
+      visualStyle: styleMatch > 0 ? declaredStyle || null : null,
+    },
   };
 
   return { score, reason, scoreBreakdown };
@@ -1661,6 +1679,38 @@ function scoreOutOf100(value: unknown) {
   return Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0;
 }
 
+function metadataMatchValue(
+  matches: VisualScoreBreakdown["metadataMatches"] | undefined,
+  key: keyof NonNullable<VisualScoreBreakdown["metadataMatches"]>,
+) {
+  const value = matches?.[key];
+
+  return Array.isArray(value) ? value : value ? [value] : [];
+}
+
+function visualLibraryMatchSummary(asset: VisualAsset) {
+  const matches = asset.scoreBreakdown.metadataMatches;
+
+  return {
+    assetId: asset.id,
+    emotionMatched: metadataMatchValue(matches, "emotion"),
+    fileName: asset.fileName,
+    imageUrl: asset.publicUrl,
+    pertinenceScore: scoreOutOf100(asset.score),
+    scoreBreakdown: {
+      characterMatch: asset.scoreBreakdown.characterMatch ?? 0,
+      emotionMatch: asset.scoreBreakdown.emotionMatch ?? 0,
+      gptVisionScoreBonus: asset.scoreBreakdown.visionScoreBonus ?? 0,
+      styleMatch: asset.scoreBreakdown.styleMatch ?? 0,
+      tagsMatch: asset.scoreBreakdown.tagsMatch ?? 0,
+      themeMatch: asset.scoreBreakdown.themeMatch ?? 0,
+    },
+    tagsMatched: metadataMatchValue(matches, "tags"),
+    themeMatched: metadataMatchValue(matches, "theme"),
+    visualStyleMatched: metadataMatchValue(matches, "visualStyle"),
+  };
+}
+
 function logVisualSelection({
   assetId,
   decision,
@@ -1793,17 +1843,17 @@ async function fallbackLibraryScene({
     const message = error instanceof Error ? error.message : String(error);
     await upsertVisualScene({
       draft,
-      errorMessage: `Bibliotheque trop lente, generation IA. ${message}`,
+      errorMessage: `Aucun visuel pertinent trouve. Recherche bibliotheque trop lente. ${message}`,
       generationQuality,
       generationSource: "library",
-      generationStatus: "generating",
+      generationStatus: "error",
       scoreSource: "none",
       visualPromptIndex: sceneIndex,
     });
     logVisualSceneStatusTransition({
       draftId: draft.id,
       elapsedMs: Date.now() - startedAt,
-      newStatus: "generating",
+      newStatus: "error",
       previousStatus: "searching_library",
       sceneIndex,
       startedAt: new Date(startedAt).toISOString(),
@@ -1824,7 +1874,7 @@ async function fallbackLibraryScene({
       draftId: draft.id,
       error,
       sceneIndex,
-      step: "fallback_generation",
+      step: "asset_not_found",
     });
     return false;
   }
@@ -1835,6 +1885,7 @@ async function fallbackLibraryScene({
       item.score >= 35,
     )
     .slice(0, 5);
+  const topLibraryMatches = candidates.map(visualLibraryMatchSummary);
   let bestCandidateScore = candidates.length
     ? Math.max(...candidates.map((asset) => scoreOutOf100(asset.score)))
     : 0;
@@ -1912,6 +1963,9 @@ async function fallbackLibraryScene({
         imageUrl: asset.publicUrl,
         scoreBreakdown: {
           ...scoreBreakdown,
+          libraryMatches: topLibraryMatches,
+          libraryRelevant: bestCandidateScore >= VISUAL_LIBRARY_RELEVANCE_THRESHOLD,
+          libraryRelevanceThreshold: VISUAL_LIBRARY_RELEVANCE_THRESHOLD,
           ...visualSceneSelectionDebug({
             assetsFound: suggestions.length,
             assetsRejected: Math.max(0, candidates.length - 1),
@@ -1960,30 +2014,35 @@ async function fallbackLibraryScene({
     draft,
     errorMessage:
       suggestions.length > 0
-        ? `Aucun visuel pertinent trouve dans la bibliotheque. Meilleur score trouve : ${bestCandidateScore}/100. Seuil requis : ${VISUAL_SELECTION_THRESHOLD}/100. Generation IA lancee automatiquement.`
-        : "Aucun visuel disponible dans la bibliotheque. Generation IA lancee automatiquement.",
+        ? "Aucun visuel pertinent trouve dans la bibliotheque."
+        : "Aucun visuel disponible dans la bibliotheque.",
     generationQuality,
-    generationSource: "generated",
-    generationStatus: "generating",
-    scoreBreakdown: visualSceneSelectionDebug({
-      assetsFound: suggestions.length,
-      assetsRejected: candidates.length,
-      assetsScored: candidates.length,
-      assetsSelected: 0,
-      bestCandidate: bestCandidate?.fileName ?? null,
-      bestCandidateScore,
-      fallbackTriggered: true,
-      generationRequested: true,
-      generationStartedAt: new Date().toISOString(),
-      generationSource: "generated",
-      generationStatus: "generating",
-      rejectionReason:
-        lastRejectionReason ||
-        (suggestions.length > 0
-          ? `Meilleur score ${bestCandidateScore}/100 sous le seuil ${VISUAL_SELECTION_THRESHOLD}/100.`
-          : "Bibliotheque vide."),
-      selectionDecision: suggestions.length > 0 ? "asset_not_relevant" : "library_empty",
-    }),
+    generationSource: "library",
+    generationStatus: "error",
+    scoreBreakdown: {
+      libraryMatches: topLibraryMatches,
+      libraryRelevant: bestCandidateScore >= VISUAL_LIBRARY_RELEVANCE_THRESHOLD,
+      libraryRelevanceThreshold: VISUAL_LIBRARY_RELEVANCE_THRESHOLD,
+      ...visualSceneSelectionDebug({
+        assetsFound: suggestions.length,
+        assetsRejected: candidates.length,
+        assetsScored: candidates.length,
+        assetsSelected: 0,
+        bestCandidate: bestCandidate?.fileName ?? null,
+        bestCandidateScore,
+        fallbackTriggered: true,
+        generationRequested: false,
+        generationStartedAt: null,
+        generationSource: "library",
+        generationStatus: "error",
+        rejectionReason:
+          lastRejectionReason ||
+          (suggestions.length > 0
+            ? `Meilleur score ${bestCandidateScore}/100 sous le seuil ${VISUAL_SELECTION_THRESHOLD}/100.`
+            : "Bibliotheque vide."),
+        selectionDecision: suggestions.length > 0 ? "asset_not_relevant" : "library_empty",
+      }),
+    },
     scoreSource: "none",
     visualPromptIndex: sceneIndex,
   });
@@ -2008,6 +2067,7 @@ async function fallbackLibraryScene({
 }
 
 async function generateSceneVisual({
+  allowGeneration = false,
   draft,
   generationQuality,
   generationSource,
@@ -2018,6 +2078,7 @@ async function generateSceneVisual({
   generationQuality: GenerationQuality;
   generationSource: GenerationSource;
   sceneIndex: number;
+  allowGeneration?: boolean;
   skipLibrary?: boolean;
 }) {
   const prompt = parseVisualPrompts(draft.visual_prompt ?? "")[sceneIndex - 1] ?? "";
@@ -2031,6 +2092,10 @@ async function generateSceneVisual({
       });
 
   if (librarySelected) {
+    return;
+  }
+
+  if (!allowGeneration) {
     return;
   }
 
@@ -2253,15 +2318,19 @@ function isStuckVisualScene(scene: VisualScene) {
 }
 
 async function processDraftVisualScenes({
+  allowGeneration = false,
   draft,
   generationQuality,
   generationSource,
   onlyBlocked = false,
+  skipLibrary = false,
 }: {
+  allowGeneration?: boolean;
   draft: DraftRow;
   generationQuality: GenerationQuality;
   generationSource: GenerationSource;
   onlyBlocked?: boolean;
+  skipLibrary?: boolean;
 }) {
   const prompts = parseVisualPrompts(draft.visual_prompt ?? "");
   const currentScenes = await readVisualScenes(draft);
@@ -2311,10 +2380,12 @@ async function processDraftVisualScenes({
     }
 
     await generateSceneVisual({
+      allowGeneration,
       draft,
       generationQuality,
       generationSource,
       sceneIndex: scene.visualPromptIndex,
+      skipLibrary,
     });
   }
 }
@@ -3082,7 +3153,7 @@ export async function prepareDraftMedia({
     visualDecision,
     assetsFound: relevantAssets.length,
     assetsSelected: hasEnoughLibraryAssets ? selectedAssets.length : 0,
-    generationRequested: !hasEnoughLibraryAssets,
+    generationRequested: false,
     generationReason: hasEnoughLibraryAssets
       ? null
       : relevantAssets.length > 0
@@ -3126,9 +3197,11 @@ export async function requestDraftVisualGeneration({
 
   const generationInput = buildVisualGenerationInput(draft);
   await processDraftVisualScenes({
+    allowGeneration: true,
     draft,
     generationQuality: normalizedGenerationQuality,
     generationSource: "generated",
+    skipLibrary: true,
   });
 
   const currentState = await readMediaPipelineState({
@@ -3261,28 +3334,21 @@ export async function recoverStuckDraftVisualScenes({
     if (previousStatus === "searching_library") {
       await upsertVisualScene({
         draft,
-        errorMessage: "Recherche trop longue, generation IA...",
+        errorMessage: "Aucun visuel pertinent trouve.",
         generationQuality: normalizedGenerationQuality,
-        generationSource: "generated",
-        generationStatus: "generating",
+        generationSource: "library",
+        generationStatus: "error",
         scoreSource: "none",
         visualPromptIndex: scene.visualPromptIndex,
       });
       logVisualSceneStatusTransition({
         draftId,
         elapsedMs,
-        newStatus: "generating",
+        newStatus: "error",
         previousStatus,
         sceneIndex: scene.visualPromptIndex,
         startedAt: scene.updatedAt,
         timeoutReason,
-      });
-      await generateSceneVisual({
-        draft,
-        generationQuality: normalizedGenerationQuality,
-        generationSource: "generated",
-        sceneIndex: scene.visualPromptIndex,
-        skipLibrary: true,
       });
       continue;
     }
@@ -3378,9 +3444,57 @@ export async function regenerateDraftVisualScene({
   }
 
   await generateSceneVisual({
+    allowGeneration: true,
     draft,
     generationQuality: normalizedGenerationQuality,
     generationSource: "regenerated",
+    sceneIndex: normalizedSceneIndex,
+    skipLibrary: true,
+  });
+
+  return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
+}
+
+export async function retryDraftVisualSceneSearch({
+  draftId,
+  generationQuality,
+  sceneIndex,
+  userId,
+}: {
+  draftId: string;
+  generationQuality?: unknown;
+  sceneIndex: number;
+  userId: string;
+}) {
+  const draft = await readDraft(draftId, userId);
+  const normalizedGenerationQuality = normalizeGenerationQuality(generationQuality);
+  const normalizedSceneIndex = Math.max(1, Math.min(7, Math.round(sceneIndex)));
+  const scene = (await readVisualScenes(draft)).find(
+    (item) => item.visualPromptIndex === normalizedSceneIndex,
+  );
+
+  if (!isDraftValidatedForMedia(draft.status)) {
+    throw new MediaPipelineError("Valide le brouillon avant de relancer la recherche.", {
+      draftId,
+      draftStatus: draft.status,
+      validation: "draft.status",
+    });
+  }
+  assertDraftVisualsCanChange(draft, draftId);
+
+  if (scene?.locked) {
+    throw new MediaPipelineError("Cette scene est verrouillee. Clique sur Modifier pour la remplacer.", {
+      draftId,
+      sceneIndex: normalizedSceneIndex,
+      validation: "visual_scene.locked",
+    });
+  }
+
+  await generateSceneVisual({
+    allowGeneration: false,
+    draft,
+    generationQuality: normalizedGenerationQuality,
+    generationSource: "library",
     sceneIndex: normalizedSceneIndex,
   });
 

@@ -10,6 +10,7 @@ import {
   removeDraftVisualAsset,
   requestDraftVisualGeneration,
   retryBlockedDraftVisualScenes,
+  retryDraftVisualSceneSearch,
   selectDraftVisualAsset,
   unlockDraftVisualScene,
   updateDraftVisualSceneStatus,
@@ -209,7 +210,7 @@ export async function POST(
       return NextResponse.json({ media });
     }
 
-    if (action === "regenerate_scene" || action === "analyze_scene") {
+    if (action === "regenerate_scene" || action === "analyze_scene" || action === "retry_scene_search") {
       const sceneIndex =
         typeof payload.sceneIndex === "number" ? payload.sceneIndex : 1;
       const media = action === "regenerate_scene"
@@ -219,11 +220,18 @@ export async function POST(
             sceneIndex,
             userId: user.id,
           })
-        : await analyzeDraftVisualScene({
+        : action === "retry_scene_search"
+          ? await retryDraftVisualSceneSearch({
+              draftId: id,
+              generationQuality: payload.generationQuality,
+              sceneIndex,
+              userId: user.id,
+            })
+          : await analyzeDraftVisualScene({
             draftId: id,
             sceneIndex,
             userId: user.id,
-          });
+            });
 
       return NextResponse.json({ media });
     }

@@ -121,6 +121,12 @@ type ApiErrorPayload = {
 };
 
 const VISUAL_LIBRARY_BUCKET = "content-assets";
+const ESTIMATED_GPT_VISION_COST_USD = 0.001;
+const ESTIMATED_IMAGE_GENERATION_COST_USD: Record<GenerationQuality, number> = {
+  high: 0.08,
+  low: 0.01,
+  medium: 0.04,
+};
 
 const statusLabels: Record<string, string> = {
   draft: "Brouillon texte",
@@ -236,6 +242,30 @@ function sceneDebugValue(value: unknown) {
   return String(value);
 }
 
+function stringList(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    return [value.trim()];
+  }
+
+  return [];
+}
+
+function libraryMatchesForScene(scene: VisualScene) {
+  const matches = scene.scoreBreakdown.libraryMatches;
+
+  if (!Array.isArray(matches)) {
+    return [];
+  }
+
+  return matches
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .slice(0, 5);
+}
+
 function fileNameFromStoragePath(storagePath: string | null) {
   if (!storagePath) {
     return null;
@@ -293,7 +323,7 @@ function sceneProgressMessage(scene: VisualScene) {
 
   if (scene.generationStatus === "searching_library") {
     if (isSceneStuck(scene)) {
-      return `Scene ${scene.visualPromptIndex}/7 : recherche trop longue, generation IA...`;
+      return `Scene ${scene.visualPromptIndex}/7 : recherche trop longue. Action requise.`;
     }
 
     return `Recherche bibliotheque pour la scene ${scene.visualPromptIndex}...`;
@@ -305,11 +335,11 @@ function sceneProgressMessage(scene: VisualScene) {
 
   if (scene.generationStatus === "generating") {
     if (scene.scoreBreakdown.selectionDecision === "asset_not_relevant") {
-      return "Aucun visuel pertinent trouve. Generation IA...";
+      return "Generation IA en cours...";
     }
 
     if (scene.scoreBreakdown.selectionDecision === "library_empty") {
-      return "Aucun visuel disponible dans la bibliotheque. Generation IA...";
+      return "Generation IA en cours...";
     }
 
     return `Scene ${scene.visualPromptIndex}/7 : generation IA en cours...`;
@@ -421,6 +451,7 @@ function visualActionNotice(action: string) {
     regenerate_scene: "Scene regeneree.",
     reject_scene: "Scene rejetee.",
     request_visual_generation: "Generation lancee pour les scenes de ce brouillon.",
+    retry_scene_search: "Recherche bibliotheque relancee.",
     retry_blocked_scenes: "Relance des scenes bloquees lancee.",
     retain_scene: "Scene retenue.",
     unlock_scene: "Scene deverrouillee.",
@@ -631,6 +662,77 @@ function SceneScoreDetails({ scene }: { scene: VisualScene }) {
   );
 }
 
+function SceneLibraryMatches({ scene }: { scene: VisualScene }) {
+  const matches = libraryMatchesForScene(scene);
+  const threshold = scoreNumber(scene.scoreBreakdown.libraryRelevanceThreshold ?? 60);
+  const hasRelevantMatch = matches.some((match) => scoreNumber(match.pertinenceScore) >= threshold);
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-xs">
+      <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+        <p className="font-semibold text-[#F8FAFC]">
+          Meilleurs resultats bibliotheque
+        </p>
+        <span className="font-semibold text-[#A7B0C0]">
+          seuil pertinent : {threshold}/100
+        </span>
+      </div>
+      {!hasRelevantMatch ? (
+        <p className="mt-2 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-2 py-1.5 font-semibold text-[#FDBA74]">
+          Aucun visuel pertinent trouve dans la bibliotheque. Generer un nouveau visuel IA.
+        </p>
+      ) : null}
+      <div className="mt-3 grid gap-2">
+        {matches.map((match, index) => {
+          const tags = stringList(match.tagsMatched);
+          const emotions = stringList(match.emotionMatched);
+          const themes = stringList(match.themeMatched);
+
+          return (
+            <div
+              key={`${String(match.assetId ?? match.fileName ?? index)}-${index}`}
+              className="rounded-md border border-[#1D2A44] bg-[#08111A] p-2"
+            >
+              <div className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
+                <p className="font-semibold text-[#F8FAFC]">
+                  {index + 1}. {String(match.fileName ?? "Visuel bibliotheque")}
+                </p>
+                <span className="font-semibold text-[#39E6D0]">
+                  Score de pertinence : {scoreNumber(match.pertinenceScore)}/100
+                </span>
+              </div>
+              <div className="mt-2 grid gap-1 text-[#A7B0C0] md:grid-cols-3">
+                <p>
+                  Tags correspondants :{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {tags.length ? tags.join(", ") : "aucun"}
+                  </span>
+                </p>
+                <p>
+                  Emotion correspondante :{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {emotions.length ? emotions.join(", ") : "aucune"}
+                  </span>
+                </p>
+                <p>
+                  Theme correspondant :{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {themes.length ? themes.join(", ") : "aucun"}
+                  </span>
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SceneDebugDetails({ scene }: { scene: VisualScene }) {
   const debug = scene.scoreBreakdown;
 
@@ -838,6 +940,7 @@ export function ShortsVisualsClient() {
       | "refresh_suggestions"
       | "request_visual_generation"
       | "retry_blocked_scenes"
+      | "retry_scene_search"
       | "regenerate_scene"
       | "analyze_scene"
       | "retain_scene"
@@ -862,6 +965,7 @@ export function ShortsVisualsClient() {
         action === "prepare_media" ||
         action === "request_visual_generation" ||
         action === "retry_blocked_scenes" ||
+        action === "retry_scene_search" ||
         action === "regenerate_scene";
       const response = await fetch(`/api/content-workshop/drafts/${selectedDraft.id}/media`, {
         method: "POST",
@@ -1153,6 +1257,17 @@ export function ShortsVisualsClient() {
             </select>
           </label>
 
+          <p className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+            Estimation avant generation IA :{" "}
+            <span className="font-semibold text-[#F8FAFC]">
+              ${ESTIMATED_IMAGE_GENERATION_COST_USD[generationQuality].toFixed(2)} par visuel
+            </span>
+            {" "}hors analyse Vision estimee a{" "}
+            <span className="font-semibold text-[#F8FAFC]">
+              ${ESTIMATED_GPT_VISION_COST_USD.toFixed(3)}
+            </span>.
+          </p>
+
           <div className="mt-5 flex flex-wrap gap-3">
             <button
               type="button"
@@ -1326,6 +1441,7 @@ export function ShortsVisualsClient() {
                     </div>
                   )}
                   <SceneScoreDetails scene={scene} />
+                  <SceneLibraryMatches scene={scene} />
                   {!scene.locked ? <SceneDebugDetails scene={scene} /> : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {scene.locked ? (
@@ -1343,6 +1459,16 @@ export function ShortsVisualsClient() {
                       </button>
                     ) : (
                       <>
+                        <p className="basis-full rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs text-[#A7B0C0]">
+                          Cout estime avant generation IA :{" "}
+                          <span className="font-semibold text-[#F8FAFC]">
+                            ${ESTIMATED_IMAGE_GENERATION_COST_USD[generationQuality].toFixed(2)}
+                          </span>
+                          {" "}+ Vision{" "}
+                          <span className="font-semibold text-[#F8FAFC]">
+                            ${ESTIMATED_GPT_VISION_COST_USD.toFixed(3)}
+                          </span>
+                        </p>
                         <button
                           type="button"
                           disabled={isRunningAction}
@@ -1353,7 +1479,19 @@ export function ShortsVisualsClient() {
                           }
                           className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-3 py-1.5 text-xs font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
                         >
-                          Regenerer / remplacer
+                          Generer un visuel IA
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isRunningAction}
+                          onClick={() =>
+                            void runVisualAction("retry_scene_search", {
+                              sceneIndex: scene.visualPromptIndex,
+                            })
+                          }
+                          className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-1.5 text-xs font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
+                        >
+                          Regenerer la recherche
                         </button>
                         <button
                           type="button"
@@ -1389,7 +1527,7 @@ export function ShortsVisualsClient() {
                           }
                           className="rounded-md border border-[#F97316]/45 bg-[#F97316]/10 px-3 py-1.5 text-xs font-semibold text-[#FDBA74] transition hover:bg-[#7C2D12]/40 hover:text-[#F8FAFC] disabled:cursor-wait disabled:opacity-60"
                         >
-                          Rejeter
+                          Ignorer cette scene
                         </button>
                       </>
                     )}

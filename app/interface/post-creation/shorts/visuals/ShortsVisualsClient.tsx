@@ -266,6 +266,14 @@ function libraryMatchesForScene(scene: VisualScene) {
     .slice(0, 5);
 }
 
+function hasRelevantLibraryMatch(scene: VisualScene) {
+  const threshold = scoreNumber(scene.scoreBreakdown.libraryRelevanceThreshold ?? 60);
+
+  return libraryMatchesForScene(scene).some(
+    (match) => scoreNumber(match.pertinenceScore) >= threshold,
+  );
+}
+
 function fileNameFromStoragePath(storagePath: string | null) {
   if (!storagePath) {
     return null;
@@ -662,10 +670,25 @@ function SceneScoreDetails({ scene }: { scene: VisualScene }) {
   );
 }
 
-function SceneLibraryMatches({ scene }: { scene: VisualScene }) {
+function SceneLibraryMatches({
+  debugOpen = false,
+  isOpen,
+  onToggle,
+  scene,
+}: {
+  debugOpen?: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
+  scene: VisualScene;
+}) {
   const matches = libraryMatchesForScene(scene);
   const threshold = scoreNumber(scene.scoreBreakdown.libraryRelevanceThreshold ?? 60);
+  const bestScore = matches.reduce(
+    (best, match) => Math.max(best, scoreNumber(match.pertinenceScore)),
+    0,
+  );
   const hasRelevantMatch = matches.some((match) => scoreNumber(match.pertinenceScore) >= threshold);
+  const shouldShowResults = isOpen || debugOpen;
 
   if (matches.length === 0) {
     return null;
@@ -673,24 +696,44 @@ function SceneLibraryMatches({ scene }: { scene: VisualScene }) {
 
   return (
     <div className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-xs">
-      <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-        <p className="font-semibold text-[#F8FAFC]">
-          Meilleurs resultats bibliotheque
-        </p>
-        <span className="font-semibold text-[#A7B0C0]">
-          seuil pertinent : {threshold}/100
-        </span>
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <p className="font-semibold text-[#F8FAFC]">
+            Resultats bibliotheque - meilleur score : {bestScore}/100
+          </p>
+          <p className="mt-1 text-[#64748b]">Seuil pertinent : {threshold}/100</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`rounded-md border px-2 py-1 font-semibold ${
+              hasRelevantMatch
+                ? "border-[#39E6D0]/35 bg-[#39E6D0]/10 text-[#39E6D0]"
+                : "border-[#F97316]/35 bg-[#F97316]/10 text-[#FDBA74]"
+            }`}
+          >
+            {hasRelevantMatch ? `${matches.length} candidats trouves` : "Aucun visuel pertinent"}
+          </span>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-1 font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/45 hover:text-[#F8FAFC]"
+          >
+            {shouldShowResults ? "Masquer les resultats bibliotheque" : "Voir les resultats bibliotheque"}
+          </button>
+        </div>
       </div>
       {!hasRelevantMatch ? (
         <p className="mt-2 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-2 py-1.5 font-semibold text-[#FDBA74]">
-          Aucun visuel pertinent trouve dans la bibliotheque. Generer un nouveau visuel IA.
+          Resultats faibles : aucun visuel ne correspond vraiment a cette scene.
         </p>
       ) : null}
-      <div className="mt-3 grid gap-2">
+      {shouldShowResults ? <div className="mt-3 grid gap-2 md:grid-cols-2">
         {matches.map((match, index) => {
           const tags = stringList(match.tagsMatched);
           const emotions = stringList(match.emotionMatched);
           const themes = stringList(match.themeMatched);
+          const matchedTags = stringList(match.matched_tags);
+          const penalties = Array.isArray(match.penalties) ? match.penalties : [];
 
           return (
             <div
@@ -725,15 +768,57 @@ function SceneLibraryMatches({ scene }: { scene: VisualScene }) {
                   </span>
                 </p>
               </div>
+              <div className="mt-2 grid gap-1 text-[#A7B0C0] md:grid-cols-4">
+                <p>Sujet : <span className="font-semibold text-[#F8FAFC]">{scoreNumber(match.subject_score)}/25</span></p>
+                <p>Lieu : <span className="font-semibold text-[#F8FAFC]">{scoreNumber(match.location_score)}/20</span></p>
+                <p>Ambiance : <span className="font-semibold text-[#F8FAFC]">{scoreNumber(match.mood_score)}/20</span></p>
+                <p>Style : <span className="font-semibold text-[#F8FAFC]">{scoreNumber(match.style_score)}/10</span></p>
+              </div>
+              <div className="mt-2 grid gap-1 text-[#A7B0C0] md:grid-cols-2">
+                <p>
+                  Concepts reconnus :{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {matchedTags.length ? matchedTags.join(", ") : "aucun"}
+                  </span>
+                </p>
+                <p>
+                  Penalites :{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {penalties.length
+                      ? penalties
+                          .map((penalty) =>
+                            penalty && typeof penalty === "object" && "reason" in penalty
+                              ? String(penalty.reason)
+                              : "penalite",
+                          )
+                          .join(", ")
+                      : "aucune"}
+                  </span>
+                </p>
+                <p>
+                  Rejete car :{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {sceneDebugValue(match.rejected_because)}
+                  </span>
+                </p>
+              </div>
             </div>
           );
         })}
-      </div>
+      </div> : null}
     </div>
   );
 }
 
-function SceneDebugDetails({ scene }: { scene: VisualScene }) {
+function SceneDebugDetails({
+  isOpen,
+  onToggle,
+  scene,
+}: {
+  isOpen: boolean;
+  onToggle: (open: boolean) => void;
+  scene: VisualScene;
+}) {
   const debug = scene.scoreBreakdown;
   const candidateCount = Array.isArray(debug.libraryMatches)
     ? debug.libraryMatches.length
@@ -747,7 +832,11 @@ function SceneDebugDetails({ scene }: { scene: VisualScene }) {
     scene.generationStatus === "selected_from_library";
 
   return (
-    <details className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-xs">
+    <details
+      className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-xs"
+      onToggle={(event) => onToggle(event.currentTarget.open)}
+      open={isOpen}
+    >
       <summary className="cursor-pointer font-semibold text-[#64748b]">
         Debug scene
       </summary>
@@ -793,6 +882,24 @@ function SceneDebugDetails({ scene }: { scene: VisualScene }) {
         <p>character_score: {sceneDebugValue(debug.character_score)}</p>
         <p>styleMatch: {sceneDebugValue(debug.styleMatch)}</p>
         <p>style_score: {sceneDebugValue(debug.style_score)}</p>
+        <p>subject_score: {sceneDebugValue(debug.subject_score)}</p>
+        <p>location_score: {sceneDebugValue(debug.location_score)}</p>
+        <p>mood_score: {sceneDebugValue(debug.mood_score)}</p>
+        <p>action_score: {sceneDebugValue(debug.action_score)}</p>
+        <p>penalty_total: {sceneDebugValue(debug.penalty_total)}</p>
+        <p>
+          penalties:{" "}
+          {Array.isArray(debug.penalties)
+            ? JSON.stringify(debug.penalties)
+            : "non disponible"}
+        </p>
+        <p>
+          matched_tags:{" "}
+          {Array.isArray(debug.matched_tags)
+            ? debug.matched_tags.join(", ")
+            : "non disponible"}
+        </p>
+        <p>rejected_because: {sceneDebugValue(debug.rejected_because)}</p>
         <p>promptMatch: {sceneDebugValue(debug.promptMatch)}</p>
         <p>visionScoreBonus: {sceneDebugValue(debug.visionScoreBonus)}</p>
         <p>vision_quality_bonus: {sceneDebugValue(debug.vision_quality_bonus)}</p>
@@ -847,6 +954,8 @@ export function ShortsVisualsClient() {
   const [selectedDraftId, setSelectedDraftId] = useState("");
   const [media, setMedia] = useState<MediaPipelineState | null>(null);
   const [slotByAsset, setSlotByAsset] = useState<Record<string, number>>({});
+  const [openLibraryResultsByScene, setOpenLibraryResultsByScene] = useState<Record<string, boolean>>({});
+  const [openDebugByScene, setOpenDebugByScene] = useState<Record<string, boolean>>({});
   const [generationQuality, setGenerationQuality] =
     useState<GenerationQuality>("medium");
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
@@ -1383,9 +1492,16 @@ export function ShortsVisualsClient() {
             Scenes visuelles
           </h2>
           <div className="mt-4 grid gap-4">
-            {(media?.visualScenes ?? []).map((scene) => (
+            {(media?.visualScenes ?? []).map((scene) => {
+              const sceneUiKey = `${scene.draftId}:${scene.visualPromptIndex}`;
+              const isDebugOpen = Boolean(openDebugByScene[sceneUiKey]);
+              const libraryOverride = openLibraryResultsByScene[sceneUiKey];
+              const isLibraryOpen =
+                libraryOverride === undefined ? hasRelevantLibraryMatch(scene) : libraryOverride;
+
+              return (
               <article
-                key={scene.visualPromptIndex}
+                key={sceneUiKey}
                 className="grid gap-4 rounded-md border border-[#1D2A44] bg-[#08111A] p-4 lg:grid-cols-[220px_minmax(0,1fr)]"
               >
                 <div>
@@ -1477,8 +1593,29 @@ export function ShortsVisualsClient() {
                     </div>
                   )}
                   <SceneScoreDetails scene={scene} />
-                  <SceneLibraryMatches scene={scene} />
-                  {!scene.locked ? <SceneDebugDetails scene={scene} /> : null}
+                  <SceneLibraryMatches
+                    debugOpen={isDebugOpen}
+                    isOpen={isLibraryOpen}
+                    onToggle={() =>
+                      setOpenLibraryResultsByScene((current) => ({
+                        ...current,
+                        [sceneUiKey]: !isLibraryOpen,
+                      }))
+                    }
+                    scene={scene}
+                  />
+                  {!scene.locked ? (
+                    <SceneDebugDetails
+                      isOpen={isDebugOpen}
+                      onToggle={(open) =>
+                        setOpenDebugByScene((current) => ({
+                          ...current,
+                          [sceneUiKey]: open,
+                        }))
+                      }
+                      scene={scene}
+                    />
+                  ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {scene.locked ? (
                       <button
@@ -1570,7 +1707,8 @@ export function ShortsVisualsClient() {
                   </div>
                 </div>
               </article>
-            ))}
+              );
+            })}
             {media && media.visualScenes.length === 0 ? (
               <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
                 Lance la generation ou la preparation pour creer les 7 scenes.

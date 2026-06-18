@@ -213,6 +213,16 @@ export type VisualScoreBreakdown = {
   style_score?: number;
   vision_quality_bonus?: number;
   total_score?: number;
+  subject_score?: number;
+  location_score?: number;
+  mood_score?: number;
+  action_score?: number;
+  penalties?: Array<{ reason: string; value: number }>;
+  penalty_total?: number;
+  matched_tags?: string[];
+  rejected_because?: string | null;
+  sceneConcepts?: Record<string, string[]>;
+  assetConcepts?: Record<string, string[]>;
   metadataMatches?: {
     emotion: string | null;
     tags: string[];
@@ -521,10 +531,207 @@ function scenePromptForAsset(
   };
 }
 
+type SceneConcepts = {
+  action: string[];
+  emotion: string[];
+  location: string[];
+  mood: string[];
+  style: string[];
+  subject: string[];
+  theme: string[];
+  time_of_day: string[];
+};
+
+const conceptLexicon: Record<keyof SceneConcepts, Record<string, string[]>> = {
+  action: {
+    discussion: ["discussion", "conversation", "parle", "dialogue", "echange"],
+    marche: ["marche", "marcher", "walking", "walk"],
+    observe: ["observe", "regarde", "watching", "looking"],
+    reflexion: ["reflexion", "pensee", "penser", "introspection", "meditation"],
+  },
+  emotion: {
+    calme: ["calme", "apaisement", "serenite", "paisible", "peaceful", "quiet"],
+    colere: ["colere", "furieux", "rage", "angry"],
+    determination: ["determination", "determine", "volonte", "resolve"],
+    peur: ["peur", "anxiete", "angoisse", "fear"],
+    tension: ["tension", "conflit", "stress", "pression", "hostile"],
+    tristesse: ["tristesse", "melancolie", "sad"],
+  },
+  location: {
+    bureau: ["bureau", "office", "open-space", "meeting"],
+    interieur: ["interieur", "inside", "indoor", "piece", "salle"],
+    nature: ["nature", "parc", "park", "jardin", "foret", "arbre", "arbres"],
+    rue: ["rue", "street", "route"],
+    toit: ["toit", "rooftop", "terrasse"],
+    ville: ["ville", "urbain", "urban", "skyline", "city", "immeuble"],
+  },
+  mood: {
+    douceur: ["douce", "doux", "soft", "lumiere douce", "warm"],
+    introspection: ["introspection", "interieur", "reflexion", "solitude"],
+    solitude: ["seul", "seule", "solitude", "alone", "isolated"],
+    tension: ["tension", "conflit", "stress", "pression"],
+  },
+  style: {
+    cinematic: ["cinematic", "cinematique", "film", "dramatique"],
+    closeup: ["close", "close-up", "gros plan", "portrait"],
+    sombre: ["sombre", "dark", "low-key"],
+    vertical: ["vertical", "9:16", "portrait"],
+  },
+  subject: {
+    couple: ["couple", "duo", "deux personnes"],
+    femme: ["femme", "female", "woman", "elle", "collegue femme"],
+    groupe: ["groupe", "equipe", "plusieurs", "crowd"],
+    homme: ["homme", "male", "man", "lui", "masculin"],
+    silhouette: ["silhouette", "ombre", "personne"],
+  },
+  theme: {
+    conflit: ["conflit", "tension", "opposition"],
+    discipline: ["discipline", "maitrise", "rigueur"],
+    introspection: ["introspection", "reflexion", "interieur"],
+    solitude: ["solitude", "isolement", "seul"],
+    transformation: ["transformation", "changement", "evolution"],
+  },
+  time_of_day: {
+    crepuscule: ["crepuscule", "coucher", "sunset", "dusk", "soir"],
+    jour: ["jour", "day", "matin", "morning"],
+    nuit: ["nuit", "night", "nocturne"],
+  },
+};
+
+function normalizedText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+}
+
+function includesConceptTerm(text: string, term: string) {
+  return normalizedText(text).includes(normalizedText(term));
+}
+
+function extractSceneConcepts(text: string): SceneConcepts {
+  const concepts: SceneConcepts = {
+    action: [],
+    emotion: [],
+    location: [],
+    mood: [],
+    style: [],
+    subject: [],
+    theme: [],
+    time_of_day: [],
+  };
+
+  for (const [category, groups] of Object.entries(conceptLexicon) as Array<
+    [keyof SceneConcepts, Record<string, string[]>]
+  >) {
+    for (const [concept, terms] of Object.entries(groups)) {
+      if (terms.some((term) => includesConceptTerm(text, term))) {
+        concepts[category].push(concept);
+      }
+    }
+  }
+
+  return concepts;
+}
+
+function conceptOverlapScore(
+  sceneValues: string[],
+  assetValues: string[],
+  max: number,
+) {
+  if (sceneValues.length === 0 || assetValues.length === 0) {
+    return 0;
+  }
+
+  const matches = sceneValues.filter((value) => assetValues.includes(value));
+  const ratio = matches.length / sceneValues.length;
+
+  return numericScore(max * ratio, max);
+}
+
+function visualAssetMetadataText(asset: ContentAssetRow) {
+  return [
+    asset.file_name,
+    asset.storage_path,
+    metadataStringList(asset, ["tags", "keywords"]).join(" "),
+    metadataString(asset, ["title"]),
+    metadataString(asset, ["description"]),
+    metadataString(asset, ["theme", "subject"]),
+    metadataString(asset, ["emotion", "mood", "tone"]),
+    metadataString(asset, ["ambiance"]),
+    metadataString(asset, ["character_type", "character"]),
+    metadataString(asset, ["visual_style", "style"]),
+    metadataString(asset, [
+      "prompt",
+      "visual_prompt",
+      "source_prompt",
+      "generation_prompt",
+      "scene_prompt",
+    ]),
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function conflictPenalty({
+  assetConcepts,
+  sceneConcepts,
+  usedAssetIds,
+  assetId,
+}: {
+  assetConcepts: SceneConcepts;
+  sceneConcepts: SceneConcepts;
+  usedAssetIds?: Set<string>;
+  assetId: string;
+}) {
+  const penalties: Array<{ reason: string; value: number }> = [];
+
+  if (sceneConcepts.subject.includes("homme") && assetConcepts.subject.includes("femme")) {
+    penalties.push({ reason: "personnage_femme_pour_prompt_homme", value: 35 });
+  }
+
+  if (sceneConcepts.subject.includes("femme") && assetConcepts.subject.includes("homme")) {
+    penalties.push({ reason: "personnage_homme_pour_prompt_femme", value: 35 });
+  }
+
+  if (
+    sceneConcepts.location.includes("nature") &&
+    (assetConcepts.location.includes("ville") || assetConcepts.location.includes("bureau")) &&
+    !assetConcepts.location.includes("nature")
+  ) {
+    penalties.push({ reason: "lieu_urbain_ou_bureau_pour_prompt_nature", value: 30 });
+  }
+
+  if (
+    sceneConcepts.location.includes("toit") &&
+    (assetConcepts.location.includes("interieur") || assetConcepts.location.includes("bureau")) &&
+    !assetConcepts.location.includes("toit")
+  ) {
+    penalties.push({ reason: "lieu_interieur_pour_prompt_toit", value: 30 });
+  }
+
+  if (
+    (sceneConcepts.emotion.includes("calme") ||
+      sceneConcepts.mood.includes("solitude") ||
+      sceneConcepts.mood.includes("introspection")) &&
+    (assetConcepts.emotion.includes("tension") || assetConcepts.mood.includes("tension")) &&
+    !assetConcepts.emotion.includes("calme")
+  ) {
+    penalties.push({ reason: "ambiance_tension_pour_prompt_calme", value: 25 });
+  }
+
+  if (usedAssetIds?.has(assetId)) {
+    penalties.push({ reason: "asset_deja_propose_ou_retenu_pour_ce_brouillon", value: 45 });
+  }
+
+  return penalties;
+}
+
 function scoreAsset(
   draft: DraftRow,
   asset: ContentAssetRow,
   sceneIndex?: number | null,
+  options: { usedAssetIds?: Set<string> } = {},
 ) {
   const draftTokens = tokenize(draftSearchText(draft));
   const keywords = assetKeywords(asset);
@@ -617,25 +824,63 @@ function scoreAsset(
         : gptVisionScore !== null && gptVisionScore >= 70
           ? 1
           : 0;
+  const sceneConcepts = extractSceneConcepts(`${sceneReference} ${draftReference}`);
+  const assetConcepts = extractSceneConcepts(visualAssetMetadataText(asset));
+  const subjectScore = conceptOverlapScore(sceneConcepts.subject, assetConcepts.subject, 25);
+  const locationScore = conceptOverlapScore(sceneConcepts.location, assetConcepts.location, 20);
+  const moodScore = numericScore(
+    conceptOverlapScore(
+      [...sceneConcepts.emotion, ...sceneConcepts.mood],
+      [...assetConcepts.emotion, ...assetConcepts.mood],
+      20,
+    ),
+    20,
+  );
+  const actionScore = conceptOverlapScore(sceneConcepts.action, assetConcepts.action, 15);
+  const weightedStyleScore = conceptOverlapScore(sceneConcepts.style, assetConcepts.style, 10);
+  const weightedThemeScore = conceptOverlapScore(sceneConcepts.theme, assetConcepts.theme, 10);
+  const matchedConceptTags = Array.from(
+    new Set([
+      ...sceneConcepts.subject.filter((value) => assetConcepts.subject.includes(value)),
+      ...sceneConcepts.location.filter((value) => assetConcepts.location.includes(value)),
+      ...sceneConcepts.emotion.filter((value) => assetConcepts.emotion.includes(value)),
+      ...sceneConcepts.mood.filter((value) => assetConcepts.mood.includes(value)),
+      ...sceneConcepts.action.filter((value) => assetConcepts.action.includes(value)),
+      ...sceneConcepts.style.filter((value) => assetConcepts.style.includes(value)),
+      ...sceneConcepts.theme.filter((value) => assetConcepts.theme.includes(value)),
+      ...matchingTags,
+    ]),
+  );
+  const penalties = conflictPenalty({
+    assetConcepts,
+    assetId: asset.id,
+    sceneConcepts,
+    usedAssetIds: options.usedAssetIds,
+  });
+  const penaltyTotal = penalties.reduce((sum, penalty) => sum + penalty.value, 0);
   const metadataRelevanceScore = numericScore(
-    tagsScore +
-      themeMatch +
-      emotionMatch +
-      ambianceMatch +
-      characterMatch +
-      styleMatch +
-      visionQualityBonus,
+    subjectScore +
+      locationScore +
+      moodScore +
+      actionScore +
+      weightedStyleScore +
+      weightedThemeScore +
+      visionQualityBonus -
+      penaltyTotal,
     100,
   );
   const metadataSourceScores = {
+    action: actionScore,
     ambiance: ambianceMatch,
-    character_type: characterMatch,
-    emotion: emotionMatch,
+    character_type: subjectScore || characterMatch,
+    emotion: moodScore || emotionMatch,
     gpt_vision_bonus: visionQualityBonus,
+    location: locationScore,
+    penalty_total: -penaltyTotal,
     scene_prompt: promptMatch,
     tags: tagsScore,
-    theme: themeMatch,
-    visual_style: styleMatch,
+    theme: weightedThemeScore || themeMatch,
+    visual_style: weightedStyleScore || styleMatch,
   };
   const metadataScoreTotal = Object.values(metadataSourceScores).reduce(
     (sum, value) => sum + value,
@@ -699,9 +944,16 @@ function scoreAsset(
   const metadataMatches = Object.entries(metadataSourceScores)
     .filter(([, value]) => value > 0)
     .map(([key, value]) => `${key}:${value}`);
+  const rejectedBecause = penalties.length
+    ? penalties.map((penalty) => penalty.reason).join(", ")
+    : score < VISUAL_LIBRARY_RELEVANCE_THRESHOLD
+      ? "score_trop_faible"
+      : null;
   const reason =
-    metadataMatches.length > 0
-      ? `Estime sans analyse visuelle IA. Metadata prioritaires: ${metadataMatches.join(", ")}.`
+    matchedConceptTags.length > 0
+      ? `Estime sans analyse visuelle IA. Concepts: ${matchedConceptTags.slice(0, 8).join(", ")}.`
+      : metadataMatches.length > 0
+        ? `Estime sans analyse visuelle IA. Metadata prioritaires: ${metadataMatches.join(", ")}.`
       : matches.length > 0
         ? `Estime sans analyse visuelle IA. Correspondances texte: ${matches.slice(0, 6).join(", ")}.`
         : "Estime sans analyse visuelle IA. Coherence visuelle a valider manuellement.";
@@ -728,18 +980,28 @@ function scoreAsset(
     metadataScoreTotal,
     metadataSourceScores,
     tags_score: tagsScore,
-    theme_score: themeMatch,
-    emotion_score: emotionMatch,
+    theme_score: weightedThemeScore || themeMatch,
+    emotion_score: moodScore || emotionMatch,
     ambiance_score: ambianceMatch,
-    character_score: characterMatch,
-    style_score: styleMatch,
+    character_score: subjectScore || characterMatch,
+    style_score: weightedStyleScore || styleMatch,
     vision_quality_bonus: visionQualityBonus,
+    subject_score: subjectScore,
+    location_score: locationScore,
+    mood_score: moodScore,
+    action_score: actionScore,
+    penalties,
+    penalty_total: penaltyTotal,
+    matched_tags: matchedConceptTags,
+    rejected_because: rejectedBecause,
+    sceneConcepts,
+    assetConcepts,
     metadataMatches: {
-      characterType: characterMatch > 0 ? declaredCharacterType || null : null,
-      emotion: emotionMatch > 0 ? declaredEmotion || null : null,
-      tags: matchingTags.slice(0, 8),
-      theme: themeMatch > 0 ? declaredTheme || null : null,
-      visualStyle: styleMatch > 0 ? declaredStyle || null : null,
+      characterType: subjectScore > 0 || characterMatch > 0 ? declaredCharacterType || null : null,
+      emotion: moodScore > 0 || emotionMatch > 0 ? declaredEmotion || null : null,
+      tags: matchedConceptTags.slice(0, 8),
+      theme: weightedThemeScore > 0 || themeMatch > 0 ? declaredTheme || null : null,
+      visualStyle: weightedStyleScore > 0 || styleMatch > 0 ? declaredStyle || null : null,
     },
   };
 
@@ -1674,12 +1936,14 @@ function libraryVisionDecision(scoreBreakdown: Record<string, unknown>): VisualS
   const total = Number(scoreBreakdown.total_score ?? scoreBreakdown.total ?? 0);
   const rawLocation = scoreBreakdown.location_score;
   const location = Number(rawLocation ?? 0);
-  const hasLocationScore = rawLocation !== undefined && rawLocation !== null;
+  const sceneConcepts = scoreBreakdown.sceneConcepts as Partial<SceneConcepts> | undefined;
+  const needsLocationMatch =
+    Array.isArray(sceneConcepts?.location) && sceneConcepts.location.length > 0;
 
   if (
     !Number.isFinite(total) ||
     total < VISUAL_LIBRARY_RELEVANCE_THRESHOLD ||
-    (hasLocationScore && location < 18)
+    (needsLocationMatch && location < 12)
   ) {
     return "rejected";
   }
@@ -1731,6 +1995,9 @@ function metadataMatchValue(
 
 function visualLibraryMatchSummary(asset: VisualAsset) {
   const matches = asset.scoreBreakdown.metadataMatches;
+  const penalties = Array.isArray(asset.scoreBreakdown.penalties)
+    ? asset.scoreBreakdown.penalties
+    : [];
 
   return {
     assetId: asset.id,
@@ -1748,6 +2015,15 @@ function visualLibraryMatchSummary(asset: VisualAsset) {
       tagsMatch: asset.scoreBreakdown.tagsMatch ?? 0,
       themeMatch: asset.scoreBreakdown.themeMatch ?? 0,
     },
+    subject_score: asset.scoreBreakdown.subject_score ?? 0,
+    location_score: asset.scoreBreakdown.location_score ?? 0,
+    mood_score: asset.scoreBreakdown.mood_score ?? 0,
+    style_score: asset.scoreBreakdown.style_score ?? 0,
+    action_score: asset.scoreBreakdown.action_score ?? 0,
+    theme_score: asset.scoreBreakdown.theme_score ?? 0,
+    penalties,
+    matched_tags: asset.scoreBreakdown.matched_tags ?? [],
+    rejected_because: asset.scoreBreakdown.rejected_because ?? null,
     tagsMatched: metadataMatchValue(matches, "tags"),
     themeMatched: metadataMatchValue(matches, "theme"),
     visualStyleMatched: metadataMatchValue(matches, "visualStyle"),
@@ -1907,10 +2183,11 @@ async function fallbackLibraryScene({
   let suggestions: VisualAsset[] = [];
 
   try {
+    const usedAssetIds = await usedVisualAssetIdsForDraft(draft, sceneIndex);
     suggestions = await withTimeout({
       draftId: draft.id,
       label: "Recherche bibliotheque",
-      promise: scoreLibraryForDraft(draft, sceneIndex - 1),
+      promise: scoreLibraryForDraft(draft, sceneIndex - 1, usedAssetIds),
       sceneIndex,
       timeoutMs: LIBRARY_SEARCH_TIMEOUT_MS,
       validation: "content_assets.library_search_timeout",
@@ -2113,7 +2390,7 @@ async function fallbackLibraryScene({
               ? "no_metadata"
               : candidates.length === 0
                 ? "no_candidates"
-                : bestCandidateScore < VISUAL_SELECTION_THRESHOLD
+                : bestCandidateScore < VISUAL_LIBRARY_RELEVANCE_THRESHOLD
                   ? "score_too_low"
                   : "unknown",
         fallbackTriggered: true,
@@ -2125,7 +2402,7 @@ async function fallbackLibraryScene({
         rejectionReason:
           lastRejectionReason ||
           (suggestions.length > 0
-            ? `Meilleur score ${bestCandidateScore}/100 sous le seuil ${VISUAL_SELECTION_THRESHOLD}/100.`
+            ? `Meilleur score ${bestCandidateScore}/100 sous le seuil ${VISUAL_LIBRARY_RELEVANCE_THRESHOLD}/100.`
             : "Bibliotheque vide."),
         selectionDecision: suggestions.length > 0 ? "asset_not_relevant" : "library_empty",
       }),
@@ -2138,7 +2415,7 @@ async function fallbackLibraryScene({
     draftId: draft.id,
     durationMs: Date.now() - startedAt,
     endpoint: "content_assets.library",
-    error: "Aucun candidat bibliotheque n'atteint 70/100 avec lieu coherent.",
+    error: "Aucun candidat bibliotheque n'atteint 60/100 avec concepts coherents.",
     model: "gpt_vision",
     sceneIndex,
     step: "rejected",
@@ -2709,12 +2986,18 @@ async function readLibraryAssets() {
     .slice(0, 120);
 }
 
-async function scoreLibraryForDraft(draft: DraftRow, sceneIndex?: number | null) {
+async function scoreLibraryForDraft(
+  draft: DraftRow,
+  sceneIndex?: number | null,
+  usedAssetIds?: Set<string>,
+) {
   const assets = await readLibraryAssets();
 
   return assets
     .map((asset) => {
-      const { score, reason, scoreBreakdown } = scoreAsset(draft, asset, sceneIndex);
+      const { score, reason, scoreBreakdown } = scoreAsset(draft, asset, sceneIndex, {
+        usedAssetIds,
+      });
       return mapAsset(asset, score, reason, scoreBreakdown);
     })
     .sort((a, b) => b.score - a.score || a.usageCount - b.usageCount);
@@ -2899,6 +3182,39 @@ async function readVisualScenes(draft: DraftRow) {
   return defaultVisualScenes(draft).map(
     (scene) => byIndex.get(scene.visualPromptIndex) ?? scene,
   );
+}
+
+async function usedVisualAssetIdsForDraft(draft: DraftRow, currentSceneIndex: number) {
+  const usedAssetIds = new Set<string>();
+  const scenes = await readVisualScenes(draft);
+
+  for (const scene of scenes) {
+    if (scene.visualPromptIndex === currentSceneIndex) {
+      continue;
+    }
+
+    if (scene.assetId) {
+      usedAssetIds.add(scene.assetId);
+    }
+
+    const matches = scene.scoreBreakdown.libraryMatches;
+    if (!Array.isArray(matches)) {
+      continue;
+    }
+
+    for (const match of matches) {
+      if (
+        match &&
+        typeof match === "object" &&
+        "assetId" in match &&
+        typeof match.assetId === "string"
+      ) {
+        usedAssetIds.add(match.assetId);
+      }
+    }
+  }
+
+  return usedAssetIds;
 }
 
 async function upsertVisualScene({

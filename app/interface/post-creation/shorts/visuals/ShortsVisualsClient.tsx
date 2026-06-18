@@ -780,6 +780,7 @@ function SceneLibraryMatches({
   debugOpen = false,
   disabled = false,
   isOpen,
+  onPreviewLoadingChange,
   onUseCandidate,
   onToggle,
   scene,
@@ -787,6 +788,7 @@ function SceneLibraryMatches({
   debugOpen?: boolean;
   disabled?: boolean;
   isOpen: boolean;
+  onPreviewLoadingChange?: (assetId: string | null) => void;
   onUseCandidate: (assetId: string) => void;
   onToggle: () => void;
   scene: VisualScene;
@@ -863,6 +865,13 @@ function SceneLibraryMatches({
             typeof match.rejected_because === "string" && match.rejected_because.trim()
               ? match.rejected_because.trim()
               : "";
+          const setCandidatePreviewLoading = (loading: boolean) => {
+            setPreviewLoadingByCandidate((current) => ({
+              ...current,
+              [candidateKey]: loading,
+            }));
+            onPreviewLoadingChange?.(loading ? assetId || candidateKey : null);
+          };
 
           return (
             <div
@@ -880,13 +889,30 @@ function SceneLibraryMatches({
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={!candidateImageUrl}
                   onClick={() => {
                     if (isPreviewOpen) {
                       setPreviewOpenByCandidate((current) => ({
                         ...current,
                         [candidateKey]: false,
                       }));
+                      setCandidatePreviewLoading(false);
+                      return;
+                    }
+
+                    if (!candidateImageUrl) {
+                      setPreviewOpenByCandidate((current) => ({
+                        ...current,
+                        [candidateKey]: true,
+                      }));
+                      setPreviewErrorByCandidate((current) => ({
+                        ...current,
+                        [candidateKey]: true,
+                      }));
+                      setPreviewErrorDetailByCandidate((current) => ({
+                        ...current,
+                        [candidateKey]: "preview_url_missing",
+                      }));
+                      setCandidatePreviewLoading(false);
                       return;
                     }
 
@@ -898,10 +924,7 @@ function SceneLibraryMatches({
                       ...current,
                       [candidateKey]: "",
                     }));
-                    setPreviewLoadingByCandidate((current) => ({
-                      ...current,
-                      [candidateKey]: true,
-                    }));
+                    setCandidatePreviewLoading(true);
                     setPreviewRetryByCandidate((current) => ({
                       ...current,
                       [candidateKey]: false,
@@ -915,7 +938,7 @@ function SceneLibraryMatches({
                       [candidateKey]: true,
                     }));
                   }}
-                  className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-1.5 font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/45 hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                  className="relative z-10 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-1.5 font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/45 hover:text-[#F8FAFC]"
                 >
                   {isPreviewOpen ? "Masquer le visuel" : "Afficher le visuel"}
                 </button>
@@ -923,7 +946,7 @@ function SceneLibraryMatches({
                   type="button"
                   disabled={disabled || !assetId}
                   onClick={() => onUseCandidate(assetId)}
-                  className="rounded-md border border-[#39E6D0]/45 bg-[#39E6D0]/10 px-3 py-1.5 font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                  className="relative z-10 rounded-md border border-[#39E6D0]/45 bg-[#39E6D0]/10 px-3 py-1.5 font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                 >
                   Utiliser ce visuel
                 </button>
@@ -960,10 +983,7 @@ function SceneLibraryMatches({
                           return;
                         }
 
-                        setPreviewLoadingByCandidate((current) => ({
-                          ...current,
-                          [candidateKey]: false,
-                        }));
+                        setCandidatePreviewLoading(false);
                         setPreviewErrorByCandidate((current) => ({
                           ...current,
                           [candidateKey]: true,
@@ -974,10 +994,7 @@ function SceneLibraryMatches({
                         }));
                       }}
                       onLoad={() =>
-                        setPreviewLoadingByCandidate((current) => ({
-                          ...current,
-                          [candidateKey]: false,
-                        }))
+                        setCandidatePreviewLoading(false)
                       }
                       src={activePreviewUrl}
                     />
@@ -1051,13 +1068,21 @@ function SceneLibraryMatches({
 }
 
 function SceneDebugDetails({
+  activeAction,
+  hasBlockingOverlay,
   isOpen,
   onToggle,
+  previewLoadingAssetId,
   scene,
+  sceneDisabled,
 }: {
+  activeAction: string | null;
+  hasBlockingOverlay: boolean;
   isOpen: boolean;
   onToggle: (open: boolean) => void;
+  previewLoadingAssetId: string | null;
   scene: VisualScene;
+  sceneDisabled: boolean;
 }) {
   const debug = scene.scoreBreakdown;
   const candidateCount = Array.isArray(debug.libraryMatches)
@@ -1088,9 +1113,14 @@ function SceneDebugDetails({
         <p>Source: {scene.generationSource}</p>
         <p>Source brute: {scene.generationSource}</p>
         <p>Statut brut: {scene.generationStatus}</p>
+        <p>sceneDisabled: {String(sceneDisabled)}</p>
+        <p>previewLoadingAssetId: {sceneDebugValue(previewLoadingAssetId)}</p>
+        <p>activeAction: {sceneDebugValue(activeAction)}</p>
+        <p>hasBlockingOverlay: {String(hasBlockingOverlay)}</p>
         <p>isSearching: {String(isSearching)}</p>
         <p>searchCompleted: {String(searchCompleted)}</p>
         <p>searchStatus: {scene.generationStatus}</p>
+        <p>errorMessage: {sceneDebugValue(scene.errorMessage)}</p>
         <p>candidateCount: {candidateCount}</p>
         <p>selectedAssetId: {sceneDebugValue(scene.assetId)}</p>
         <p>search_duration_ms: {sceneDebugValue(debug.search_duration_ms ?? debug.searchDurationMs)}</p>
@@ -1196,12 +1226,14 @@ export function ShortsVisualsClient() {
   const [slotByAsset, setSlotByAsset] = useState<Record<string, number>>({});
   const [openLibraryResultsByScene, setOpenLibraryResultsByScene] = useState<Record<string, boolean>>({});
   const [openDebugByScene, setOpenDebugByScene] = useState<Record<string, boolean>>({});
+  const [previewLoadingAssetByScene, setPreviewLoadingAssetByScene] = useState<Record<string, string | null>>({});
   const [generationQuality, setGenerationQuality] =
     useState<GenerationQuality>("medium");
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
   const [isRunningAction, setIsRunningAction] = useState(false);
   const [isRunningWatchdog, setIsRunningWatchdog] = useState(false);
+  const [activeAction, setActiveAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -1343,6 +1375,7 @@ export function ShortsVisualsClient() {
     }
 
     setIsRunningAction(true);
+    setActiveAction(action);
     setError(null);
     setNotice(null);
 
@@ -1389,6 +1422,7 @@ export function ShortsVisualsClient() {
       );
     } finally {
       setIsRunningAction(false);
+      setActiveAction(null);
     }
   }
 
@@ -1859,8 +1893,14 @@ export function ShortsVisualsClient() {
                   <SceneScoreDetails scene={scene} />
                   <SceneLibraryMatches
                     debugOpen={isDebugOpen}
-                    disabled={isRunningAction || scene.locked}
+                    disabled={scene.locked}
                     isOpen={isLibraryOpen}
+                    onPreviewLoadingChange={(assetId) =>
+                      setPreviewLoadingAssetByScene((current) => ({
+                        ...current,
+                        [sceneUiKey]: assetId,
+                      }))
+                    }
                     onUseCandidate={(assetId) => handleLibraryCandidateForScene(scene, assetId)}
                     onToggle={() =>
                       setOpenLibraryResultsByScene((current) => ({
@@ -1872,6 +1912,8 @@ export function ShortsVisualsClient() {
                   />
                   {!scene.locked ? (
                     <SceneDebugDetails
+                      activeAction={activeAction}
+                      hasBlockingOverlay={false}
                       isOpen={isDebugOpen}
                       onToggle={(open) =>
                         setOpenDebugByScene((current) => ({
@@ -1879,7 +1921,9 @@ export function ShortsVisualsClient() {
                           [sceneUiKey]: open,
                         }))
                       }
+                      previewLoadingAssetId={previewLoadingAssetByScene[sceneUiKey] ?? null}
                       scene={scene}
+                      sceneDisabled={scene.locked}
                     />
                   ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">

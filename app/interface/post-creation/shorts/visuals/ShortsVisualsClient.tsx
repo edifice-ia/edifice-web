@@ -254,6 +254,33 @@ function stringList(value: unknown) {
   return [];
 }
 
+function compactListLabel(values: string[], emptyLabel = "aucun", maxItems = 5) {
+  if (values.length === 0) {
+    return emptyLabel;
+  }
+
+  const visible = values.slice(0, maxItems);
+  const remaining = values.length - visible.length;
+
+  return remaining > 0
+    ? `${visible.join(", ")} +${remaining} autres`
+    : visible.join(", ");
+}
+
+function penaltyLabels(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((penalty) =>
+      penalty && typeof penalty === "object" && "reason" in penalty
+        ? String(penalty.reason)
+        : "penalite",
+    )
+    .filter(Boolean);
+}
+
 function libraryMatchesForScene(scene: VisualScene) {
   const matches = scene.scoreBreakdown.libraryMatches;
 
@@ -695,7 +722,7 @@ function SceneLibraryMatches({
   }
 
   return (
-    <div className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-xs">
+    <div className="mt-3 w-full max-w-full overflow-hidden rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-xs">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <p className="font-semibold text-[#F8FAFC]">
@@ -727,78 +754,74 @@ function SceneLibraryMatches({
           Resultats faibles : aucun visuel ne correspond vraiment a cette scene.
         </p>
       ) : null}
-      {shouldShowResults ? <div className="mt-3 grid gap-2 md:grid-cols-2">
+      {shouldShowResults ? <div className="mt-3 flex w-full max-w-full flex-col gap-3 overflow-hidden">
         {matches.map((match, index) => {
           const tags = stringList(match.tagsMatched);
           const emotions = stringList(match.emotionMatched);
           const themes = stringList(match.themeMatched);
           const matchedTags = stringList(match.matched_tags);
-          const penalties = Array.isArray(match.penalties) ? match.penalties : [];
+          const penalties = penaltyLabels(match.penalties);
+          const rejectedBecause =
+            typeof match.rejected_because === "string" && match.rejected_because.trim()
+              ? match.rejected_because.trim()
+              : "";
 
           return (
             <div
               key={`${String(match.assetId ?? match.fileName ?? index)}-${index}`}
-              className="rounded-md border border-[#1D2A44] bg-[#08111A] p-2"
+              className="w-full max-w-full overflow-hidden rounded-md border border-[#1D2A44] bg-[#08111A] p-3"
             >
-              <div className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between">
-                <p className="font-semibold text-[#F8FAFC]">
+              <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                <p className="min-w-0 [overflow-wrap:anywhere] break-words font-semibold text-[#F8FAFC]">
                   {index + 1}. {String(match.fileName ?? "Visuel bibliotheque")}
                 </p>
-                <span className="font-semibold text-[#39E6D0]">
-                  Score de pertinence : {scoreNumber(match.pertinenceScore)}/100
+                <span className="w-fit shrink-0 rounded-md border border-[#39E6D0]/25 bg-[#39E6D0]/10 px-2 py-1 font-semibold text-[#39E6D0]">
+                  {scoreNumber(match.pertinenceScore)}/100
                 </span>
               </div>
-              <div className="mt-2 grid gap-1 text-[#A7B0C0] md:grid-cols-3">
-                <p>
+              <div className="mt-3 grid min-w-0 gap-2 text-[#A7B0C0] lg:grid-cols-3">
+                <p className="min-w-0 [overflow-wrap:anywhere] break-words">
                   Tags correspondants :{" "}
                   <span className="font-semibold text-[#F8FAFC]">
-                    {tags.length ? tags.join(", ") : "aucun"}
+                    {compactListLabel(tags)}
                   </span>
                 </p>
-                <p>
+                <p className="min-w-0 [overflow-wrap:anywhere] break-words">
                   Emotion correspondante :{" "}
                   <span className="font-semibold text-[#F8FAFC]">
-                    {emotions.length ? emotions.join(", ") : "aucune"}
+                    {compactListLabel(emotions, "aucune")}
                   </span>
                 </p>
-                <p>
+                <p className="min-w-0 [overflow-wrap:anywhere] break-words">
                   Theme correspondant :{" "}
                   <span className="font-semibold text-[#F8FAFC]">
-                    {themes.length ? themes.join(", ") : "aucun"}
+                    {compactListLabel(themes)}
                   </span>
                 </p>
               </div>
-              <div className="mt-2 grid gap-1 text-[#A7B0C0] md:grid-cols-4">
+              <div className="mt-3 grid min-w-0 gap-2 text-[#A7B0C0] sm:grid-cols-2 lg:grid-cols-4">
                 <p>Sujet : <span className="font-semibold text-[#F8FAFC]">{scoreNumber(match.subject_score)}/25</span></p>
                 <p>Lieu : <span className="font-semibold text-[#F8FAFC]">{scoreNumber(match.location_score)}/20</span></p>
                 <p>Ambiance : <span className="font-semibold text-[#F8FAFC]">{scoreNumber(match.mood_score)}/20</span></p>
                 <p>Style : <span className="font-semibold text-[#F8FAFC]">{scoreNumber(match.style_score)}/10</span></p>
               </div>
-              <div className="mt-2 grid gap-1 text-[#A7B0C0] md:grid-cols-2">
-                <p>
+              <div className="mt-3 grid min-w-0 gap-2 text-[#A7B0C0] lg:grid-cols-2">
+                <p className="min-w-0 [overflow-wrap:anywhere] break-words">
                   Concepts reconnus :{" "}
                   <span className="font-semibold text-[#F8FAFC]">
-                    {matchedTags.length ? matchedTags.join(", ") : "aucun"}
+                    {compactListLabel(matchedTags)}
                   </span>
                 </p>
-                <p>
+                <p className="min-w-0 [overflow-wrap:anywhere] break-words">
                   Penalites :{" "}
                   <span className="font-semibold text-[#F8FAFC]">
-                    {penalties.length
-                      ? penalties
-                          .map((penalty) =>
-                            penalty && typeof penalty === "object" && "reason" in penalty
-                              ? String(penalty.reason)
-                              : "penalite",
-                          )
-                          .join(", ")
-                      : "aucune"}
+                    {compactListLabel(penalties, "aucune", 3)}
                   </span>
                 </p>
-                <p>
+                <p className="min-w-0 [overflow-wrap:anywhere] break-words lg:col-span-2">
                   Rejete car :{" "}
                   <span className="font-semibold text-[#F8FAFC]">
-                    {sceneDebugValue(match.rejected_because)}
+                    {rejectedBecause ? compactListLabel(rejectedBecause.split(","), "non disponible", 3) : "non disponible"}
                   </span>
                 </p>
               </div>

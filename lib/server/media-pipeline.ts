@@ -2359,6 +2359,7 @@ async function generateSceneVisual({
 function shouldRetryVisualScene(scene: VisualScene) {
   return !scene.locked && (
     scene.generationStatus === "pending" ||
+    scene.generationStatus === "searching_library" ||
     scene.generationStatus === "error" ||
     isStuckVisualScene(scene)
   );
@@ -2422,7 +2423,7 @@ async function processDraftVisualScenes({
   const prompts = parseVisualPrompts(draft.visual_prompt ?? "");
   const currentScenes = await readVisualScenes(draft);
   const targetScenes = currentScenes.filter((scene) =>
-    onlyBlocked ? shouldRetryVisualScene(scene) : !scene.locked,
+    onlyBlocked ? shouldRetryVisualScene(scene) : !scene.locked && shouldRetryVisualScene(scene),
   );
 
   for (const scene of targetScenes) {

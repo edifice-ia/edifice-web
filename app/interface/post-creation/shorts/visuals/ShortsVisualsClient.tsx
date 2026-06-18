@@ -735,6 +735,16 @@ function SceneLibraryMatches({ scene }: { scene: VisualScene }) {
 
 function SceneDebugDetails({ scene }: { scene: VisualScene }) {
   const debug = scene.scoreBreakdown;
+  const candidateCount = Array.isArray(debug.libraryMatches)
+    ? debug.libraryMatches.length
+    : 0;
+  const isSearching = isSceneLoading(scene);
+  const searchCompleted =
+    scene.generationStatus === "ready" ||
+    scene.generationStatus === "error" ||
+    scene.generationStatus === "retained" ||
+    scene.generationStatus === "rejected" ||
+    scene.generationStatus === "selected_from_library";
 
   return (
     <details className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-xs">
@@ -749,6 +759,11 @@ function SceneDebugDetails({ scene }: { scene: VisualScene }) {
         <p>Source: {scene.generationSource}</p>
         <p>Source brute: {scene.generationSource}</p>
         <p>Statut brut: {scene.generationStatus}</p>
+        <p>isSearching: {String(isSearching)}</p>
+        <p>searchCompleted: {String(searchCompleted)}</p>
+        <p>searchStatus: {scene.generationStatus}</p>
+        <p>candidateCount: {candidateCount}</p>
+        <p>selectedAssetId: {sceneDebugValue(scene.assetId)}</p>
         <p>search_duration_ms: {sceneDebugValue(debug.search_duration_ms ?? debug.searchDurationMs)}</p>
         <p>assets_total: {sceneDebugValue(debug.assetsTotal)}</p>
         <p>assets_with_metadata: {sceneDebugValue(debug.assetsWithMetadata)}</p>

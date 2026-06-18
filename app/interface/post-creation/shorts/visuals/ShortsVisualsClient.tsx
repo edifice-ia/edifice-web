@@ -749,10 +749,17 @@ function SceneDebugDetails({ scene }: { scene: VisualScene }) {
         <p>Source: {scene.generationSource}</p>
         <p>Source brute: {scene.generationSource}</p>
         <p>Statut brut: {scene.generationStatus}</p>
+        <p>search_duration_ms: {sceneDebugValue(debug.search_duration_ms ?? debug.searchDurationMs)}</p>
+        <p>assets_total: {sceneDebugValue(debug.assetsTotal)}</p>
+        <p>assets_with_metadata: {sceneDebugValue(debug.assetsWithMetadata)}</p>
         <p>assetsFound: {sceneDebugValue(debug.assetsFound)}</p>
         <p>assetsScored: {sceneDebugValue(debug.assetsScored)}</p>
         <p>assetsRejected: {sceneDebugValue(debug.assetsRejected)}</p>
         <p>assetsSelected: {sceneDebugValue(debug.assetsSelected)}</p>
+        <p>best_asset_id: {sceneDebugValue(debug.bestAssetId)}</p>
+        <p>best_score: {sceneDebugValue(debug.bestScore ?? debug.bestCandidateScore)}</p>
+        <p>best_file_name: {sceneDebugValue(debug.bestFileName ?? debug.bestCandidate)}</p>
+        <p>fallback_reason: {sceneDebugValue(debug.fallbackReason)}</p>
         <p>bestCandidate: {sceneDebugValue(debug.bestCandidate)}</p>
         <p>bestCandidateScore: {sceneDebugValue(debug.bestCandidateScore)}</p>
         <p>selectionThreshold: {sceneDebugValue(debug.selectionThreshold)}</p>
@@ -760,18 +767,32 @@ function SceneDebugDetails({ scene }: { scene: VisualScene }) {
         <p>raison rejet: {sceneDebugValue(debug.rejectionReason)}</p>
         <p>raison selection: {sceneDebugValue(debug.selectionReason)}</p>
         <p>tagsMatch: {sceneDebugValue(debug.tagsMatch)}</p>
+        <p>tags_score: {sceneDebugValue(debug.tags_score)}</p>
         <p>themeMatch: {sceneDebugValue(debug.themeMatch)}</p>
+        <p>theme_score: {sceneDebugValue(debug.theme_score)}</p>
         <p>emotionMatch: {sceneDebugValue(debug.emotionMatch)}</p>
+        <p>emotion_score: {sceneDebugValue(debug.emotion_score)}</p>
         <p>ambianceMatch: {sceneDebugValue(debug.ambianceMatch)}</p>
+        <p>ambiance_score: {sceneDebugValue(debug.ambiance_score)}</p>
         <p>characterMatch: {sceneDebugValue(debug.characterMatch)}</p>
+        <p>character_score: {sceneDebugValue(debug.character_score)}</p>
         <p>styleMatch: {sceneDebugValue(debug.styleMatch)}</p>
+        <p>style_score: {sceneDebugValue(debug.style_score)}</p>
         <p>promptMatch: {sceneDebugValue(debug.promptMatch)}</p>
         <p>visionScoreBonus: {sceneDebugValue(debug.visionScoreBonus)}</p>
+        <p>vision_quality_bonus: {sceneDebugValue(debug.vision_quality_bonus)}</p>
+        <p>total_score: {sceneDebugValue(debug.total_score)}</p>
         <p>metadataScoreTotal: {sceneDebugValue(debug.metadataScoreTotal)}</p>
         <p>
           metadataSourceScores:{" "}
           {debug.metadataSourceScores && typeof debug.metadataSourceScores === "object"
             ? JSON.stringify(debug.metadataSourceScores)
+            : "non disponible"}
+        </p>
+        <p>
+          topCandidates:{" "}
+          {Array.isArray(debug.libraryMatches)
+            ? JSON.stringify(debug.libraryMatches.slice(0, 5))
             : "non disponible"}
         </p>
         <p>fallbackTriggered: {sceneDebugValue(debug.fallbackTriggered)}</p>

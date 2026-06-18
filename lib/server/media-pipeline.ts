@@ -205,6 +205,14 @@ export type VisualScoreBreakdown = {
   visionScoreBonus?: number;
   metadataScoreTotal?: number;
   metadataSourceScores?: Record<string, number>;
+  tags_score?: number;
+  theme_score?: number;
+  emotion_score?: number;
+  ambiance_score?: number;
+  character_score?: number;
+  style_score?: number;
+  vision_quality_bonus?: number;
+  total_score?: number;
   metadataMatches?: {
     emotion: string | null;
     tags: string[];
@@ -430,6 +438,18 @@ function metadataNumber(asset: ContentAssetRow, keys: string[]) {
   return null;
 }
 
+function hasEnrichedVisualMetadata(metadata: Record<string, unknown>) {
+  return (
+    metadataStringList({ metadata } as ContentAssetRow, ["tags"]).length > 0 ||
+    typeof metadata.theme === "string" ||
+    typeof metadata.emotion === "string" ||
+    typeof metadata.ambiance === "string" ||
+    typeof metadata.character_type === "string" ||
+    typeof metadata.visual_style === "string" ||
+    typeof metadata.gpt_vision_score === "number"
+  );
+}
+
 function numericScore(value: number, max: number) {
   return Math.max(0, Math.min(max, Math.round(value)));
 }
@@ -525,11 +545,14 @@ function scoreAsset(
   const declaredAmbiance = metadataString(asset, ["ambiance"]);
   const declaredCharacterType = metadataString(asset, ["character_type", "character"]);
   const declaredStyle = metadataString(asset, ["visual_style", "style"]);
+  const declaredDescription = metadataString(asset, ["description"]);
   const gptVisionScore = metadataNumber(asset, ["gpt_vision_score", "vision_score"]);
   const sceneText = scene.prompt;
   const visualPromptText = draft.visual_prompt ?? "";
   const sceneReference = `${sceneText} ${visualPromptText}`;
   const draftReference = `${draft.title ?? ""} ${draft.hook ?? ""} ${draft.angle ?? ""} ${draft.theme ?? ""}`;
+  const semanticReference = `${sceneReference} ${draftReference}`;
+  const declaredPromptText = `${declaredPrompt} ${declaredDescription}`;
   const sceneReferenceTokens = tokenize(sceneReference);
   const draftReferenceTokens = tokenize(draftReference);
   const referenceTokens = [...new Set([...sceneReferenceTokens, ...draftReferenceTokens])];
@@ -538,67 +561,79 @@ function scoreAsset(
 
     return tagTokens.some((token) => referenceTokens.includes(token));
   });
-  const tagsMatch = numericScore(
+  const tagsScore = numericScore(
     matchingTags.length * 4,
-    16,
+    25,
   );
   const themeMatch = Math.max(
     overlapScore({
       candidate: declaredTheme,
-      max: 12,
-      reference: sceneReference,
-      weight: 4,
+      max: 20,
+      reference: semanticReference,
+      weight: 5,
     }),
     overlapScore({
-      candidate: declaredTheme,
-      max: 12,
-      reference: draftReference,
-      weight: 4,
+      candidate: declaredPromptText,
+      max: 20,
+      reference: semanticReference,
+      weight: 2,
     }),
   );
   const emotionMatch = overlapScore({
     candidate: declaredEmotion,
-    max: 10,
-    reference: sceneReference,
-    weight: 4,
+    max: 15,
+    reference: semanticReference,
+    weight: 5,
   });
   const ambianceMatch = overlapScore({
     candidate: declaredAmbiance,
-    max: 8,
-    reference: sceneReference,
-    weight: 4,
+    max: 15,
+    reference: semanticReference,
+    weight: 5,
   });
   const characterMatch = overlapScore({
     candidate: declaredCharacterType,
-    max: 8,
-    reference: sceneReference,
-    weight: 4,
+    max: 10,
+    reference: semanticReference,
+    weight: 5,
   });
   const styleMatch = overlapScore({
     candidate: declaredStyle,
-    max: 6,
+    max: 10,
     reference: `${sceneReference} cinematic cinematique vertical 9:16`,
-    weight: 2,
-  });
-  const promptMatch = overlapScore({
-    candidate: declaredPrompt,
-    max: 20,
-    reference: sceneText,
     weight: 3,
   });
-  const visionScoreBonus =
+  const promptMatch = overlapScore({
+    candidate: declaredPromptText,
+    max: 20,
+    reference: semanticReference,
+    weight: 2,
+  });
+  const visionQualityBonus =
     gptVisionScore !== null && gptVisionScore >= 90
-      ? 10
+      ? 5
       : gptVisionScore !== null && gptVisionScore >= 80
-        ? 6
-        : 0;
+        ? 3
+        : gptVisionScore !== null && gptVisionScore >= 70
+          ? 1
+          : 0;
+  const metadataRelevanceScore = numericScore(
+    tagsScore +
+      themeMatch +
+      emotionMatch +
+      ambianceMatch +
+      characterMatch +
+      styleMatch +
+      visionQualityBonus,
+    100,
+  );
   const metadataSourceScores = {
     ambiance: ambianceMatch,
     character_type: characterMatch,
     emotion: emotionMatch,
-    gpt_vision_bonus: visionScoreBonus,
+    gpt_vision_bonus: visionQualityBonus,
     scene_prompt: promptMatch,
-    tags: tagsMatch,
+    tags: tagsScore,
     theme: themeMatch,
     visual_style: styleMatch,
   };
@@ -608,7 +643,7 @@ function scoreAsset(
   );
   const promptImage = numericScore(
     promptMatch +
-      Math.round(tagsMatch * 0.45) +
+      Math.round(tagsScore * 0.45) +
       promptMatches.length * 2,
     30,
   );
@@ -659,15 +694,7 @@ function scoreAsset(
       (hasUnsafeHint ? 4 : 0),
     10,
   );
-  const score = numericScore(
-    promptImage +
-      imageDraft +
-      visualQuality +
-      narrativeContinuity +
-      editorialSafety +
-      visionScoreBonus,
-    100,
-  );
+  const score = metadataRelevanceScore;
   const matches = Array.from(new Set([...promptMatches, ...draftMatches]));
   const metadataMatches = Object.entries(metadataSourceScores)
     .filter(([, value]) => value > 0)
@@ -680,6 +707,7 @@ function scoreAsset(
         : "Estime sans analyse visuelle IA. Coherence visuelle a valider manuellement.";
   const scoreBreakdown: VisualScoreBreakdown = {
     total: score,
+    total_score: score,
     promptImage,
     imageDraft,
     visualQuality,
@@ -689,16 +717,23 @@ function scoreAsset(
     reason,
     matchedTerms: matches.slice(0, 12),
     sceneIndex: scene.sceneIndex,
-    tagsMatch,
+    tagsMatch: tagsScore,
     themeMatch,
     emotionMatch,
     ambianceMatch,
     characterMatch,
     styleMatch,
     promptMatch,
-    visionScoreBonus,
+    visionScoreBonus: visionQualityBonus,
     metadataScoreTotal,
     metadataSourceScores,
+    tags_score: tagsScore,
+    theme_score: themeMatch,
+    emotion_score: emotionMatch,
+    ambiance_score: ambianceMatch,
+    character_score: characterMatch,
+    style_score: styleMatch,
+    vision_quality_bonus: visionQualityBonus,
     metadataMatches: {
       characterType: characterMatch > 0 ? declaredCharacterType || null : null,
       emotion: emotionMatch > 0 ? declaredEmotion || null : null,
@@ -1637,9 +1672,15 @@ function isCanonicalVisualAsset(asset: Pick<ContentAssetRow, "bucket_name" | "st
 
 function libraryVisionDecision(scoreBreakdown: Record<string, unknown>): VisualSelectionDecision {
   const total = Number(scoreBreakdown.total_score ?? scoreBreakdown.total ?? 0);
-  const location = Number(scoreBreakdown.location_score ?? 0);
+  const rawLocation = scoreBreakdown.location_score;
+  const location = Number(rawLocation ?? 0);
+  const hasLocationScore = rawLocation !== undefined && rawLocation !== null;
 
-  if (!Number.isFinite(total) || total < VISUAL_SELECTION_THRESHOLD || location < 18) {
+  if (
+    !Number.isFinite(total) ||
+    total < VISUAL_LIBRARY_RELEVANCE_THRESHOLD ||
+    (hasLocationScore && location < 18)
+  ) {
     return "rejected";
   }
 
@@ -1697,8 +1738,10 @@ function visualLibraryMatchSummary(asset: VisualAsset) {
     fileName: asset.fileName,
     imageUrl: asset.publicUrl,
     pertinenceScore: scoreOutOf100(asset.score),
+    reason: asset.scoreReason,
     scoreBreakdown: {
       characterMatch: asset.scoreBreakdown.characterMatch ?? 0,
+      ambianceMatch: asset.scoreBreakdown.ambianceMatch ?? 0,
       emotionMatch: asset.scoreBreakdown.emotionMatch ?? 0,
       gptVisionScoreBonus: asset.scoreBreakdown.visionScoreBonus ?? 0,
       styleMatch: asset.scoreBreakdown.styleMatch ?? 0,
@@ -1750,8 +1793,12 @@ function logVisualSelection({
 
 function visualSceneSelectionDebug({
   assetsFound,
+  assetsTotal = assetsFound,
+  assetsWithMetadata = 0,
+  fallbackReason = "unknown",
   assetsRejected = 0,
   assetsScored = 0,
+  bestAssetId = null,
   assetsSelected,
   bestCandidate = null,
   bestCandidateScore,
@@ -1762,11 +1809,16 @@ function visualSceneSelectionDebug({
   generationStatus,
   rejectionReason = "",
   selectionReason = "",
+  searchDurationMs = 0,
   selectionDecision,
 }: {
   assetsFound: number;
+  assetsTotal?: number;
+  assetsWithMetadata?: number;
+  fallbackReason?: "no_assets" | "no_metadata" | "no_candidates" | "score_too_low" | "timeout" | "supabase_error" | "unknown";
   assetsRejected?: number;
   assetsScored?: number;
+  bestAssetId?: string | null;
   assetsSelected: number;
   bestCandidate?: string | null;
   bestCandidateScore: number;
@@ -1777,15 +1829,24 @@ function visualSceneSelectionDebug({
   generationStatus: GenerationStatus;
   rejectionReason?: string;
   selectionReason?: string;
+  searchDurationMs?: number;
   selectionDecision: string;
 }) {
   return {
     assetsFound,
+    assetsTotal,
+    assetsWithMetadata,
     assetsRejected,
     assetsScored,
     assetsSelected,
+    bestAssetId,
     bestCandidate,
     bestCandidateScore,
+    bestFileName: bestCandidate,
+    bestScore: bestCandidateScore,
+    fallbackReason,
+    search_duration_ms: searchDurationMs,
+    searchDurationMs,
     fallbackTriggered,
     generationRequested,
     generationStartedAt,
@@ -1798,6 +1859,27 @@ function visualSceneSelectionDebug({
   };
 }
 
+function libraryFallbackReasonFromError(error: unknown) {
+  if (error instanceof MediaPipelineError) {
+    if (error.context.validation?.includes("timeout")) {
+      return "timeout" as const;
+    }
+    if (error.context.validation?.startsWith("content_assets.")) {
+      return "supabase_error" as const;
+    }
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.toLowerCase().includes("timeout")) {
+    return "timeout" as const;
+  }
+  if (message.toLowerCase().includes("supabase") || message.toLowerCase().includes("content_assets")) {
+    return "supabase_error" as const;
+  }
+
+  return "unknown" as const;
+}
+
 async function fallbackLibraryScene({
   draft,
   generationQuality,
@@ -1808,7 +1890,6 @@ async function fallbackLibraryScene({
   sceneIndex: number;
 }) {
   const startedAt = Date.now();
-  const prompt = parseVisualPrompts(draft.visual_prompt ?? "")[sceneIndex - 1] ?? "";
   logVisualSceneStep({
     draftId: draft.id,
     sceneIndex,
@@ -1829,7 +1910,7 @@ async function fallbackLibraryScene({
     suggestions = await withTimeout({
       draftId: draft.id,
       label: "Recherche bibliotheque",
-      promise: scoreLibraryForDraft(draft),
+      promise: scoreLibraryForDraft(draft, sceneIndex - 1),
       sceneIndex,
       timeoutMs: LIBRARY_SEARCH_TIMEOUT_MS,
       validation: "content_assets.library_search_timeout",
@@ -1841,12 +1922,27 @@ async function fallbackLibraryScene({
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const fallbackReason = libraryFallbackReasonFromError(error);
     await upsertVisualScene({
       draft,
       errorMessage: `Aucun visuel pertinent trouve. Recherche bibliotheque trop lente. ${message}`,
       generationQuality,
       generationSource: "library",
       generationStatus: "error",
+      scoreBreakdown: visualSceneSelectionDebug({
+        assetsFound: 0,
+        assetsScored: 0,
+        assetsSelected: 0,
+        assetsTotal: 0,
+        bestCandidateScore: 0,
+        fallbackReason,
+        fallbackTriggered: true,
+        generationRequested: false,
+        generationSource: "library",
+        generationStatus: "error",
+        searchDurationMs: Date.now() - startedAt,
+        selectionDecision: "timeout",
+      }),
       scoreSource: "none",
       visualPromptIndex: sceneIndex,
     });
@@ -1879,13 +1975,11 @@ async function fallbackLibraryScene({
     return false;
   }
 
-  const candidates = suggestions
-    .filter((item) =>
-      item.scoreBreakdown.sceneIndex === sceneIndex - 1 ||
-      item.score >= 35,
-    )
-    .slice(0, 5);
+  const candidates = suggestions.slice(0, 5);
   const topLibraryMatches = candidates.map(visualLibraryMatchSummary);
+  const assetsWithMetadata = suggestions.filter((asset) =>
+    hasEnrichedVisualMetadata(asset.metadata),
+  ).length;
   let bestCandidateScore = candidates.length
     ? Math.max(...candidates.map((asset) => scoreOutOf100(asset.score)))
     : 0;
@@ -1895,41 +1989,15 @@ async function fallbackLibraryScene({
   let lastRejectionReason = "";
 
   for (const asset of candidates) {
-    let scoreBreakdown: Record<string, unknown>;
-    let scoreSource: ScoreSource = "gpt_vision";
-    let scoreTotal = asset.score;
-
-    try {
-      const visionScore = await scoreImageWithVision({
-        draft,
-        imageUrl: asset.publicUrl,
-        prompt,
-        sceneIndex,
-      });
-      scoreBreakdown = {
-        ...visionScoreToBreakdown(visionScore),
-        selection_source: "library",
-      };
-      scoreTotal = visionScore.total_score || visionScore.total;
-    } catch (error) {
-      scoreSource = "heuristic";
-      scoreBreakdown = {
-        ...asset.scoreBreakdown,
-        selection_source: "library",
-        selection_warning: error instanceof Error ? error.message : String(error),
-      };
-      scoreTotal = asset.score;
-    }
+    const scoreBreakdown: Record<string, unknown> = {
+      ...asset.scoreBreakdown,
+      selection_source: "library_metadata",
+    };
+    const scoreTotal = asset.score;
     bestCandidateScore = Math.max(bestCandidateScore, scoreOutOf100(scoreTotal));
     if (!bestCandidate || scoreTotal > bestCandidate.score) {
       bestCandidate = asset;
     }
-
-    await updateGeneratedAssetScore({
-      assetId: asset.id,
-      scoreBreakdown,
-      scoreSource,
-    });
 
     const decision = libraryVisionDecision(scoreBreakdown);
     const reason = visualSelectionReason(decision, scoreBreakdown);
@@ -1971,19 +2039,24 @@ async function fallbackLibraryScene({
             assetsRejected: Math.max(0, candidates.length - 1),
             assetsScored: candidates.length,
             assetsSelected: 1,
+            assetsTotal: suggestions.length,
+            assetsWithMetadata,
+            bestAssetId: asset.id,
             bestCandidate: asset.fileName,
             bestCandidateScore: scoreOutOf100(scoreTotal),
+            fallbackReason: "unknown",
             fallbackTriggered: false,
             generationRequested: false,
             generationSource: "library",
             generationStatus: "ready",
+            searchDurationMs: Date.now() - startedAt,
             selectionReason: reason,
             selectionDecision: decision,
           }),
           selection_decision: decision,
           selection_reason: reason,
         },
-        scoreSource: "gpt_vision",
+        scoreSource: "heuristic",
         scoreTotal,
         storagePath: asset.storagePath,
         visualPromptIndex: sceneIndex,
@@ -1995,7 +2068,7 @@ async function fallbackLibraryScene({
         endpoint: "content_assets.library",
         assetId: asset.id,
         imageUrl: asset.publicUrl,
-        model: "gpt_vision",
+        model: "metadata",
         sceneIndex,
         step: decision,
         success: true,
@@ -2025,16 +2098,30 @@ async function fallbackLibraryScene({
       libraryRelevanceThreshold: VISUAL_LIBRARY_RELEVANCE_THRESHOLD,
       ...visualSceneSelectionDebug({
         assetsFound: suggestions.length,
+        assetsTotal: suggestions.length,
+        assetsWithMetadata,
         assetsRejected: candidates.length,
         assetsScored: candidates.length,
         assetsSelected: 0,
+        bestAssetId: bestCandidate?.id ?? null,
         bestCandidate: bestCandidate?.fileName ?? null,
         bestCandidateScore,
+        fallbackReason:
+          suggestions.length === 0
+            ? "no_assets"
+            : assetsWithMetadata === 0
+              ? "no_metadata"
+              : candidates.length === 0
+                ? "no_candidates"
+                : bestCandidateScore < VISUAL_SELECTION_THRESHOLD
+                  ? "score_too_low"
+                  : "unknown",
         fallbackTriggered: true,
         generationRequested: false,
         generationStartedAt: null,
         generationSource: "library",
         generationStatus: "error",
+        searchDurationMs: Date.now() - startedAt,
         rejectionReason:
           lastRejectionReason ||
           (suggestions.length > 0
@@ -2621,16 +2708,15 @@ async function readLibraryAssets() {
     .slice(0, 120);
 }
 
-async function scoreLibraryForDraft(draft: DraftRow) {
+async function scoreLibraryForDraft(draft: DraftRow, sceneIndex?: number | null) {
   const assets = await readLibraryAssets();
 
   return assets
     .map((asset) => {
-      const { score, reason, scoreBreakdown } = scoreAsset(draft, asset);
+      const { score, reason, scoreBreakdown } = scoreAsset(draft, asset, sceneIndex);
       return mapAsset(asset, score, reason, scoreBreakdown);
     })
-    .sort((a, b) => b.score - a.score || a.usageCount - b.usageCount)
-    .slice(0, 12);
+    .sort((a, b) => b.score - a.score || a.usageCount - b.usageCount);
 }
 
 async function readPlan(draftId: string) {

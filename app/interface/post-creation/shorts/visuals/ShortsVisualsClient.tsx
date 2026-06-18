@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
-import { parseVisualPrompts } from "@/lib/content/visual-prompts";
+import { getRequiredVisualSceneCount, parseVisualPrompts } from "@/lib/content/visual-prompts";
 
 type ContentDraft = {
   id: string;
@@ -13,6 +13,8 @@ type ContentDraft = {
   visualPrompt: string;
   score: {
     total: number;
+    durationPreset?: "ultra_short" | "short" | "medium" | "long";
+    requiredVisualSceneCount?: number;
   };
 };
 
@@ -445,29 +447,29 @@ function sceneProgressValue(scene: VisualScene) {
   return 10;
 }
 
-function sceneProgressMessage(scene: VisualScene) {
+function sceneProgressMessage(scene: VisualScene, requiredSceneCount: number) {
   if (scene.generationStatus === "pending") {
     if (sceneElapsedMs(scene) > 15_000) {
-      return `Scene ${scene.visualPromptIndex}/7 : toujours bloquee, relance serveur requise.`;
+      return `Scene ${scene.visualPromptIndex}/${requiredSceneCount} : toujours bloquee, relance serveur requise.`;
     }
 
     if (isSceneStuck(scene)) {
-      return `Scene ${scene.visualPromptIndex}/7 : relance du traitement...`;
+      return `Scene ${scene.visualPromptIndex}/${requiredSceneCount} : relance du traitement...`;
     }
 
-    return `Scene ${scene.visualPromptIndex}/7 : recherche dans la bibliotheque...`;
+    return `Scene ${scene.visualPromptIndex}/${requiredSceneCount} : recherche dans la bibliotheque...`;
   }
 
   if (scene.generationStatus === "searching_library") {
     if (isSceneStuck(scene)) {
-      return `Scene ${scene.visualPromptIndex}/7 : recherche trop longue. Action requise.`;
+      return `Scene ${scene.visualPromptIndex}/${requiredSceneCount} : recherche trop longue. Action requise.`;
     }
 
     return `Recherche bibliotheque pour la scene ${scene.visualPromptIndex}...`;
   }
 
   if (scene.generationStatus === "scoring") {
-    return `Scene ${scene.visualPromptIndex}/7 : analyse / scoring...`;
+    return `Scene ${scene.visualPromptIndex}/${requiredSceneCount} : analyse / scoring...`;
   }
 
   if (scene.generationStatus === "generating") {
@@ -479,7 +481,7 @@ function sceneProgressMessage(scene: VisualScene) {
       return "Generation IA en cours...";
     }
 
-    return `Scene ${scene.visualPromptIndex}/7 : generation IA en cours...`;
+    return `Scene ${scene.visualPromptIndex}/${requiredSceneCount} : generation IA en cours...`;
   }
 
   if (scene.generationStatus === "uploading") {
@@ -526,6 +528,8 @@ function sceneProgressMessage(scene: VisualScene) {
 }
 
 function visualPreparationProgress(scenes: VisualScene[]) {
+  const requiredSceneCount = scenes.length || 0;
+
   if (scenes.length === 0) {
     return {
       activeScene: null as VisualScene | null,
@@ -534,6 +538,7 @@ function visualPreparationProgress(scenes: VisualScene[]) {
       message: "0% - initialisation",
       progress: 0,
       readyCount: 0,
+      requiredSceneCount,
       remainingEstimate: "non disponible",
     };
   }
@@ -568,12 +573,13 @@ function visualPreparationProgress(scenes: VisualScene[]) {
     blockedCount,
     loadingCount,
     message: activeScene
-      ? sceneProgressMessage(activeScene)
+      ? sceneProgressMessage(activeScene, requiredSceneCount)
       : readyCount === scenes.length
         ? "100% - scenes pretes"
         : `${progress}% - preparation en attente`,
     progress,
     readyCount,
+    requiredSceneCount,
     remainingEstimate: remainingSeconds > 0
       ? `environ ${Math.ceil(remainingSeconds / 60)} min`
       : "non disponible",
@@ -593,7 +599,7 @@ function visualActionNotice(action: string) {
     retain_scene: "Scene retenue.",
     select_scene_asset: "Visuel bibliotheque associe a la scene.",
     unlock_scene: "Scene deverrouillee.",
-    validate_visuals: "Les 7 visuels sont valides. Le brouillon est maintenant protege.",
+    validate_visuals: "Les visuels sont valides. Le brouillon est maintenant protege.",
     select_asset: "Visuel retenu mis a jour.",
   };
 
@@ -652,7 +658,7 @@ function scoreReason(asset: VisualAsset, isRetained: boolean) {
   }
 
   return asset.score >= 50
-    ? "Proposition pertinente mais non retenue dans les 7 emplacements."
+    ? "Proposition pertinente mais non retenue dans les emplacements requis."
     : "Non retenu: score estime plus faible ou coherence a valider.";
 }
 
@@ -1232,10 +1238,13 @@ function SceneDebugDetails({
   );
 }
 
-function firstFreeVisualSlot(retainedVisuals: SelectedDraftAsset[]) {
+function firstFreeVisualSlot(
+  retainedVisuals: SelectedDraftAsset[],
+  requiredSceneCount: number,
+) {
   const usedSlots = new Set(retainedVisuals.map((asset) => asset.usageOrder));
 
-  for (let slot = 1; slot <= 7; slot += 1) {
+  for (let slot = 1; slot <= requiredSceneCount; slot += 1) {
     if (!usedSlots.has(slot)) {
       return slot;
     }
@@ -1266,17 +1275,32 @@ export function ShortsVisualsClient() {
     () => drafts.find((draft) => draft.id === selectedDraftId) ?? null,
     [drafts, selectedDraftId],
   );
+  const requiredSceneCount = useMemo(() => {
+    const existingSceneCount = media?.visualScenes.length ?? 0;
+
+    if (existingSceneCount > 0) {
+      return existingSceneCount;
+    }
+
+    const storedSceneCount = selectedDraft?.score.requiredVisualSceneCount;
+
+    if ([3, 5, 7, 9].includes(Number(storedSceneCount))) {
+      return Number(storedSceneCount);
+    }
+
+    return getRequiredVisualSceneCount(selectedDraft?.score.durationPreset);
+  }, [media?.visualScenes.length, selectedDraft]);
   const visualPrompts = useMemo(
-    () => parseVisualPrompts(selectedDraft?.visualPrompt ?? ""),
-    [selectedDraft],
+    () => parseVisualPrompts(selectedDraft?.visualPrompt ?? "", requiredSceneCount),
+    [requiredSceneCount, selectedDraft],
   );
   const generatedVisuals = useMemo(
     () => media?.suggestedAssets.slice(0, 12) ?? [],
     [media],
   );
   const retainedVisuals = useMemo(
-    () => media?.selectedAssets.slice(0, 7) ?? [],
-    [media],
+    () => media?.selectedAssets.slice(0, requiredSceneCount) ?? [],
+    [media, requiredSceneCount],
   );
   const averageScore = useMemo(() => {
     const scores = retainedVisuals.length
@@ -1300,7 +1324,9 @@ export function ShortsVisualsClient() {
       ).length,
     [media?.visualScenes],
   );
-  const visualsAreValidated = retainedSceneCount === 7;
+  const visualsAreValidated =
+    requiredSceneCount > 0 && retainedSceneCount === requiredSceneCount;
+  const missingRetainedSceneCount = Math.max(0, requiredSceneCount - retainedSceneCount);
   const visualActionsLocked =
     visualsAreValidated || media?.mediaPipelineStatus === "visual_ready";
   const retainedAssetIds = useMemo(
@@ -1663,7 +1689,7 @@ export function ShortsVisualsClient() {
             </p>
           ) : null}
 
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
+          <div className="mt-5 grid gap-3 md:grid-cols-4">
             <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
               Score moyen:{" "}
               <span className="font-semibold text-[#F8FAFC]">{averageScore}/100</span>
@@ -1680,6 +1706,12 @@ export function ShortsVisualsClient() {
                 {retainedVisuals.length}
               </span>
             </p>
+            <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
+              Visuels requis:{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {requiredSceneCount}
+              </span>
+            </p>
           </div>
 
           <div className="mt-5 rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
@@ -1693,7 +1725,7 @@ export function ShortsVisualsClient() {
                 </p>
               </div>
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
-                {visualProgress.readyCount}/7 pretes ·{" "}
+                {visualProgress.readyCount}/{requiredSceneCount} pretes ·{" "}
                 {visualProgress.blockedCount} a relancer · temps restant{" "}
                 {visualProgress.remainingEstimate}
               </p>
@@ -1901,7 +1933,7 @@ export function ShortsVisualsClient() {
                     <div className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
                       <div className="flex items-center justify-between gap-3 text-xs">
                         <span className="font-semibold text-[#F8FAFC]">
-                          {sceneProgressMessage(scene)}
+                          {sceneProgressMessage(scene, requiredSceneCount)}
                         </span>
                         <span className="font-semibold text-[#A7B0C0]">
                           {sceneProgressValue(scene)}%
@@ -2046,7 +2078,7 @@ export function ShortsVisualsClient() {
             })}
             {media && media.visualScenes.length === 0 ? (
               <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
-                Lance la generation ou la preparation pour creer les 7 scenes.
+                Lance la preparation pour creer les {requiredSceneCount} scenes requises.
               </p>
             ) : null}
           </div>
@@ -2054,14 +2086,19 @@ export function ShortsVisualsClient() {
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-sm font-semibold text-[#F8FAFC]">
-                  {retainedSceneCount}/7 visuels retenus
+                  {retainedSceneCount}/{requiredSceneCount} visuels retenus
                 </p>
                 <p className="mt-1 text-sm text-[#A7B0C0]">
                   Statut du short :{" "}
                   {visualsAreValidated
                     ? "visuels prets / pret a proteger"
-                    : "visuels en cours"}
+                    : `visuels en cours - ${missingRetainedSceneCount} manquant${missingRetainedSceneCount > 1 ? "s" : ""}`}
                 </p>
+                {visualsAreValidated ? null : (
+                  <p className="mt-1 text-xs text-[#FDBA74]">
+                    Validation disponible lorsque {requiredSceneCount}/{requiredSceneCount} visuels sont retenus.
+                  </p>
+                )}
               </div>
               <button
                 type="button"
@@ -2140,7 +2177,7 @@ export function ShortsVisualsClient() {
             {generatedVisuals.map((asset, index) => {
               const isRetained = retainedAssetIds.has(asset.id);
               const usageOrder =
-                slotByAsset[asset.id] ?? firstFreeVisualSlot(retainedVisuals);
+                slotByAsset[asset.id] ?? firstFreeVisualSlot(retainedVisuals, requiredSceneCount);
 
               return (
                 <article key={asset.id} className="overflow-hidden rounded-md border border-[#1D2A44] bg-[#08111A]">
@@ -2179,7 +2216,7 @@ export function ShortsVisualsClient() {
                         }
                         className="rounded-md border border-[#1D2A44] bg-[#03070B] px-2 py-1.5 text-xs font-semibold text-[#F8FAFC]"
                       >
-                        {[1, 2, 3, 4, 5, 6, 7].map((slot) => (
+                        {Array.from({ length: requiredSceneCount }, (_, optionIndex) => optionIndex + 1).map((slot) => (
                           <option key={slot} value={slot}>
                             Position {slot}
                           </option>

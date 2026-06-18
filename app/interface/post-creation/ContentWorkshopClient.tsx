@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import {
   formatVisualPrompts,
+  getRequiredVisualSceneCount,
   normalizeVisualPrompts,
 } from "@/lib/content/visual-prompts";
 
@@ -43,6 +44,9 @@ type ContentDraft = {
     clarity: number;
     total: number;
     reason: string;
+    durationPreset?: "ultra_short" | "short" | "medium" | "long";
+    durationLabel?: string;
+    requiredVisualSceneCount?: number;
   };
 };
 
@@ -209,7 +213,7 @@ const generationStatusMessages = [
   "Creation des variantes...",
   "Preparation de la legende...",
   "Selection des hashtags...",
-  "Construction des 7 scenes visuelles...",
+  "Construction des scenes visuelles...",
   "Harmonisation du style...",
   "Finalisation du brouillon...",
 ];
@@ -882,10 +886,12 @@ export function ContentWorkshopClient() {
   }
 
   function handleSelectVariant(variant: GeneratedVariant) {
+    const requiredSceneCount = getRequiredVisualSceneCount(format);
     const visualPrompts = normalizeVisualPrompts(
       variant.visualPrompts.length > 0
         ? variant.visualPrompts
         : variant.visualPrompt,
+      requiredSceneCount,
     );
 
     setSelectedVariantId(variant.id);
@@ -896,7 +902,7 @@ export function ContentWorkshopClient() {
     setEditor(null);
     setAssets([]);
     setMediaPipeline(null);
-    setNotice("Variante choisie. Les 7 prompts visuels peuvent etre ajustes avant sauvegarde.");
+    setNotice(`Variante choisie. Les ${requiredSceneCount} prompts visuels peuvent etre ajustes avant sauvegarde.`);
     setError(null);
   }
 
@@ -953,7 +959,7 @@ export function ContentWorkshopClient() {
           variant: {
             ...selectedVariant,
             visualPrompts,
-            visualPrompt: formatVisualPrompts(visualPrompts),
+            visualPrompt: formatVisualPrompts(visualPrompts, visualPrompts.length),
           },
         }),
       });
@@ -1354,8 +1360,9 @@ export function ContentWorkshopClient() {
   }
 
   function handleSelectSuggestedAsset(asset: VisualAsset) {
+    const requiredSceneCount = getRequiredVisualSceneCount(format);
     const nextOrder = Math.min(
-      7,
+      requiredSceneCount,
       (mediaPipeline?.selectedAssets.length ?? 0) + 1,
     );
     void runMediaAction("select_asset", {
@@ -1744,7 +1751,7 @@ export function ContentWorkshopClient() {
                         Prompts visuels
                       </p>
                       <h3 className="mt-2 text-lg font-semibold text-[#F8FAFC]">
-                        7 prompts narratifs pour le pipeline visuel
+                        {getRequiredVisualSceneCount(format)} prompts narratifs pour le pipeline visuel
                       </h3>
                       <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
                         Anglais, photorealiste, vertical 9:16, meme personnage,

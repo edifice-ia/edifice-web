@@ -1,7 +1,10 @@
 import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { parseVisualPrompts } from "@/lib/content/visual-prompts";
+import {
+  getRequiredVisualSceneCount,
+  parseVisualPrompts,
+} from "@/lib/content/visual-prompts";
 import { buildVisualMetadata, saveVisualMetadata } from "@/lib/server/content-assets";
 
 type MediaPipelineStatus =
@@ -58,6 +61,7 @@ type DraftRow = {
   protected_at: string | null;
   visual_status: string | null;
   visuals_validated_at: string | null;
+  score: Record<string, unknown> | null;
 };
 
 type MediaPipelineErrorContext = {
@@ -488,7 +492,46 @@ function overlapScore({
 }
 
 function visualPromptsForDraft(draft: DraftRow) {
-  return parseVisualPrompts(draft.visual_prompt ?? "").filter(Boolean);
+  return parseVisualPrompts(draft.visual_prompt ?? "", requiredVisualSceneCountForDraft(draft)).filter(Boolean);
+}
+
+function durationPresetForDraft(draft: DraftRow) {
+  const preset = draft.score?.duration_preset;
+
+  return typeof preset === "string" ? preset : undefined;
+}
+
+function durationSecondsForDraft(draft: DraftRow) {
+  const seconds = draft.score?.duration_seconds;
+  const numericSeconds = typeof seconds === "number" ? seconds : Number(seconds);
+
+  return Number.isFinite(numericSeconds) ? numericSeconds : null;
+}
+
+function requiredVisualSceneCountForDraft(draft: DraftRow) {
+  const explicitCount = Number(draft.score?.required_visual_scene_count);
+
+  if ([3, 5, 7, 9].includes(explicitCount)) {
+    return explicitCount;
+  }
+
+  return getRequiredVisualSceneCount(durationPresetForDraft(draft), durationSecondsForDraft(draft));
+}
+
+function requiredVisualSceneCountForScenes(draft: DraftRow, rows: VisualSceneRow[]) {
+  const existingCount = rows.length;
+
+  if (existingCount > 0) {
+    return existingCount;
+  }
+
+  return requiredVisualSceneCountForDraft(draft);
+}
+
+function normalizeVisualSceneIndex(draft: DraftRow, sceneIndex: number, scenes?: VisualScene[]) {
+  const requiredSceneCount = scenes?.length || requiredVisualSceneCountForDraft(draft);
+
+  return Math.max(1, Math.min(requiredSceneCount, Math.round(sceneIndex)));
 }
 
 function scenePromptForAsset(
@@ -1198,7 +1241,7 @@ function inferVisualMetadata({
 
   return buildVisualMetadata({
     title,
-    description: `Scene ${sceneIndex}/7 - ${scenePrompt.trim().slice(0, 180)}`,
+    description: `Scene ${sceneIndex}/${requiredVisualSceneCountForDraft(draft)} - ${scenePrompt.trim().slice(0, 180)}`,
     prompt: promptText,
     tags: [],
     theme: draft.theme ?? draft.title ?? "",
@@ -1805,7 +1848,7 @@ async function scoreImageWithVision({
                     '{"subject_score":number,"location_score":number,"mood_score":number,"composition_score":number,"color_score":number,"total_score":number,"explanation":"courte explication"}',
                     "Baremes: subject_score /25, location_score /25, mood_score /20, composition_score /15, color_score /15, total_score /100.",
                     "Exemple: prompt toit/ville/coucher de soleil + image interieur sombre => location_score faible et total_score sous 70.",
-                    `Scene: ${sceneIndex}/7`,
+                    `Scene: ${sceneIndex}/${requiredVisualSceneCountForDraft(draft)}`,
                     `Prompt scene: ${prompt}`,
                     `Titre: ${draft.title ?? ""}`,
                     `Angle: ${draft.angle ?? ""}`,
@@ -2639,7 +2682,10 @@ async function generateSceneVisual({
   allowGeneration?: boolean;
   skipLibrary?: boolean;
 }) {
-  const prompt = parseVisualPrompts(draft.visual_prompt ?? "")[sceneIndex - 1] ?? "";
+  const prompt = parseVisualPrompts(
+    draft.visual_prompt ?? "",
+    requiredVisualSceneCountForDraft(draft),
+  )[sceneIndex - 1] ?? "";
 
   const librarySelected = skipLibrary
     ? false
@@ -2891,8 +2937,8 @@ async function processDraftVisualScenes({
   onlyBlocked?: boolean;
   skipLibrary?: boolean;
 }) {
-  const prompts = parseVisualPrompts(draft.visual_prompt ?? "");
   const currentScenes = await readVisualScenes(draft);
+  const prompts = parseVisualPrompts(draft.visual_prompt ?? "", currentScenes.length || requiredVisualSceneCountForDraft(draft));
   const targetScenes = currentScenes.filter((scene) =>
     onlyBlocked ? shouldRetryVisualScene(scene) : !scene.locked && shouldRetryVisualScene(scene),
   );
@@ -2956,8 +3002,8 @@ async function markDraftVisualScenesSearching({
   draft: DraftRow;
   generationQuality: GenerationQuality;
 }) {
-  const prompts = parseVisualPrompts(draft.visual_prompt ?? "");
   const currentScenes = await readVisualScenes(draft);
+  const prompts = parseVisualPrompts(draft.visual_prompt ?? "", currentScenes.length || requiredVisualSceneCountForDraft(draft));
 
   for (const scene of currentScenes.filter((item) => !item.locked)) {
     const prompt = prompts[scene.visualPromptIndex - 1]?.trim() ?? "";
@@ -3190,10 +3236,11 @@ async function enrichVisualSceneLibraryMatches(scene: VisualScene) {
 }
 
 function defaultVisualScenes(draft: DraftRow): VisualScene[] {
-  const prompts = parseVisualPrompts(draft.visual_prompt ?? "");
+  const requiredSceneCount = requiredVisualSceneCountForDraft(draft);
+  const prompts = parseVisualPrompts(draft.visual_prompt ?? "", requiredSceneCount);
   const now = new Date().toISOString();
 
-  return Array.from({ length: 7 }, (_, index) => ({
+  return Array.from({ length: requiredSceneCount }, (_, index) => ({
     id: `scene-${index + 1}`,
     draftId: draft.id,
     assetId: null,
@@ -3260,7 +3307,7 @@ async function readDraft(draftId: string, userId: string) {
   const { data, error } = await supabase
     .from("content_drafts")
     .select(
-      "id, user_id, theme, angle, hook, script, title, caption, hashtags, visual_prompt, voice_style, status, protected, protected_at, visual_status, visuals_validated_at",
+      "id, user_id, theme, angle, hook, script, title, caption, hashtags, visual_prompt, voice_style, status, protected, protected_at, visual_status, visuals_validated_at, score",
     )
     .eq("id", draftId)
     .eq("user_id", userId)
@@ -3502,6 +3549,32 @@ async function readVisualScenes(draft: DraftRow) {
     normalizedRows.push(normalizedScene);
   }
 
+  const requiredSceneCount = requiredVisualSceneCountForScenes(draft, normalizedRows);
+  const defaultScenes = Array.from({ length: requiredSceneCount }, (_, index) => {
+    const prompts = parseVisualPrompts(draft.visual_prompt ?? "", requiredSceneCount);
+    const now = new Date().toISOString();
+    return {
+      id: `scene-${index + 1}`,
+      draftId: draft.id,
+      assetId: null,
+      visualPromptIndex: index + 1,
+      visualPromptText: prompts[index] ?? "",
+      generationSource: "library" as GenerationSource,
+      generationQuality: "medium" as GenerationQuality,
+      generationStatus: "pending" as GenerationStatus,
+      imageUrl: null,
+      storagePath: null,
+      scoreTotal: null,
+      scoreBreakdown: {},
+      scoreSource: "none" as ScoreSource,
+      errorMessage: null,
+      locked: false,
+      retainedAt: null,
+      retainedBy: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  });
   const byIndex = new Map(
     normalizedRows.map((scene) => [
       scene.visual_prompt_index,
@@ -3509,7 +3582,7 @@ async function readVisualScenes(draft: DraftRow) {
     ]),
   );
 
-  const scenes = defaultVisualScenes(draft).map(
+  const scenes = defaultScenes.map(
     (scene) => byIndex.get(scene.visualPromptIndex) ?? scene,
   );
 
@@ -3583,7 +3656,7 @@ async function upsertVisualScene({
   visualPromptIndex: number;
 }) {
   const supabase = getMediaPipelineClient();
-  const prompts = parseVisualPrompts(draft.visual_prompt ?? "");
+  const prompts = parseVisualPrompts(draft.visual_prompt ?? "", requiredVisualSceneCountForDraft(draft));
   const { error } = await supabase
     .from("content_draft_visual_scenes")
     .upsert(
@@ -3785,12 +3858,10 @@ export function buildVisualGenerationInput(draft: DraftRow): VisualGenerationInp
     subject: draft.theme ?? draft.title,
     angle: draft.angle,
     emotion: draft.voice_style,
-    visualPrompts: draft.visual_prompt
-      ? draft.visual_prompt
-          .split(/\n+/)
-          .map((prompt) => prompt.trim())
-          .filter(Boolean)
-      : [],
+    visualPrompts: parseVisualPrompts(
+      draft.visual_prompt ?? "",
+      requiredVisualSceneCountForDraft(draft),
+    ).filter(Boolean),
   };
 }
 
@@ -3843,8 +3914,9 @@ export async function prepareDraftMedia({
 
   const suggestedAssets = await scoreLibraryForDraft(draft);
   const relevantAssets = suggestedAssets.filter((asset) => asset.score >= 18);
-  const selectedAssets = relevantAssets.slice(0, 7);
-  const hasEnoughLibraryAssets = relevantAssets.length >= 3;
+  const requiredSceneCount = initialScenes.length || requiredVisualSceneCountForDraft(draft);
+  const selectedAssets = relevantAssets.slice(0, requiredSceneCount);
+  const hasEnoughLibraryAssets = relevantAssets.length >= Math.min(3, requiredSceneCount);
   const missingVisualNeeds = hasEnoughLibraryAssets
     ? []
     : [
@@ -3860,7 +3932,7 @@ export async function prepareDraftMedia({
     confidence: hasEnoughLibraryAssets
       ? Math.min(0.95, 0.55 + relevantAssets.length * 0.06)
       : Math.max(0.25, relevantAssets.length * 0.12),
-    matched_assets: relevantAssets.slice(0, 7).map((asset) => ({
+    matched_assets: relevantAssets.slice(0, requiredSceneCount).map((asset) => ({
       asset_id: asset.id,
       file_name: asset.fileName,
       score: asset.score,
@@ -4156,8 +4228,9 @@ export async function regenerateDraftVisualScene({
 }) {
   const draft = await readDraft(draftId, userId);
   const normalizedGenerationQuality = normalizeGenerationQuality(generationQuality);
-  const normalizedSceneIndex = Math.max(1, Math.min(7, Math.round(sceneIndex)));
-  const scene = (await readVisualScenes(draft)).find(
+  const scenes = await readVisualScenes(draft);
+  const normalizedSceneIndex = normalizeVisualSceneIndex(draft, sceneIndex, scenes);
+  const scene = scenes.find(
     (item) => item.visualPromptIndex === normalizedSceneIndex,
   );
 
@@ -4203,8 +4276,9 @@ export async function retryDraftVisualSceneSearch({
 }) {
   const draft = await readDraft(draftId, userId);
   const normalizedGenerationQuality = normalizeGenerationQuality(generationQuality);
-  const normalizedSceneIndex = Math.max(1, Math.min(7, Math.round(sceneIndex)));
-  const scene = (await readVisualScenes(draft)).find(
+  const scenes = await readVisualScenes(draft);
+  const normalizedSceneIndex = normalizeVisualSceneIndex(draft, sceneIndex, scenes);
+  const scene = scenes.find(
     (item) => item.visualPromptIndex === normalizedSceneIndex,
   );
 
@@ -4246,8 +4320,9 @@ export async function analyzeDraftVisualScene({
   userId: string;
 }) {
   const draft = await readDraft(draftId, userId);
-  const normalizedSceneIndex = Math.max(1, Math.min(7, Math.round(sceneIndex)));
-  const scene = (await readVisualScenes(draft)).find(
+  const scenes = await readVisualScenes(draft);
+  const normalizedSceneIndex = normalizeVisualSceneIndex(draft, sceneIndex, scenes);
+  const scene = scenes.find(
     (item) => item.visualPromptIndex === normalizedSceneIndex,
   );
 
@@ -4311,8 +4386,9 @@ export async function updateDraftVisualSceneStatus({
   userId: string;
 }) {
   const draft = await readDraft(draftId, userId);
-  const normalizedSceneIndex = Math.max(1, Math.min(7, Math.round(sceneIndex)));
-  const scene = (await readVisualScenes(draft)).find(
+  const scenes = await readVisualScenes(draft);
+  const normalizedSceneIndex = normalizeVisualSceneIndex(draft, sceneIndex, scenes);
+  const scene = scenes.find(
     (item) => item.visualPromptIndex === normalizedSceneIndex,
   );
 
@@ -4385,8 +4461,9 @@ export async function unlockDraftVisualScene({
   userId: string;
 }) {
   const draft = await readDraft(draftId, userId);
-  const normalizedSceneIndex = Math.max(1, Math.min(7, Math.round(sceneIndex)));
-  const scene = (await readVisualScenes(draft)).find(
+  const scenes = await readVisualScenes(draft);
+  const normalizedSceneIndex = normalizeVisualSceneIndex(draft, sceneIndex, scenes);
+  const scene = scenes.find(
     (item) => item.visualPromptIndex === normalizedSceneIndex,
   );
 
@@ -4429,7 +4506,8 @@ export async function selectDraftVisualSceneAsset({
   userId: string;
 }) {
   const draft = await readDraft(draftId, userId);
-  const normalizedSceneIndex = Math.max(1, Math.min(7, Math.round(sceneIndex)));
+  const scenes = await readVisualScenes(draft);
+  const normalizedSceneIndex = normalizeVisualSceneIndex(draft, sceneIndex, scenes);
 
   if (!isDraftValidatedForMedia(draft.status)) {
     throw new MediaPipelineError("Valide le brouillon avant de preparer les medias.", {
@@ -4440,7 +4518,7 @@ export async function selectDraftVisualSceneAsset({
   }
   assertDraftVisualsCanChange(draft, draftId);
 
-  const existingScene = (await readVisualScenes(draft)).find(
+  const existingScene = scenes.find(
     (scene) => scene.visualPromptIndex === normalizedSceneIndex,
   );
 
@@ -4496,9 +4574,10 @@ export async function validateDraftVisuals({
   const draft = await readDraft(draftId, userId);
   const scenes = await readVisualScenes(draft);
   const retainedScenes = scenes.filter((scene) => scene.locked || scene.generationStatus === "retained");
+  const requiredSceneCount = scenes.length || requiredVisualSceneCountForDraft(draft);
 
-  if (retainedScenes.length !== 7) {
-    throw new MediaPipelineError(`${retainedScenes.length}/7 visuels retenus.`, {
+  if (retainedScenes.length !== requiredSceneCount) {
+    throw new MediaPipelineError(`${retainedScenes.length}/${requiredSceneCount} visuels retenus.`, {
       draftId,
       validation: "visual_scenes.retained_count",
     });
@@ -4590,7 +4669,10 @@ export async function selectDraftVisualAsset({
       "Selection manuelle hors suggestions.",
     );
   const supabase = getMediaPipelineClient();
-  const normalizedOrder = Math.max(1, Math.min(7, Math.round(usageOrder)));
+  const normalizedOrder = Math.max(
+    1,
+    Math.min(requiredVisualSceneCountForDraft(draft), Math.round(usageOrder)),
+  );
 
   const { error } = await supabase
     .from("content_draft_asset_links")

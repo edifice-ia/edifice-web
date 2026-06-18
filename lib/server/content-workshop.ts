@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getRequiredVisualSceneCount } from "@/lib/content/visual-prompts";
 
 type OpenAIResponsePayload = {
   output_text?: string;
@@ -44,6 +45,9 @@ export type ContentDraft = {
     clarity: number;
     total: number;
     reason: string;
+    durationPreset?: ContentFormat;
+    durationLabel?: string;
+    requiredVisualSceneCount?: number;
   };
 };
 
@@ -158,6 +162,18 @@ const visualStages = [
     englishLabel: "Memorable final image",
     narrativeBeat:
       "finish with a symbolic final frame that remains in memory",
+  },
+  {
+    label: "Respiration",
+    englishLabel: "Emotional breathing beat",
+    narrativeBeat:
+      "give the viewer a quiet visual pause that deepens the internal tension",
+  },
+  {
+    label: "Transition",
+    englishLabel: "Transition beat",
+    narrativeBeat:
+      "bridge the revelation and the ending with a coherent visual transition",
   },
 ];
 
@@ -545,6 +561,7 @@ function normalizeVisualPromptScenes(
   angle: string,
   emotion: string,
 ) {
+  const requiredSceneCount = getRequiredVisualSceneCount(input.format);
   const rawScenes = Array.isArray(value)
     ? value
     : typeof value === "string"
@@ -565,9 +582,9 @@ function normalizeVisualPromptScenes(
         : `Prompt ${index + 1}: ${normalized}`;
     })
     .filter((scene): scene is string => Boolean(scene))
-    .slice(0, 7);
+    .slice(0, requiredSceneCount);
 
-  while (scenes.length < 7) {
+  while (scenes.length < requiredSceneCount) {
     scenes.push(fallbackVisualScene(input, angle, emotion, scenes.length));
   }
 
@@ -575,8 +592,9 @@ function normalizeVisualPromptScenes(
 }
 
 function formatVisualPromptScenes(scenes: string[]) {
+  const promptCount = Math.max(1, Math.min(9, scenes.length || 7));
   return scenes
-    .slice(0, 7)
+    .slice(0, promptCount)
     .map((scene, index) => {
       const stage = visualStages[index] ?? visualStages[0];
       const cleaned = scene
@@ -672,6 +690,9 @@ function serializeDraftScore(score: ContentDraft["score"]) {
       normalizeText(score.reason, 500) ??
       "Score editorial calcule dans l'Atelier de contenu.",
     emotional_impact: emotion,
+    duration_label: score.durationLabel,
+    duration_preset: score.durationPreset,
+    required_visual_scene_count: score.requiredVisualSceneCount,
     shareability: viral,
     source: "content_workshop",
     schema_version: 1,
@@ -718,6 +739,18 @@ function normalizeStoredDraftScore(value: unknown): ContentDraft["score"] {
       (hasStoredScore
         ? "Score editorial recharge depuis content_drafts."
         : "Score non disponible pour ce brouillon."),
+    durationPreset:
+      typeof score.duration_preset === "string"
+        ? score.duration_preset as ContentFormat
+        : undefined,
+    durationLabel:
+      typeof score.duration_label === "string"
+        ? score.duration_label
+        : undefined,
+    requiredVisualSceneCount:
+      typeof score.required_visual_scene_count === "number"
+        ? score.required_visual_scene_count
+        : undefined,
   };
 }
 
@@ -821,6 +854,9 @@ export function contentDraftFromVariant(
       clarity: variant.score.clarity,
       total: variant.score.total,
       reason: "Score editorial calcule avant sauvegarde dans l'Atelier de contenu.",
+      durationPreset: input.format,
+      durationLabel: scriptTargets[input.format].label,
+      requiredVisualSceneCount: getRequiredVisualSceneCount(input.format),
     },
   } satisfies ContentDraft;
 }
@@ -833,6 +869,7 @@ export function sanitizeSelectedContentVariant(
 }
 
 function buildPrompt(input: ContentWorkshopInput) {
+  const requiredSceneCount = getRequiredVisualSceneCount(input.format);
   return [
     `Sujet: ${input.theme}`,
     `Angle: ${input.angle ?? "a proposer"}`,
@@ -855,10 +892,10 @@ function buildPrompt(input: ContentWorkshopInput) {
     "- titre court, humain, non abstrait",
     "- legende: 1 phrase maximum, 500 caracteres maximum",
     "- exactement 5 hashtags courts et pertinents",
-    "- generer exactement 7 visual_prompts par variante",
-    "- structure obligatoire des visual_prompts: 1 Hook visuel, 2 Mise en situation, 3 Developpement, 4 Tension, 5 Revelation, 6 Conclusion, 7 Derniere image memorable",
+    `- generer exactement ${requiredSceneCount} visual_prompts par variante`,
+    "- structure obligatoire des visual_prompts: commencer par Hook visuel et finir par Derniere image memorable; ajouter les etapes intermediaires necessaires selon la duree",
     "- tous les prompts visuels racontent la meme histoire",
-    "- conserver le meme personnage principal, le meme decor et la meme coherence emotionnelle sur les 7 prompts",
+    `- conserver le meme personnage principal, le meme decor et la meme coherence emotionnelle sur les ${requiredSceneCount} prompts`,
     "- chaque prompt visuel est en anglais, photorealiste, vertical 9:16, optimise generation IA",
     "- chaque prompt visuel contient 80 a 150 mots",
     "- chaque prompt visuel decrit sujet, decor, ambiance, lumiere, cadrage, composition et langage corporel",

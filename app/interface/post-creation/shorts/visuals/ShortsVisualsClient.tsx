@@ -66,6 +66,9 @@ type MediaPipelineState = {
     | "media_preparing"
     | "media_ready"
     | "visual_ready"
+    | "voix_en_attente"
+    | "voix_prete"
+    | "voice_ready"
     | "ready_to_publish";
   visualDecision: {
     mode: "reuse_existing" | "generate_new";
@@ -80,10 +83,23 @@ type MediaPipelineState = {
   generationRequested: boolean;
   generationReason: string | null;
   lastRunAt: string | null;
+  voice: DraftVoiceState;
   visualScenes: VisualScene[];
 };
 
 type GenerationQuality = "low" | "medium" | "high";
+
+type DraftVoiceState = {
+  audioUrl: string | null;
+  canGenerate: boolean;
+  costEstimateUsd: number;
+  durationEstimateSeconds: number;
+  errorMessage: string | null;
+  generatedAt: string | null;
+  selectedVoiceId: string | null;
+  selectedVoiceLabel: string;
+  status: "not_ready" | "pending" | "generating" | "ready" | "error";
+};
 
 type VisualScene = {
   id: string;
@@ -139,6 +155,9 @@ const statusLabels: Record<string, string> = {
   validated: "Texte validé",
   visual_ready: "Visuels prêts",
   visuels_prets: "Visuels prêts",
+  voix_en_attente: "Voix en attente",
+  voix_prete: "Voix prête",
+  voice_ready: "Voix prête",
   ready_to_publish: "Prêt à publier",
 };
 
@@ -148,8 +167,25 @@ const mediaStatusLabels: Record<MediaPipelineState["mediaPipelineStatus"], strin
   media_preparing: "Visuels en préparation",
   media_ready: "Visuels prêts",
   visual_ready: "Visuels prêts",
+  voix_en_attente: "Voix en attente",
+  voix_prete: "Voix prête",
+  voice_ready: "Voix prête",
   ready_to_publish: "Prêt à publier",
 };
+
+const voiceStatusLabels: Record<DraftVoiceState["status"], string> = {
+  error: "Erreur voix",
+  generating: "Generation voix en cours...",
+  not_ready: "En attente des visuels",
+  pending: "Voix en attente",
+  ready: "Voix prete",
+};
+
+const voiceOptions = [
+  { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel" },
+  { id: "EXAVITQu4vr4xnSDxMaL", label: "Bella" },
+  { id: "ErXwobaYiN019PkySvjV", label: "Antoni" },
+];
 
 const generationSourceLabels: Record<VisualScene["generationSource"], string> = {
   generated: "generee par IA",
@@ -600,6 +636,9 @@ function visualActionNotice(action: string) {
     select_scene_asset: "Visuel bibliotheque associe a la scene.",
     unlock_scene: "Scene deverrouillee.",
     validate_visuals: "Les visuels sont valides. Le brouillon est maintenant protege.",
+    generate_voice: "Generation voix terminee.",
+    regenerate_voice: "Voix regeneree.",
+    select_voice: "Voix selectionnee.",
     select_asset: "Visuel retenu mis a jour.",
   };
 
@@ -616,6 +655,18 @@ function formatDate(value: string) {
     month: "short",
     year: "numeric",
   }).format(new Date(value));
+}
+
+function formatDuration(seconds: number) {
+  const safeSeconds = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+
+  if (minutes === 0) {
+    return `${remainingSeconds} s`;
+  }
+
+  return `${minutes} min ${String(remainingSeconds).padStart(2, "0")} s`;
 }
 
 function formatApiError(payload: ApiErrorPayload, fallback: string) {
@@ -1263,6 +1314,7 @@ export function ShortsVisualsClient() {
   const [previewLoadingAssetByScene, setPreviewLoadingAssetByScene] = useState<Record<string, string | null>>({});
   const [generationQuality, setGenerationQuality] =
     useState<GenerationQuality>("medium");
+  const [selectedVoiceId, setSelectedVoiceId] = useState(voiceOptions[0]?.id ?? "");
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
   const [isRunningAction, setIsRunningAction] = useState(false);
@@ -1328,7 +1380,11 @@ export function ShortsVisualsClient() {
     requiredSceneCount > 0 && retainedSceneCount === requiredSceneCount;
   const missingRetainedSceneCount = Math.max(0, requiredSceneCount - retainedSceneCount);
   const visualActionsLocked =
-    visualsAreValidated || media?.mediaPipelineStatus === "visual_ready";
+    visualsAreValidated ||
+    media?.mediaPipelineStatus === "visual_ready" ||
+    media?.mediaPipelineStatus === "voix_en_attente" ||
+    media?.mediaPipelineStatus === "voix_prete" ||
+    media?.mediaPipelineStatus === "voice_ready";
   const retainedAssetIds = useMemo(
     () => new Set(retainedVisuals.map((asset) => asset.id)),
     [retainedVisuals],
@@ -1336,7 +1392,14 @@ export function ShortsVisualsClient() {
   const mediaReady =
     media?.mediaPipelineStatus === "media_ready" ||
     media?.mediaPipelineStatus === "visual_ready" ||
+    media?.mediaPipelineStatus === "voix_en_attente" ||
+    media?.mediaPipelineStatus === "voix_prete" ||
+    media?.mediaPipelineStatus === "voice_ready" ||
     media?.mediaPipelineStatus === "ready_to_publish";
+  const voiceCanGenerate = Boolean(media?.voice.canGenerate && !isRunningAction);
+  const voiceIsReady = media?.voice.status === "ready";
+  const voiceIsGenerating =
+    media?.voice.status === "generating" || activeAction === "generate_voice" || activeAction === "regenerate_voice";
 
   async function loadDrafts() {
     setIsLoadingDrafts(true);
@@ -1388,6 +1451,9 @@ export function ShortsVisualsClient() {
       }
 
       setMedia(payload.media);
+      if (payload.media.voice.selectedVoiceId) {
+        setSelectedVoiceId(payload.media.voice.selectedVoiceId);
+      }
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -1416,13 +1482,26 @@ export function ShortsVisualsClient() {
       | "select_scene_asset"
       | "unlock_scene"
       | "validate_visuals"
+      | "select_voice"
+      | "generate_voice"
+      | "regenerate_voice"
       | "select_asset"
       | "replace_asset"
       | "remove_asset",
-    options?: { assetId?: string; sceneIndex?: number; usageOrder?: number },
+    options?: { assetId?: string; sceneIndex?: number; usageOrder?: number; voiceId?: string },
   ) {
     if (!selectedDraft) {
       return;
+    }
+
+    if (action === "generate_voice" || action === "regenerate_voice") {
+      const confirmed = window.confirm(
+        `Confirmer l'appel ElevenLabs ? Cout estime: $${(media?.voice.costEstimateUsd ?? 0).toFixed(2)}.`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
     }
 
     setIsRunningAction(true);
@@ -1450,6 +1529,7 @@ export function ShortsVisualsClient() {
             : undefined,
           sceneIndex: options?.sceneIndex,
           usageOrder: options?.usageOrder,
+          voiceId: options?.voiceId,
         }),
       });
       const payload = (await response.json()) as {
@@ -1461,7 +1541,7 @@ export function ShortsVisualsClient() {
       }
 
       setMedia(payload.media);
-      if (action === "validate_visuals") {
+      if (action === "validate_visuals" || action === "generate_voice" || action === "regenerate_voice") {
         void loadDrafts();
       }
       setNotice(visualActionNotice(action));
@@ -2110,6 +2190,130 @@ export function ShortsVisualsClient() {
               </button>
             </div>
           </div>
+        </SectionContainer>
+
+        <SectionContainer>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+                Voix du Short
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
+                Preparation audio
+              </h2>
+            </div>
+            <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
+              {media?.voice ? voiceStatusLabels[media.voice.status] : "Non preparee"}
+            </span>
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-4">
+            <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
+              Statut:{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {media?.voice ? voiceStatusLabels[media.voice.status] : "Non preparee"}
+              </span>
+            </p>
+            <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
+              Voix selectionnee:{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {media?.voice.selectedVoiceLabel ?? "Aucune"}
+              </span>
+            </p>
+            <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
+              Duree estimee:{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                {formatDuration(media?.voice.durationEstimateSeconds ?? 0)}
+              </span>
+            </p>
+            <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
+              Cout estime:{" "}
+              <span className="font-semibold text-[#F8FAFC]">
+                ${(media?.voice.costEstimateUsd ?? 0).toFixed(2)}
+              </span>
+            </p>
+          </div>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+            <label className="block">
+              <span className="text-sm font-semibold text-[#F8FAFC]">
+                Voix
+              </span>
+              <select
+                value={selectedVoiceId}
+                onChange={(event) => setSelectedVoiceId(event.target.value)}
+                className="mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm text-[#F8FAFC] outline-none"
+              >
+                {voiceOptions.map((voice) => (
+                  <option key={voice.id} value={voice.id}>
+                    {voice.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!selectedDraft || isRunningAction}
+                onClick={() =>
+                  void runVisualAction("select_voice", {
+                    voiceId: selectedVoiceId,
+                  })
+                }
+                className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                Choisir une voix
+              </button>
+              <button
+                type="button"
+                disabled={!voiceCanGenerate || voiceIsGenerating}
+                onClick={() =>
+                  void runVisualAction("generate_voice", {
+                    voiceId: selectedVoiceId,
+                  })
+                }
+                className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                {voiceIsGenerating ? "Generation..." : "Generer la voix"}
+              </button>
+              <button
+                type="button"
+                disabled={!voiceIsReady || !voiceCanGenerate || voiceIsGenerating}
+                onClick={() =>
+                  void runVisualAction("regenerate_voice", {
+                    voiceId: selectedVoiceId,
+                  })
+                }
+                className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                Regenerer la voix
+              </button>
+              {voiceIsReady && media?.voice.audioUrl ? (
+                <a
+                  href={media.voice.audioUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#F8FAFC] transition hover:border-[#39E6D0]/50"
+                >
+                  Ecouter / ouvrir l&apos;audio
+                </a>
+              ) : null}
+            </div>
+          </div>
+
+          {media?.voice.errorMessage ? (
+            <p className="mt-4 rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-4 py-3 text-sm font-semibold text-[#FDBA74]">
+              {media.voice.errorMessage.includes("Cle ElevenLabs")
+                ? "Cle ElevenLabs non configuree"
+                : media.voice.errorMessage}
+            </p>
+          ) : null}
+          {!media?.voice.canGenerate ? (
+            <p className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+              La generation voix sera disponible quand le texte est valide et les visuels sont prets.
+            </p>
+          ) : null}
         </SectionContainer>
 
         <SectionContainer>

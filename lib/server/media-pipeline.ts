@@ -6,6 +6,7 @@ import {
   parseVisualPrompts,
 } from "@/lib/content/visual-prompts";
 import { buildVisualMetadata, saveVisualMetadata } from "@/lib/server/content-assets";
+import { type DraftVoiceState, readDraftVoiceState } from "@/lib/server/voice-pipeline";
 
 type MediaPipelineStatus =
   | "draft"
@@ -13,6 +14,9 @@ type MediaPipelineStatus =
   | "media_preparing"
   | "media_ready"
   | "visual_ready"
+  | "voix_en_attente"
+  | "voix_prete"
+  | "voice_ready"
   | "ready_to_publish";
 
 type VisualDecisionMode = "reuse_existing" | "generate_new";
@@ -254,6 +258,7 @@ export type MediaPipelineState = {
   generationRequested: boolean;
   generationReason: string | null;
   lastRunAt: string | null;
+  voice: DraftVoiceState;
   visualScenes: VisualScene[];
 };
 
@@ -3832,9 +3837,12 @@ export async function readMediaPipelineState({
     readSelectedAssets(draft),
   ]);
   const visualScenes = await readVisualScenes(draft);
+  const voice = await readDraftVoiceState({ draftId, userId });
 
   return {
     mediaPipelineStatus:
+      (draft.status === "voix_prete" || draft.status === "voice_ready" ? "voice_ready" : null) ??
+      (draft.status === "voix_en_attente" ? "voix_en_attente" : null) ??
       plan?.media_pipeline_status ??
       (isDraftValidatedForMedia(draft.status) ? "validated" : "draft"),
     visualDecision: plan?.visual_decision ?? null,
@@ -3848,6 +3856,7 @@ export async function readMediaPipelineState({
     generationRequested: plan?.generation_requested ?? false,
     generationReason: plan?.generation_reason ?? null,
     lastRunAt: plan?.last_run_at ?? plan?.updated_at ?? null,
+    voice,
     visualScenes,
   };
 }
@@ -4590,9 +4599,10 @@ export async function validateDraftVisuals({
     .update({
       protected: true,
       protected_at: now,
-      status: "visual_ready",
+      status: "voix_en_attente",
       visual_status: "visual_ready",
       visuals_validated_at: now,
+      voice_status: "pending",
     })
     .eq("id", draftId)
     .eq("user_id", userId);
@@ -4606,7 +4616,7 @@ export async function validateDraftVisuals({
 
   await savePlan({
     draftId,
-    mediaPipelineStatus: "visual_ready",
+    mediaPipelineStatus: "voix_en_attente",
     visualDecision: defaultVisualDecision(),
     assetsFound: retainedScenes.length,
     assetsSelected: retainedScenes.length,

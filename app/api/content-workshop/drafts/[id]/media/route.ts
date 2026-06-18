@@ -17,6 +17,7 @@ import {
   updateDraftVisualSceneStatus,
   validateDraftVisuals,
 } from "@/lib/server/media-pipeline";
+import { generateDraftVoice, selectDraftVoice } from "@/lib/server/voice-pipeline";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -35,6 +36,7 @@ function summarizeMediaBody(body: unknown) {
     generationQuality: payload.generationQuality,
     sceneIndex: payload.sceneIndex,
     usageOrder: payload.usageOrder,
+    voiceId: payload.voiceId,
     missing: [
       payload.action === "select_asset" ||
       payload.action === "select_scene_asset" ||
@@ -267,6 +269,36 @@ export async function POST(
       const media = await validateDraftVisuals({
         draftId: id,
         userId: user.id,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "select_voice") {
+      await selectDraftVoice({
+        draftId: id,
+        userId: user.id,
+        voiceId: payload.voiceId,
+      });
+      const media = await readMediaPipelineState({
+        draftId: id,
+        userId: user.id,
+        includeSuggestions: true,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "generate_voice" || action === "regenerate_voice") {
+      await generateDraftVoice({
+        draftId: id,
+        userId: user.id,
+        voiceId: payload.voiceId,
+      });
+      const media = await readMediaPipelineState({
+        draftId: id,
+        userId: user.id,
+        includeSuggestions: true,
       });
 
       return NextResponse.json({ media });

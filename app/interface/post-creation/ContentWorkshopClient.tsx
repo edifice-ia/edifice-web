@@ -135,6 +135,9 @@ type MediaPipelineState = {
     | "media_preparing"
     | "media_ready"
     | "visual_ready"
+    | "voix_en_attente"
+    | "voix_prete"
+    | "voice_ready"
     | "ready_to_publish";
   visualDecision: VisualDecision | null;
   selectedAssets: SelectedDraftAsset[];
@@ -168,7 +171,7 @@ type DraftEditorState = {
 };
 
 type StatusOption = {
-  value: "draft" | "approved" | "rejected" | "visual_ready" | "ready_to_publish";
+  value: "draft" | "approved" | "rejected" | "visual_ready" | "voix_en_attente" | "voix_prete" | "ready_to_publish";
   label: string;
 };
 
@@ -268,6 +271,8 @@ const statusOptions: StatusOption[] = [
   { value: "approved", label: "Texte valide" },
   { value: "rejected", label: "Rejete" },
   { value: "visual_ready", label: "Visuels prets" },
+  { value: "voix_en_attente", label: "Voix en attente" },
+  { value: "voix_prete", label: "Voix prete" },
   { value: "ready_to_publish", label: "Pret a publier" },
 ];
 
@@ -425,15 +430,21 @@ function isDraftValidatedForMedia(status: string | null | undefined) {
     status === "validated" ||
     status === "visual_ready" ||
     status === "visuels_prets" ||
+    status === "voix_en_attente" ||
+    status === "voix_prete" ||
+    status === "voice_ready" ||
     status === "ready_to_publish"
   );
 }
 
 function isProtectedDraft(draft: ContentDraft | null | undefined) {
   return Boolean(
-    draft?.protected ||
+      draft?.protected ||
       draft?.status === "visual_ready" ||
       draft?.status === "visuels_prets" ||
+      draft?.status === "voix_en_attente" ||
+      draft?.status === "voix_prete" ||
+      draft?.status === "voice_ready" ||
       draft?.visualStatus === "visual_ready",
   );
 }
@@ -445,6 +456,9 @@ function getMediaPipelineStatusLabel(status: MediaPipelineState["mediaPipelineSt
     media_preparing: "Preparation media",
     media_ready: "Medias prets",
     visual_ready: "Visuels prets",
+    voix_en_attente: "Voix en attente",
+    voix_prete: "Voix prete",
+    voice_ready: "Voix prete",
     ready_to_publish: "Pret a publier",
   };
 
@@ -582,8 +596,8 @@ export function ContentWorkshopClient() {
   const canRequestVisualGeneration =
     canPrepareMedia && Boolean(mediaPipeline?.visualDecision);
   const mediaReadyForPublishing =
-    mediaPipeline?.mediaPipelineStatus === "media_ready" ||
-    mediaPipeline?.mediaPipelineStatus === "visual_ready" ||
+    mediaPipeline?.mediaPipelineStatus === "voix_prete" ||
+    mediaPipeline?.mediaPipelineStatus === "voice_ready" ||
     mediaPipeline?.mediaPipelineStatus === "ready_to_publish";
   const canMarkReadyToPublish = mediaReadyForPublishing || manualReadyToPublish;
   const showDraftVisualPromptEditor = Boolean(false);

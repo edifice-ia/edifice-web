@@ -252,6 +252,9 @@ const contentDraftStatuses = [
   "rejected",
   "visual_ready",
   "visuels_prets",
+  "voix_en_attente",
+  "voix_prete",
+  "voice_ready",
   "ready_to_publish",
 ] as const;
 
@@ -272,6 +275,9 @@ function isProtectedDraft(row: Pick<ContentDraftRow, "protected" | "status" | "v
   return Boolean(row.protected) ||
     row.status === "visual_ready" ||
     row.status === "visuels_prets" ||
+    row.status === "voix_en_attente" ||
+    row.status === "voix_prete" ||
+    row.status === "voice_ready" ||
     row.visual_status === "visual_ready";
 }
 

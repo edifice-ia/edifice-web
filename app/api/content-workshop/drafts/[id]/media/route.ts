@@ -12,6 +12,7 @@ import {
   retryBlockedDraftVisualScenes,
   retryDraftVisualSceneSearch,
   selectDraftVisualAsset,
+  selectDraftVisualSceneAsset,
   unlockDraftVisualScene,
   updateDraftVisualSceneStatus,
   validateDraftVisuals,
@@ -36,6 +37,7 @@ function summarizeMediaBody(body: unknown) {
     usageOrder: payload.usageOrder,
     missing: [
       payload.action === "select_asset" ||
+      payload.action === "select_scene_asset" ||
       payload.action === "replace_asset" ||
       payload.action === "remove_asset"
         ? "assetId"
@@ -264,6 +266,41 @@ export async function POST(
     if (action === "validate_visuals") {
       const media = await validateDraftVisuals({
         draftId: id,
+        userId: user.id,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "select_scene_asset") {
+      const assetId =
+        typeof payload.assetId === "string" ? payload.assetId : "";
+      const sceneIndex =
+        typeof payload.sceneIndex === "number" ? payload.sceneIndex : 1;
+
+      if (!assetId) {
+        console.error("[Media Pipeline API] POST validation failed", {
+          draftId: id,
+          body: summarizeMediaBody(payload),
+          validation: "assetId.required",
+        });
+        return NextResponse.json(
+          {
+            error: "assetId est requis.",
+            details: {
+              body: summarizeMediaBody(payload),
+              validation: "assetId.required",
+              draftId: id,
+            },
+          },
+          { status: 400 },
+        );
+      }
+
+      const media = await selectDraftVisualSceneAsset({
+        assetId,
+        draftId: id,
+        sceneIndex,
         userId: user.id,
       });
 

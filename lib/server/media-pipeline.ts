@@ -4085,6 +4085,75 @@ export async function unlockDraftVisualScene({
   return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
 }
 
+export async function selectDraftVisualSceneAsset({
+  assetId,
+  draftId,
+  sceneIndex,
+  userId,
+}: {
+  assetId: string;
+  draftId: string;
+  sceneIndex: number;
+  userId: string;
+}) {
+  const draft = await readDraft(draftId, userId);
+  const normalizedSceneIndex = Math.max(1, Math.min(7, Math.round(sceneIndex)));
+
+  if (!isDraftValidatedForMedia(draft.status)) {
+    throw new MediaPipelineError("Valide le brouillon avant de preparer les medias.", {
+      draftId,
+      draftStatus: draft.status,
+      validation: "draft.status",
+    });
+  }
+  assertDraftVisualsCanChange(draft, draftId);
+
+  const existingScene = (await readVisualScenes(draft)).find(
+    (scene) => scene.visualPromptIndex === normalizedSceneIndex,
+  );
+
+  if (existingScene?.locked) {
+    throw new MediaPipelineError("Cette scene est verrouillee. Clique sur Modifier avant de la modifier.", {
+      draftId,
+      sceneIndex: normalizedSceneIndex,
+      validation: "visual_scene.locked",
+    });
+  }
+
+  const asset = await readAssetById(assetId);
+  const { score, reason, scoreBreakdown } = scoreAsset(
+    draft,
+    asset,
+    normalizedSceneIndex - 1,
+  );
+  const selectionReason = `Selection manuelle bibliotheque. ${reason}`.trim();
+
+  await upsertVisualScene({
+    assetId: asset.id,
+    draft,
+    errorMessage: null,
+    generationQuality: existingScene?.generationQuality ?? "medium",
+    generationSource: "library",
+    generationStatus: "ready",
+    imageUrl: asset.public_url,
+    locked: false,
+    retainedAt: null,
+    retainedBy: null,
+    scoreBreakdown: {
+      ...scoreBreakdown,
+      manual_selection: true,
+      selection_decision: "manual_library_selection",
+      selection_reason: selectionReason,
+    },
+    scoreSource: "heuristic",
+    scoreTotal: score,
+    storagePath: asset.storage_path,
+    visualPromptIndex: normalizedSceneIndex,
+  });
+
+  return readMediaPipelineState({ draftId, userId, includeSuggestions: true });
+}
+
 export async function validateDraftVisuals({
   draftId,
   userId,

@@ -489,6 +489,7 @@ function visualActionNotice(action: string) {
     retry_scene_search: "Recherche bibliotheque relancee.",
     retry_blocked_scenes: "Relance des scenes bloquees lancee.",
     retain_scene: "Scene retenue.",
+    select_scene_asset: "Visuel bibliotheque associe a la scene.",
     unlock_scene: "Scene deverrouillee.",
     validate_visuals: "Les 7 visuels sont valides. Le brouillon est maintenant protege.",
     select_asset: "Visuel retenu mis a jour.",
@@ -699,12 +700,16 @@ function SceneScoreDetails({ scene }: { scene: VisualScene }) {
 
 function SceneLibraryMatches({
   debugOpen = false,
+  disabled = false,
   isOpen,
+  onUseCandidate,
   onToggle,
   scene,
 }: {
   debugOpen?: boolean;
+  disabled?: boolean;
   isOpen: boolean;
+  onUseCandidate: (assetId: string) => void;
   onToggle: () => void;
   scene: VisualScene;
 }) {
@@ -756,6 +761,7 @@ function SceneLibraryMatches({
       ) : null}
       {shouldShowResults ? <div className="mt-3 flex w-full max-w-full flex-col gap-3 overflow-hidden">
         {matches.map((match, index) => {
+          const assetId = typeof match.assetId === "string" ? match.assetId : "";
           const tags = stringList(match.tagsMatched);
           const emotions = stringList(match.emotionMatched);
           const themes = stringList(match.themeMatched);
@@ -778,6 +784,16 @@ function SceneLibraryMatches({
                 <span className="w-fit shrink-0 rounded-md border border-[#39E6D0]/25 bg-[#39E6D0]/10 px-2 py-1 font-semibold text-[#39E6D0]">
                   {scoreNumber(match.pertinenceScore)}/100
                 </span>
+              </div>
+              <div className="mt-3">
+                <button
+                  type="button"
+                  disabled={disabled || !assetId}
+                  onClick={() => onUseCandidate(assetId)}
+                  className="rounded-md border border-[#39E6D0]/45 bg-[#39E6D0]/10 px-3 py-1.5 font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  Utiliser ce visuel
+                </button>
               </div>
               <div className="mt-3 grid min-w-0 gap-2 text-[#A7B0C0] lg:grid-cols-3">
                 <p className="min-w-0 [overflow-wrap:anywhere] break-words">
@@ -1113,6 +1129,7 @@ export function ShortsVisualsClient() {
       | "analyze_scene"
       | "retain_scene"
       | "reject_scene"
+      | "select_scene_asset"
       | "unlock_scene"
       | "validate_visuals"
       | "select_asset"
@@ -1172,6 +1189,29 @@ export function ShortsVisualsClient() {
     } finally {
       setIsRunningAction(false);
     }
+  }
+
+  function handleLibraryCandidateForScene(scene: VisualScene, assetId: string) {
+    const alreadyUsedScene = media?.visualScenes.find(
+      (candidate) =>
+        candidate.visualPromptIndex !== scene.visualPromptIndex &&
+        candidate.assetId === assetId,
+    );
+
+    if (alreadyUsedScene) {
+      const confirmed = window.confirm(
+        `Ce visuel est deja utilise dans la scene ${alreadyUsedScene.visualPromptIndex}. Le reutiliser quand meme ?`,
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    void runVisualAction("select_scene_asset", {
+      assetId,
+      sceneIndex: scene.visualPromptIndex,
+    });
   }
 
   const runVisualWatchdog = useCallback(async () => {
@@ -1618,7 +1658,9 @@ export function ShortsVisualsClient() {
                   <SceneScoreDetails scene={scene} />
                   <SceneLibraryMatches
                     debugOpen={isDebugOpen}
+                    disabled={isRunningAction || scene.locked}
                     isOpen={isLibraryOpen}
+                    onUseCandidate={(assetId) => handleLibraryCandidateForScene(scene, assetId)}
                     onToggle={() =>
                       setOpenLibraryResultsByScene((current) => ({
                         ...current,

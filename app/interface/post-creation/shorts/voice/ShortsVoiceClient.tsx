@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
+import { ShortWorkflowStatus } from "@/components/cockpit/ShortWorkflowStatus";
+import { getShortWorkflowState } from "@/lib/short-workflow";
 
 type ContentDraft = {
   id: string;
@@ -33,6 +35,13 @@ type DraftVoiceState = {
 
 type MediaPayload = {
   media?: {
+    mediaPipelineStatus?: string;
+    selectedAssets?: unknown[];
+    visualScenes?: Array<{
+      generationStatus?: string | null;
+      imageUrl?: string | null;
+      locked?: boolean | null;
+    }>;
     voice: DraftVoiceState;
   };
   error?: string;
@@ -114,6 +123,7 @@ function generationBlockedReason(voice: DraftVoiceState | null) {
 export function ShortsVoiceClient() {
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState("");
+  const [media, setMedia] = useState<MediaPayload["media"] | null>(null);
   const [voice, setVoice] = useState<DraftVoiceState | null>(null);
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isLoadingVoice, setIsLoadingVoice] = useState(false);
@@ -127,6 +137,15 @@ export function ShortsVoiceClient() {
   );
   const isGenerating = Boolean(activeAction) || voice?.status === "generating";
   const blockedReason = generationBlockedReason(voice);
+  const workflowState = useMemo(
+    () =>
+      getShortWorkflowState({
+        draft: selectedDraft,
+        media,
+        requiredVisualCount: media?.visualScenes?.length ?? media?.selectedAssets?.length ?? 0,
+      }),
+    [media, selectedDraft],
+  );
 
   async function loadDrafts() {
     setIsLoadingDrafts(true);
@@ -158,6 +177,7 @@ export function ShortsVoiceClient() {
 
   async function loadVoice(draftId: string) {
     if (!draftId) {
+      setMedia(null);
       setVoice(null);
       return;
     }
@@ -173,8 +193,10 @@ export function ShortsVoiceClient() {
         throw new Error(payload.error ?? "Lecture de la voix indisponible.");
       }
 
+      setMedia(payload.media);
       setVoice(payload.media.voice);
     } catch (caughtError) {
+      setMedia(null);
       setVoice(null);
       setError(
         caughtError instanceof Error
@@ -209,6 +231,7 @@ export function ShortsVoiceClient() {
         throw new Error(payload.error ?? "Generation voix indisponible.");
       }
 
+      setMedia(payload.media);
       setVoice(payload.media.voice);
       await loadDrafts();
     } catch (caughtError) {
@@ -273,6 +296,8 @@ export function ShortsVoiceClient() {
             {isLoadingDrafts ? "Chargement..." : "Actualiser les brouillons"}
           </button>
         </SectionContainer>
+
+        <ShortWorkflowStatus state={workflowState} compact />
       </aside>
 
       <div className="space-y-6">

@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
+import { ShortWorkflowStatus } from "@/components/cockpit/ShortWorkflowStatus";
 import { getRequiredVisualSceneCount, parseVisualPrompts } from "@/lib/content/visual-prompts";
+import { getShortWorkflowState } from "@/lib/short-workflow";
 
 type ContentDraft = {
   id: string;
@@ -1382,26 +1384,31 @@ export function ShortsVisualsClient() {
       ).length,
     [media?.visualScenes],
   );
+  const workflowState = useMemo(
+    () =>
+      getShortWorkflowState({
+        draft: selectedDraft,
+        media,
+        requiredVisualCount: requiredSceneCount,
+      }),
+    [media, requiredSceneCount, selectedDraft],
+  );
   const visualsAreValidated =
-    requiredSceneCount > 0 && retainedSceneCount === requiredSceneCount;
+    workflowState.visuals === "ready" || workflowState.visuals === "validated";
   const missingRetainedSceneCount = Math.max(0, requiredSceneCount - retainedSceneCount);
   const visualActionsLocked =
     visualsAreValidated ||
-    media?.mediaPipelineStatus === "visual_ready" ||
-    media?.mediaPipelineStatus === "voix_en_attente" ||
-    media?.mediaPipelineStatus === "voix_prete" ||
-    media?.mediaPipelineStatus === "voice_ready";
+    workflowState.voice === "ready" ||
+    workflowState.voice === "validated" ||
+    workflowState.voice === "generating";
   const retainedAssetIds = useMemo(
     () => new Set(retainedVisuals.map((asset) => asset.id)),
     [retainedVisuals],
   );
   const mediaReady =
-    media?.mediaPipelineStatus === "media_ready" ||
-    media?.mediaPipelineStatus === "visual_ready" ||
-    media?.mediaPipelineStatus === "voix_en_attente" ||
-    media?.mediaPipelineStatus === "voix_prete" ||
-    media?.mediaPipelineStatus === "voice_ready" ||
-    media?.mediaPipelineStatus === "ready_to_publish";
+    workflowState.visuals === "ready" ||
+    workflowState.visuals === "validated" ||
+    workflowState.readyToPublish === "validated";
   const voiceCanGenerate = Boolean(media?.voice.canGenerate && !isRunningAction);
   const voiceIsReady = media?.voice.status === "ready";
   const voiceIsGenerating =
@@ -1547,9 +1554,7 @@ export function ShortsVisualsClient() {
       }
 
       setMedia(payload.media);
-      if (action === "validate_visuals" || action === "generate_voice" || action === "regenerate_voice") {
-        void loadDrafts();
-      }
+      void loadDrafts();
       setNotice(visualActionNotice(action));
     } catch (caughtError) {
       setError(
@@ -1720,6 +1725,9 @@ export function ShortsVisualsClient() {
           ) : null}
         </SectionContainer>
 
+        <ShortWorkflowStatus state={workflowState} />
+
+        {false ? (
         <SectionContainer>
           <h2 className="text-xl font-semibold text-[#F8FAFC]">Statuts Shorts</h2>
           <div className="mt-4 grid gap-2 text-sm text-[#A7B0C0]">
@@ -1736,6 +1744,7 @@ export function ShortsVisualsClient() {
             ))}
           </div>
         </SectionContainer>
+        ) : null}
       </aside>
 
       <div className="space-y-6">
@@ -1769,7 +1778,7 @@ export function ShortsVisualsClient() {
             </p>
           ) : null}
 
-          {selectedDraft && !canPrepareVisuals(selectedDraft.status) ? (
+          {selectedDraft && workflowState.text !== "validated" ? (
             <p className="mt-5 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-4 py-3 text-sm font-semibold text-[#FDBA74]">
               Valide le texte dans Brouillons avant de préparer les visuels.
             </p>

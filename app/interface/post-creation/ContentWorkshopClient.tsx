@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
+import { ShortWorkflowStatus } from "@/components/cockpit/ShortWorkflowStatus";
 import {
   formatVisualPrompts,
   getRequiredVisualSceneCount,
   normalizeVisualPrompts,
 } from "@/lib/content/visual-prompts";
+import { getShortWorkflowState } from "@/lib/short-workflow";
 
 type ContentDraft = {
   id: string;
@@ -149,6 +151,16 @@ type MediaPipelineState = {
   generationRequested: boolean;
   generationReason: string | null;
   lastRunAt: string | null;
+  voice?: {
+    audioUrl: string | null;
+    generatedAt: string | null;
+    status: "not_ready" | "pending" | "generating" | "ready" | "error";
+  };
+  visualScenes?: Array<{
+    generationStatus: string;
+    imageUrl: string | null;
+    locked: boolean;
+  }>;
 };
 
 type ApiErrorPayload = {
@@ -601,10 +613,24 @@ export function ContentWorkshopClient() {
   const canPrepareMedia = isDraftValidatedForMedia(selectedDraft?.status);
   const canRequestVisualGeneration =
     canPrepareMedia && Boolean(mediaPipeline?.visualDecision);
+  const workflowState = useMemo(
+    () =>
+      getShortWorkflowState({
+        draft: selectedDraft,
+        media: mediaPipeline,
+        requiredVisualCount:
+          mediaPipeline?.visualScenes?.length ??
+          selectedDraft?.score.requiredVisualSceneCount ??
+          getRequiredVisualSceneCount(selectedDraft?.score.durationPreset),
+      }),
+    [mediaPipeline, selectedDraft],
+  );
   const mediaReadyForPublishing =
-    mediaPipeline?.mediaPipelineStatus === "voix_prete" ||
-    mediaPipeline?.mediaPipelineStatus === "voice_ready" ||
-    mediaPipeline?.mediaPipelineStatus === "ready_to_publish";
+    workflowState.readyToPublish === "validated" ||
+    (
+      (workflowState.visuals === "ready" || workflowState.visuals === "validated") &&
+      (workflowState.voice === "ready" || workflowState.voice === "validated")
+    );
   const canMarkReadyToPublish = mediaReadyForPublishing || manualReadyToPublish;
   const showDraftVisualPromptEditor = Boolean(false);
   const showDraftMediaTools = Boolean(false);
@@ -1144,6 +1170,7 @@ export function ContentWorkshopClient() {
         current ? { ...current, status: updatedDraft.status } : current,
       );
       void loadMediaPipeline(updatedDraft.id);
+      void loadDrafts(statusFilter);
       setNotice(`Statut mis a jour: ${getStatusLabel(status)}.`);
     } catch (caughtError) {
       setError(
@@ -1361,6 +1388,7 @@ export function ContentWorkshopClient() {
       }
 
       setMediaPipeline(payload.media);
+      void loadDrafts(statusFilter);
       setNotice(
         action === "request_visual_generation"
           ? "Nouveaux visuels demandes. Le module de generation sera utilise lorsqu'il sera connecte."
@@ -1891,6 +1919,8 @@ export function ContentWorkshopClient() {
                   </div>
                 </div>
               ) : null}
+
+              <ShortWorkflowStatus state={workflowState} />
 
               <form onSubmit={handleSave} className="grid gap-4">
                 <div className="grid gap-4 md:grid-cols-2">

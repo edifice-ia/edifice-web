@@ -2,34 +2,75 @@
 
 import type { ShortWorkflowState, ShortWorkflowStepStatus } from "@/lib/short-workflow";
 
-const stepLabels: Record<keyof Pick<ShortWorkflowState, "text" | "visuals" | "voice" | "video" | "readyToPublish">, string> = {
-  readyToPublish: "Pret a publier",
+type WorkflowStepKey = "text" | "visuals" | "voice" | "video" | "readyToPublish";
+
+const stepLabels: Record<WorkflowStepKey, string> = {
+  readyToPublish: "Publication",
   text: "Texte",
   video: "Video",
   visuals: "Visuels",
   voice: "Voix",
 };
 
-const statusLabels: Record<ShortWorkflowStepStatus, string> = {
-  error: "Erreur",
-  generating: "Generation",
-  in_progress: "En preparation",
-  pending: "En attente",
-  ready: "Pret",
-  validated: "Valide",
+const statusLabels: Record<WorkflowStepKey, Partial<Record<ShortWorkflowStepStatus, string>>> = {
+  readyToPublish: {
+    pending: "En attente",
+    validated: "Validee",
+  },
+  text: {
+    pending: "A valider",
+    validated: "Valide",
+  },
+  video: {
+    generating: "En cours",
+    pending: "A preparer",
+    ready: "Prete",
+    validated: "Validee",
+  },
+  visuals: {
+    in_progress: "En cours",
+    pending: "A preparer",
+    ready: "Prets",
+    validated: "Valides",
+  },
+  voice: {
+    error: "Erreur",
+    generating: "En cours",
+    pending: "A generer",
+    ready: "Prete",
+    validated: "Validee",
+  },
 };
 
-const statusClasses: Record<ShortWorkflowStepStatus, string> = {
-  error: "border-[#F97316]/45 bg-[#F97316]/10 text-[#FDBA74]",
-  generating: "border-[#FACC15]/45 bg-[#FACC15]/10 text-[#FDE68A]",
-  in_progress: "border-[#FACC15]/45 bg-[#FACC15]/10 text-[#FDE68A]",
-  pending: "border-[#FACC15]/35 bg-[#FACC15]/10 text-[#FDE68A]",
-  ready: "border-[#22C55E]/45 bg-[#22C55E]/10 text-[#86EFAC]",
-  validated: "border-[#22C55E]/45 bg-[#22C55E]/10 text-[#86EFAC]",
+const dotClasses: Record<ShortWorkflowStepStatus, string> = {
+  error: "border-[#F97316] bg-[#F97316]",
+  generating: "border-[#39E6D0] bg-[#39E6D0]",
+  in_progress: "border-[#39E6D0] bg-[#39E6D0]",
+  pending: "border-[#64748B] bg-[#03070B]",
+  ready: "border-[#22C55E] bg-[#22C55E]",
+  validated: "border-[#22C55E] bg-[#22C55E]",
+};
+
+const textClasses: Record<ShortWorkflowStepStatus, string> = {
+  error: "text-[#FDBA74]",
+  generating: "text-[#39E6D0]",
+  in_progress: "text-[#39E6D0]",
+  pending: "text-[#A7B0C0]",
+  ready: "text-[#86EFAC]",
+  validated: "text-[#86EFAC]",
 };
 
 const nextStepLabels: Record<string, string> = {
-  video_en_attente: "Video en attente",
+  "Attendre la voix": "attendre la voix.",
+  "Corriger la voix": "corriger la voix.",
+  "Generer la video": "preparer la video.",
+  "Generer la voix": "generer la voix.",
+  "Preparer les visuels": "preparer les visuels.",
+  "Pret a publier": "publier.",
+  "Terminer les visuels": "terminer les visuels.",
+  "Valider la publication": "valider la publication.",
+  "Valider le texte": "valider le texte.",
+  video_en_attente: "preparer la video.",
 };
 
 function formatRawValue(value: unknown) {
@@ -38,6 +79,14 @@ function formatRawValue(value: unknown) {
   }
 
   return String(value);
+}
+
+function stepStatusLabel(step: WorkflowStepKey, status: ShortWorkflowStepStatus) {
+  return statusLabels[step][status] ?? status;
+}
+
+function contextualNextStep(nextStep: string) {
+  return nextStepLabels[nextStep] ?? nextStep;
 }
 
 export function ShortWorkflowStatus({
@@ -53,73 +102,107 @@ export function ShortWorkflowStatus({
     ["voice", state.voice],
     ["video", state.video],
     ["readyToPublish", state.readyToPublish],
-  ] as const;
+  ] as const satisfies ReadonlyArray<readonly [WorkflowStepKey, ShortWorkflowStepStatus]>;
+  const activeIndex = steps.findIndex(([, status]) => status !== "ready" && status !== "validated");
+  const blockedSteps = steps
+    .filter(([, status], index) => index > activeIndex && activeIndex >= 0 && status === "pending")
+    .map(([step]) => stepLabels[step]);
 
   return (
-    <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-4">
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h2 className={compact ? "text-lg font-semibold text-[#F8FAFC]" : "text-xl font-semibold text-[#F8FAFC]"}>
-            Statuts Shorts
+    <section className="rounded-md border border-[#1D2A44] bg-[#03070B] p-4">
+      <div className={compact ? "space-y-3" : "space-y-4"}>
+        <div className="flex flex-col gap-1">
+          <h2 className={compact ? "text-base font-semibold text-[#F8FAFC]" : "text-lg font-semibold text-[#F8FAFC]"}>
+            Parcours Shorts
           </h2>
-          <p className="mt-1 text-sm text-[#A7B0C0]">
-            Prochaine etape: <span className="font-semibold text-[#F8FAFC]">{nextStepLabels[state.nextStep] ?? state.nextStep}</span>
+          <p className="text-sm text-[#A7B0C0]">
+            Prochaine etape : <span className="font-semibold text-[#F8FAFC]">{contextualNextStep(state.nextStep)}</span>
           </p>
         </div>
-        <span className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
-          {state.overallStatus}
-        </span>
-      </div>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-        {steps.map(([step, status]) => (
-          <div
-            key={step}
-            className={`rounded-md border px-3 py-2 text-sm font-semibold ${statusClasses[status]}`}
-          >
-            <p className="text-xs uppercase tracking-[0.14em] opacity-80">
-              {stepLabels[step]}
-            </p>
-            <p className="mt-1">{statusLabels[status]}</p>
-          </div>
-        ))}
+        <ol className="grid gap-3 md:grid-cols-[repeat(9,minmax(0,1fr))] md:items-center">
+          {steps.map(([step, status], index) => (
+            <li
+              key={step}
+              className={index === steps.length - 1 ? "min-w-0" : "contents md:contents"}
+            >
+              <div className="min-w-0 rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 md:border-0 md:bg-transparent md:px-0 md:py-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className={`h-2.5 w-2.5 shrink-0 rounded-full border ${dotClasses[status]}`} />
+                  <div className="min-w-0">
+                    <p className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-semibold text-[#F8FAFC]">
+                      {stepLabels[step]}
+                    </p>
+                    <p className={`[overflow-wrap:anywhere] text-xs font-semibold ${textClasses[status]}`}>
+                      {stepStatusLabel(step, status)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              {index < steps.length - 1 ? (
+                <div className="hidden h-px min-w-0 bg-[#1D2A44] md:block" aria-hidden="true" />
+              ) : null}
+            </li>
+          ))}
+        </ol>
       </div>
 
       <details className="mt-4 rounded-md border border-[#1D2A44] bg-[#08111A] p-3">
         <summary className="cursor-pointer text-sm font-semibold text-[#A7B0C0]">
-          Debug workflow
+          Voir le detail du workflow
         </summary>
         <div className="mt-3 grid gap-3 text-xs text-[#A7B0C0] lg:grid-cols-2">
           <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
             <p className="font-semibold uppercase tracking-[0.14em] text-[#7DD3FC]">
-              Valeurs brutes
+              Synthese
             </p>
-            <dl className="mt-2 grid gap-1">
-              {Object.entries(state.raw).map(([key, value]) => (
-                <div key={key} className="flex justify-between gap-3">
-                  <dt>{key}</dt>
-                  <dd className="text-right font-semibold text-[#F8FAFC]">
-                    {formatRawValue(value)}
-                  </dd>
-                </div>
-              ))}
+            <dl className="mt-2 grid gap-2">
+              <div>
+                <dt className="font-semibold text-[#F8FAFC]">Statut brut du brouillon</dt>
+                <dd className="mt-0.5 [overflow-wrap:anywhere]">{formatRawValue(state.raw.draftStatus)}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-[#F8FAFC]">Prochaine action</dt>
+                <dd className="mt-0.5 [overflow-wrap:anywhere]">{contextualNextStep(state.nextStep)}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-[#F8FAFC]">Etapes bloquees</dt>
+                <dd className="mt-0.5 [overflow-wrap:anywhere]">
+                  {blockedSteps.length ? blockedSteps.join(", ") : "Aucune"}
+                </dd>
+              </div>
             </dl>
           </div>
           <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
             <p className="font-semibold uppercase tracking-[0.14em] text-[#7DD3FC]">
-              Statut calcule
+              Raisons et debug
             </p>
-            <dl className="mt-2 grid gap-1">
+            <dl className="mt-2 grid gap-2">
               {Object.entries(state.reasons).map(([key, value]) => (
                 <div key={key}>
                   <dt className="font-semibold text-[#F8FAFC]">{key}</dt>
-                  <dd className="mt-0.5 leading-5">{value}</dd>
+                  <dd className="mt-0.5 [overflow-wrap:anywhere] leading-5">{value}</dd>
                 </div>
               ))}
             </dl>
+            <details className="mt-3 rounded-md border border-[#1D2A44] bg-[#08111A] p-2">
+              <summary className="cursor-pointer font-semibold text-[#A7B0C0]">
+                Debug brut
+              </summary>
+              <dl className="mt-2 grid gap-1">
+                {Object.entries(state.raw).map(([key, value]) => (
+                  <div key={key} className="grid gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <dt className="[overflow-wrap:anywhere]">{key}</dt>
+                    <dd className="[overflow-wrap:anywhere] font-semibold text-[#F8FAFC]">
+                      {formatRawValue(value)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
           </div>
         </div>
       </details>
-    </div>
+    </section>
   );
 }

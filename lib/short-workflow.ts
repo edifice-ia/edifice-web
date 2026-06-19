@@ -3,6 +3,7 @@ export type ShortWorkflowStepStatus =
   | "in_progress"
   | "generating"
   | "ready"
+  | "ignored"
   | "validated"
   | "error";
 
@@ -10,11 +11,12 @@ export type ShortWorkflowState = {
   text: "pending" | "validated";
   visuals: "pending" | "in_progress" | "ready" | "validated";
   voice: "pending" | "generating" | "ready" | "validated" | "error";
+  subtitles: "pending" | "generating" | "ready" | "validated" | "ignored" | "error";
   video: "pending" | "generating" | "ready" | "validated";
   readyToPublish: "pending" | "validated";
   overallStatus: string;
   nextStep: string;
-  reasons: Record<"text" | "visuals" | "voice" | "video" | "readyToPublish", string>;
+  reasons: Record<"text" | "visuals" | "voice" | "subtitles" | "video" | "readyToPublish", string>;
   raw: {
     draftStatus: string | null;
     mediaPipelineStatus: string | null;
@@ -22,6 +24,8 @@ export type ShortWorkflowState = {
     visualsValidatedAt: string | null;
     voiceStatus: string | null;
     voiceAudioUrl: string | null;
+    subtitlesStatus: string | null;
+    subtitlesSegmentsCount: number;
     videoStatus: string | null;
     selectedAssetsCount: number;
     visualScenesCount: number;
@@ -48,6 +52,7 @@ export type ShortWorkflowVisualSceneInput = {
 export type ShortWorkflowMediaInput = {
   mediaPipelineStatus?: string | null;
   selectedAssets?: unknown[] | null;
+  subtitles?: ShortWorkflowSubtitlesInput | null;
   visualScenes?: ShortWorkflowVisualSceneInput[] | null;
   voice?: ShortWorkflowVoiceInput | null;
 };
@@ -55,6 +60,12 @@ export type ShortWorkflowMediaInput = {
 export type ShortWorkflowVoiceInput = {
   audioUrl?: string | null;
   generatedAt?: string | null;
+  status?: string | null;
+};
+
+export type ShortWorkflowSubtitlesInput = {
+  generatedAt?: string | null;
+  segmentsCount?: number | null;
   status?: string | null;
 };
 
@@ -75,6 +86,15 @@ const textValidatedStatuses = new Set([
   "voix_validée",
   "voix_validee",
   "video_en_attente",
+  "sous_titres_en_attente",
+  "sous_titres_en_cours",
+  "sous_titres_prêts",
+  "sous_titres_pr\u00eats",
+  "sous_titres_prets",
+  "sous_titres_ignorés",
+  "sous_titres_ignor\u00e9s",
+  "sous_titres_ignores",
+  "sous_titres_erreur",
   "voice_ready",
   "ready_to_publish",
 ]);
@@ -91,12 +111,40 @@ const visualReadyStatuses = new Set([
   "voix_validée",
   "voix_validee",
   "video_en_attente",
+  "sous_titres_en_attente",
+  "sous_titres_en_cours",
+  "sous_titres_prêts",
+  "sous_titres_pr\u00eats",
+  "sous_titres_prets",
+  "sous_titres_ignorés",
+  "sous_titres_ignor\u00e9s",
+  "sous_titres_ignores",
+  "sous_titres_erreur",
   "voice_ready",
   "ready_to_publish",
 ]);
 
 const voiceReadyStatuses = new Set(["voix_prete", "voix_prête", "voice_ready", "ready_to_publish"]);
-const voiceValidatedStatuses = new Set(["voix_validée", "voix_validee", "video_en_attente", "ready_to_publish"]);
+const voiceValidatedStatuses = new Set([
+  "voix_validée",
+  "voix_validee",
+  "sous_titres_en_attente",
+  "sous_titres_en_cours",
+  "sous_titres_prêts",
+  "sous_titres_pr\u00eats",
+  "sous_titres_prets",
+  "sous_titres_ignorés",
+  "sous_titres_ignor\u00e9s",
+  "sous_titres_ignores",
+  "sous_titres_erreur",
+  "video_en_attente",
+  "ready_to_publish",
+]);
+const subtitleReadyStatuses = new Set(["sous_titres_prêts", "sous_titres_prets", "video_en_attente", "ready_to_publish"]);
+const subtitleIgnoredStatuses = new Set(["sous_titres_ignorés", "sous_titres_ignores"]);
+
+subtitleReadyStatuses.add("sous_titres_pr\u00eats");
+subtitleIgnoredStatuses.add("sous_titres_ignor\u00e9s");
 
 function normalizeStatus(value: string | null | undefined) {
   return value?.trim() || null;
@@ -141,6 +189,8 @@ export function getShortWorkflowState({
   );
   const voiceStatus = normalizeStatus(media?.voice?.status);
   const voiceAudioUrl = normalizeStatus(media?.voice?.audioUrl);
+  const subtitlesStatus = normalizeStatus(media?.subtitles?.status);
+  const subtitlesSegmentsCount = media?.subtitles?.segmentsCount ?? 0;
   const videoStatus = normalizeStatus(video?.status);
   const visualScenes = media?.visualScenes ?? [];
   const selectedAssetsCount = media?.selectedAssets?.length ?? 0;
@@ -189,6 +239,16 @@ export function getShortWorkflowState({
           ? "ready"
           : "pending";
 
+  const subtitles = subtitlesStatus === "error" || draftStatus === "sous_titres_erreur"
+    ? "error"
+    : subtitlesStatus === "generating" || draftStatus === "sous_titres_en_cours"
+      ? "generating"
+      : subtitlesStatus === "ignored" || Boolean(draftStatus && subtitleIgnoredStatuses.has(draftStatus))
+        ? "ignored"
+        : subtitlesStatus === "ready" || Boolean(draftStatus && subtitleReadyStatuses.has(draftStatus))
+          ? "ready"
+          : "pending";
+
   const videoState = videoStatus === "validated" || draftStatus === "ready_to_publish"
     ? "validated"
     : videoStatus === "ready"
@@ -210,16 +270,23 @@ export function getShortWorkflowState({
             ? "Attendre la voix"
             : voice === "error"
               ? "Corriger la voix"
-              : videoState === "pending"
-                ? "video_en_attente"
-                : readyToPublish === "pending"
-                  ? "Valider la publication"
-                  : "Pret a publier";
+              : subtitles === "pending"
+                ? "Generer les sous-titres"
+                : subtitles === "generating"
+                  ? "Attendre les sous-titres"
+                  : subtitles === "error"
+                    ? "Corriger les sous-titres"
+                    : videoState === "pending"
+                      ? "video_en_attente"
+                      : readyToPublish === "pending"
+                        ? "Valider la publication"
+                        : "Pret a publier";
 
   return {
     text,
     visuals,
     voice,
+    subtitles,
     video: videoState,
     readyToPublish,
     overallStatus: readyToPublish === "validated" ? "ready_to_publish" : nextStep,
@@ -234,6 +301,11 @@ export function getShortWorkflowState({
       voice: voiceGenerated
         ? `Voix detectee via voice.status=${voiceStatus}, audio=${Boolean(voiceAudioUrl)}, draft=${draftStatus}.`
         : `Voix non generee: voice.status=${voiceStatus ?? "null"}.`,
+      subtitles: subtitles === "ready"
+        ? `Sous-titres prets: status=${subtitlesStatus ?? draftStatus}, segments=${subtitlesSegmentsCount}.`
+        : subtitles === "ignored"
+          ? `Sous-titres ignores: status=${subtitlesStatus ?? draftStatus}.`
+          : `Sous-titres non prets: status=${subtitlesStatus ?? draftStatus ?? "null"}.`,
       video: videoState === "pending"
         ? "Aucune video generee detectee."
         : `Video=${videoStatus ?? draftStatus}.`,
@@ -248,6 +320,8 @@ export function getShortWorkflowState({
       visualsValidatedAt,
       voiceStatus,
       voiceAudioUrl,
+      subtitlesStatus,
+      subtitlesSegmentsCount,
       videoStatus,
       selectedAssetsCount,
       visualScenesCount: visualScenes.length,

@@ -259,6 +259,15 @@ const contentDraftStatuses = [
   "voix_prête",
   "voix_validée",
   "voix_validee",
+  "sous_titres_en_attente",
+  "sous_titres_en_cours",
+  "sous_titres_prÃªts",
+  "sous_titres_pr\u00eats",
+  "sous_titres_prets",
+  "sous_titres_ignorÃ©s",
+  "sous_titres_ignor\u00e9s",
+  "sous_titres_ignores",
+  "sous_titres_erreur",
   "video_en_attente",
   "voice_ready",
   "ready_to_publish",
@@ -287,6 +296,15 @@ function isProtectedDraft(row: Pick<ContentDraftRow, "protected" | "status" | "v
     row.status === "voix_prête" ||
     row.status === "voix_validée" ||
     row.status === "voix_validee" ||
+    row.status === "sous_titres_en_attente" ||
+    row.status === "sous_titres_en_cours" ||
+    row.status === "sous_titres_prÃªts" ||
+    row.status === "sous_titres_pr\u00eats" ||
+    row.status === "sous_titres_prets" ||
+    row.status === "sous_titres_ignorÃ©s" ||
+    row.status === "sous_titres_ignor\u00e9s" ||
+    row.status === "sous_titres_ignores" ||
+    row.status === "sous_titres_erreur" ||
     row.status === "video_en_attente" ||
     row.status === "voice_ready" ||
     row.visual_status === "visual_ready";

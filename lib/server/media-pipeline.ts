@@ -6,6 +6,7 @@ import {
   parseVisualPrompts,
 } from "@/lib/content/visual-prompts";
 import { buildVisualMetadata, saveVisualMetadata } from "@/lib/server/content-assets";
+import { type DraftSubtitleState, readDraftSubtitleState } from "@/lib/server/subtitle-pipeline";
 import { type DraftVoiceState, readDraftVoiceState } from "@/lib/server/voice-pipeline";
 
 type MediaPipelineStatus =
@@ -21,6 +22,15 @@ type MediaPipelineStatus =
   | "voix_prête"
   | "voix_validée"
   | "voix_validee"
+  | "sous_titres_en_attente"
+  | "sous_titres_en_cours"
+  | "sous_titres_prÃªts"
+  | "sous_titres_pr\u00eats"
+  | "sous_titres_prets"
+  | "sous_titres_ignorÃ©s"
+  | "sous_titres_ignor\u00e9s"
+  | "sous_titres_ignores"
+  | "sous_titres_erreur"
   | "video_en_attente"
   | "voice_ready"
   | "ready_to_publish";
@@ -264,6 +274,7 @@ export type MediaPipelineState = {
   generationRequested: boolean;
   generationReason: string | null;
   lastRunAt: string | null;
+  subtitles: DraftSubtitleState;
   voice: DraftVoiceState;
   visualScenes: VisualScene[];
 };
@@ -3296,6 +3307,15 @@ function isDraftValidatedForMedia(status: string | null) {
     status === "voix_prête" ||
     status === "voix_validée" ||
     status === "voix_validee" ||
+    status === "sous_titres_en_attente" ||
+    status === "sous_titres_en_cours" ||
+    status === "sous_titres_prÃªts" ||
+    status === "sous_titres_pr\u00eats" ||
+    status === "sous_titres_prets" ||
+    status === "sous_titres_ignorÃ©s" ||
+    status === "sous_titres_ignor\u00e9s" ||
+    status === "sous_titres_ignores" ||
+    status === "sous_titres_erreur" ||
     status === "video_en_attente" ||
     status === "voice_ready" ||
     status === "ready_to_publish"
@@ -3313,6 +3333,15 @@ function isDraftProtectedForVisuals(draft: DraftRow) {
       draft.status === "voix_prête" ||
       draft.status === "voix_validée" ||
       draft.status === "voix_validee" ||
+      draft.status === "sous_titres_en_attente" ||
+      draft.status === "sous_titres_en_cours" ||
+      draft.status === "sous_titres_prÃªts" ||
+      draft.status === "sous_titres_pr\u00eats" ||
+      draft.status === "sous_titres_prets" ||
+      draft.status === "sous_titres_ignorÃ©s" ||
+      draft.status === "sous_titres_ignor\u00e9s" ||
+      draft.status === "sous_titres_ignores" ||
+      draft.status === "sous_titres_erreur" ||
       draft.status === "video_en_attente" ||
       draft.status === "voice_ready" ||
       draft.visual_status === "visual_ready",
@@ -3859,13 +3888,21 @@ export async function readMediaPipelineState({
     readSelectedAssets(draft),
   ]);
   const visualScenes = await readVisualScenes(draft);
-  const voice = await readDraftVoiceState({ draftId, userId });
+  const [voice, subtitles] = await Promise.all([
+    readDraftVoiceState({ draftId, userId }),
+    readDraftSubtitleState({ draftId, userId }),
+  ]);
 
   return {
     mediaPipelineStatus:
       (draft.status === "voix_prete" || draft.status === "voice_ready" ? "voice_ready" : null) ??
       (draft.status === "voix_prête" ? "voice_ready" : null) ??
       (draft.status === "voix_validée" || draft.status === "voix_validee" ? "voix_validée" : null) ??
+      (draft.status === "sous_titres_en_attente" ? "sous_titres_en_attente" : null) ??
+      (draft.status === "sous_titres_en_cours" ? "sous_titres_en_cours" : null) ??
+      (draft.status === "sous_titres_pr\u00eats" || draft.status === "sous_titres_prÃªts" || draft.status === "sous_titres_prets" ? "sous_titres_pr\u00eats" : null) ??
+      (draft.status === "sous_titres_ignor\u00e9s" || draft.status === "sous_titres_ignorÃ©s" || draft.status === "sous_titres_ignores" ? "sous_titres_ignor\u00e9s" : null) ??
+      (draft.status === "sous_titres_erreur" ? "sous_titres_erreur" : null) ??
       (draft.status === "video_en_attente" ? "video_en_attente" : null) ??
       (draft.status === "voix_en_cours" ? "voix_en_cours" : null) ??
       (draft.status === "voix_erreur" ? "voix_erreur" : null) ??
@@ -3883,6 +3920,7 @@ export async function readMediaPipelineState({
     generationRequested: plan?.generation_requested ?? false,
     generationReason: plan?.generation_reason ?? null,
     lastRunAt: plan?.last_run_at ?? plan?.updated_at ?? null,
+    subtitles,
     voice,
     visualScenes,
   };

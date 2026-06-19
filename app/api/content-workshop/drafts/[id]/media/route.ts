@@ -23,6 +23,10 @@ import {
   unlockDraftVoice,
   validateDraftVoice,
 } from "@/lib/server/voice-pipeline";
+import {
+  generateDraftSubtitles,
+  ignoreDraftSubtitles,
+} from "@/lib/server/subtitle-pipeline";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -324,6 +328,34 @@ export async function POST(
 
     if (action === "unlock_voice") {
       await unlockDraftVoice({
+        draftId: id,
+        userId: user.id,
+      });
+      const media = await readMediaPipelineState({
+        draftId: id,
+        userId: user.id,
+        includeSuggestions: true,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "generate_subtitles" || action === "regenerate_subtitles") {
+      await generateDraftSubtitles({
+        draftId: id,
+        userId: user.id,
+      });
+      const media = await readMediaPipelineState({
+        draftId: id,
+        userId: user.id,
+        includeSuggestions: true,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "ignore_subtitles") {
+      await ignoreDraftSubtitles({
         draftId: id,
         userId: user.id,
       });

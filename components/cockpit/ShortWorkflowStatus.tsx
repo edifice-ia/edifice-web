@@ -2,10 +2,11 @@
 
 import type { ShortWorkflowState, ShortWorkflowStepStatus } from "@/lib/short-workflow";
 
-type WorkflowStepKey = "text" | "visuals" | "voice" | "video" | "readyToPublish";
+type WorkflowStepKey = "text" | "visuals" | "voice" | "subtitles" | "video" | "readyToPublish";
 
 const stepLabels: Record<WorkflowStepKey, string> = {
   readyToPublish: "Publication",
+  subtitles: "Sous-titres",
   text: "Texte",
   video: "Video",
   visuals: "Visuels",
@@ -16,6 +17,14 @@ const statusLabels: Record<WorkflowStepKey, Partial<Record<ShortWorkflowStepStat
   readyToPublish: {
     pending: "En attente",
     validated: "Validee",
+  },
+  subtitles: {
+    error: "Erreur",
+    generating: "En cours",
+    ignored: "Ignores",
+    pending: "A generer",
+    ready: "Prets",
+    validated: "Valides",
   },
   text: {
     pending: "A valider",
@@ -45,6 +54,7 @@ const statusLabels: Record<WorkflowStepKey, Partial<Record<ShortWorkflowStepStat
 const dotClasses: Record<ShortWorkflowStepStatus, string> = {
   error: "border-[#F97316] bg-[#F97316]",
   generating: "border-[#39E6D0] bg-[#39E6D0]",
+  ignored: "border-[#64748B] bg-[#64748B]",
   in_progress: "border-[#39E6D0] bg-[#39E6D0]",
   pending: "border-[#64748B] bg-[#03070B]",
   ready: "border-[#22C55E] bg-[#22C55E]",
@@ -54,6 +64,7 @@ const dotClasses: Record<ShortWorkflowStepStatus, string> = {
 const textClasses: Record<ShortWorkflowStepStatus, string> = {
   error: "text-[#FDBA74]",
   generating: "text-[#39E6D0]",
+  ignored: "text-[#A7B0C0]",
   in_progress: "text-[#39E6D0]",
   pending: "text-[#A7B0C0]",
   ready: "text-[#86EFAC]",
@@ -62,8 +73,11 @@ const textClasses: Record<ShortWorkflowStepStatus, string> = {
 
 const nextStepLabels: Record<string, string> = {
   "Attendre la voix": "attendre la voix.",
+  "Attendre les sous-titres": "attendre les sous-titres.",
   "Corriger la voix": "corriger la voix.",
+  "Corriger les sous-titres": "corriger les sous-titres.",
   "Generer la video": "preparer la video.",
+  "Generer les sous-titres": "generer les sous-titres.",
   "Generer la voix": "generer la voix.",
   "Preparer les visuels": "preparer les visuels.",
   "Pret a publier": "publier.",
@@ -100,6 +114,7 @@ export function ShortWorkflowStatus({
     ["text", state.text],
     ["visuals", state.visuals],
     ["voice", state.voice],
+    ["subtitles", state.subtitles],
     ["video", state.video],
     ["readyToPublish", state.readyToPublish],
   ] as const satisfies ReadonlyArray<readonly [WorkflowStepKey, ShortWorkflowStepStatus]>;
@@ -120,7 +135,7 @@ export function ShortWorkflowStatus({
           </p>
         </div>
 
-        <ol className="grid gap-3 md:grid-cols-[repeat(9,minmax(0,1fr))] md:items-center">
+        <ol className="grid gap-3 md:grid-cols-[repeat(11,minmax(0,1fr))] md:items-center">
           {steps.map(([step, status], index) => (
             <li
               key={step}

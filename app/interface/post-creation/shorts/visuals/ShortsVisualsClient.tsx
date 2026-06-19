@@ -75,6 +75,15 @@ type MediaPipelineState = {
     | "voix_prête"
     | "voix_validée"
     | "voix_validee"
+    | "sous_titres_en_attente"
+    | "sous_titres_en_cours"
+    | "sous_titres_prÃªts"
+    | "sous_titres_prêts"
+    | "sous_titres_prets"
+    | "sous_titres_ignorÃ©s"
+    | "sous_titres_ignorés"
+    | "sous_titres_ignores"
+    | "sous_titres_erreur"
     | "video_en_attente"
     | "voice_ready"
     | "ready_to_publish";
@@ -91,6 +100,11 @@ type MediaPipelineState = {
   generationRequested: boolean;
   generationReason: string | null;
   lastRunAt: string | null;
+  subtitles: {
+    generatedAt: string | null;
+    segmentsCount: number;
+    status: "pending" | "generating" | "ready" | "ignored" | "error";
+  };
   voice: DraftVoiceState;
   visualScenes: VisualScene[];
 };
@@ -170,6 +184,15 @@ const statusLabels: Record<string, string> = {
   voix_prête: "Voix prête",
   voix_validée: "Voix validée",
   voix_validee: "Voix validée",
+  sous_titres_en_attente: "Sous-titres en attente",
+  sous_titres_en_cours: "Sous-titres en cours",
+  sous_titres_prêts: "Sous-titres prêts",
+  "sous_titres_prÃªts": "Sous-titres prêts",
+  sous_titres_prets: "Sous-titres prêts",
+  sous_titres_ignorés: "Sous-titres ignorés",
+  "sous_titres_ignorÃ©s": "Sous-titres ignorés",
+  sous_titres_ignores: "Sous-titres ignorés",
+  sous_titres_erreur: "Erreur sous-titres",
   video_en_attente: "Vidéo en attente",
   voice_ready: "Voix prête",
   ready_to_publish: "Prêt à publier",
@@ -188,6 +211,15 @@ const mediaStatusLabels: Record<MediaPipelineState["mediaPipelineStatus"], strin
   voix_prête: "Voix prête",
   voix_validée: "Voix validée",
   voix_validee: "Voix validée",
+  sous_titres_en_attente: "Sous-titres en attente",
+  sous_titres_en_cours: "Sous-titres en cours",
+  sous_titres_prêts: "Sous-titres prêts",
+  "sous_titres_prÃªts": "Sous-titres prêts",
+  sous_titres_prets: "Sous-titres prêts",
+  sous_titres_ignorés: "Sous-titres ignorés",
+  "sous_titres_ignorÃ©s": "Sous-titres ignorés",
+  sous_titres_ignores: "Sous-titres ignorés",
+  sous_titres_erreur: "Erreur sous-titres",
   video_en_attente: "Vidéo en attente",
   voice_ready: "Voix prête",
   ready_to_publish: "Prêt à publier",

@@ -118,6 +118,13 @@ function isVisualReady(draft: DraftVoiceRow) {
     draft.status === "voix_en_attente" ||
     draft.status === "voix_validée" ||
     draft.status === "voix_validee" ||
+    draft.status === "sous_titres_en_attente" ||
+    draft.status === "sous_titres_en_cours" ||
+    draft.status === "sous_titres_prêts" ||
+    draft.status === "sous_titres_prets" ||
+    draft.status === "sous_titres_ignorés" ||
+    draft.status === "sous_titres_ignores" ||
+    draft.status === "sous_titres_erreur" ||
     draft.status === "video_en_attente" ||
     draft.status === "voix_prete" ||
     draft.status === "voix_prête" ||
@@ -139,6 +146,13 @@ function hasValidatedText(draft: DraftVoiceRow) {
       draft.status === "voix_en_cours" ||
       draft.status === "voix_validée" ||
       draft.status === "voix_validee" ||
+      draft.status === "sous_titres_en_attente" ||
+      draft.status === "sous_titres_en_cours" ||
+      draft.status === "sous_titres_prêts" ||
+      draft.status === "sous_titres_prets" ||
+      draft.status === "sous_titres_ignorés" ||
+      draft.status === "sous_titres_ignores" ||
+      draft.status === "sous_titres_erreur" ||
       draft.status === "video_en_attente" ||
       draft.status === "voix_prete" ||
       draft.status === "voix_prête" ||

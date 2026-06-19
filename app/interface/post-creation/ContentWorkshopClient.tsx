@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
@@ -141,9 +141,16 @@ type MediaPipelineState = {
     | "voix_en_cours"
     | "voix_erreur"
     | "voix_prete"
-    | "voix_prête"
-    | "voix_validée"
+    | "voix_prÃªte"
+    | "voix_validÃ©e"
     | "voix_validee"
+    | "sous_titres_en_attente"
+    | "sous_titres_en_cours"
+    | "sous_titres_prÃªts"
+    | "sous_titres_prets"
+    | "sous_titres_ignorÃ©s"
+    | "sous_titres_ignores"
+    | "sous_titres_erreur"
     | "video_en_attente"
     | "voice_ready"
     | "ready_to_publish";
@@ -155,6 +162,11 @@ type MediaPipelineState = {
   generationRequested: boolean;
   generationReason: string | null;
   lastRunAt: string | null;
+  subtitles?: {
+    generatedAt: string | null;
+    segmentsCount: number;
+    status: "pending" | "generating" | "ready" | "ignored" | "error";
+  };
   voice?: {
     audioUrl: string | null;
     generatedAt: string | null;
@@ -189,7 +201,27 @@ type DraftEditorState = {
 };
 
 type StatusOption = {
-  value: "draft" | "approved" | "rejected" | "visual_ready" | "voix_en_attente" | "voix_en_cours" | "voix_erreur" | "voix_prete" | "voix_prête" | "voix_validée" | "voix_validee" | "video_en_attente" | "ready_to_publish";
+  value:
+    | "draft"
+    | "approved"
+    | "rejected"
+    | "visual_ready"
+    | "voix_en_attente"
+    | "voix_en_cours"
+    | "voix_erreur"
+    | "voix_prete"
+    | "voix_prÃªte"
+    | "voix_validÃ©e"
+    | "voix_validee"
+    | "sous_titres_en_attente"
+    | "sous_titres_en_cours"
+    | "sous_titres_prÃªts"
+    | "sous_titres_prets"
+    | "sous_titres_ignorÃ©s"
+    | "sous_titres_ignores"
+    | "sous_titres_erreur"
+    | "video_en_attente"
+    | "ready_to_publish";
   label: string;
 };
 
@@ -293,7 +325,12 @@ const statusOptions: StatusOption[] = [
   { value: "voix_en_cours", label: "Voix en cours" },
   { value: "voix_erreur", label: "Erreur voix" },
   { value: "voix_prete", label: "Voix prete" },
-  { value: "voix_validée", label: "Voix validee" },
+  { value: "voix_validÃ©e", label: "Voix validee" },
+  { value: "sous_titres_en_attente", label: "Sous-titres en attente" },
+  { value: "sous_titres_en_cours", label: "Sous-titres en cours" },
+  { value: "sous_titres_prÃªts", label: "Sous-titres prets" },
+  { value: "sous_titres_ignorÃ©s", label: "Sous-titres ignores" },
+  { value: "sous_titres_erreur", label: "Erreur sous-titres" },
   { value: "video_en_attente", label: "Video en attente" },
   { value: "ready_to_publish", label: "Pret a publier" },
 ];
@@ -456,9 +493,16 @@ function isDraftValidatedForMedia(status: string | null | undefined) {
     status === "voix_en_cours" ||
     status === "voix_erreur" ||
     status === "voix_prete" ||
-    status === "voix_prête" ||
-    status === "voix_validée" ||
+    status === "voix_prÃªte" ||
+    status === "voix_validÃ©e" ||
     status === "voix_validee" ||
+    status === "sous_titres_en_attente" ||
+    status === "sous_titres_en_cours" ||
+    status === "sous_titres_prÃªts" ||
+    status === "sous_titres_prets" ||
+    status === "sous_titres_ignorÃ©s" ||
+    status === "sous_titres_ignores" ||
+    status === "sous_titres_erreur" ||
     status === "video_en_attente" ||
     status === "voice_ready" ||
     status === "ready_to_publish"
@@ -474,9 +518,16 @@ function isProtectedDraft(draft: ContentDraft | null | undefined) {
       draft?.status === "voix_en_cours" ||
       draft?.status === "voix_erreur" ||
       draft?.status === "voix_prete" ||
-      draft?.status === "voix_prête" ||
-      draft?.status === "voix_validée" ||
+      draft?.status === "voix_prÃªte" ||
+      draft?.status === "voix_validÃ©e" ||
       draft?.status === "voix_validee" ||
+      draft?.status === "sous_titres_en_attente" ||
+      draft?.status === "sous_titres_en_cours" ||
+      draft?.status === "sous_titres_prÃªts" ||
+      draft?.status === "sous_titres_prets" ||
+      draft?.status === "sous_titres_ignorÃ©s" ||
+      draft?.status === "sous_titres_ignores" ||
+      draft?.status === "sous_titres_erreur" ||
       draft?.status === "video_en_attente" ||
       draft?.status === "voice_ready" ||
       draft?.visualStatus === "visual_ready",
@@ -494,9 +545,16 @@ function getMediaPipelineStatusLabel(status: MediaPipelineState["mediaPipelineSt
     voix_en_cours: "Voix en cours",
     voix_erreur: "Erreur voix",
     voix_prete: "Voix prete",
-    voix_prête: "Voix prete",
-    voix_validée: "Voix validee",
+    "voix_prÃªte": "Voix prete",
+    "voix_validÃ©e": "Voix validee",
     voix_validee: "Voix validee",
+    sous_titres_en_attente: "Sous-titres en attente",
+    sous_titres_en_cours: "Sous-titres en cours",
+    "sous_titres_prÃªts": "Sous-titres prets",
+    sous_titres_prets: "Sous-titres prets",
+    "sous_titres_ignorÃ©s": "Sous-titres ignores",
+    sous_titres_ignores: "Sous-titres ignores",
+    sous_titres_erreur: "Erreur sous-titres",
     video_en_attente: "Video en attente",
     voice_ready: "Voix prete",
     ready_to_publish: "Pret a publier",
@@ -1533,7 +1591,7 @@ export function ContentWorkshopClient() {
               >
                 {isGeneratingSuggestions
                   ? "Generation des suggestions..."
-                  : "✨ Generer des suggestions"}
+                  : "âœ¨ Generer des suggestions"}
               </button>
             </div>
 
@@ -1670,7 +1728,7 @@ export function ContentWorkshopClient() {
                 </span>
                 {selectedDraftProtected ? (
                   <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
-                    Brouillon verrouillé - Visuels validés
+                    Brouillon verrouillÃ© - Visuels validÃ©s
                   </span>
                 ) : null}
               </div>
@@ -1723,7 +1781,7 @@ export function ContentWorkshopClient() {
                           <div>
                             {isRecommended ? (
                               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#FACC15]">
-                                🥇 Variante recommandee
+                                ðŸ¥‡ Variante recommandee
                               </p>
                             ) : null}
                             <h4 className="mt-2 text-lg font-semibold text-[#F8FAFC]">
@@ -2043,7 +2101,7 @@ export function ContentWorkshopClient() {
                       {isSaving ? "Deverrouillage..." : "Modifier le brouillon"}
                     </button>
                     <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0]">
-                      Brouillon verrouillé - Visuels validés
+                      Brouillon verrouillÃ© - Visuels validÃ©s
                     </span>
                   </div>
                 ) : (
@@ -2251,7 +2309,7 @@ export function ContentWorkshopClient() {
                               {asset.usageOrder}. {asset.fileName}
                             </p>
                             <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[#7DD3FC]">
-                              {asset.assetSource} · score {Math.round(asset.score)}
+                              {asset.assetSource} Â· score {Math.round(asset.score)}
                             </p>
                           </div>
                         </article>
@@ -2282,7 +2340,7 @@ export function ContentWorkshopClient() {
                               {asset.fileName}
                             </p>
                             <p className="mt-1 text-xs text-[#A7B0C0]">
-                              Score {Math.round(asset.score)} · {asset.scoreReason}
+                              Score {Math.round(asset.score)} Â· {asset.scoreReason}
                             </p>
                             <div className="mt-3 flex flex-wrap gap-2">
                               <button
@@ -2358,7 +2416,7 @@ export function ContentWorkshopClient() {
                             {asset.originalFilename ?? asset.storagePath}
                           </p>
                           <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[#7DD3FC]">
-                            {asset.assetType} · {asset.status}
+                            {asset.assetType} Â· {asset.status}
                           </p>
                           <p className="mt-2 break-all text-xs text-[#A7B0C0]">
                             {asset.storagePath}
@@ -2465,7 +2523,7 @@ export function ContentWorkshopClient() {
                   </span>
                   {isProtectedDraft(draft) ? (
                     <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-2 py-1 text-[#39E6D0]">
-                      Visuels validés
+                      Visuels validÃ©s
                     </span>
                   ) : null}
                   <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-2 py-1 text-[#A7B0C0]">

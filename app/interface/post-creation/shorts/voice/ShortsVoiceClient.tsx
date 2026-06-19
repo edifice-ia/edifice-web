@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
@@ -35,10 +35,33 @@ type DraftVoiceState = {
   wordCount: number;
 };
 
+type SubtitleSegmentPreview = {
+  end: number;
+  start: number;
+  text: string;
+};
+
+type DraftSubtitleState = {
+  canGenerate: boolean;
+  durationSeconds: number;
+  errorMessage: string | null;
+  generatedAt: string | null;
+  jsonUrl: string | null;
+  mode: "karaoke";
+  previewSegments: SubtitleSegmentPreview[];
+  provider: "elevenlabs";
+  segmentsCount: number;
+  srtUrl: string | null;
+  status: "pending" | "generating" | "ready" | "ignored" | "error";
+  timingOffsetMs: number;
+  vttUrl: string | null;
+};
+
 type MediaPayload = {
   media?: {
     mediaPipelineStatus?: string;
     selectedAssets?: unknown[];
+    subtitles?: DraftSubtitleState;
     visualScenes?: Array<{
       generationStatus?: string | null;
       imageUrl?: string | null;
@@ -61,9 +84,14 @@ const statusLabels: Record<string, string> = {
   voix_en_cours: "Voix en cours",
   voix_erreur: "Erreur voix",
   voix_prete: "Voix prete",
-  voix_prête: "Voix prete",
-  voix_validée: "Voix validee",
+  "voix_prÃªte": "Voix prete",
+  "voix_validÃ©e": "Voix validee",
   voix_validee: "Voix validee",
+  sous_titres_en_attente: "Sous-titres en attente",
+  sous_titres_en_cours: "Sous-titres en cours",
+  sous_titres_prets: "Sous-titres prets",
+  sous_titres_ignores: "Sous-titres ignores",
+  sous_titres_erreur: "Erreur sous-titres",
   video_en_attente: "Video en attente",
   voice_ready: "Voix prete",
 };
@@ -75,6 +103,14 @@ const voiceStatusLabels: Record<DraftVoiceState["status"], string> = {
   pending: "Voix en attente",
   ready: "Voix prete",
   validated: "Voix validee",
+};
+
+const subtitleStatusLabels: Record<DraftSubtitleState["status"], string> = {
+  error: "Erreur",
+  generating: "Generation en cours",
+  ignored: "Ignores",
+  pending: "A generer",
+  ready: "Prets",
 };
 
 function scoreOutOf100(value: number) {
@@ -134,7 +170,16 @@ export function ShortsVoiceClient() {
   const [voice, setVoice] = useState<DraftVoiceState | null>(null);
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isLoadingVoice, setIsLoadingVoice] = useState(false);
-  const [activeAction, setActiveAction] = useState<"generate_voice" | "regenerate_voice" | "validate_voice" | "unlock_voice" | null>(null);
+  const [activeAction, setActiveAction] = useState<
+    | "generate_voice"
+    | "regenerate_voice"
+    | "validate_voice"
+    | "unlock_voice"
+    | "generate_subtitles"
+    | "regenerate_subtitles"
+    | "ignore_subtitles"
+    | null
+  >(null);
   const [confirmationAction, setConfirmationAction] = useState<"generate_voice" | "regenerate_voice" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -155,6 +200,10 @@ export function ShortsVoiceClient() {
   const isGenerating = Boolean(activeAction) || voice?.status === "generating";
   const voiceIsValidated = voice?.status === "validated" || workflowState.voice === "validated";
   const voiceIsReadyForValidation = voice?.status === "ready" && !voiceIsValidated;
+  const subtitles = media?.subtitles ?? null;
+  const subtitlesBusy = activeAction === "generate_subtitles" ||
+    activeAction === "regenerate_subtitles" ||
+    subtitles?.status === "generating";
   const blockedReason = voiceIsValidated ? null : generationBlockedReason(voice);
 
   async function loadDrafts() {
@@ -307,6 +356,63 @@ export function ShortsVoiceClient() {
         caughtError instanceof Error
           ? caughtError.message
           : "Validation voix indisponible.",
+      );
+      await loadVoice(selectedDraft.id);
+    } finally {
+      setActiveAction(null);
+    }
+  }
+
+  async function runSubtitleAction(
+    action: "generate_subtitles" | "regenerate_subtitles" | "ignore_subtitles",
+  ) {
+    if (!selectedDraft || activeAction) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      action === "ignore_subtitles"
+        ? "Ignorer les sous-titres pour ce Short ?"
+        : action === "regenerate_subtitles"
+          ? "Regenerer les sous-titres avec ElevenLabs ?"
+          : "Generer les sous-titres avec ElevenLabs ?",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setActiveAction(action);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch(`/api/content-workshop/drafts/${selectedDraft.id}/media`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action }),
+      });
+      const payload = (await response.json()) as MediaPayload;
+
+      if (!response.ok || !payload.media?.voice) {
+        throw new Error(payload.error ?? "Action sous-titres indisponible.");
+      }
+
+      setMedia(payload.media);
+      setVoice(payload.media.voice);
+      await loadDrafts();
+      setNotice(
+        action === "ignore_subtitles"
+          ? "Sous-titres ignores."
+          : "Sous-titres prets.",
+      );
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Action sous-titres indisponible.",
       );
       await loadVoice(selectedDraft.id);
     } finally {
@@ -502,6 +608,143 @@ export function ShortsVoiceClient() {
                 </div>
               </div>
             ) : null}
+
+            <div className="mt-5 rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[#F8FAFC]">Sous-titres</p>
+                  <p className="mt-1 text-sm text-[#A7B0C0]">
+                    Karaoke - ElevenLabs
+                  </p>
+                </div>
+                <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
+                  {subtitles ? subtitleStatusLabels[subtitles.status] : "Non charges"}
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-4">
+                <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+                  Mode: <span className="font-semibold text-[#F8FAFC]">Karaoke</span>
+                </p>
+                <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+                  Duree audio:{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {formatDuration(subtitles?.durationSeconds ?? voice?.durationEstimateSeconds ?? 0)}
+                  </span>
+                </p>
+                <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+                  Segments:{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {subtitles?.segmentsCount ?? 0}
+                  </span>
+                </p>
+                <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+                  Generation:{" "}
+                  <span className="font-semibold text-[#F8FAFC]">
+                    {formatDate(subtitles?.generatedAt ?? null)}
+                  </span>
+                </p>
+              </div>
+
+              {subtitles?.errorMessage ? (
+                <p className="mt-4 rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-4 py-3 text-sm font-semibold text-[#FDBA74]">
+                  {subtitles.errorMessage.includes("ElevenLabs")
+                    ? "Configuration ElevenLabs indisponible."
+                    : subtitles.errorMessage}
+                </p>
+              ) : null}
+
+              {voiceIsValidated ? null : (
+                <p className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+                  Valide la voix avant de generer les sous-titres.
+                </p>
+              )}
+
+              {subtitles?.previewSegments?.length ? (
+                <details className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
+                  <summary className="cursor-pointer text-sm font-semibold text-[#A7B0C0]">
+                    Apercu des lignes et timings
+                  </summary>
+                  <div className="mt-3 grid gap-2 text-xs text-[#A7B0C0]">
+                    {subtitles.previewSegments.map((segment, index) => (
+                      <p
+                        key={`${segment.start}-${index}`}
+                        className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 leading-5"
+                      >
+                        <span className="font-semibold text-[#F8FAFC]">
+                          {formatDuration(segment.start)} - {formatDuration(segment.end)}
+                        </span>{" "}
+                        {segment.text}
+                      </p>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!voiceIsValidated || !subtitles?.canGenerate || subtitlesBusy}
+                  onClick={() => void runSubtitleAction("generate_subtitles")}
+                  className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  {subtitlesBusy ? "Generation..." : "Generer les sous-titres"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!voiceIsValidated || !subtitles?.canGenerate || !subtitles?.jsonUrl || subtitlesBusy}
+                  onClick={() => void runSubtitleAction("regenerate_subtitles")}
+                  className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  Regenerer les sous-titres
+                </button>
+                <button
+                  type="button"
+                  disabled={!voiceIsValidated || subtitlesBusy}
+                  onClick={() => void runSubtitleAction("ignore_subtitles")}
+                  className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#F97316]/50 hover:text-[#FDBA74] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  Ignorer les sous-titres
+                </button>
+                {subtitles?.jsonUrl ? (
+                  <a
+                    href={subtitles.jsonUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#F8FAFC] transition hover:border-[#39E6D0]/50"
+                  >
+                    Voir les sous-titres
+                  </a>
+                ) : null}
+                {subtitles?.srtUrl ? (
+                  <a
+                    href={subtitles.srtUrl}
+                    download
+                    className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#F8FAFC] transition hover:border-[#39E6D0]/50"
+                  >
+                    Telecharger SRT
+                  </a>
+                ) : null}
+                {subtitles?.vttUrl ? (
+                  <a
+                    href={subtitles.vttUrl}
+                    download
+                    className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#F8FAFC] transition hover:border-[#39E6D0]/50"
+                  >
+                    Telecharger VTT
+                  </a>
+                ) : null}
+                {subtitles?.jsonUrl ? (
+                  <a
+                    href={subtitles.jsonUrl}
+                    download
+                    className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#F8FAFC] transition hover:border-[#39E6D0]/50"
+                  >
+                    Telecharger JSON
+                  </a>
+                ) : null}
+              </div>
+            </div>
 
             <div className="mt-5 flex flex-wrap gap-2">
               {voiceIsValidated ? (

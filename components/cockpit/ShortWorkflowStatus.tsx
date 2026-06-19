@@ -28,6 +28,10 @@ const statusClasses: Record<ShortWorkflowStepStatus, string> = {
   validated: "border-[#22C55E]/45 bg-[#22C55E]/10 text-[#86EFAC]",
 };
 
+const nextStepLabels: Record<string, string> = {
+  video_en_attente: "Video en attente",
+};
+
 function formatRawValue(value: unknown) {
   if (value === null || value === undefined || value === "") {
     return "null";
@@ -59,7 +63,7 @@ export function ShortWorkflowStatus({
             Statuts Shorts
           </h2>
           <p className="mt-1 text-sm text-[#A7B0C0]">
-            Prochaine etape: <span className="font-semibold text-[#F8FAFC]">{state.nextStep}</span>
+            Prochaine etape: <span className="font-semibold text-[#F8FAFC]">{nextStepLabels[state.nextStep] ?? state.nextStep}</span>
           </p>
         </div>
         <span className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">

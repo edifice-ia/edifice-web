@@ -29,7 +29,9 @@ type DraftVoiceState = {
   hasValidatedText: boolean;
   selectedVoiceId: string | null;
   selectedVoiceLabel: string;
-  status: "not_ready" | "pending" | "generating" | "ready" | "error";
+  status: "not_ready" | "pending" | "generating" | "ready" | "validated" | "error";
+  validatedAt: string | null;
+  validatedBy: string | null;
   wordCount: number;
 };
 
@@ -59,6 +61,10 @@ const statusLabels: Record<string, string> = {
   voix_en_cours: "Voix en cours",
   voix_erreur: "Erreur voix",
   voix_prete: "Voix prete",
+  voix_prête: "Voix prete",
+  voix_validée: "Voix validee",
+  voix_validee: "Voix validee",
+  video_en_attente: "Video en attente",
   voice_ready: "Voix prete",
 };
 
@@ -68,6 +74,7 @@ const voiceStatusLabels: Record<DraftVoiceState["status"], string> = {
   not_ready: "Texte valide requis",
   pending: "Voix en attente",
   ready: "Voix prete",
+  validated: "Voix validee",
 };
 
 function scoreOutOf100(value: number) {
@@ -127,16 +134,15 @@ export function ShortsVoiceClient() {
   const [voice, setVoice] = useState<DraftVoiceState | null>(null);
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isLoadingVoice, setIsLoadingVoice] = useState(false);
-  const [activeAction, setActiveAction] = useState<"generate_voice" | "regenerate_voice" | null>(null);
+  const [activeAction, setActiveAction] = useState<"generate_voice" | "regenerate_voice" | "validate_voice" | "unlock_voice" | null>(null);
   const [confirmationAction, setConfirmationAction] = useState<"generate_voice" | "regenerate_voice" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const selectedDraft = useMemo(
     () => drafts.find((draft) => draft.id === selectedDraftId) ?? null,
     [drafts, selectedDraftId],
   );
-  const isGenerating = Boolean(activeAction) || voice?.status === "generating";
-  const blockedReason = generationBlockedReason(voice);
   const workflowState = useMemo(
     () =>
       getShortWorkflowState({
@@ -146,10 +152,15 @@ export function ShortsVoiceClient() {
       }),
     [media, selectedDraft],
   );
+  const isGenerating = Boolean(activeAction) || voice?.status === "generating";
+  const voiceIsValidated = voice?.status === "validated" || workflowState.voice === "validated";
+  const voiceIsReadyForValidation = voice?.status === "ready" && !voiceIsValidated;
+  const blockedReason = voiceIsValidated ? null : generationBlockedReason(voice);
 
   async function loadDrafts() {
     setIsLoadingDrafts(true);
     setError(null);
+    setNotice(null);
 
     try {
       const response = await fetch("/api/content-workshop/drafts");
@@ -216,6 +227,7 @@ export function ShortsVoiceClient() {
     setActiveAction(action);
     setConfirmationAction(null);
     setError(null);
+    setNotice(null);
 
     try {
       const response = await fetch(`/api/content-workshop/drafts/${selectedDraft.id}/media`, {
@@ -234,6 +246,7 @@ export function ShortsVoiceClient() {
       setMedia(payload.media);
       setVoice(payload.media.voice);
       await loadDrafts();
+      setNotice(action === "regenerate_voice" ? "Voix regeneree." : "Voix generee.");
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -243,6 +256,59 @@ export function ShortsVoiceClient() {
       if (selectedDraft) {
         await loadVoice(selectedDraft.id);
       }
+    } finally {
+      setActiveAction(null);
+    }
+  }
+
+  async function runVoiceValidationAction(action: "validate_voice" | "unlock_voice") {
+    if (!selectedDraft || activeAction) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      action === "validate_voice"
+        ? "Valider cette voix pour ce Short ?"
+        : "Modifier la voix ? La video sera de nouveau bloquee jusqu'a validation.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setActiveAction(action);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch(`/api/content-workshop/drafts/${selectedDraft.id}/media`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action }),
+      });
+      const payload = (await response.json()) as MediaPayload;
+
+      if (!response.ok || !payload.media?.voice) {
+        throw new Error(payload.error ?? "Validation voix indisponible.");
+      }
+
+      setMedia(payload.media);
+      setVoice(payload.media.voice);
+      await loadDrafts();
+      setNotice(
+        action === "validate_voice"
+          ? "Voix validee - prete pour la video."
+          : "Voix deverrouillee. La video est de nouveau bloquee.",
+      );
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Validation voix indisponible.",
+      );
+      await loadVoice(selectedDraft.id);
     } finally {
       setActiveAction(null);
     }
@@ -329,6 +395,12 @@ export function ShortsVoiceClient() {
                 : voice.errorMessage}
             </p>
           ) : null}
+
+          {notice ? (
+            <p className="mt-5 rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-4 py-3 text-sm font-semibold text-[#39E6D0]">
+              {notice}
+            </p>
+          ) : null}
         </SectionContainer>
 
         {selectedDraft ? (
@@ -393,7 +465,7 @@ export function ShortsVoiceClient() {
               <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
                 Voix:{" "}
                 <span className="font-semibold text-[#F8FAFC]">
-                  {voice?.selectedVoiceLabel ?? "Non configuree"}
+                  {voiceIsValidated ? "Voix validee" : voiceIsReadyForValidation ? "Voix prete" : voice?.selectedVoiceLabel ?? "Non configuree"}
                 </span>
               </p>
             </div>
@@ -432,22 +504,47 @@ export function ShortsVoiceClient() {
             ) : null}
 
             <div className="mt-5 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={Boolean(blockedReason) || isGenerating}
-                onClick={() => setConfirmationAction("generate_voice")}
-                className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
-              >
-                {isGenerating ? "Generation..." : "Generer la voix"}
-              </button>
-              <button
-                type="button"
-                disabled={!voice?.audioUrl || Boolean(blockedReason) || isGenerating}
-                onClick={() => setConfirmationAction("regenerate_voice")}
-                className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
-              >
-                Regenerer la voix
-              </button>
+              {voiceIsValidated ? (
+                <button
+                  type="button"
+                  disabled={Boolean(activeAction)}
+                  onClick={() => void runVoiceValidationAction("unlock_voice")}
+                  className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  Modifier la voix
+                </button>
+              ) : (
+                <>
+                  {!voice?.audioUrl ? (
+                    <button
+                      type="button"
+                      disabled={Boolean(blockedReason) || isGenerating}
+                      onClick={() => setConfirmationAction("generate_voice")}
+                      className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      {isGenerating ? "Generation..." : "Generer la voix"}
+                    </button>
+                  ) : null}
+                  {voiceIsReadyForValidation ? (
+                    <button
+                      type="button"
+                      disabled={Boolean(activeAction)}
+                      onClick={() => void runVoiceValidationAction("validate_voice")}
+                      className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      Valider la voix
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={!voice?.audioUrl || Boolean(blockedReason) || isGenerating}
+                    onClick={() => setConfirmationAction("regenerate_voice")}
+                    className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    Regenerer la voix
+                  </button>
+                </>
+              )}
             </div>
 
             {blockedReason ? (

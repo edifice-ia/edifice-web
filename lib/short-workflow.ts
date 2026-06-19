@@ -71,6 +71,10 @@ const textValidatedStatuses = new Set([
   "voix_en_cours",
   "voix_erreur",
   "voix_prete",
+  "voix_prête",
+  "voix_validée",
+  "voix_validee",
+  "video_en_attente",
   "voice_ready",
   "ready_to_publish",
 ]);
@@ -83,11 +87,16 @@ const visualReadyStatuses = new Set([
   "voix_en_cours",
   "voix_erreur",
   "voix_prete",
+  "voix_prête",
+  "voix_validée",
+  "voix_validee",
+  "video_en_attente",
   "voice_ready",
   "ready_to_publish",
 ]);
 
-const voiceReadyStatuses = new Set(["voix_prete", "voice_ready", "ready_to_publish"]);
+const voiceReadyStatuses = new Set(["voix_prete", "voix_prête", "voice_ready", "ready_to_publish"]);
+const voiceValidatedStatuses = new Set(["voix_validée", "voix_validee", "video_en_attente", "ready_to_publish"]);
 
 function normalizeStatus(value: string | null | undefined) {
   return value?.trim() || null;
@@ -164,10 +173,13 @@ export function getShortWorkflowState({
         ? "in_progress"
         : "pending";
 
-  const voiceGenerated = voiceStatus === "ready" ||
+  const voiceValidated = voiceStatus === "validated" ||
+    Boolean(draftStatus && voiceValidatedStatuses.has(draftStatus));
+  const voiceGenerated = voiceValidated ||
+    voiceStatus === "ready" ||
     Boolean(voiceAudioUrl) ||
     Boolean(draftStatus && voiceReadyStatuses.has(draftStatus));
-  const voice = draftStatus === "ready_to_publish"
+  const voice = voiceValidated
     ? "validated"
     : voiceStatus === "error" || draftStatus === "voix_erreur"
       ? "error"
@@ -199,7 +211,7 @@ export function getShortWorkflowState({
             : voice === "error"
               ? "Corriger la voix"
               : videoState === "pending"
-                ? "Generer la video"
+                ? "video_en_attente"
                 : readyToPublish === "pending"
                   ? "Valider la publication"
                   : "Pret a publier";

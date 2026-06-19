@@ -5,7 +5,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 export const VOICE_AUDIO_BUCKET = "content-assets";
 export const VOICE_AUDIO_PATH = "lignes-interieures/audio";
 
-type VoiceStatus = "not_ready" | "pending" | "generating" | "ready" | "error";
+type VoiceStatus = "not_ready" | "pending" | "generating" | "ready" | "validated" | "error";
 
 export type DraftVoiceState = {
   audioUrl: string | null;
@@ -19,6 +19,8 @@ export type DraftVoiceState = {
   selectedVoiceId: string | null;
   selectedVoiceLabel: string;
   status: VoiceStatus;
+  validatedAt: string | null;
+  validatedBy: string | null;
   wordCount: number;
 };
 
@@ -33,6 +35,8 @@ type DraftVoiceRow = {
   voice_error?: string | null;
   voice_generated_at?: string | null;
   voice_status?: string | null;
+  voice_validated_at?: string | null;
+  voice_validated_by?: string | null;
   selected_voice_id?: string | null;
 };
 
@@ -112,7 +116,11 @@ function isVisualReady(draft: DraftVoiceRow) {
     draft.status === "visual_ready" ||
     draft.status === "visuels_prets" ||
     draft.status === "voix_en_attente" ||
+    draft.status === "voix_validée" ||
+    draft.status === "voix_validee" ||
+    draft.status === "video_en_attente" ||
     draft.status === "voix_prete" ||
+    draft.status === "voix_prête" ||
     draft.status === "voice_ready" ||
     draft.visual_status === "visual_ready" ||
     Boolean(draft.visuals_validated_at)
@@ -129,7 +137,11 @@ function hasValidatedText(draft: DraftVoiceRow) {
       draft.status === "visuels_prets" ||
       draft.status === "voix_en_attente" ||
       draft.status === "voix_en_cours" ||
+      draft.status === "voix_validée" ||
+      draft.status === "voix_validee" ||
+      draft.status === "video_en_attente" ||
       draft.status === "voix_prete" ||
+      draft.status === "voix_prête" ||
       draft.status === "voice_ready" ||
       draft.status === "ready_to_publish" ||
       isVisualReady(draft)
@@ -142,7 +154,7 @@ async function readDraftVoiceRow(draftId: string, userId: string) {
   const { data, error } = await supabase
     .from("content_drafts")
     .select(
-      "id, user_id, script, status, visual_status, visuals_validated_at, voice_status, voice_asset_id, voice_error, voice_generated_at, selected_voice_id",
+      "id, user_id, script, status, visual_status, visuals_validated_at, voice_status, voice_asset_id, voice_error, voice_generated_at, voice_validated_at, voice_validated_by, selected_voice_id",
     )
     .eq("id", draftId)
     .eq("user_id", userId)
@@ -206,8 +218,20 @@ export async function readDraftVoiceState({
   const selectedVoiceId = defaultVoiceId();
   const configurationAvailable = Boolean(process.env.ELEVENLABS_API_KEY?.trim() && selectedVoiceId);
   const textIsValidated = hasValidatedText(draft);
-  const ready = draft.voice_status === "ready" || draft.status === "voix_prete" || draft.status === "voice_ready";
-  const status: VoiceStatus = ready
+  const validated =
+    draft.voice_status === "validated" ||
+    draft.status === "voix_validée" ||
+    draft.status === "voix_validee" ||
+    draft.status === "video_en_attente" ||
+    Boolean(draft.voice_validated_at);
+  const ready =
+    draft.voice_status === "ready" ||
+    draft.status === "voix_prete" ||
+    draft.status === "voix_prête" ||
+    draft.status === "voice_ready";
+  const status: VoiceStatus = validated
+    ? "validated"
+    : ready
     ? "ready"
     : draft.voice_status === "generating" || draft.status === "voix_en_cours"
       ? "generating"
@@ -219,7 +243,7 @@ export async function readDraftVoiceState({
 
   return {
     audioUrl: audioAsset?.public_url ?? null,
-    canGenerate: configurationAvailable && textIsValidated && status !== "generating",
+    canGenerate: configurationAvailable && textIsValidated && status !== "generating" && status !== "validated",
     configurationAvailable,
     costEstimateUsd: estimateCostUsd(draft.script),
     durationEstimateSeconds: estimateDurationSeconds(draft.script),
@@ -228,6 +252,8 @@ export async function readDraftVoiceState({
     hasValidatedText: textIsValidated,
     selectedVoiceId: selectedVoiceId ? "configured" : null,
     selectedVoiceLabel: voiceLabel(selectedVoiceId),
+    validatedAt: draft.voice_validated_at ?? null,
+    validatedBy: draft.voice_validated_by ?? null,
     wordCount: countWords(draft.script),
     status,
   };
@@ -293,6 +319,15 @@ export async function generateDraftVoice({
     throw new Error("Une generation voix est deja en cours.");
   }
 
+  if (
+    draft.voice_status === "validated" ||
+    draft.status === "voix_validée" ||
+    draft.status === "voix_validee" ||
+    draft.status === "video_en_attente"
+  ) {
+    throw new Error("La voix est deja validee. Utilise Modifier la voix avant de regenerer.");
+  }
+
   if (!hasValidatedText(draft)) {
     throw new Error("Texte valide requis avant de generer la voix.");
   }
@@ -301,8 +336,10 @@ export async function generateDraftVoice({
     .from("content_drafts")
     .update({
       selected_voice_id: selectedVoiceId,
-      status: "voix_en_attente",
-      voice_error: null,
+        status: "voix_en_attente",
+        voice_validated_at: null,
+        voice_validated_by: null,
+        voice_error: null,
       voice_status: "pending",
     })
     .eq("id", draftId)
@@ -331,6 +368,8 @@ export async function generateDraftVoice({
       status: "voix_en_cours",
       voice_error: null,
       voice_status: "generating",
+      voice_validated_at: null,
+      voice_validated_by: null,
     })
     .eq("id", draftId)
     .eq("user_id", userId)
@@ -431,11 +470,13 @@ export async function generateDraftVoice({
       .from("content_drafts")
       .update({
         selected_voice_id: selectedVoiceId,
-        status: "voix_prete",
+        status: "voix_prête",
         voice_asset_id: asset.id,
         voice_error: null,
         voice_generated_at: now,
         voice_status: "ready",
+        voice_validated_at: null,
+        voice_validated_by: null,
       })
       .eq("id", draftId)
       .eq("user_id", userId);
@@ -459,4 +500,80 @@ export async function generateDraftVoice({
 
     throw new Error(message);
   }
+}
+
+export async function validateDraftVoice({
+  draftId,
+  userId,
+}: {
+  draftId: string;
+  userId: string;
+}) {
+  const draft = await readDraftVoiceRow(draftId, userId);
+
+  if (!draft.voice_asset_id) {
+    throw new Error("Aucune voix a valider pour ce brouillon.");
+  }
+
+  if (
+    draft.voice_status !== "ready" &&
+    draft.voice_status !== "validated" &&
+    draft.status !== "voix_prete" &&
+    draft.status !== "voix_prête"
+  ) {
+    throw new Error("La voix doit etre prete avant validation.");
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await getVoiceClient()
+    .from("content_drafts")
+    .update({
+      status: "voix_validée",
+      voice_asset_id: draft.voice_asset_id,
+      voice_error: null,
+      voice_status: "validated",
+      voice_validated_at: now,
+      voice_validated_by: userId,
+    })
+    .eq("id", draftId)
+    .eq("user_id", userId)
+    .eq("voice_asset_id", draft.voice_asset_id);
+
+  if (error) {
+    throw new Error(`Validation voix impossible: ${error.message}`);
+  }
+
+  return readDraftVoiceState({ draftId, userId });
+}
+
+export async function unlockDraftVoice({
+  draftId,
+  userId,
+}: {
+  draftId: string;
+  userId: string;
+}) {
+  const draft = await readDraftVoiceRow(draftId, userId);
+
+  if (!draft.voice_asset_id) {
+    throw new Error("Aucune voix a modifier pour ce brouillon.");
+  }
+
+  const { error } = await getVoiceClient()
+    .from("content_drafts")
+    .update({
+      status: "voix_prête",
+      voice_error: null,
+      voice_status: "ready",
+      voice_validated_at: null,
+      voice_validated_by: null,
+    })
+    .eq("id", draftId)
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(`Deverrouillage voix impossible: ${error.message}`);
+  }
+
+  return readDraftVoiceState({ draftId, userId });
 }

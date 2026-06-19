@@ -256,6 +256,10 @@ const contentDraftStatuses = [
   "voix_en_cours",
   "voix_erreur",
   "voix_prete",
+  "voix_prête",
+  "voix_validée",
+  "voix_validee",
+  "video_en_attente",
   "voice_ready",
   "ready_to_publish",
 ] as const;
@@ -280,6 +284,10 @@ function isProtectedDraft(row: Pick<ContentDraftRow, "protected" | "status" | "v
     row.status === "voix_en_attente" ||
     row.status === "voix_en_cours" ||
     row.status === "voix_prete" ||
+    row.status === "voix_prête" ||
+    row.status === "voix_validée" ||
+    row.status === "voix_validee" ||
+    row.status === "video_en_attente" ||
     row.status === "voice_ready" ||
     row.visual_status === "visual_ready";
 }

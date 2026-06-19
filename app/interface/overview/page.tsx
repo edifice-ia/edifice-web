@@ -100,7 +100,12 @@ export default async function OverviewPage() {
     (draftStatuses.approved ?? 0) + (draftStatuses.validated ?? 0);
   const visualsReady =
     (draftStatuses.media_ready ?? 0) + (draftStatuses.ready_to_publish ?? 0);
-  const voicesReady = (draftStatuses.voice_ready ?? 0) + (draftStatuses.voix_prete ?? 0);
+  const voicesReady =
+    (draftStatuses.voice_ready ?? 0) +
+    (draftStatuses.voix_prete ?? 0) +
+    (draftStatuses["voix_prête"] ?? 0) +
+    (draftStatuses["voix_validée"] ?? 0) +
+    (draftStatuses.voix_validee ?? 0);
   const videosReady = draftStatuses.video_ready ?? 0;
   const readyToPublish = cockpitState.contentDrafts.readyToPublish.length;
   const pinterestReadyPins = pinterestPins.filter(

@@ -18,6 +18,10 @@ type MediaPipelineStatus =
   | "voix_en_cours"
   | "voix_erreur"
   | "voix_prete"
+  | "voix_prête"
+  | "voix_validée"
+  | "voix_validee"
+  | "video_en_attente"
   | "voice_ready"
   | "ready_to_publish";
 
@@ -3286,6 +3290,14 @@ function isDraftValidatedForMedia(status: string | null) {
     status === "validated" ||
     status === "visual_ready" ||
     status === "visuels_prets" ||
+    status === "voix_en_attente" ||
+    status === "voix_en_cours" ||
+    status === "voix_prete" ||
+    status === "voix_prête" ||
+    status === "voix_validée" ||
+    status === "voix_validee" ||
+    status === "video_en_attente" ||
+    status === "voice_ready" ||
     status === "ready_to_publish"
   );
 }
@@ -3295,6 +3307,14 @@ function isDraftProtectedForVisuals(draft: DraftRow) {
     draft.protected ||
       draft.status === "visual_ready" ||
       draft.status === "visuels_prets" ||
+      draft.status === "voix_en_attente" ||
+      draft.status === "voix_en_cours" ||
+      draft.status === "voix_prete" ||
+      draft.status === "voix_prête" ||
+      draft.status === "voix_validée" ||
+      draft.status === "voix_validee" ||
+      draft.status === "video_en_attente" ||
+      draft.status === "voice_ready" ||
       draft.visual_status === "visual_ready",
   );
 }
@@ -3844,6 +3864,9 @@ export async function readMediaPipelineState({
   return {
     mediaPipelineStatus:
       (draft.status === "voix_prete" || draft.status === "voice_ready" ? "voice_ready" : null) ??
+      (draft.status === "voix_prête" ? "voice_ready" : null) ??
+      (draft.status === "voix_validée" || draft.status === "voix_validee" ? "voix_validée" : null) ??
+      (draft.status === "video_en_attente" ? "video_en_attente" : null) ??
       (draft.status === "voix_en_cours" ? "voix_en_cours" : null) ??
       (draft.status === "voix_erreur" ? "voix_erreur" : null) ??
       (draft.status === "voix_en_attente" ? "voix_en_attente" : null) ??

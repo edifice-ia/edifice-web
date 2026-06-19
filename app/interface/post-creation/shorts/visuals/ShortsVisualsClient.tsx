@@ -72,6 +72,10 @@ type MediaPipelineState = {
     | "voix_en_cours"
     | "voix_erreur"
     | "voix_prete"
+    | "voix_prête"
+    | "voix_validée"
+    | "voix_validee"
+    | "video_en_attente"
     | "voice_ready"
     | "ready_to_publish";
   visualDecision: {
@@ -102,7 +106,7 @@ type DraftVoiceState = {
   generatedAt: string | null;
   selectedVoiceId: string | null;
   selectedVoiceLabel: string;
-  status: "not_ready" | "pending" | "generating" | "ready" | "error";
+  status: "not_ready" | "pending" | "generating" | "ready" | "validated" | "error";
 };
 
 type VisualScene = {
@@ -163,6 +167,10 @@ const statusLabels: Record<string, string> = {
   voix_en_cours: "Voix en cours",
   voix_erreur: "Erreur voix",
   voix_prete: "Voix prête",
+  voix_prête: "Voix prête",
+  voix_validée: "Voix validée",
+  voix_validee: "Voix validée",
+  video_en_attente: "Vidéo en attente",
   voice_ready: "Voix prête",
   ready_to_publish: "Prêt à publier",
 };
@@ -177,6 +185,10 @@ const mediaStatusLabels: Record<MediaPipelineState["mediaPipelineStatus"], strin
   voix_en_cours: "Voix en cours",
   voix_erreur: "Erreur voix",
   voix_prete: "Voix prête",
+  voix_prête: "Voix prête",
+  voix_validée: "Voix validée",
+  voix_validee: "Voix validée",
+  video_en_attente: "Vidéo en attente",
   voice_ready: "Voix prête",
   ready_to_publish: "Prêt à publier",
 };
@@ -187,6 +199,7 @@ const voiceStatusLabels: Record<DraftVoiceState["status"], string> = {
   not_ready: "En attente des visuels",
   pending: "Voix en attente",
   ready: "Voix prete",
+  validated: "Voix validee",
 };
 
 const voiceOptions = [
@@ -1409,7 +1422,11 @@ export function ShortsVisualsClient() {
     workflowState.visuals === "ready" ||
     workflowState.visuals === "validated" ||
     workflowState.readyToPublish === "validated";
-  const voiceCanGenerate = Boolean(media?.voice.canGenerate && !isRunningAction);
+  const voiceCanGenerate = Boolean(
+    media?.voice.canGenerate &&
+    media.voice.status !== "validated" &&
+    !isRunningAction,
+  );
   const voiceIsReady = media?.voice.status === "ready";
   const voiceIsGenerating =
     media?.voice.status === "generating" || activeAction === "generate_voice" || activeAction === "regenerate_voice";

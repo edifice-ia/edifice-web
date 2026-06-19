@@ -141,6 +141,10 @@ type MediaPipelineState = {
     | "voix_en_cours"
     | "voix_erreur"
     | "voix_prete"
+    | "voix_prête"
+    | "voix_validée"
+    | "voix_validee"
+    | "video_en_attente"
     | "voice_ready"
     | "ready_to_publish";
   visualDecision: VisualDecision | null;
@@ -154,7 +158,7 @@ type MediaPipelineState = {
   voice?: {
     audioUrl: string | null;
     generatedAt: string | null;
-    status: "not_ready" | "pending" | "generating" | "ready" | "error";
+    status: "not_ready" | "pending" | "generating" | "ready" | "validated" | "error";
   };
   visualScenes?: Array<{
     generationStatus: string;
@@ -185,7 +189,7 @@ type DraftEditorState = {
 };
 
 type StatusOption = {
-  value: "draft" | "approved" | "rejected" | "visual_ready" | "voix_en_attente" | "voix_en_cours" | "voix_erreur" | "voix_prete" | "ready_to_publish";
+  value: "draft" | "approved" | "rejected" | "visual_ready" | "voix_en_attente" | "voix_en_cours" | "voix_erreur" | "voix_prete" | "voix_prête" | "voix_validée" | "voix_validee" | "video_en_attente" | "ready_to_publish";
   label: string;
 };
 
@@ -289,6 +293,8 @@ const statusOptions: StatusOption[] = [
   { value: "voix_en_cours", label: "Voix en cours" },
   { value: "voix_erreur", label: "Erreur voix" },
   { value: "voix_prete", label: "Voix prete" },
+  { value: "voix_validée", label: "Voix validee" },
+  { value: "video_en_attente", label: "Video en attente" },
   { value: "ready_to_publish", label: "Pret a publier" },
 ];
 
@@ -447,7 +453,13 @@ function isDraftValidatedForMedia(status: string | null | undefined) {
     status === "visual_ready" ||
     status === "visuels_prets" ||
     status === "voix_en_attente" ||
+    status === "voix_en_cours" ||
+    status === "voix_erreur" ||
     status === "voix_prete" ||
+    status === "voix_prête" ||
+    status === "voix_validée" ||
+    status === "voix_validee" ||
+    status === "video_en_attente" ||
     status === "voice_ready" ||
     status === "ready_to_publish"
   );
@@ -459,7 +471,13 @@ function isProtectedDraft(draft: ContentDraft | null | undefined) {
       draft?.status === "visual_ready" ||
       draft?.status === "visuels_prets" ||
       draft?.status === "voix_en_attente" ||
+      draft?.status === "voix_en_cours" ||
+      draft?.status === "voix_erreur" ||
       draft?.status === "voix_prete" ||
+      draft?.status === "voix_prête" ||
+      draft?.status === "voix_validée" ||
+      draft?.status === "voix_validee" ||
+      draft?.status === "video_en_attente" ||
       draft?.status === "voice_ready" ||
       draft?.visualStatus === "visual_ready",
   );
@@ -476,6 +494,10 @@ function getMediaPipelineStatusLabel(status: MediaPipelineState["mediaPipelineSt
     voix_en_cours: "Voix en cours",
     voix_erreur: "Erreur voix",
     voix_prete: "Voix prete",
+    voix_prête: "Voix prete",
+    voix_validée: "Voix validee",
+    voix_validee: "Voix validee",
+    video_en_attente: "Video en attente",
     voice_ready: "Voix prete",
     ready_to_publish: "Pret a publier",
   };

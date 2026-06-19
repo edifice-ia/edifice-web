@@ -17,7 +17,12 @@ import {
   updateDraftVisualSceneStatus,
   validateDraftVisuals,
 } from "@/lib/server/media-pipeline";
-import { generateDraftVoice, selectDraftVoice } from "@/lib/server/voice-pipeline";
+import {
+  generateDraftVoice,
+  selectDraftVoice,
+  unlockDraftVoice,
+  validateDraftVoice,
+} from "@/lib/server/voice-pipeline";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -293,6 +298,34 @@ export async function POST(
         draftId: id,
         userId: user.id,
         voiceId: payload.voiceId,
+      });
+      const media = await readMediaPipelineState({
+        draftId: id,
+        userId: user.id,
+        includeSuggestions: true,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "validate_voice") {
+      await validateDraftVoice({
+        draftId: id,
+        userId: user.id,
+      });
+      const media = await readMediaPipelineState({
+        draftId: id,
+        userId: user.id,
+        includeSuggestions: true,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "unlock_voice") {
+      await unlockDraftVoice({
+        draftId: id,
+        userId: user.id,
       });
       const media = await readMediaPipelineState({
         draftId: id,

@@ -36,7 +36,6 @@ function summarizeMediaBody(body: unknown) {
     generationQuality: payload.generationQuality,
     sceneIndex: payload.sceneIndex,
     usageOrder: payload.usageOrder,
-    voiceId: payload.voiceId,
     missing: [
       payload.action === "select_asset" ||
       payload.action === "select_scene_asset" ||

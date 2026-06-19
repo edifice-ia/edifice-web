@@ -67,6 +67,8 @@ type MediaPipelineState = {
     | "media_ready"
     | "visual_ready"
     | "voix_en_attente"
+    | "voix_en_cours"
+    | "voix_erreur"
     | "voix_prete"
     | "voice_ready"
     | "ready_to_publish";
@@ -156,6 +158,8 @@ const statusLabels: Record<string, string> = {
   visual_ready: "Visuels prêts",
   visuels_prets: "Visuels prêts",
   voix_en_attente: "Voix en attente",
+  voix_en_cours: "Voix en cours",
+  voix_erreur: "Erreur voix",
   voix_prete: "Voix prête",
   voice_ready: "Voix prête",
   ready_to_publish: "Prêt à publier",
@@ -168,6 +172,8 @@ const mediaStatusLabels: Record<MediaPipelineState["mediaPipelineStatus"], strin
   media_ready: "Visuels prêts",
   visual_ready: "Visuels prêts",
   voix_en_attente: "Voix en attente",
+  voix_en_cours: "Voix en cours",
+  voix_erreur: "Erreur voix",
   voix_prete: "Voix prête",
   voice_ready: "Voix prête",
   ready_to_publish: "Prêt à publier",

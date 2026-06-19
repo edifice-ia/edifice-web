@@ -15,6 +15,8 @@ type MediaPipelineStatus =
   | "media_ready"
   | "visual_ready"
   | "voix_en_attente"
+  | "voix_en_cours"
+  | "voix_erreur"
   | "voix_prete"
   | "voice_ready"
   | "ready_to_publish";
@@ -3842,6 +3844,8 @@ export async function readMediaPipelineState({
   return {
     mediaPipelineStatus:
       (draft.status === "voix_prete" || draft.status === "voice_ready" ? "voice_ready" : null) ??
+      (draft.status === "voix_en_cours" ? "voix_en_cours" : null) ??
+      (draft.status === "voix_erreur" ? "voix_erreur" : null) ??
       (draft.status === "voix_en_attente" ? "voix_en_attente" : null) ??
       plan?.media_pipeline_status ??
       (isDraftValidatedForMedia(draft.status) ? "validated" : "draft"),

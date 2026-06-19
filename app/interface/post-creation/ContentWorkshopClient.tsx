@@ -136,6 +136,8 @@ type MediaPipelineState = {
     | "media_ready"
     | "visual_ready"
     | "voix_en_attente"
+    | "voix_en_cours"
+    | "voix_erreur"
     | "voix_prete"
     | "voice_ready"
     | "ready_to_publish";
@@ -171,7 +173,7 @@ type DraftEditorState = {
 };
 
 type StatusOption = {
-  value: "draft" | "approved" | "rejected" | "visual_ready" | "voix_en_attente" | "voix_prete" | "ready_to_publish";
+  value: "draft" | "approved" | "rejected" | "visual_ready" | "voix_en_attente" | "voix_en_cours" | "voix_erreur" | "voix_prete" | "ready_to_publish";
   label: string;
 };
 
@@ -272,6 +274,8 @@ const statusOptions: StatusOption[] = [
   { value: "rejected", label: "Rejete" },
   { value: "visual_ready", label: "Visuels prets" },
   { value: "voix_en_attente", label: "Voix en attente" },
+  { value: "voix_en_cours", label: "Voix en cours" },
+  { value: "voix_erreur", label: "Erreur voix" },
   { value: "voix_prete", label: "Voix prete" },
   { value: "ready_to_publish", label: "Pret a publier" },
 ];
@@ -457,6 +461,8 @@ function getMediaPipelineStatusLabel(status: MediaPipelineState["mediaPipelineSt
     media_ready: "Medias prets",
     visual_ready: "Visuels prets",
     voix_en_attente: "Voix en attente",
+    voix_en_cours: "Voix en cours",
+    voix_erreur: "Erreur voix",
     voix_prete: "Voix prete",
     voice_ready: "Voix prete",
     ready_to_publish: "Pret a publier",

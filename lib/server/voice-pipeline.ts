@@ -10,13 +10,16 @@ type VoiceStatus = "not_ready" | "pending" | "generating" | "ready" | "error";
 export type DraftVoiceState = {
   audioUrl: string | null;
   canGenerate: boolean;
+  configurationAvailable: boolean;
   costEstimateUsd: number;
   durationEstimateSeconds: number;
   errorMessage: string | null;
   generatedAt: string | null;
+  hasValidatedText: boolean;
   selectedVoiceId: string | null;
   selectedVoiceLabel: string;
   status: VoiceStatus;
+  wordCount: number;
 };
 
 type DraftVoiceRow = {
@@ -65,33 +68,35 @@ function getVoiceClient() {
   return voiceClient;
 }
 
-function sanitizeVoiceId(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0
-    ? value.trim()
-    : null;
+function defaultVoiceId() {
+  return process.env.ELEVENLABS_VOICE_ID?.trim() || null;
 }
 
-function defaultVoiceId() {
-  return process.env.ELEVENLABS_DEFAULT_VOICE_ID?.trim() || "21m00Tcm4TlvDq8ikWAM";
+function maskVoiceId(voiceId: string | null) {
+  if (!voiceId) {
+    return null;
+  }
+
+  if (voiceId.length <= 8) {
+    return "****";
+  }
+
+  return `${voiceId.slice(0, 4)}...${voiceId.slice(-4)}`;
 }
 
 function voiceLabel(voiceId: string | null) {
-  if (!voiceId) {
-    return "Aucune voix selectionnee";
-  }
-
-  if (voiceId === "21m00Tcm4TlvDq8ikWAM") {
-    return "Rachel";
-  }
-
-  return voiceId;
+  return voiceId ? "Voix ElevenLabs configuree" : "Aucune voix configuree";
 }
 
-function estimateDurationSeconds(script: string | null) {
-  const words = (script ?? "")
+function countWords(script: string | null) {
+  return (script ?? "")
     .split(/\s+/)
     .map((word) => word.trim())
     .filter(Boolean).length;
+}
+
+function estimateDurationSeconds(script: string | null) {
+  const words = countWords(script);
 
   return Math.max(1, Math.round(words / 2.45));
 }
@@ -111,6 +116,24 @@ function isVisualReady(draft: DraftVoiceRow) {
     draft.status === "voice_ready" ||
     draft.visual_status === "visual_ready" ||
     Boolean(draft.visuals_validated_at)
+  );
+}
+
+function hasValidatedText(draft: DraftVoiceRow) {
+  return (
+    Boolean(draft.script?.trim()) &&
+    (
+      draft.status === "approved" ||
+      draft.status === "validated" ||
+      draft.status === "visual_ready" ||
+      draft.status === "visuels_prets" ||
+      draft.status === "voix_en_attente" ||
+      draft.status === "voix_en_cours" ||
+      draft.status === "voix_prete" ||
+      draft.status === "voice_ready" ||
+      draft.status === "ready_to_publish" ||
+      isVisualReady(draft)
+    )
   );
 }
 
@@ -180,27 +203,32 @@ export async function readDraftVoiceState({
 }): Promise<DraftVoiceState> {
   const draft = await readDraftVoiceRow(draftId, userId);
   const audioAsset = await readAudioAsset(draft);
-  const selectedVoiceId = sanitizeVoiceId(draft.selected_voice_id) || defaultVoiceId();
+  const selectedVoiceId = defaultVoiceId();
+  const configurationAvailable = Boolean(process.env.ELEVENLABS_API_KEY?.trim() && selectedVoiceId);
+  const textIsValidated = hasValidatedText(draft);
   const ready = draft.voice_status === "ready" || draft.status === "voix_prete" || draft.status === "voice_ready";
   const status: VoiceStatus = ready
     ? "ready"
-    : draft.voice_status === "generating"
+    : draft.voice_status === "generating" || draft.status === "voix_en_cours"
       ? "generating"
-      : draft.voice_status === "error"
+      : draft.voice_status === "error" || draft.status === "voix_erreur"
         ? "error"
-        : isVisualReady(draft)
+        : textIsValidated
           ? "pending"
           : "not_ready";
 
   return {
     audioUrl: audioAsset?.public_url ?? null,
-    canGenerate: isVisualReady(draft) && status !== "generating",
+    canGenerate: configurationAvailable && textIsValidated && status !== "generating",
+    configurationAvailable,
     costEstimateUsd: estimateCostUsd(draft.script),
     durationEstimateSeconds: estimateDurationSeconds(draft.script),
-    errorMessage: draft.voice_error ?? null,
+    errorMessage: configurationAvailable ? draft.voice_error ?? null : "Configuration ElevenLabs indisponible.",
     generatedAt: draft.voice_generated_at ?? audioAsset?.created_at ?? null,
-    selectedVoiceId,
+    hasValidatedText: textIsValidated,
+    selectedVoiceId: selectedVoiceId ? "configured" : null,
     selectedVoiceLabel: voiceLabel(selectedVoiceId),
+    wordCount: countWords(draft.script),
     status,
   };
 }
@@ -214,7 +242,13 @@ export async function selectDraftVoice({
   userId: string;
   voiceId: unknown;
 }) {
-  const selectedVoiceId = sanitizeVoiceId(voiceId) || defaultVoiceId();
+  void voiceId;
+  const selectedVoiceId = defaultVoiceId();
+
+  if (!selectedVoiceId) {
+    throw new Error("Configuration ElevenLabs indisponible.");
+  }
+
   await readDraftVoiceRow(draftId, userId);
 
   const { error } = await getVoiceClient()
@@ -244,45 +278,76 @@ export async function generateDraftVoice({
 }) {
   const supabase = getVoiceClient();
   const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  const selectedVoiceId = defaultVoiceId();
 
-  if (!apiKey) {
-    throw new Error("Cle ElevenLabs non configuree.");
+  void voiceId;
+
+  if (!apiKey || !selectedVoiceId) {
+    throw new Error("Configuration ElevenLabs indisponible.");
   }
 
   const draft = await readDraftVoiceRow(draftId, userId);
-  const selectedVoiceId = sanitizeVoiceId(voiceId) || sanitizeVoiceId(draft.selected_voice_id) || defaultVoiceId();
   const script = draft.script?.trim() ?? "";
 
   if (draft.voice_status === "generating") {
     throw new Error("Une generation voix est deja en cours.");
   }
 
-  if (!isVisualReady(draft)) {
-    throw new Error("Les visuels doivent etre valides avant de generer la voix.");
+  if (!hasValidatedText(draft)) {
+    throw new Error("Texte valide requis avant de generer la voix.");
   }
 
-  if (!script) {
-    throw new Error("Script vide: generation voix impossible.");
-  }
-
-  const { error: lockError } = await supabase
+  let pendingQuery = supabase
     .from("content_drafts")
     .update({
       selected_voice_id: selectedVoiceId,
       status: "voix_en_attente",
       voice_error: null,
+      voice_status: "pending",
+    })
+    .eq("id", draftId)
+    .eq("user_id", userId);
+
+  pendingQuery = draft.voice_status
+    ? pendingQuery.eq("voice_status", draft.voice_status)
+    : pendingQuery.is("voice_status", null);
+
+  const { data: pendingDraft, error: pendingError } = await pendingQuery
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (pendingError) {
+    throw new Error(`Demarrage generation voix impossible: ${pendingError.message}`);
+  }
+
+  if (!pendingDraft) {
+    throw new Error("Une generation voix est deja en cours.");
+  }
+
+  const { data: lockedDraft, error: lockError } = await supabase
+    .from("content_drafts")
+    .update({
+      selected_voice_id: selectedVoiceId,
+      status: "voix_en_cours",
+      voice_error: null,
       voice_status: "generating",
     })
     .eq("id", draftId)
     .eq("user_id", userId)
-    .neq("voice_status", "generating");
+    .eq("voice_status", "pending")
+    .select("id")
+    .maybeSingle<{ id: string }>();
 
   if (lockError) {
     throw new Error(`Demarrage generation voix impossible: ${lockError.message}`);
   }
 
+  if (!lockedDraft) {
+    throw new Error("Une generation voix est deja en cours.");
+  }
+
   try {
-    const modelId = process.env.ELEVENLABS_MODEL_ID?.trim() || "eleven_multilingual_v2";
+    const modelId = "eleven_multilingual_v2";
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}`, {
       method: "POST",
       headers: {
@@ -303,8 +368,7 @@ export async function generateDraftVoice({
     });
 
     if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(`ElevenLabs a refuse la generation (${response.status}): ${detail.slice(0, 300)}`);
+      throw new Error(`ElevenLabs a refuse la generation (${response.status}).`);
     }
 
     const audioBytes = Buffer.from(await response.arrayBuffer());
@@ -327,28 +391,35 @@ export async function generateDraftVoice({
       .from(VOICE_AUDIO_BUCKET)
       .getPublicUrl(storagePath);
     const publicUrl = publicUrlData.publicUrl;
+    const now = new Date().toISOString();
+    const durationEstimateSeconds = estimateDurationSeconds(script);
+    const wordCount = countWords(script);
 
     const { data: asset, error: assetError } = await supabase
       .from("content_assets")
-      .insert({
+      .upsert({
         asset_type: "audio",
         bucket_name: VOICE_AUDIO_BUCKET,
         file_name: fileName,
         linked_draft_id: draftId,
         metadata: {
+          asset_role: "short_voiceover",
           content_type: "audio/mpeg",
-          duration_estimate_seconds: estimateDurationSeconds(script),
-          generated_by: "elevenlabs",
-          model_id: modelId,
-          selected_voice_id: selectedVoiceId,
+          estimated_duration_seconds: durationEstimateSeconds,
+          generated_at: now,
+          generation_quality: "standard",
+          language: "fr",
+          script_word_count: wordCount,
           source_draft_id: draftId,
+          voice_id_masked: maskVoiceId(selectedVoiceId),
+          voice_provider: "elevenlabs",
           size_bytes: audioBytes.length,
         },
         public_url: publicUrl,
         source: "elevenlabs",
         status: "available",
         storage_path: storagePath,
-      })
+      }, { onConflict: "storage_path" })
       .select("id")
       .single<{ id: string }>();
 
@@ -356,7 +427,6 @@ export async function generateDraftVoice({
       throw new Error(`Creation asset audio impossible: ${assetError.message}`);
     }
 
-    const now = new Date().toISOString();
     const { error: draftUpdateError } = await supabase
       .from("content_drafts")
       .update({
@@ -380,6 +450,7 @@ export async function generateDraftVoice({
     await supabase
       .from("content_drafts")
       .update({
+        status: "voix_erreur",
         voice_error: message,
         voice_status: "error",
       })

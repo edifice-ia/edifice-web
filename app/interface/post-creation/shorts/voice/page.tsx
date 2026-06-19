@@ -14,8 +14,8 @@ export default function ShortsVoicePage() {
       <CockpitHeader
         eyebrow="Atelier de contenu > Shorts"
         title="Voix Shorts"
-        description="Préparer le futur module audio par brouillon, sans connexion ElevenLabs pour l'instant."
-        status="En migration"
+        description="Generer manuellement une voix-off ElevenLabs pour un brouillon valide."
+        status="Operationnel"
       />
 
       <div className="mb-6">

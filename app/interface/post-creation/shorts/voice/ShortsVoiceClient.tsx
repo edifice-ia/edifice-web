@@ -20,7 +20,6 @@ type ContentDraft = {
   script: string;
   voiceStyle: string;
   score: {
-    duration_seconds?: number | string | null;
     total: number;
   };
 };
@@ -72,12 +71,6 @@ type MediaPayload = {
     mediaPipelineStatus?: string;
     selectedAssets?: unknown[];
     subtitles?: DraftSubtitleState;
-    videoPreparation?: {
-      manifestStoragePath: string | null;
-      manifestUrl: string | null;
-      preparedAt: string | null;
-      status: "pending" | "ready";
-    };
     visualScenes?: Array<{
       generationStatus?: string | null;
       imageUrl?: string | null;
@@ -231,7 +224,6 @@ export function ShortsVoiceClient() {
     | "regenerate_subtitles"
     | "validate_subtitles"
     | "ignore_subtitles"
-    | "prepare_video"
     | null
   >(null);
   const [voiceConfirmationAction, setVoiceConfirmationAction] = useState<
@@ -284,63 +276,6 @@ export function ShortsVoiceClient() {
     ? null
     : "Genere les sous-titres avant de les valider.";
   const blockedReason = voiceIsValidated ? null : generationBlockedReason(voice);
-  const videoPreparation = media?.videoPreparation ?? null;
-  const targetDurationSeconds = Number(selectedDraft?.score.duration_seconds);
-  const safeTargetDurationSeconds = Number.isFinite(targetDurationSeconds) && targetDurationSeconds > 0
-    ? targetDurationSeconds
-    : subtitles?.durationSeconds || voice?.durationEstimateSeconds || 0;
-  const validatedVisualsCount = Math.max(
-    workflowState.raw.retainedVisualScenesCount,
-    workflowState.visuals === "validated" ? workflowState.raw.selectedAssetsCount : 0,
-  );
-  const requiredVisualCount = workflowState.raw.requiredVisualCount;
-  const videoChecklist = [
-    {
-      label: "Texte",
-      ok: workflowState.text === "validated",
-      value: workflowState.text === "validated" ? "valide" : "manquant",
-    },
-    {
-      label: "Visuels",
-      ok: workflowState.visuals === "validated" && validatedVisualsCount >= requiredVisualCount,
-      value: `${validatedVisualsCount}/${requiredVisualCount} valides`,
-    },
-    {
-      label: "Voix",
-      ok: workflowState.voice === "validated",
-      value: workflowState.voice === "validated" ? "validee" : "manquante",
-    },
-    {
-      label: "Sous-titres",
-      ok: workflowState.subtitles === "validated",
-      value: workflowState.subtitles === "validated" ? "valides" : "manquants",
-    },
-    {
-      label: "Style de sous-titres",
-      ok: workflowState.subtitles === "validated",
-      value: subtitleModeLabel(generatedSubtitleMode),
-    },
-    {
-      label: "Duree audio",
-      ok: Boolean(voice?.audioUrl),
-      value: formatSubtitleAudioDuration(subtitles, voice),
-    },
-    {
-      label: "Duree cible",
-      ok: safeTargetDurationSeconds > 0,
-      value: safeTargetDurationSeconds > 0
-        ? formatDuration(safeTargetDurationSeconds)
-        : "a determiner",
-    },
-  ];
-  const videoBlockingReasons = videoChecklist
-    .filter((item) => !item.ok)
-    .map((item) => `${item.label}: ${item.value}`);
-  const videoPreparationReady = videoPreparation?.status === "ready" || workflowState.video === "ready";
-  const canPrepareVideo = videoBlockingReasons.length === 0 &&
-    !videoPreparationReady &&
-    activeAction !== "prepare_video";
-
   async function loadDrafts() {
     setIsLoadingDrafts(true);
     setError(null);
@@ -539,46 +474,6 @@ export function ShortsVoiceClient() {
         caughtError instanceof Error
           ? caughtError.message
           : "Action sous-titres indisponible.",
-      );
-      await loadVoice(selectedDraft.id);
-    } finally {
-      setActiveAction(null);
-    }
-  }
-
-  async function runVideoPreparationAction() {
-    if (!selectedDraft || activeAction || !canPrepareVideo) {
-      return;
-    }
-
-    setActiveAction("prepare_video");
-    setError(null);
-    setNotice(null);
-
-    try {
-      const response = await fetch(`/api/content-workshop/drafts/${selectedDraft.id}/media`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action: "prepare_video" }),
-      });
-      const payload = (await response.json()) as MediaPayload;
-
-      if (!response.ok || !payload.media?.voice) {
-        throw new Error(payload.error ?? "Preparation video indisponible.");
-      }
-
-      setMedia(payload.media);
-      setVoice(payload.media.voice);
-      setSelectedSubtitleMode(normalizeSubtitleMode(payload.media.subtitles?.mode));
-      await loadDrafts();
-      setNotice("Preparation video terminee. Le manifest est pret pour le montage.");
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Preparation video indisponible.",
       );
       await loadVoice(selectedDraft.id);
     } finally {
@@ -1050,81 +945,6 @@ export function ShortsVoiceClient() {
                   </div>
                 </div>
               ) : null}
-            </div>
-
-            <div className="mt-5 rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-[#F8FAFC]">Preparer la video</p>
-                  <p className="mt-1 text-sm text-[#A7B0C0]">
-                    {videoPreparationReady ? "Preparation video terminee." : videoBlockingReasons.length === 0 ? "Pret a preparer la video." : "Elements manquants."}
-                  </p>
-                </div>
-                <span className={`rounded-md border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] ${
-                  videoPreparationReady
-                    ? "border-[#22C55E]/45 bg-[#22C55E]/10 text-[#86EFAC]"
-                    : videoBlockingReasons.length === 0
-                      ? "border-[#39E6D0]/45 bg-[#39E6D0]/10 text-[#39E6D0]"
-                      : "border-[#1D2A44] bg-[#03070B] text-[#A7B0C0]"
-                }`}>
-                  {videoPreparationReady ? "Video prete a generer" : videoBlockingReasons.length === 0 ? "Pret a preparer" : "Elements manquants"}
-                </span>
-              </div>
-
-              <div className="mt-4 grid gap-2">
-                {videoChecklist.map((item) => (
-                  <p
-                    key={item.label}
-                    className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm"
-                  >
-                    <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-semibold text-[#F8FAFC]">
-                      {item.label}
-                    </span>
-                    <span className={`shrink-0 text-right font-semibold ${item.ok ? "text-[#86EFAC]" : "text-[#FDBA74]"}`}>
-                      {item.value}
-                    </span>
-                  </p>
-                ))}
-              </div>
-
-              {videoBlockingReasons.length > 0 ? (
-                <div className="mt-4 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-4 py-3 text-sm text-[#FDBA74]">
-                  <p className="font-semibold">Preparation bloquee</p>
-                  <p className="mt-1 leading-6">
-                    {videoBlockingReasons.join(" ")}
-                  </p>
-                </div>
-              ) : null}
-
-              {videoPreparation?.manifestUrl ? (
-                <p className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
-                  Manifest:{" "}
-                  <a
-                    href={videoPreparation.manifestUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-semibold text-[#39E6D0] hover:text-[#F8FAFC]"
-                  >
-                    Voir le manifest
-                  </a>
-                  {videoPreparation.preparedAt ? (
-                    <span className="ml-2 text-[#64748B]">
-                      {formatDate(videoPreparation.preparedAt)}
-                    </span>
-                  ) : null}
-                </p>
-              ) : null}
-
-              <div className="mt-4">
-                <button
-                  type="button"
-                  disabled={!canPrepareVideo}
-                  onClick={() => void runVideoPreparationAction()}
-                  className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
-                >
-                  {activeAction === "prepare_video" ? "Preparation..." : videoPreparationReady ? "Preparation video terminee" : "Preparer la video"}
-                </button>
-              </div>
             </div>
 
             <div className="mt-5 flex flex-wrap gap-2">

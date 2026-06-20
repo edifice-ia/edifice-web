@@ -16,13 +16,18 @@ const shortsSubmodules = [
     label: "Voix",
     description: "Audio en preparation",
   },
+  {
+    href: "/interface/post-creation/shorts/video",
+    label: "Preparer la video",
+    description: "Manifest de montage",
+  },
 ];
 
-export function ShortsSubmoduleNav({ active }: { active: "drafts" | "visuals" | "voice" }) {
+export function ShortsSubmoduleNav({ active }: { active: "drafts" | "visuals" | "voice" | "video" }) {
   const activeHref = `/interface/post-creation/shorts/${active}`;
 
   return (
-    <nav className="mb-6 grid gap-3 md:grid-cols-3" aria-label="Navigation Shorts">
+    <nav className="mb-6 grid gap-3 md:grid-cols-4" aria-label="Navigation Shorts">
       {shortsSubmodules.map((item) => {
         const isActive = item.href === activeHref;
 

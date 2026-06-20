@@ -1556,16 +1556,6 @@ export function ShortsVisualsClient() {
       return;
     }
 
-    if (action === "generate_voice" || action === "regenerate_voice") {
-      const confirmed = window.confirm(
-        `Confirmer l'appel ElevenLabs ? Cout estime: $${(media?.voice.costEstimateUsd ?? 0).toFixed(2)}.`,
-      );
-
-      if (!confirmed) {
-        return;
-      }
-    }
-
     setIsRunningAction(true);
     setActiveAction(action);
     setError(null);

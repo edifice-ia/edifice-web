@@ -225,7 +225,12 @@ export function ShortsVoiceClient() {
     | "ignore_subtitles"
     | null
   >(null);
-  const [confirmationAction, setConfirmationAction] = useState<"generate_voice" | "regenerate_voice" | null>(null);
+  const [voiceConfirmationAction, setVoiceConfirmationAction] = useState<
+    "regenerate_voice" | "validate_voice" | "unlock_voice" | null
+  >(null);
+  const [subtitleConfirmationAction, setSubtitleConfirmationAction] = useState<
+    "regenerate_subtitles" | "validate_subtitles" | "ignore_subtitles" | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedSubtitleMode, setSelectedSubtitleMode] = useState<SubtitleMode>(DEFAULT_SUBTITLE_MODE);
@@ -340,7 +345,7 @@ export function ShortsVoiceClient() {
     }
 
     setActiveAction(action);
-    setConfirmationAction(null);
+    setVoiceConfirmationAction(null);
     setError(null);
     setNotice(null);
 
@@ -382,17 +387,8 @@ export function ShortsVoiceClient() {
       return;
     }
 
-    const confirmed = window.confirm(
-      action === "validate_voice"
-        ? "Valider cette voix pour ce Short ?"
-        : "Modifier la voix ? La video sera de nouveau bloquee jusqu'a validation.",
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
     setActiveAction(action);
+    setVoiceConfirmationAction(null);
     setError(null);
     setNotice(null);
 
@@ -438,23 +434,8 @@ export function ShortsVoiceClient() {
       return;
     }
 
-    const confirmed = window.confirm(
-      action === "ignore_subtitles"
-        ? "Ignorer les sous-titres pour ce Short ?"
-        : action === "validate_subtitles"
-          ? "Valider ces sous-titres pour ce Short ?"
-        : action === "regenerate_subtitles"
-          ? subtitlesAreValidated
-            ? "Regenerer les sous-titres necessitera une nouvelle validation."
-            : "Regenerer les sous-titres avec ElevenLabs ?"
-          : "Generer les sous-titres avec ElevenLabs ?",
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
     setActiveAction(action);
+    setSubtitleConfirmationAction(null);
     setError(null);
     setNotice(null);
 
@@ -527,7 +508,8 @@ export function ShortsVoiceClient() {
             <select
               value={selectedDraftId}
               onChange={(event) => {
-                setConfirmationAction(null);
+                setVoiceConfirmationAction(null);
+                setSubtitleConfirmationAction(null);
                 setSelectedDraftId(event.target.value);
               }}
               className="mt-2 w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2.5 text-sm text-[#F8FAFC] outline-none"
@@ -856,7 +838,7 @@ export function ShortsVoiceClient() {
                 <button
                   type="button"
                   disabled={!canValidateSubtitles}
-                  onClick={() => void runSubtitleAction("validate_subtitles")}
+                  onClick={() => setSubtitleConfirmationAction("validate_subtitles")}
                   className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                 >
                   {subtitlesAreValidated ? "Sous-titres valides" : "Valider les sous-titres"}
@@ -864,7 +846,14 @@ export function ShortsVoiceClient() {
                 <button
                   type="button"
                   disabled={!canGenerateSubtitles || !subtitles?.jsonUrl}
-                  onClick={() => void runSubtitleAction("regenerate_subtitles")}
+                  onClick={() => {
+                    if (subtitlesAreValidated) {
+                      setSubtitleConfirmationAction("regenerate_subtitles");
+                      return;
+                    }
+
+                    void runSubtitleAction("regenerate_subtitles");
+                  }}
                   className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                 >
                   Regenerer les sous-titres
@@ -872,7 +861,7 @@ export function ShortsVoiceClient() {
                 <button
                   type="button"
                   disabled={!canGenerateSubtitles}
-                  onClick={() => void runSubtitleAction("ignore_subtitles")}
+                  onClick={() => setSubtitleConfirmationAction("ignore_subtitles")}
                   className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#F97316]/50 hover:text-[#FDBA74] disabled:cursor-not-allowed disabled:opacity-55"
                 >
                   Ignorer les sous-titres
@@ -915,6 +904,47 @@ export function ShortsVoiceClient() {
                   </a>
                 ) : null}
               </div>
+
+              {subtitleConfirmationAction ? (
+                <div className="mt-4 rounded-md border border-[#39E6D0]/35 bg-[#03070B] p-4">
+                  <p className="text-sm font-semibold text-[#F8FAFC]">
+                    {subtitleConfirmationAction === "validate_subtitles"
+                      ? "Valider les sous-titres ?"
+                      : subtitleConfirmationAction === "regenerate_subtitles"
+                        ? "Regenerer les sous-titres ?"
+                        : "Ignorer les sous-titres ?"}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+                    {subtitleConfirmationAction === "validate_subtitles"
+                      ? "Ils seront consideres comme prets pour la preparation video."
+                      : subtitleConfirmationAction === "regenerate_subtitles"
+                        ? "Regenerer les sous-titres necessitera une nouvelle validation."
+                        : "Le Short passera a l'etape suivante sans sous-titres actifs."}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={subtitlesBusy}
+                      onClick={() => void runSubtitleAction(subtitleConfirmationAction)}
+                      className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      {subtitleConfirmationAction === "regenerate_subtitles"
+                        ? "Regenerer"
+                        : subtitleConfirmationAction === "ignore_subtitles"
+                          ? "Ignorer"
+                          : "Valider"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={subtitlesBusy}
+                      onClick={() => setSubtitleConfirmationAction(null)}
+                      className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-5 flex flex-wrap gap-2">
@@ -922,7 +952,7 @@ export function ShortsVoiceClient() {
                 <button
                   type="button"
                   disabled={Boolean(activeAction)}
-                  onClick={() => void runVoiceValidationAction("unlock_voice")}
+                  onClick={() => setVoiceConfirmationAction("unlock_voice")}
                   className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                 >
                   Modifier la voix
@@ -933,7 +963,7 @@ export function ShortsVoiceClient() {
                     <button
                       type="button"
                       disabled={Boolean(blockedReason) || isGenerating}
-                      onClick={() => setConfirmationAction("generate_voice")}
+                      onClick={() => void runVoiceAction("generate_voice")}
                       className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                     >
                       {isGenerating ? "Generation..." : "Generer la voix"}
@@ -943,7 +973,7 @@ export function ShortsVoiceClient() {
                     <button
                       type="button"
                       disabled={Boolean(activeAction)}
-                      onClick={() => void runVoiceValidationAction("validate_voice")}
+                      onClick={() => setVoiceConfirmationAction("validate_voice")}
                       className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                     >
                       Valider la voix
@@ -952,7 +982,7 @@ export function ShortsVoiceClient() {
                   <button
                     type="button"
                     disabled={!voice?.audioUrl || Boolean(blockedReason) || isGenerating}
-                    onClick={() => setConfirmationAction("regenerate_voice")}
+                    onClick={() => setVoiceConfirmationAction("regenerate_voice")}
                     className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                   >
                     Regenerer la voix
@@ -967,46 +997,73 @@ export function ShortsVoiceClient() {
               </p>
             ) : null}
 
-            {confirmationAction && voice ? (
+            {voiceConfirmationAction && voice ? (
               <div className="mt-5 rounded-md border border-[#39E6D0]/40 bg-[#39E6D0]/10 p-4">
                 <p className="text-sm font-semibold text-[#F8FAFC]">
-                  Confirmer la generation ElevenLabs
+                  {voiceConfirmationAction === "validate_voice"
+                    ? "Valider la voix ?"
+                    : voiceConfirmationAction === "unlock_voice"
+                      ? "Modifier la voix ?"
+                      : "Confirmer la regeneration ElevenLabs"}
                 </p>
-                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                  <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
-                    Mots: <span className="font-semibold text-[#F8FAFC]">{voice.wordCount}</span>
-                  </p>
-                  <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
-                    Duree:{" "}
-                    <span className="font-semibold text-[#F8FAFC]">
-                      {formatDuration(voice.durationEstimateSeconds)}
-                    </span>
-                  </p>
-                  <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
-                    Cout:{" "}
-                    <span className="font-semibold text-[#F8FAFC]">
-                      ${voice.costEstimateUsd.toFixed(2)}
-                    </span>
-                  </p>
-                </div>
-                {voice.audioUrl && confirmationAction === "generate_voice" ? (
+                {voiceConfirmationAction === "regenerate_voice" ? (
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+                      Mots: <span className="font-semibold text-[#F8FAFC]">{voice.wordCount}</span>
+                    </p>
+                    <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+                      Duree:{" "}
+                      <span className="font-semibold text-[#F8FAFC]">
+                        {formatDuration(voice.durationEstimateSeconds)}
+                      </span>
+                    </p>
+                    <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+                      Cout:{" "}
+                      <span className="font-semibold text-[#F8FAFC]">
+                        ${voice.costEstimateUsd.toFixed(2)}
+                      </span>
+                    </p>
+                  </div>
+                ) : null}
+                {voiceConfirmationAction === "regenerate_voice" ? (
                   <p className="mt-3 text-sm leading-6 text-[#A7B0C0]">
-                    Une voix existe deja pour ce brouillon. Confirmer remplacera la voix rattachee par la nouvelle generation.
+                    Une voix existe deja pour ce brouillon. Regenerer remplacera la voix rattachee par la nouvelle generation.
+                  </p>
+                ) : null}
+                {voiceConfirmationAction === "validate_voice" ? (
+                  <p className="mt-3 text-sm leading-6 text-[#A7B0C0]">
+                    Cette voix sera verrouillee pour la suite du workflow Shorts.
+                  </p>
+                ) : null}
+                {voiceConfirmationAction === "unlock_voice" ? (
+                  <p className="mt-3 text-sm leading-6 text-[#A7B0C0]">
+                    La video sera de nouveau bloquee jusqu&apos;a une nouvelle validation voix.
                   </p>
                 ) : null}
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     type="button"
                     disabled={isGenerating}
-                    onClick={() => void runVoiceAction(confirmationAction)}
+                    onClick={() => {
+                      if (voiceConfirmationAction === "regenerate_voice") {
+                        void runVoiceAction("regenerate_voice");
+                        return;
+                      }
+
+                      void runVoiceValidationAction(voiceConfirmationAction);
+                    }}
                     className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                   >
-                    Confirmer
+                    {voiceConfirmationAction === "regenerate_voice"
+                      ? "Regenerer"
+                      : voiceConfirmationAction === "unlock_voice"
+                        ? "Modifier"
+                        : "Valider"}
                   </button>
                   <button
                     type="button"
                     disabled={isGenerating}
-                    onClick={() => setConfirmationAction(null)}
+                    onClick={() => setVoiceConfirmationAction(null)}
                     className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                   >
                     Annuler

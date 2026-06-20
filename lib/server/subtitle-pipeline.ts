@@ -27,7 +27,7 @@ const KARAOKE_STYLE = {
   stroke_width: 0.9,
 } as const;
 
-type SubtitleStatus = "pending" | "generating" | "ready" | "ignored" | "error";
+type SubtitleStatus = "pending" | "generating" | "ready" | "validated" | "ignored" | "error";
 
 type DraftSubtitleRow = {
   id: string;
@@ -83,6 +83,8 @@ export type DraftSubtitleState = {
   status: SubtitleStatus;
   style: typeof KARAOKE_STYLE;
   timingOffsetMs: typeof TIMING_OFFSET_MS;
+  validatedAt: string | null;
+  validatedBy: string | null;
   vttUrl: string | null;
 };
 
@@ -154,6 +156,8 @@ function defaultState(status: SubtitleStatus, canGenerate: boolean): DraftSubtit
     status,
     style: KARAOKE_STYLE,
     timingOffsetMs: TIMING_OFFSET_MS,
+    validatedAt: null,
+    validatedBy: null,
     vttUrl: null,
   };
 }
@@ -307,9 +311,10 @@ function buildReadyState(assets: ContentAssetRow[]): DraftSubtitleState | null {
   const segmentsCount = metadataNumber(jsonAsset, "segments_count") ?? segments.length;
   const durationSeconds = metadataNumber(jsonAsset, "duration_seconds") ?? 0;
   const mode = normalizeSubtitleMode(metadataString(jsonAsset, "mode"));
+  const validated = metadataString(jsonAsset, "subtitle_validation_status") === "validated";
 
   return {
-    ...defaultState("ready", true),
+    ...defaultState(validated ? "validated" : "ready", true),
     durationSeconds,
     generatedAt: metadataString(jsonAsset, "generated_at") ?? jsonAsset.created_at,
     jsonUrl: jsonAsset.public_url,
@@ -318,6 +323,8 @@ function buildReadyState(assets: ContentAssetRow[]): DraftSubtitleState | null {
     previewSegments: segments.slice(0, 12),
     segmentsCount,
     srtUrl: srtAsset?.public_url ?? null,
+    validatedAt: metadataString(jsonAsset, "subtitle_validated_at"),
+    validatedBy: metadataString(jsonAsset, "subtitle_validated_by"),
     vttUrl: vttAsset?.public_url ?? null,
   };
 }
@@ -502,6 +509,7 @@ async function uploadSubtitleAsset({
     provider: SUBTITLE_PROVIDER,
     segments: format === "json" ? jsonSegments : undefined,
     segments_count: jsonSegments.length,
+    subtitle_validation_status: "pending",
     source_draft_id: draftId,
     source_voice_asset_id: sourceVoiceAssetId,
     style: KARAOKE_STYLE,
@@ -738,6 +746,70 @@ export async function generateDraftSubtitles({
 
     throw error;
   }
+}
+
+export async function validateDraftSubtitles({
+  draftId,
+  userId,
+}: {
+  draftId: string;
+  userId: string;
+}) {
+  const draft = await readDraft(draftId, userId);
+  const voiceAsset = hasValidatedVoiceStatus(draft)
+    ? await readVoiceAssetForDraft(draft)
+    : null;
+
+  if (!voiceAsset) {
+    throw new Error("Valide une voix avant de valider les sous-titres.");
+  }
+
+  const assets = await readSubtitleAssets(draftId);
+  const matchingAssets = assets.filter(
+    (asset) => metadataString(asset, "source_voice_asset_id") === voiceAsset.id,
+  );
+  const jsonAsset = matchingAssets.find((asset) => subtitleFormat(asset) === "json");
+
+  if (!jsonAsset) {
+    throw new Error("Genere les sous-titres avant de les valider.");
+  }
+
+  const groupId = metadataString(jsonAsset, "subtitle_group_id");
+  const groupAssets = groupId
+    ? matchingAssets.filter((asset) => metadataString(asset, "subtitle_group_id") === groupId)
+    : [jsonAsset];
+  const now = new Date().toISOString();
+  const supabase = getSubtitleClient();
+
+  for (const asset of groupAssets) {
+    const { error } = await supabase
+      .from("content_assets")
+      .update({
+        metadata: {
+          ...(asset.metadata ?? {}),
+          subtitle_validated_at: now,
+          subtitle_validated_by: userId,
+          subtitle_validation_status: "validated",
+        },
+      })
+      .eq("id", asset.id);
+
+    if (error) {
+      throw new Error(`Validation des sous-titres impossible: ${error.message}`);
+    }
+  }
+
+  const { error: draftError } = await supabase
+    .from("content_drafts")
+    .update({ status: "video_en_attente" })
+    .eq("id", draftId)
+    .eq("user_id", userId);
+
+  if (draftError) {
+    throw new Error(`Mise a jour du statut video impossible: ${draftError.message}`);
+  }
+
+  return readDraftSubtitleState({ draftId, userId });
 }
 
 export async function ignoreDraftSubtitles({

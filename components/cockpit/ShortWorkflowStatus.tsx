@@ -83,6 +83,7 @@ const nextStepLabels: Record<string, string> = {
   "Pret a publier": "Publier",
   "Terminer les visuels": "Terminer les visuels",
   "Valider la publication": "Valider la publication",
+  "Valider les sous-titres": "Valider les sous-titres",
   "Valider le texte": "Valider le texte",
   video_en_attente: "Préparer la vidéo",
 };

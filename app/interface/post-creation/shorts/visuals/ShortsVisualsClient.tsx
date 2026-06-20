@@ -103,7 +103,7 @@ type MediaPipelineState = {
   subtitles: {
     generatedAt: string | null;
     segmentsCount: number;
-    status: "pending" | "generating" | "ready" | "ignored" | "error";
+    status: "pending" | "generating" | "ready" | "validated" | "ignored" | "error";
   };
   voice: DraftVoiceState;
   visualScenes: VisualScene[];

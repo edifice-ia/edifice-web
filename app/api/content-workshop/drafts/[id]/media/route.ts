@@ -26,6 +26,7 @@ import {
 import {
   generateDraftSubtitles,
   ignoreDraftSubtitles,
+  validateDraftSubtitles,
 } from "@/lib/server/subtitle-pipeline";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -357,6 +358,20 @@ export async function POST(
 
     if (action === "ignore_subtitles") {
       await ignoreDraftSubtitles({
+        draftId: id,
+        userId: user.id,
+      });
+      const media = await readMediaPipelineState({
+        draftId: id,
+        userId: user.id,
+        includeSuggestions: true,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "validate_subtitles") {
+      await validateDraftSubtitles({
         draftId: id,
         userId: user.id,
       });

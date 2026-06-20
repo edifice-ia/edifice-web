@@ -245,7 +245,9 @@ export function getShortWorkflowState({
       ? "generating"
       : subtitlesStatus === "ignored" || Boolean(draftStatus && subtitleIgnoredStatuses.has(draftStatus))
         ? "ignored"
-        : subtitlesStatus === "ready" || Boolean(draftStatus && subtitleReadyStatuses.has(draftStatus))
+        : subtitlesStatus === "validated"
+          ? "validated"
+          : subtitlesStatus === "ready" || Boolean(draftStatus && subtitleReadyStatuses.has(draftStatus))
           ? "ready"
           : "pending";
 
@@ -276,7 +278,9 @@ export function getShortWorkflowState({
                   ? "Attendre les sous-titres"
                   : subtitles === "error"
                     ? "Corriger les sous-titres"
-                    : videoState === "pending"
+                    : subtitles === "ready"
+                      ? "Valider les sous-titres"
+                      : videoState === "pending"
                       ? "video_en_attente"
                       : readyToPublish === "pending"
                         ? "Valider la publication"
@@ -301,7 +305,9 @@ export function getShortWorkflowState({
       voice: voiceGenerated
         ? `Voix detectee via voice.status=${voiceStatus}, audio=${Boolean(voiceAudioUrl)}, draft=${draftStatus}.`
         : `Voix non generee: voice.status=${voiceStatus ?? "null"}.`,
-      subtitles: subtitles === "ready"
+      subtitles: subtitles === "validated"
+        ? `Sous-titres valides: status=${subtitlesStatus ?? draftStatus}, segments=${subtitlesSegmentsCount}.`
+        : subtitles === "ready"
         ? `Sous-titres prets: status=${subtitlesStatus ?? draftStatus}, segments=${subtitlesSegmentsCount}.`
         : subtitles === "ignored"
           ? `Sous-titres ignores: status=${subtitlesStatus ?? draftStatus}.`

@@ -59,8 +59,10 @@ type DraftSubtitleState = {
   provider: "elevenlabs";
   segmentsCount: number;
   srtUrl: string | null;
-  status: "pending" | "generating" | "ready" | "ignored" | "error";
+  status: "pending" | "generating" | "ready" | "validated" | "ignored" | "error";
   timingOffsetMs: number;
+  validatedAt: string | null;
+  validatedBy: string | null;
   vttUrl: string | null;
 };
 
@@ -117,7 +119,8 @@ const subtitleStatusLabels: Record<DraftSubtitleState["status"], string> = {
   generating: "Generation en cours",
   ignored: "Ignores",
   pending: "A generer",
-  ready: "Prets",
+  ready: "Prets a valider",
+  validated: "Sous-titres valides",
 };
 
 const subtitleStyleOptions: Array<{
@@ -218,6 +221,7 @@ export function ShortsVoiceClient() {
     | "unlock_voice"
     | "generate_subtitles"
     | "regenerate_subtitles"
+    | "validate_subtitles"
     | "ignore_subtitles"
     | null
   >(null);
@@ -247,11 +251,24 @@ export function ShortsVoiceClient() {
   const subtitleStyleChanged = selectedSubtitleMode !== generatedSubtitleMode;
   const subtitlesBusy = activeAction === "generate_subtitles" ||
     activeAction === "regenerate_subtitles" ||
+    activeAction === "validate_subtitles" ||
     subtitles?.status === "generating";
   const canGenerateSubtitles = Boolean(voice?.audioUrl && subtitles?.canGenerate && !subtitlesBusy);
+  const canCreateFirstSubtitles = Boolean(canGenerateSubtitles && !subtitles?.jsonUrl);
+  const subtitlesAreReadyToValidate = Boolean(
+    subtitles?.status === "ready" &&
+      subtitles.jsonUrl &&
+      subtitles.srtUrl &&
+      subtitles.vttUrl,
+  );
+  const subtitlesAreValidated = subtitles?.status === "validated";
+  const canValidateSubtitles = Boolean(subtitlesAreReadyToValidate && !subtitlesBusy);
   const subtitleBlockedReason = canGenerateSubtitles
     ? null
     : "Valide une voix avant de generer les sous-titres.";
+  const subtitleValidationBlockedReason = subtitlesAreReadyToValidate || subtitlesAreValidated
+    ? null
+    : "Genere les sous-titres avant de les valider.";
   const blockedReason = voiceIsValidated ? null : generationBlockedReason(voice);
 
   async function loadDrafts() {
@@ -333,7 +350,7 @@ export function ShortsVoiceClient() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ action, mode: selectedSubtitleMode }),
+        body: JSON.stringify({ action }),
       });
       const payload = (await response.json()) as MediaPayload;
 
@@ -415,7 +432,7 @@ export function ShortsVoiceClient() {
   }
 
   async function runSubtitleAction(
-    action: "generate_subtitles" | "regenerate_subtitles" | "ignore_subtitles",
+    action: "generate_subtitles" | "regenerate_subtitles" | "validate_subtitles" | "ignore_subtitles",
   ) {
     if (!selectedDraft || activeAction) {
       return;
@@ -424,8 +441,12 @@ export function ShortsVoiceClient() {
     const confirmed = window.confirm(
       action === "ignore_subtitles"
         ? "Ignorer les sous-titres pour ce Short ?"
+        : action === "validate_subtitles"
+          ? "Valider ces sous-titres pour ce Short ?"
         : action === "regenerate_subtitles"
-          ? "Regenerer les sous-titres avec ElevenLabs ?"
+          ? subtitlesAreValidated
+            ? "Regenerer les sous-titres necessitera une nouvelle validation."
+            : "Regenerer les sous-titres avec ElevenLabs ?"
           : "Generer les sous-titres avec ElevenLabs ?",
     );
 
@@ -443,7 +464,12 @@ export function ShortsVoiceClient() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({
+          action,
+          mode: action === "generate_subtitles" || action === "regenerate_subtitles"
+            ? selectedSubtitleMode
+            : undefined,
+        }),
       });
       const payload = (await response.json()) as MediaPayload;
 
@@ -458,7 +484,9 @@ export function ShortsVoiceClient() {
       setNotice(
         action === "ignore_subtitles"
           ? "Sous-titres ignores."
-          : "Sous-titres prets.",
+          : action === "validate_subtitles"
+            ? "Sous-titres valides."
+            : "Sous-titres prets a valider.",
       );
     } catch (caughtError) {
       setError(
@@ -669,9 +697,16 @@ export function ShortsVoiceClient() {
                     {subtitleModeLabel(generatedSubtitleMode)} - ElevenLabs
                   </p>
                 </div>
-                <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
-                  {subtitles ? subtitleStatusLabels[subtitles.status] : "Non charges"}
-                </span>
+                <div className="flex flex-wrap gap-2">
+                  {subtitlesAreValidated ? (
+                    <span className="rounded-md border border-[#22C55E]/45 bg-[#22C55E]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#86EFAC]">
+                      Sous-titres valides
+                    </span>
+                  ) : null}
+                  <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
+                    {subtitles ? subtitleStatusLabels[subtitles.status] : "Non charges"}
+                  </span>
+                </div>
               </div>
 
               <div className="mt-5">
@@ -782,6 +817,11 @@ export function ShortsVoiceClient() {
                   {subtitleBlockedReason}
                 </p>
               ) : null}
+              {subtitleValidationBlockedReason ? (
+                <p className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+                  {subtitleValidationBlockedReason}
+                </p>
+              ) : null}
 
               {subtitles?.previewSegments?.length ? (
                 <details className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
@@ -807,11 +847,19 @@ export function ShortsVoiceClient() {
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={!canGenerateSubtitles}
+                  disabled={!canCreateFirstSubtitles}
                   onClick={() => void runSubtitleAction("generate_subtitles")}
                   className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                 >
                   {subtitlesBusy ? "Generation..." : "Generer les sous-titres"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!canValidateSubtitles}
+                  onClick={() => void runSubtitleAction("validate_subtitles")}
+                  className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  {subtitlesAreValidated ? "Sous-titres valides" : "Valider les sous-titres"}
                 </button>
                 <button
                   type="button"

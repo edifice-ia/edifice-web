@@ -16,38 +16,38 @@ const stepLabels: Record<WorkflowStepKey, string> = {
 const statusLabels: Record<WorkflowStepKey, Partial<Record<ShortWorkflowStepStatus, string>>> = {
   readyToPublish: {
     pending: "En attente",
-    validated: "Validee",
+    validated: "Validée",
   },
   subtitles: {
     error: "Erreur",
     generating: "En cours",
-    ignored: "Ignores",
-    pending: "A generer",
-    ready: "Prets",
-    validated: "Valides",
+    ignored: "Ignorés",
+    pending: "À générer",
+    ready: "Prêts",
+    validated: "Validés",
   },
   text: {
-    pending: "A valider",
-    validated: "Valide",
+    pending: "À valider",
+    validated: "Validé",
   },
   video: {
     generating: "En cours",
-    pending: "A preparer",
-    ready: "Prete",
-    validated: "Validee",
+    pending: "À préparer",
+    ready: "Prête",
+    validated: "Validée",
   },
   visuals: {
     in_progress: "En cours",
-    pending: "A preparer",
-    ready: "Prets",
-    validated: "Valides",
+    pending: "À préparer",
+    ready: "Prêts",
+    validated: "Validés",
   },
   voice: {
     error: "Erreur",
     generating: "En cours",
-    pending: "A generer",
-    ready: "Prete",
-    validated: "Validee",
+    pending: "À générer",
+    ready: "Prête",
+    validated: "Validée",
   },
 };
 
@@ -72,19 +72,19 @@ const textClasses: Record<ShortWorkflowStepStatus, string> = {
 };
 
 const nextStepLabels: Record<string, string> = {
-  "Attendre la voix": "attendre la voix.",
-  "Attendre les sous-titres": "attendre les sous-titres.",
-  "Corriger la voix": "corriger la voix.",
-  "Corriger les sous-titres": "corriger les sous-titres.",
-  "Generer la video": "preparer la video.",
-  "Generer les sous-titres": "generer les sous-titres.",
-  "Generer la voix": "generer la voix.",
-  "Preparer les visuels": "preparer les visuels.",
-  "Pret a publier": "publier.",
-  "Terminer les visuels": "terminer les visuels.",
-  "Valider la publication": "valider la publication.",
-  "Valider le texte": "valider le texte.",
-  video_en_attente: "preparer la video.",
+  "Attendre la voix": "Attendre la voix",
+  "Attendre les sous-titres": "Attendre les sous-titres",
+  "Corriger la voix": "Corriger la voix",
+  "Corriger les sous-titres": "Corriger les sous-titres",
+  "Generer la video": "Préparer la vidéo",
+  "Generer les sous-titres": "Générer les sous-titres",
+  "Generer la voix": "Générer la voix",
+  "Preparer les visuels": "Préparer les visuels",
+  "Pret a publier": "Publier",
+  "Terminer les visuels": "Terminer les visuels",
+  "Valider la publication": "Valider la publication",
+  "Valider le texte": "Valider le texte",
+  video_en_attente: "Préparer la vidéo",
 };
 
 function formatRawValue(value: unknown) {
@@ -103,6 +103,17 @@ function contextualNextStep(nextStep: string) {
   return nextStepLabels[nextStep] ?? nextStep;
 }
 
+function shouldShowStep(step: WorkflowStepKey, state: ShortWorkflowState) {
+  if (step !== "subtitles") {
+    return true;
+  }
+
+  return (
+    state.subtitles !== "pending" ||
+    state.nextStep.toLowerCase().includes("sous-titres")
+  );
+}
+
 export function ShortWorkflowStatus({
   state,
   compact = false,
@@ -118,8 +129,9 @@ export function ShortWorkflowStatus({
     ["video", state.video],
     ["readyToPublish", state.readyToPublish],
   ] as const satisfies ReadonlyArray<readonly [WorkflowStepKey, ShortWorkflowStepStatus]>;
-  const activeIndex = steps.findIndex(([, status]) => status !== "ready" && status !== "validated");
-  const blockedSteps = steps
+  const visibleSteps = steps.filter(([step]) => shouldShowStep(step, state));
+  const activeIndex = visibleSteps.findIndex(([, status]) => status !== "ready" && status !== "validated");
+  const blockedSteps = visibleSteps
     .filter(([, status], index) => index > activeIndex && activeIndex >= 0 && status === "pending")
     .map(([step]) => stepLabels[step]);
 
@@ -130,35 +142,36 @@ export function ShortWorkflowStatus({
           <h2 className={compact ? "text-base font-semibold text-[#F8FAFC]" : "text-lg font-semibold text-[#F8FAFC]"}>
             Parcours Shorts
           </h2>
-          <p className="text-sm text-[#A7B0C0]">
-            Prochaine etape : <span className="font-semibold text-[#F8FAFC]">{contextualNextStep(state.nextStep)}</span>
+          <p className="overflow-hidden text-ellipsis whitespace-nowrap text-sm text-[#A7B0C0]">
+            Prochaine étape : <span className="font-semibold text-[#F8FAFC]">{contextualNextStep(state.nextStep)}</span>
           </p>
         </div>
 
-        <ol className="grid gap-3 md:grid-cols-[repeat(11,minmax(0,1fr))] md:items-center">
-          {steps.map(([step, status], index) => (
+        <ol className="grid gap-2">
+          {visibleSteps.map(([step, status], index) => {
+            const isCurrentStep = index === activeIndex;
+            const dotClass = isCurrentStep && status === "pending"
+              ? "border-[#39E6D0] bg-[#39E6D0]"
+              : dotClasses[status];
+
+            return (
             <li
               key={step}
-              className={index === steps.length - 1 ? "min-w-0" : "contents md:contents"}
+              className="min-w-0"
             >
-              <div className="min-w-0 rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 md:border-0 md:bg-transparent md:px-0 md:py-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className={`h-2.5 w-2.5 shrink-0 rounded-full border ${dotClasses[status]}`} />
-                  <div className="min-w-0">
-                    <p className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-semibold text-[#F8FAFC]">
-                      {stepLabels[step]}
-                    </p>
-                    <p className={`[overflow-wrap:anywhere] text-xs font-semibold ${textClasses[status]}`}>
-                      {stepStatusLabel(step, status)}
-                    </p>
-                  </div>
-                </div>
+              <div className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1">
+                <span className={`h-2.5 w-2.5 shrink-0 rounded-full border ${dotClass}`} />
+                <p className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-sm leading-6">
+                  <span className="font-semibold text-[#F8FAFC]">{stepLabels[step]}</span>
+                  <span className="px-1.5 text-[#64748B]">-</span>
+                  <span className={`font-semibold ${isCurrentStep && status === "pending" ? "text-[#39E6D0]" : textClasses[status]}`}>
+                    {stepStatusLabel(step, status)}
+                  </span>
+                </p>
               </div>
-              {index < steps.length - 1 ? (
-                <div className="hidden h-px min-w-0 bg-[#1D2A44] md:block" aria-hidden="true" />
-              ) : null}
             </li>
-          ))}
+            );
+          })}
         </ol>
       </div>
 

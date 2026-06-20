@@ -172,6 +172,18 @@ function formatDuration(seconds: number) {
   return `${minutes}min ${remainingSeconds.toString().padStart(2, "0")}s`;
 }
 
+function formatSubtitleAudioDuration(subtitles: DraftSubtitleState | null, voice: DraftVoiceState | null) {
+  if (subtitles && subtitles.durationSeconds > 0) {
+    return formatDuration(subtitles.durationSeconds);
+  }
+
+  if (voice?.audioUrl) {
+    return "Duree en cours de verification";
+  }
+
+  return "0s";
+}
+
 function generationBlockedReason(voice: DraftVoiceState | null) {
   if (!voice) {
     return "Selectionne un brouillon pour charger son etat voix.";
@@ -236,6 +248,10 @@ export function ShortsVoiceClient() {
   const subtitlesBusy = activeAction === "generate_subtitles" ||
     activeAction === "regenerate_subtitles" ||
     subtitles?.status === "generating";
+  const canGenerateSubtitles = Boolean(voice?.audioUrl && subtitles?.canGenerate && !subtitlesBusy);
+  const subtitleBlockedReason = canGenerateSubtitles
+    ? null
+    : "Valide une voix avant de generer les sous-titres.";
   const blockedReason = voiceIsValidated ? null : generationBlockedReason(voice);
 
   async function loadDrafts() {
@@ -736,7 +752,7 @@ export function ShortsVoiceClient() {
                 <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
                   Duree audio:{" "}
                   <span className="font-semibold text-[#F8FAFC]">
-                    {formatDuration(subtitles?.durationSeconds ?? voice?.durationEstimateSeconds ?? 0)}
+                    {formatSubtitleAudioDuration(subtitles, voice)}
                   </span>
                 </p>
                 <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
@@ -761,11 +777,11 @@ export function ShortsVoiceClient() {
                 </p>
               ) : null}
 
-              {voiceIsValidated ? null : (
+              {subtitleBlockedReason ? (
                 <p className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
-                  Valide la voix avant de generer les sous-titres.
+                  {subtitleBlockedReason}
                 </p>
-              )}
+              ) : null}
 
               {subtitles?.previewSegments?.length ? (
                 <details className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
@@ -791,7 +807,7 @@ export function ShortsVoiceClient() {
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={!voiceIsValidated || !subtitles?.canGenerate || subtitlesBusy}
+                  disabled={!canGenerateSubtitles}
                   onClick={() => void runSubtitleAction("generate_subtitles")}
                   className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                 >
@@ -799,7 +815,7 @@ export function ShortsVoiceClient() {
                 </button>
                 <button
                   type="button"
-                  disabled={!voiceIsValidated || !subtitles?.canGenerate || !subtitles?.jsonUrl || subtitlesBusy}
+                  disabled={!canGenerateSubtitles || !subtitles?.jsonUrl}
                   onClick={() => void runSubtitleAction("regenerate_subtitles")}
                   className="rounded-md border border-[#7DD3FC]/45 bg-[#7DD3FC]/10 px-4 py-2.5 text-sm font-semibold text-[#7DD3FC] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                 >
@@ -807,7 +823,7 @@ export function ShortsVoiceClient() {
                 </button>
                 <button
                   type="button"
-                  disabled={!voiceIsValidated || subtitlesBusy}
+                  disabled={!canGenerateSubtitles}
                   onClick={() => void runSubtitleAction("ignore_subtitles")}
                   className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#F97316]/50 hover:text-[#FDBA74] disabled:cursor-not-allowed disabled:opacity-55"
                 >

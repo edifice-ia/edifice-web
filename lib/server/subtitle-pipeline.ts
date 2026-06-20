@@ -1,12 +1,17 @@
 import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import {
+  DEFAULT_SUBTITLE_MODE,
+  normalizeSubtitleMode,
+  subtitleModeToLocalMode,
+  type SubtitleMode,
+} from "@/lib/subtitles";
 
 const ELEVENLABS_FORCED_ALIGNMENT_URL = "https://api.elevenlabs.io/v1/forced-alignment";
 const SUBTITLE_BUCKET = "content-assets";
 const SUBTITLE_PATH = "lignes-interieures/subtitles";
 const SUBTITLE_PROVIDER = "elevenlabs";
-const SUBTITLE_MODE = "karaoke";
 const TIMING_OFFSET_MS = 600;
 const SRT_MAX_WORDS = 7;
 const SRT_MAX_DURATION_SECONDS = 2.0;
@@ -68,7 +73,8 @@ export type DraftSubtitleState = {
   errorMessage: string | null;
   generatedAt: string | null;
   jsonUrl: string | null;
-  mode: typeof SUBTITLE_MODE;
+  localMode: "karaoke" | "srt";
+  mode: SubtitleMode;
   previewSegments: SubtitleSegment[];
   provider: typeof SUBTITLE_PROVIDER;
   segmentsCount: number;
@@ -141,7 +147,8 @@ function defaultState(status: SubtitleStatus, canGenerate: boolean): DraftSubtit
     errorMessage: status === "error" ? "Generation sous-titres impossible." : null,
     generatedAt: null,
     jsonUrl: null,
-    mode: SUBTITLE_MODE,
+    localMode: subtitleModeToLocalMode(DEFAULT_SUBTITLE_MODE),
+    mode: DEFAULT_SUBTITLE_MODE,
     previewSegments: [],
     provider: SUBTITLE_PROVIDER,
     segmentsCount: 0,
@@ -276,12 +283,15 @@ function buildReadyState(assets: ContentAssetRow[]): DraftSubtitleState | null {
   const segments = parseSegmentsFromAsset(jsonAsset);
   const segmentsCount = metadataNumber(jsonAsset, "segments_count") ?? segments.length;
   const durationSeconds = metadataNumber(jsonAsset, "duration_seconds") ?? 0;
+  const mode = normalizeSubtitleMode(metadataString(jsonAsset, "mode"));
 
   return {
     ...defaultState("ready", true),
     durationSeconds,
     generatedAt: metadataString(jsonAsset, "generated_at") ?? jsonAsset.created_at,
     jsonUrl: jsonAsset.public_url,
+    localMode: subtitleModeToLocalMode(mode),
+    mode,
     previewSegments: segments.slice(0, 12),
     segmentsCount,
     srtUrl: srtAsset?.public_url ?? null,
@@ -442,6 +452,7 @@ async function uploadSubtitleAsset({
   jsonSegments,
   sourceVoiceAssetId,
   storagePath,
+  subtitleMode,
 }: {
   content: Buffer | string;
   contentType: string;
@@ -453,15 +464,18 @@ async function uploadSubtitleAsset({
   jsonSegments: SubtitleSegment[];
   sourceVoiceAssetId: string;
   storagePath: string;
+  subtitleMode: SubtitleMode;
 }) {
   const supabase = getSubtitleClient();
   const durationSeconds = jsonSegments.at(-1)?.end ?? 0;
+  const localMode = subtitleModeToLocalMode(subtitleMode);
   const metadata = {
     asset_role: "short_subtitles",
     duration_seconds: durationSeconds,
     generated_at: generatedAt,
     language: "fr",
-    mode: SUBTITLE_MODE,
+    local_mode: localMode,
+    mode: subtitleMode,
     provider: SUBTITLE_PROVIDER,
     segments: format === "json" ? jsonSegments : undefined,
     segments_count: jsonSegments.length,
@@ -544,13 +558,17 @@ export async function readDraftSubtitleState({
 
 export async function generateDraftSubtitles({
   draftId,
+  mode,
   userId,
 }: {
   draftId: string;
+  mode?: unknown;
   userId: string;
 }) {
   const supabase = getSubtitleClient();
   const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  const subtitleMode = normalizeSubtitleMode(mode);
+  const localMode = subtitleModeToLocalMode(subtitleMode);
 
   if (!apiKey) {
     throw new Error("Configuration ElevenLabs indisponible.");
@@ -623,7 +641,8 @@ export async function generateDraftSubtitles({
     const jsonPayload = {
       duration_seconds: durationSeconds,
       language: "fr",
-      mode: SUBTITLE_MODE,
+      local_mode: localMode,
+      mode: subtitleMode,
       provider: SUBTITLE_PROVIDER,
       segments,
       style: KARAOKE_STYLE,
@@ -640,6 +659,7 @@ export async function generateDraftSubtitles({
       groupId,
       jsonSegments: segments,
       sourceVoiceAssetId: draft.voice_asset_id,
+      subtitleMode,
       storagePath: `${basePath}/${srtFileName}`,
     });
     await uploadSubtitleAsset({
@@ -652,6 +672,7 @@ export async function generateDraftSubtitles({
       groupId,
       jsonSegments: segments,
       sourceVoiceAssetId: draft.voice_asset_id,
+      subtitleMode,
       storagePath: `${basePath}/${vttFileName}`,
     });
     await uploadSubtitleAsset({
@@ -664,6 +685,7 @@ export async function generateDraftSubtitles({
       groupId,
       jsonSegments: segments,
       sourceVoiceAssetId: draft.voice_asset_id,
+      subtitleMode,
       storagePath: `${basePath}/${jsonFileName}`,
     });
 

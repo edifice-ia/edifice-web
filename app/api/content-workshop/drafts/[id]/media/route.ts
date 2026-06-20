@@ -343,6 +343,7 @@ export async function POST(
     if (action === "generate_subtitles" || action === "regenerate_subtitles") {
       await generateDraftSubtitles({
         draftId: id,
+        mode: payload.mode,
         userId: user.id,
       });
       const media = await readMediaPipelineState({

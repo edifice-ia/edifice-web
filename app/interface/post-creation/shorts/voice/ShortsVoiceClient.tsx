@@ -4,6 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { ShortWorkflowStatus } from "@/components/cockpit/ShortWorkflowStatus";
 import { getShortWorkflowState } from "@/lib/short-workflow";
+import {
+  DEFAULT_SUBTITLE_MODE,
+  normalizeSubtitleMode,
+  subtitleModeLabel,
+  type SubtitleMode,
+} from "@/lib/subtitles";
 
 type ContentDraft = {
   id: string;
@@ -47,7 +53,8 @@ type DraftSubtitleState = {
   errorMessage: string | null;
   generatedAt: string | null;
   jsonUrl: string | null;
-  mode: "karaoke";
+  localMode: "karaoke" | "srt";
+  mode: SubtitleMode;
   previewSegments: SubtitleSegmentPreview[];
   provider: "elevenlabs";
   segmentsCount: number;
@@ -112,6 +119,28 @@ const subtitleStatusLabels: Record<DraftSubtitleState["status"], string> = {
   pending: "A generer",
   ready: "Prets",
 };
+
+const subtitleStyleOptions: Array<{
+  badge?: string;
+  description: string;
+  mode: SubtitleMode;
+  syncLabel: string;
+  title: string;
+}> = [
+  {
+    badge: "Recommand\u00e9",
+    description: "Mot actif synchronis\u00e9 avec la voix",
+    mode: "karaoke",
+    syncLabel: "Synchronisation mot \u00e0 mot",
+    title: "Karaok\u00e9",
+  },
+  {
+    description: "Sous-titres sobres par lignes",
+    mode: "classic",
+    syncLabel: "Texte par lignes",
+    title: "Classique",
+  },
+];
 
 function scoreOutOf100(value: number) {
   return Math.round(Math.max(0, Math.min(100, value <= 10 ? value * 10 : value)));
@@ -183,6 +212,7 @@ export function ShortsVoiceClient() {
   const [confirmationAction, setConfirmationAction] = useState<"generate_voice" | "regenerate_voice" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [selectedSubtitleMode, setSelectedSubtitleMode] = useState<SubtitleMode>(DEFAULT_SUBTITLE_MODE);
 
   const selectedDraft = useMemo(
     () => drafts.find((draft) => draft.id === selectedDraftId) ?? null,
@@ -201,6 +231,8 @@ export function ShortsVoiceClient() {
   const voiceIsValidated = voice?.status === "validated" || workflowState.voice === "validated";
   const voiceIsReadyForValidation = voice?.status === "ready" && !voiceIsValidated;
   const subtitles = media?.subtitles ?? null;
+  const generatedSubtitleMode = normalizeSubtitleMode(subtitles?.mode);
+  const subtitleStyleChanged = selectedSubtitleMode !== generatedSubtitleMode;
   const subtitlesBusy = activeAction === "generate_subtitles" ||
     activeAction === "regenerate_subtitles" ||
     subtitles?.status === "generating";
@@ -255,6 +287,7 @@ export function ShortsVoiceClient() {
 
       setMedia(payload.media);
       setVoice(payload.media.voice);
+      setSelectedSubtitleMode(normalizeSubtitleMode(payload.media.subtitles?.mode));
     } catch (caughtError) {
       setMedia(null);
       setVoice(null);
@@ -284,7 +317,7 @@ export function ShortsVoiceClient() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, mode: selectedSubtitleMode }),
       });
       const payload = (await response.json()) as MediaPayload;
 
@@ -294,6 +327,7 @@ export function ShortsVoiceClient() {
 
       setMedia(payload.media);
       setVoice(payload.media.voice);
+      setSelectedSubtitleMode(normalizeSubtitleMode(payload.media.subtitles?.mode));
       await loadDrafts();
       setNotice(action === "regenerate_voice" ? "Voix regeneree." : "Voix generee.");
     } catch (caughtError) {
@@ -345,6 +379,7 @@ export function ShortsVoiceClient() {
 
       setMedia(payload.media);
       setVoice(payload.media.voice);
+      setSelectedSubtitleMode(normalizeSubtitleMode(payload.media.subtitles?.mode));
       await loadDrafts();
       setNotice(
         action === "validate_voice"
@@ -402,6 +437,7 @@ export function ShortsVoiceClient() {
 
       setMedia(payload.media);
       setVoice(payload.media.voice);
+      setSelectedSubtitleMode(normalizeSubtitleMode(payload.media.subtitles?.mode));
       await loadDrafts();
       setNotice(
         action === "ignore_subtitles"
@@ -614,7 +650,7 @@ export function ShortsVoiceClient() {
                 <div>
                   <p className="text-sm font-semibold text-[#F8FAFC]">Sous-titres</p>
                   <p className="mt-1 text-sm text-[#A7B0C0]">
-                    Karaoke - ElevenLabs
+                    {subtitleModeLabel(generatedSubtitleMode)} - ElevenLabs
                   </p>
                 </div>
                 <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
@@ -622,9 +658,80 @@ export function ShortsVoiceClient() {
                 </span>
               </div>
 
+              <div className="mt-5">
+                <p className="text-sm font-semibold text-[#F8FAFC]">Style de sous-titres</p>
+                {subtitles?.jsonUrl ? (
+                  <p className="mt-1 text-xs text-[#A7B0C0]">
+                    Style genere : <span className="font-semibold text-[#F8FAFC]">{subtitleModeLabel(generatedSubtitleMode)}</span>
+                  </p>
+                ) : null}
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {subtitleStyleOptions.map((option) => {
+                    const selected = selectedSubtitleMode === option.mode;
+
+                    return (
+                      <button
+                        key={option.mode}
+                        type="button"
+                        disabled={subtitlesBusy}
+                        onClick={() => setSelectedSubtitleMode(option.mode)}
+                        className={`min-w-0 rounded-md border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                          selected
+                            ? "border-[#39E6D0]/70 bg-[#39E6D0]/10"
+                            : "border-[#1D2A44] bg-[#03070B] hover:border-[#39E6D0]/40"
+                        }`}
+                      >
+                        <span className="flex min-w-0 items-start justify-between gap-2">
+                          <span className="min-w-0">
+                            <span className="block overflow-hidden text-ellipsis whitespace-nowrap text-sm font-semibold text-[#F8FAFC]">
+                              {option.title}
+                            </span>
+                            <span className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-xs text-[#A7B0C0]">
+                              {option.description}
+                            </span>
+                          </span>
+                          {option.badge ? (
+                            <span className="shrink-0 rounded border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#39E6D0]">
+                              {option.badge}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="mt-3 block rounded-md border border-[#1D2A44] bg-[#050B12] p-2">
+                          <span className="relative block aspect-[9/16] max-h-36 overflow-hidden rounded border border-[#1D2A44] bg-[#02060A]">
+                            <span className="absolute inset-x-2 bottom-5 block text-center text-[10px] font-semibold leading-4 text-[#F8FAFC] [text-shadow:0_1px_2px_#000]">
+                              {option.mode === "karaoke" ? (
+                                <>
+                                  Tu n&apos;as pas besoin de tout{" "}
+                                  <span className="text-[#39E6D0]">comprendre</span>{" "}
+                                  maintenant.
+                                </>
+                              ) : (
+                                <>
+                                  Tu n&apos;as pas besoin de tout comprendre
+                                  <br />
+                                  maintenant.
+                                </>
+                              )}
+                            </span>
+                          </span>
+                          <span className="mt-2 block overflow-hidden text-ellipsis whitespace-nowrap text-center text-[11px] font-semibold text-[#A7B0C0]">
+                            {option.syncLabel}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {subtitleStyleChanged ? (
+                  <p className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+                    Le nouveau style sera applique lors de la prochaine generation.
+                  </p>
+                ) : null}
+              </div>
+
               <div className="mt-4 grid gap-3 md:grid-cols-4">
                 <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
-                  Mode: <span className="font-semibold text-[#F8FAFC]">Karaoke</span>
+                  Mode: <span className="font-semibold text-[#F8FAFC]">{subtitleModeLabel(generatedSubtitleMode)}</span>
                 </p>
                 <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
                   Duree audio:{" "}

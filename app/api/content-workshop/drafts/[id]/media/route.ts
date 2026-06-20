@@ -28,6 +28,7 @@ import {
   ignoreDraftSubtitles,
   validateDraftSubtitles,
 } from "@/lib/server/subtitle-pipeline";
+import { prepareDraftVideo } from "@/lib/server/video-preparation";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -372,6 +373,20 @@ export async function POST(
 
     if (action === "validate_subtitles") {
       await validateDraftSubtitles({
+        draftId: id,
+        userId: user.id,
+      });
+      const media = await readMediaPipelineState({
+        draftId: id,
+        userId: user.id,
+        includeSuggestions: true,
+      });
+
+      return NextResponse.json({ media });
+    }
+
+    if (action === "prepare_video") {
+      await prepareDraftVideo({
         draftId: id,
         userId: user.id,
       });

@@ -152,6 +152,7 @@ type MediaPipelineState = {
     | "sous_titres_ignores"
     | "sous_titres_erreur"
     | "video_en_attente"
+    | "video_ready"
     | "voice_ready"
     | "ready_to_publish";
   visualDecision: VisualDecision | null;
@@ -556,6 +557,7 @@ function getMediaPipelineStatusLabel(status: MediaPipelineState["mediaPipelineSt
     sous_titres_ignores: "Sous-titres ignores",
     sous_titres_erreur: "Erreur sous-titres",
     video_en_attente: "Video en attente",
+    video_ready: "Video prete a generer",
     voice_ready: "Voix prete",
     ready_to_publish: "Pret a publier",
   };

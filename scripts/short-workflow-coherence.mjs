@@ -146,4 +146,43 @@ assert.equal(subtitleValidatedWorkflow.subtitles, "validated");
 assert.equal(subtitleValidatedWorkflow.video, "pending");
 assert.equal(subtitleValidatedWorkflow.nextStep, "video_en_attente");
 
+const videoPreparedWorkflow = getShortWorkflowState({
+  draft: {
+    script: "Texte valide pour une voix off courte.",
+    status: "video_en_attente",
+    visualStatus: "visual_ready",
+    visualsValidatedAt: "2026-06-19T10:00:00.000Z",
+  },
+  media: {
+    mediaPipelineStatus: "video_ready",
+    selectedAssets: Array.from({ length: 7 }, (_, index) => ({ id: `asset-${index + 1}` })),
+    subtitles: {
+      generatedAt: "2026-06-19T10:06:00.000Z",
+      segmentsCount: 12,
+      status: "validated",
+    },
+    videoPreparation: {
+      status: "ready",
+    },
+    visualScenes: Array.from({ length: 7 }, (_, index) => ({
+      generationStatus: "retained",
+      imageUrl: `https://example.test/${index + 1}.jpg`,
+      locked: true,
+    })),
+    voice: {
+      audioUrl: "https://example.test/voice.mp3",
+      generatedAt: "2026-06-19T10:05:00.000Z",
+      status: "validated",
+    },
+  },
+  requiredVisualCount: 7,
+});
+
+assert.equal(videoPreparedWorkflow.text, "validated");
+assert.equal(videoPreparedWorkflow.visuals, "validated");
+assert.equal(videoPreparedWorkflow.voice, "validated");
+assert.equal(videoPreparedWorkflow.subtitles, "validated");
+assert.equal(videoPreparedWorkflow.video, "ready");
+assert.equal(videoPreparedWorkflow.nextStep, "Generer la video");
+
 console.log("short workflow coherence ok");

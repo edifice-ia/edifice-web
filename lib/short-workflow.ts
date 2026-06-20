@@ -53,6 +53,7 @@ export type ShortWorkflowMediaInput = {
   mediaPipelineStatus?: string | null;
   selectedAssets?: unknown[] | null;
   subtitles?: ShortWorkflowSubtitlesInput | null;
+  videoPreparation?: ShortWorkflowVideoInput | null;
   visualScenes?: ShortWorkflowVisualSceneInput[] | null;
   voice?: ShortWorkflowVoiceInput | null;
 };
@@ -145,6 +146,10 @@ const subtitleIgnoredStatuses = new Set(["sous_titres_ignorés", "sous_titres_ig
 
 subtitleReadyStatuses.add("sous_titres_pr\u00eats");
 subtitleIgnoredStatuses.add("sous_titres_ignor\u00e9s");
+textValidatedStatuses.add("video_ready");
+visualReadyStatuses.add("video_ready");
+voiceValidatedStatuses.add("video_ready");
+subtitleReadyStatuses.add("video_ready");
 
 function normalizeStatus(value: string | null | undefined) {
   return value?.trim() || null;
@@ -191,7 +196,7 @@ export function getShortWorkflowState({
   const voiceAudioUrl = normalizeStatus(media?.voice?.audioUrl);
   const subtitlesStatus = normalizeStatus(media?.subtitles?.status);
   const subtitlesSegmentsCount = media?.subtitles?.segmentsCount ?? 0;
-  const videoStatus = normalizeStatus(video?.status);
+  const videoStatus = normalizeStatus(video?.status ?? media?.videoPreparation?.status);
   const visualScenes = media?.visualScenes ?? [];
   const selectedAssetsCount = media?.selectedAssets?.length ?? 0;
   const retainedScenesCount = retainedVisualCount(visualScenes);
@@ -251,9 +256,12 @@ export function getShortWorkflowState({
           ? "ready"
           : "pending";
 
+  const videoReady = videoStatus === "ready" ||
+    draftStatus === "video_ready" ||
+    mediaPipelineStatus === "video_ready";
   const videoState = videoStatus === "validated" || draftStatus === "ready_to_publish"
     ? "validated"
-    : videoStatus === "ready"
+    : videoReady
       ? "ready"
       : videoStatus === "generating"
         ? "generating"
@@ -281,10 +289,10 @@ export function getShortWorkflowState({
                     : subtitles === "ready"
                       ? "Valider les sous-titres"
                       : videoState === "pending"
-                      ? "video_en_attente"
-                      : readyToPublish === "pending"
-                        ? "Valider la publication"
-                        : "Pret a publier";
+                        ? "video_en_attente"
+                        : readyToPublish === "pending"
+                          ? "Generer la video"
+                          : "Pret a publier";
 
   return {
     text,
@@ -314,7 +322,7 @@ export function getShortWorkflowState({
           : `Sous-titres non prets: status=${subtitlesStatus ?? draftStatus ?? "null"}.`,
       video: videoState === "pending"
         ? "Aucune video generee detectee."
-        : `Video=${videoStatus ?? draftStatus}.`,
+        : `Video=${videoStatus ?? mediaPipelineStatus ?? draftStatus}.`,
       readyToPublish: readyToPublish === "validated"
         ? "content_drafts.status=ready_to_publish"
         : "Publication finale non validee.",

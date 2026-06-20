@@ -7,6 +7,7 @@ import {
 } from "@/lib/content/visual-prompts";
 import { buildVisualMetadata, saveVisualMetadata } from "@/lib/server/content-assets";
 import { type DraftSubtitleState, readDraftSubtitleState } from "@/lib/server/subtitle-pipeline";
+import { type DraftVideoPreparationState, readDraftVideoPreparationState } from "@/lib/server/video-preparation";
 import { type DraftVoiceState, readDraftVoiceState } from "@/lib/server/voice-pipeline";
 
 type MediaPipelineStatus =
@@ -32,6 +33,7 @@ type MediaPipelineStatus =
   | "sous_titres_ignores"
   | "sous_titres_erreur"
   | "video_en_attente"
+  | "video_ready"
   | "voice_ready"
   | "ready_to_publish";
 
@@ -275,6 +277,7 @@ export type MediaPipelineState = {
   generationReason: string | null;
   lastRunAt: string | null;
   subtitles: DraftSubtitleState;
+  videoPreparation: DraftVideoPreparationState;
   voice: DraftVoiceState;
   visualScenes: VisualScene[];
 };
@@ -3888,9 +3891,10 @@ export async function readMediaPipelineState({
     readSelectedAssets(draft),
   ]);
   const visualScenes = await readVisualScenes(draft);
-  const [voice, subtitles] = await Promise.all([
+  const [voice, subtitles, videoPreparation] = await Promise.all([
     readDraftVoiceState({ draftId, userId }),
     readDraftSubtitleState({ draftId, userId }),
+    readDraftVideoPreparationState({ draftId, userId }),
   ]);
 
   return {
@@ -3904,6 +3908,7 @@ export async function readMediaPipelineState({
       (draft.status === "sous_titres_ignor\u00e9s" || draft.status === "sous_titres_ignorÃ©s" || draft.status === "sous_titres_ignores" ? "sous_titres_ignor\u00e9s" : null) ??
       (draft.status === "sous_titres_erreur" ? "sous_titres_erreur" : null) ??
       (draft.status === "video_en_attente" ? "video_en_attente" : null) ??
+      (videoPreparation.status === "ready" ? "video_ready" : null) ??
       (draft.status === "voix_en_cours" ? "voix_en_cours" : null) ??
       (draft.status === "voix_erreur" ? "voix_erreur" : null) ??
       (draft.status === "voix_en_attente" ? "voix_en_attente" : null) ??
@@ -3921,6 +3926,7 @@ export async function readMediaPipelineState({
     generationReason: plan?.generation_reason ?? null,
     lastRunAt: plan?.last_run_at ?? plan?.updated_at ?? null,
     subtitles,
+    videoPreparation,
     voice,
     visualScenes,
   };

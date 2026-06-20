@@ -76,7 +76,7 @@ const nextStepLabels: Record<string, string> = {
   "Attendre les sous-titres": "Attendre les sous-titres",
   "Corriger la voix": "Corriger la voix",
   "Corriger les sous-titres": "Corriger les sous-titres",
-  "Generer la video": "Préparer la vidéo",
+  "Generer la video": "Générer la vidéo",
   "Generer les sous-titres": "Générer les sous-titres",
   "Generer la voix": "Générer la voix",
   "Preparer les visuels": "Préparer les visuels",

@@ -85,6 +85,7 @@ type MediaPipelineState = {
     | "sous_titres_ignores"
     | "sous_titres_erreur"
     | "video_en_attente"
+    | "video_ready"
     | "voice_ready"
     | "ready_to_publish";
   visualDecision: {
@@ -194,6 +195,7 @@ const statusLabels: Record<string, string> = {
   sous_titres_ignores: "Sous-titres ignorés",
   sous_titres_erreur: "Erreur sous-titres",
   video_en_attente: "Vidéo en attente",
+  video_ready: "Vidéo prête à générer",
   voice_ready: "Voix prête",
   ready_to_publish: "Prêt à publier",
 };
@@ -221,6 +223,7 @@ const mediaStatusLabels: Record<MediaPipelineState["mediaPipelineStatus"], strin
   sous_titres_ignores: "Sous-titres ignorés",
   sous_titres_erreur: "Erreur sous-titres",
   video_en_attente: "Vidéo en attente",
+  video_ready: "Vidéo prête à générer",
   voice_ready: "Voix prête",
   ready_to_publish: "Prêt à publier",
 };

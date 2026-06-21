@@ -44,6 +44,22 @@ type DraftVideoPreparationState = {
   status: "pending" | "ready";
 };
 
+type VideoRenderJobState = {
+  id: string;
+  draftId: string;
+  manifestId: string | null;
+  manifestPath: string | null;
+  status: "queued" | "processing" | "completed" | "failed";
+  requestedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  errorMessage: string | null;
+  outputPath: string | null;
+  outputUrl: string | null;
+  durationSeconds: number | null;
+  renderedAt: string | null;
+};
+
 type MediaPayload = {
   media?: {
     mediaPipelineStatus?: string;
@@ -57,6 +73,12 @@ type MediaPayload = {
     }>;
     voice: DraftVoiceState;
   };
+  error?: string;
+};
+
+type VideoRenderPayload = {
+  reusedActiveJob?: boolean;
+  videoRender?: VideoRenderJobState | null;
   error?: string;
 };
 
@@ -134,6 +156,10 @@ export function ShortsVideoPreparationClient() {
   const [isLoadingDrafts, setIsLoadingDrafts] = useState(false);
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
   const [isPreparingVideo, setIsPreparingVideo] = useState(false);
+  const [isRenderingVideo, setIsRenderingVideo] = useState(false);
+  const [isLoadingRenderStatus, setIsLoadingRenderStatus] = useState(false);
+  const [videoRender, setVideoRender] = useState<VideoRenderJobState | null>(null);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -206,9 +232,25 @@ export function ShortsVideoPreparationClient() {
     .filter((item) => !item.ok)
     .map((item) => `${item.label}: ${item.value}`);
   const videoPreparationReady = videoPreparation?.status === "ready" || workflowState.video === "ready";
+  const renderIsActive = videoRender?.status === "queued" || videoRender?.status === "processing";
+  const renderIsCompleted = videoRender?.status === "completed" && Boolean(videoRender.outputUrl);
+  const renderIsFailed = videoRender?.status === "failed";
+  const renderStatusLabel =
+    videoRender?.status === "queued"
+      ? "En attente du renderer"
+      : videoRender?.status === "processing"
+        ? "Rendu en cours"
+        : videoRender?.status === "completed"
+          ? "Video prete a valider"
+          : videoRender?.status === "failed"
+            ? "Echec du rendu"
+            : videoPreparationReady
+              ? "Pret a generer"
+              : "Manifest requis";
   const canPrepareVideo = videoBlockingReasons.length === 0 &&
     !videoPreparationReady &&
     !isPreparingVideo;
+  const canGenerateVideo = videoPreparationReady && !renderIsActive && !isRenderingVideo;
 
   async function loadDrafts() {
     setIsLoadingDrafts(true);
@@ -269,6 +311,89 @@ export function ShortsVideoPreparationClient() {
     }
   }
 
+  async function loadVideoRenderStatus(draftId: string, options?: { silent?: boolean }) {
+    if (!draftId) {
+      setVideoRender(null);
+      return;
+    }
+
+    if (!options?.silent) {
+      setIsLoadingRenderStatus(true);
+    }
+
+    try {
+      const response = await fetch(`/api/content-workshop/drafts/${draftId}/video-render`, {
+        cache: "no-store",
+      });
+      const payload = (await response.json()) as VideoRenderPayload;
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Lecture du rendu video indisponible.");
+      }
+
+      setVideoRender(payload.videoRender ?? null);
+    } catch (caughtError) {
+      if (!options?.silent) {
+        setError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Lecture du rendu video indisponible.",
+        );
+      }
+    } finally {
+      if (!options?.silent) {
+        setIsLoadingRenderStatus(false);
+      }
+    }
+  }
+
+  async function runVideoRenderAction(action: "start" | "retry" | "regenerate") {
+    if (!selectedDraft || !canGenerateVideo) {
+      return;
+    }
+
+    if (action === "regenerate" && !confirmRegenerate) {
+      setConfirmRegenerate(true);
+      return;
+    }
+
+    setIsRenderingVideo(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch(`/api/content-workshop/drafts/${selectedDraft.id}/video-render`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action }),
+      });
+      const payload = (await response.json()) as VideoRenderPayload;
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Rendu video indisponible.");
+      }
+
+      setVideoRender(payload.videoRender ?? null);
+      setConfirmRegenerate(false);
+      setNotice(
+        payload.videoRender?.status === "completed"
+          ? "Rendu termine. La video est prete a valider."
+          : "Job de rendu envoye au renderer Railway.",
+      );
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Rendu video indisponible.",
+      );
+      await loadVideoRenderStatus(selectedDraft.id, { silent: true });
+    } finally {
+      setIsRenderingVideo(false);
+    }
+  }
+
   async function runVideoPreparationAction() {
     if (!selectedDraft || !canPrepareVideo) {
       return;
@@ -294,6 +419,7 @@ export function ShortsVideoPreparationClient() {
 
       setMedia(payload.media);
       await loadDrafts();
+      await loadVideoRenderStatus(selectedDraft.id, { silent: true });
       setNotice("Preparation video terminee. Le manifest est pret pour le montage.");
     } catch (caughtError) {
       setError(
@@ -322,6 +448,26 @@ export function ShortsVideoPreparationClient() {
 
     return () => window.clearTimeout(timeoutId);
   }, [selectedDraftId]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadVideoRenderStatus(selectedDraftId);
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [selectedDraftId]);
+
+  useEffect(() => {
+    if (!selectedDraftId || !renderIsActive) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadVideoRenderStatus(selectedDraftId, { silent: true });
+    }, 6000);
+
+    return () => window.clearInterval(intervalId);
+  }, [renderIsActive, selectedDraftId]);
 
   return (
     <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
@@ -368,21 +514,48 @@ export function ShortsVideoPreparationClient() {
               </h2>
             </div>
             <span className={`rounded-md border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] ${
-              videoPreparationReady
+              renderIsCompleted
                 ? "border-[#22C55E]/45 bg-[#22C55E]/10 text-[#86EFAC]"
-                : videoBlockingReasons.length === 0
-                  ? "border-[#39E6D0]/45 bg-[#39E6D0]/10 text-[#39E6D0]"
-                  : "border-[#1D2A44] bg-[#03070B] text-[#A7B0C0]"
+                : renderIsFailed
+                  ? "border-[#F97316]/45 bg-[#F97316]/10 text-[#FDBA74]"
+                  : renderIsActive
+                    ? "border-[#39E6D0]/45 bg-[#39E6D0]/10 text-[#39E6D0]"
+                    : videoPreparationReady
+                      ? "border-[#22C55E]/45 bg-[#22C55E]/10 text-[#86EFAC]"
+                      : videoBlockingReasons.length === 0
+                        ? "border-[#39E6D0]/45 bg-[#39E6D0]/10 text-[#39E6D0]"
+                        : "border-[#1D2A44] bg-[#03070B] text-[#A7B0C0]"
             }`}>
-              {isLoadingMedia
-                ? "Chargement"
-                : videoPreparationReady
-                  ? "Video prete a generer"
-                  : videoBlockingReasons.length === 0
-                    ? "Pret a preparer"
-                    : "Elements manquants"}
+              {isLoadingMedia ? "Chargement" : renderStatusLabel}
             </span>
           </div>
+
+          {videoPreparationReady ? (
+            <div className="mt-5 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[#F8FAFC]">
+                    {renderStatusLabel}
+                  </p>
+                  <p className="mt-1 text-sm text-[#A7B0C0]">
+                    {videoRender?.requestedAt
+                      ? `Demande: ${formatDate(videoRender.requestedAt)}`
+                      : "Aucun rendu lance pour ce brouillon."}
+                    {videoRender?.durationSeconds
+                      ? ` · Duree: ${formatDuration(videoRender.durationSeconds)}`
+                      : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadVideoRenderStatus(selectedDraftId)}
+                  className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
+                >
+                  {isLoadingRenderStatus ? "Actualisation..." : "Actualiser le statut"}
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {error ? (
             <p className="mt-5 rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-4 py-3 text-sm font-semibold text-[#FDBA74]">
@@ -464,7 +637,37 @@ export function ShortsVideoPreparationClient() {
               </p>
             ) : null}
 
-            <div className="mt-5">
+            {renderIsFailed && videoRender?.errorMessage ? (
+              <div className="mt-4 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-4 py-3 text-sm text-[#FDBA74]">
+                <p className="font-semibold">Echec du rendu</p>
+                <p className="mt-1 leading-6">{videoRender.errorMessage}</p>
+              </div>
+            ) : null}
+
+            {renderIsCompleted && videoRender?.outputUrl ? (
+              <div className="mt-5 space-y-4">
+                <video
+                  controls
+                  src={videoRender.outputUrl}
+                  className="aspect-[9/16] max-h-[720px] w-full rounded-md border border-[#1D2A44] bg-black object-contain"
+                />
+                <div className="flex flex-col gap-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0] lg:flex-row lg:items-center lg:justify-between">
+                  <span>
+                    {videoRender.renderedAt ? formatDate(videoRender.renderedAt) : "Date inconnue"}
+                    {videoRender.durationSeconds ? ` · ${formatDuration(videoRender.durationSeconds)}` : ""}
+                  </span>
+                  <a
+                    href={videoRender.outputUrl}
+                    download
+                    className="font-semibold text-[#39E6D0] hover:text-[#F8FAFC]"
+                  >
+                    Telecharger la video
+                  </a>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-5 flex flex-wrap gap-3">
               <button
                 type="button"
                 disabled={!canPrepareVideo}
@@ -477,6 +680,34 @@ export function ShortsVideoPreparationClient() {
                     ? "Preparation video terminee"
                     : "Preparer la video"}
               </button>
+              {videoPreparationReady && !renderIsCompleted ? (
+                <button
+                  type="button"
+                  disabled={!canGenerateVideo}
+                  onClick={() => void runVideoRenderAction(renderIsFailed ? "retry" : "start")}
+                  className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  {isRenderingVideo
+                    ? "Envoi au renderer..."
+                    : renderIsFailed
+                      ? "Reessayer"
+                      : "Generer la video"}
+                </button>
+              ) : null}
+              {renderIsCompleted ? (
+                <button
+                  type="button"
+                  disabled={!canGenerateVideo}
+                  onClick={() => void runVideoRenderAction("regenerate")}
+                  className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  {confirmRegenerate
+                    ? "Confirmer la regeneration"
+                    : isRenderingVideo
+                      ? "Envoi au renderer..."
+                      : "Regenerer la video"}
+                </button>
+              ) : null}
             </div>
           </SectionContainer>
         ) : null}

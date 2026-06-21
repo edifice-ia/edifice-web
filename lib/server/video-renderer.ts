@@ -3,6 +3,9 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const VIDEO_RENDERER_BUCKET = "content-assets";
+const DEFAULT_STALE_PROCESSING_MINUTES = 45;
+const STALE_QUEUED_MINUTES = 5;
+const RENDERER_DISPATCH_TIMEOUT_MS = 20000;
 
 type RenderJobStatus = "queued" | "processing" | "completed" | "failed";
 
@@ -98,6 +101,19 @@ function mapJob(row: RenderJobRow, renderedAsset?: RenderedAssetRow | null): Vid
   };
 }
 
+function staleProcessingMinutes() {
+  const rawValue = process.env.RENDERER_STALE_PROCESSING_MINUTES?.trim();
+  const parsed = Number(rawValue);
+
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_STALE_PROCESSING_MINUTES;
+}
+
+function minutesAgo(minutes: number) {
+  return new Date(Date.now() - minutes * 60_000).toISOString();
+}
+
 async function ensureDraftAccess(draftId: string, userId: string) {
   const { data, error } = await getVideoRendererClient()
     .from("content_drafts")
@@ -164,6 +180,7 @@ export async function readVideoRenderJobState({
   userId: string;
 }) {
   await ensureDraftAccess(draftId, userId);
+  await failStaleVideoRenderJobs(draftId);
 
   const { data, error } = await getVideoRendererClient()
     .from("video_render_jobs")
@@ -216,6 +233,62 @@ async function readLatestFailedJob(draftId: string) {
   }
 
   return data ?? null;
+}
+
+export async function failStaleVideoRenderJobs(draftId: string) {
+  const now = new Date().toISOString();
+  const queuedCutoff = minutesAgo(STALE_QUEUED_MINUTES);
+  const processingCutoff = minutesAgo(staleProcessingMinutes());
+  const { data: queuedJobs, error: queuedError } = await getVideoRendererClient()
+    .from("video_render_jobs")
+    .update({
+      completed_at: now,
+      error_message: `Job bloque: reste en attente du renderer depuis plus de ${STALE_QUEUED_MINUTES} minutes. Vous pouvez relancer le rendu.`,
+      status: "failed",
+    })
+    .eq("draft_id", draftId)
+    .eq("status", "queued")
+    .lt("requested_at", queuedCutoff)
+    .select("id");
+
+  if (queuedError) {
+    throw new Error(`Recuperation des jobs queued bloques impossible: ${queuedError.message}`);
+  }
+
+  const { data: processingJobs, error: processingError } = await getVideoRendererClient()
+    .from("video_render_jobs")
+    .update({
+      completed_at: now,
+      error_message: `Job bloque: rendu en cours depuis plus de ${staleProcessingMinutes()} minutes sans finalisation. Vous pouvez relancer le rendu.`,
+      status: "failed",
+    })
+    .eq("draft_id", draftId)
+    .eq("status", "processing")
+    .lt("started_at", processingCutoff)
+    .select("id");
+
+  if (processingError) {
+    throw new Error(`Recuperation des jobs processing bloques impossible: ${processingError.message}`);
+  }
+
+  const { data: missingStartedAtJobs, error: missingStartedAtError } = await getVideoRendererClient()
+    .from("video_render_jobs")
+    .update({
+      completed_at: now,
+      error_message: `Job bloque: rendu marque en cours sans started_at exploitable depuis plus de ${staleProcessingMinutes()} minutes. Vous pouvez relancer le rendu.`,
+      status: "failed",
+    })
+    .eq("draft_id", draftId)
+    .eq("status", "processing")
+    .is("started_at", null)
+    .lt("requested_at", processingCutoff)
+    .select("id");
+
+  if (missingStartedAtError) {
+    throw new Error(`Recuperation des jobs processing sans started_at impossible: ${missingStartedAtError.message}`);
+  }
+
+  return [...(queuedJobs ?? []), ...(processingJobs ?? []), ...(missingStartedAtJobs ?? [])].length;
 }
 
 async function createRenderJob(draftId: string, manifest: VideoManifestAssetRow) {
@@ -293,6 +366,7 @@ export async function createOrReuseVideoRenderJob({
   userId: string;
 }) {
   await ensureDraftAccess(draftId, userId);
+  await failStaleVideoRenderJobs(draftId);
 
   const activeJob = await readActiveJob(draftId);
   if (activeJob) {
@@ -320,28 +394,111 @@ export async function createOrReuseVideoRenderJob({
   };
 }
 
-export async function dispatchVideoRenderJob(jobId: string) {
-  const rendererBaseUrl = process.env.RENDERER_BASE_URL?.trim();
-  const rendererSecret = process.env.RENDERER_SHARED_SECRET?.trim();
+export async function markVideoRenderJobFailed(jobId: string, message: string) {
+  const { error } = await getVideoRendererClient()
+    .from("video_render_jobs")
+    .update({
+      completed_at: new Date().toISOString(),
+      error_message: message.slice(0, 4000),
+      status: "failed",
+    })
+    .eq("id", jobId)
+    .in("status", ["queued", "processing"]);
 
-  if (!rendererBaseUrl || !rendererSecret) {
-    throw new Error("Renderer Railway non configure cote serveur.");
+  if (error) {
+    throw new Error(`Mise a jour du job de rendu impossible: ${error.message}`);
+  }
+}
+
+export async function cancelActiveVideoRenderJob({
+  draftId,
+  userId,
+}: {
+  draftId: string;
+  userId: string;
+}) {
+  await ensureDraftAccess(draftId, userId);
+
+  const { data, error } = await getVideoRendererClient()
+    .from("video_render_jobs")
+    .update({
+      completed_at: new Date().toISOString(),
+      error_message: "Job annule manuellement depuis l'interface. Vous pouvez relancer le rendu.",
+      status: "failed",
+    })
+    .eq("draft_id", draftId)
+    .in("status", ["queued", "processing"])
+    .select("id");
+
+  if (error) {
+    throw new Error(`Annulation du job de rendu impossible: ${error.message}`);
   }
 
-  const endpoint = new URL(`/internal/render-jobs/${jobId}/dispatch`, rendererBaseUrl);
-  const response = await fetch(endpoint, {
-    cache: "no-store",
-    headers: {
-      "X-Renderer-Secret": rendererSecret,
-    },
-    method: "POST",
-  });
+  return data?.length ?? 0;
+}
+
+function rendererDispatchUrl(jobId: string) {
+  const rendererBaseUrl = process.env.RENDERER_BASE_URL?.trim();
+
+  if (!rendererBaseUrl) {
+    throw new Error("RENDERER_BASE_URL est absent cote serveur Vercel.");
+  }
+
+  let baseUrl: URL;
+  try {
+    baseUrl = new URL(rendererBaseUrl);
+  } catch {
+    throw new Error(
+      `RENDERER_BASE_URL est invalide cote serveur Vercel: "${rendererBaseUrl}". Utilisez une URL absolue Railway, par exemple https://votre-service.up.railway.app.`,
+    );
+  }
+
+  if (!["http:", "https:"].includes(baseUrl.protocol)) {
+    throw new Error(
+      `RENDERER_BASE_URL doit commencer par http:// ou https://. Valeur actuelle: "${rendererBaseUrl}".`,
+    );
+  }
+
+  return new URL(`/internal/render-jobs/${jobId}/dispatch`, baseUrl);
+}
+
+export async function dispatchVideoRenderJob(jobId: string) {
+  const rendererSecret = process.env.RENDERER_SHARED_SECRET?.trim();
+
+  if (!rendererSecret) {
+    throw new Error("RENDERER_SHARED_SECRET est absent cote serveur Vercel.");
+  }
+
+  const endpoint = rendererDispatchUrl(jobId);
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), RENDERER_DISPATCH_TIMEOUT_MS);
+  let response: Response;
+
+  try {
+    response = await fetch(endpoint, {
+      cache: "no-store",
+      headers: {
+        "X-Renderer-Secret": rendererSecret,
+      },
+      method: "POST",
+      signal: abortController.signal,
+    });
+  } catch (error) {
+    const reason = error instanceof Error && error.name === "AbortError"
+      ? `timeout apres ${Math.round(RENDERER_DISPATCH_TIMEOUT_MS / 1000)}s`
+      : error instanceof Error
+        ? error.message
+        : "erreur reseau inconnue";
+    throw new Error(`Appel Railway impossible: ${reason}`);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   let payload: unknown = null;
   try {
     payload = await response.json();
   } catch {
-    payload = null;
+    throw new Error(`Reponse Railway invalide (${response.status}): JSON attendu.`);
   }
 
   if (!response.ok) {
@@ -350,6 +507,36 @@ export async function dispatchVideoRenderJob(jobId: string) {
         ? String((payload as { detail?: unknown }).detail)
         : response.statusText;
     throw new Error(`Renderer Railway indisponible (${response.status}): ${detail}`);
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Reponse Railway invalide: objet JSON attendu.");
+  }
+
+  const rendererPayload = payload as {
+    error_message?: unknown;
+    job_id?: unknown;
+    status?: unknown;
+  };
+
+  if (rendererPayload.job_id !== jobId) {
+    throw new Error("Reponse Railway invalide: job_id inattendu ou absent.");
+  }
+
+  if (
+    rendererPayload.status !== "queued" &&
+    rendererPayload.status !== "processing" &&
+    rendererPayload.status !== "completed" &&
+    rendererPayload.status !== "failed"
+  ) {
+    throw new Error("Reponse Railway invalide: status inattendu ou absent.");
+  }
+
+  if (rendererPayload.status === "failed") {
+    const message = typeof rendererPayload.error_message === "string" && rendererPayload.error_message
+      ? rendererPayload.error_message
+      : "Le renderer Railway a retourne un echec sans detail.";
+    throw new Error(`Renderer Railway a echoue: ${message}`);
   }
 
   return payload;

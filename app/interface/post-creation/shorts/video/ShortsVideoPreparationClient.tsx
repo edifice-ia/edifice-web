@@ -347,8 +347,12 @@ export function ShortsVideoPreparationClient() {
     }
   }
 
-  async function runVideoRenderAction(action: "start" | "retry" | "regenerate") {
-    if (!selectedDraft || !canGenerateVideo) {
+  async function runVideoRenderAction(action: "start" | "retry" | "regenerate" | "cancel") {
+    if (!selectedDraft) {
+      return;
+    }
+
+    if (action !== "cancel" && !canGenerateVideo) {
       return;
     }
 
@@ -378,7 +382,9 @@ export function ShortsVideoPreparationClient() {
       setVideoRender(payload.videoRender ?? null);
       setConfirmRegenerate(false);
       setNotice(
-        payload.videoRender?.status === "completed"
+        action === "cancel"
+          ? "Job annule. Vous pouvez relancer le rendu."
+          : payload.videoRender?.status === "completed"
           ? "Rendu termine. La video est prete a valider."
           : "Job de rendu envoye au renderer Railway.",
       );
@@ -690,8 +696,18 @@ export function ShortsVideoPreparationClient() {
                   {isRenderingVideo
                     ? "Envoi au renderer..."
                     : renderIsFailed
-                      ? "Reessayer"
+                      ? "Reessayer le rendu"
                       : "Generer la video"}
+                </button>
+              ) : null}
+              {renderIsActive ? (
+                <button
+                  type="button"
+                  disabled={isRenderingVideo}
+                  onClick={() => void runVideoRenderAction("cancel")}
+                  className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-2.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#F97316]/50 hover:text-[#FDBA74] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  Annuler le job
                 </button>
               ) : null}
               {renderIsCompleted ? (

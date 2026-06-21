@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import {
+  cancelActiveVideoRenderJob,
   createOrReuseVideoRenderJob,
   dispatchVideoRenderJob,
+  markVideoRenderJobFailed,
   readVideoRenderJobState,
 } from "@/lib/server/video-renderer";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
@@ -9,7 +11,7 @@ import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-type RenderAction = "start" | "retry" | "regenerate";
+type RenderAction = "start" | "retry" | "regenerate" | "cancel";
 
 function renderErrorPayload(error: unknown) {
   return {
@@ -28,7 +30,7 @@ async function authorizeVideoRenderAccess() {
 }
 
 function normalizeAction(value: unknown): RenderAction {
-  return value === "retry" || value === "regenerate" ? value : "start";
+  return value === "retry" || value === "regenerate" || value === "cancel" ? value : "start";
 }
 
 export async function GET(
@@ -74,9 +76,22 @@ export async function POST(
 
   try {
     const { id } = await context.params;
+    const action = normalizeAction(payload.action);
+
+    if (action === "cancel") {
+      await cancelActiveVideoRenderJob({
+        draftId: id,
+        userId: user.id,
+      });
+
+      return NextResponse.json({
+        videoRender: await readVideoRenderJobState({ draftId: id, userId: user.id }),
+      });
+    }
+
     const { job, reusedActiveJob } = await createOrReuseVideoRenderJob({
       draftId: id,
-      mode: normalizeAction(payload.action),
+      mode: action,
       userId: user.id,
     });
 
@@ -84,10 +99,16 @@ export async function POST(
       try {
         await dispatchVideoRenderJob(job.id);
       } catch (error) {
+        const message = error instanceof Error ? error.message : "Renderer Railway indisponible.";
         console.error("[Video Render API] Railway dispatch failed", renderErrorPayload(error));
+        try {
+          await markVideoRenderJobFailed(job.id, message);
+        } catch (updateError) {
+          console.error("[Video Render API] Could not mark dispatch failure", renderErrorPayload(updateError));
+        }
         return NextResponse.json(
           {
-            error: error instanceof Error ? error.message : "Renderer Railway indisponible.",
+            error: message,
             videoRender: await readVideoRenderJobState({ draftId: id, userId: user.id }),
           },
           { status: 502 },

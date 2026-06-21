@@ -9,10 +9,10 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY services/shorts-renderer/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY services/shorts-renderer/app ./app
+COPY app ./app
 
 EXPOSE 8000
 

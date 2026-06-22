@@ -37,9 +37,9 @@ class RendererSupabase:
         response = (
             self.client.table("video_render_jobs")
             .update({"status": "processing", "started_at": now, "error_message": None})
+            .select("id,draft_id,manifest_id,manifest_path,status,metadata")
             .eq("id", job_id)
             .eq("status", "queued")
-            .select("id,draft_id,manifest_id,manifest_path,status,metadata")
             .maybe_single()
             .execute()
         )
@@ -61,6 +61,7 @@ class RendererSupabase:
                 }
             )
             .eq("id", job_id)
+            .in_("status", ["queued", "processing"])
             .execute()
         )
 

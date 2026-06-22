@@ -39,22 +39,19 @@ async def dispatch_render_job(job_id: str) -> DispatchResponse:
     client = RendererSupabase(settings)
 
     async with render_lock:
-        claimed = False
         try:
             recovered = client.recover_stale_processing_jobs()
             if recovered:
                 logger.warning("Recovered %s stale processing job(s).", recovered)
             job = client.claim_queued_job(job_id)
-            claimed = True
             output_path, output_url = await asyncio.to_thread(render_job, settings, client, job)
             client.mark_completed(job_id, output_path, output_url)
             return DispatchResponse(job_id=job_id, status="completed", output_path=output_path, output_url=output_url)
         except Exception as exc:
             message = str(exc) or exc.__class__.__name__
             logger.exception("Render job failed: %s", job_id)
-            if claimed:
-                try:
-                    client.mark_failed(job_id, message)
-                except Exception:
-                    logger.exception("Could not mark failed job: %s", job_id)
+            try:
+                client.mark_failed(job_id, message)
+            except Exception:
+                logger.exception("Could not mark failed job: %s", job_id)
             return DispatchResponse(job_id=job_id, status="failed", error_message=message)

@@ -9,6 +9,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from app.config import Settings
 from app.models import RenderJob
@@ -35,6 +36,10 @@ DEFAULT_KARAOKE_TIMING_OFFSET_MS = 250
 DEFAULT_KARAOKE_ACTIVE_COLOR = "&H0000D7FF"
 DEFAULT_KARAOKE_INACTIVE_COLOR = "&H00FFFFFF"
 MIN_KARAOKE_EVENT_DURATION = 0.05
+SUPABASE_PUBLIC_OBJECT_MARKERS = (
+    "/storage/v1/object/public/",
+    "/object/public/",
+)
 
 
 @dataclass(frozen=True)
@@ -442,10 +447,112 @@ def manifest_asset_ref(asset: dict[str, Any], fallback_bucket: str) -> tuple[str
     path = asset.get("storage_path") or asset.get("storagePath")
     if not isinstance(path, str) or not path:
         raise RuntimeError(f"Missing storage_path in manifest asset: {asset}")
-    return str(bucket), path
+    return normalize_storage_ref(str(bucket), path)
 
 
-def load_manifest_assets(client: RendererSupabase, manifest: dict[str, Any], work_dir: Path) -> tuple[list[Path], Path, Path | None, Path | None]:
+def normalize_storage_ref(bucket: str, storage_path: str) -> tuple[str, str]:
+    normalized_bucket = bucket.strip().strip("/")
+    normalized_path = storage_path.strip()
+
+    if not normalized_bucket:
+        raise RuntimeError(f"Bucket Supabase Storage manquant pour le chemin {storage_path!r}.")
+    if not normalized_path:
+        raise RuntimeError(f"Chemin Supabase Storage manquant dans le bucket {normalized_bucket}.")
+
+    parsed = urlparse(normalized_path)
+    if parsed.scheme and parsed.netloc:
+        public_path = unquote(parsed.path)
+        for marker in SUPABASE_PUBLIC_OBJECT_MARKERS:
+            marker_index = public_path.find(marker)
+            if marker_index >= 0:
+                object_ref = public_path[marker_index + len(marker):].lstrip("/")
+                object_bucket, _, object_path = object_ref.partition("/")
+                if object_bucket:
+                    normalized_bucket = object_bucket
+                normalized_path = object_path
+                break
+        else:
+            raise RuntimeError(
+                f"URL publique Supabase non convertible en chemin Storage: {storage_path!r}."
+            )
+
+    normalized_path = normalized_path.replace("\\", "/").lstrip("/")
+    bucket_prefix = f"{normalized_bucket}/"
+    if normalized_path.startswith(bucket_prefix):
+        normalized_path = normalized_path[len(bucket_prefix):]
+
+    if not normalized_path:
+        raise RuntimeError(f"Chemin Supabase Storage vide apres normalisation dans {normalized_bucket}.")
+    if normalized_path.startswith("http://") or normalized_path.startswith("https://"):
+        raise RuntimeError(
+            f"URL publique refusee comme chemin Storage dans {normalized_bucket}: {storage_path!r}."
+        )
+
+    return normalized_bucket, normalized_path
+
+
+def log_storage_download(kind: str, bucket: str, storage_path: str, draft_id: str) -> None:
+    logger.info(
+        "[storage download] type=%s draft_id=%s bucket=%s path=%s",
+        kind,
+        draft_id,
+        bucket,
+        storage_path,
+    )
+
+
+def storage_missing_message(kind: str, bucket: str, storage_path: str, error: Exception) -> str:
+    label_by_kind = {
+        "manifest": "Manifest",
+        "visual": "Visuel",
+        "audio": "Audio",
+        "srt": "SRT",
+        "json": "JSON sous-titres",
+    }
+    label = label_by_kind.get(kind, kind)
+    details = str(error).strip()
+    suffix = f" Detail Supabase: {details}" if details else ""
+    return f"{label} introuvable dans {bucket} a {storage_path}.{suffix}"
+
+
+def download_storage_file(
+    client: RendererSupabase,
+    kind: str,
+    bucket: str,
+    storage_path: str,
+    destination: Path,
+    draft_id: str,
+) -> None:
+    bucket, storage_path = normalize_storage_ref(bucket, storage_path)
+    log_storage_download(kind, bucket, storage_path, draft_id)
+    try:
+        client.download_to_file(bucket, storage_path, destination)
+    except Exception as exc:
+        raise RuntimeError(storage_missing_message(kind, bucket, storage_path, exc)) from exc
+
+
+def download_storage_json(
+    client: RendererSupabase,
+    kind: str,
+    bucket: str,
+    storage_path: str,
+    draft_id: str,
+) -> dict[str, Any]:
+    bucket, storage_path = normalize_storage_ref(bucket, storage_path)
+    log_storage_download(kind, bucket, storage_path, draft_id)
+    try:
+        raw = client.download_bytes(bucket, storage_path)
+    except Exception as exc:
+        raise RuntimeError(storage_missing_message(kind, bucket, storage_path, exc)) from exc
+    return json.loads(raw.decode("utf-8"))
+
+
+def load_manifest_assets(
+    client: RendererSupabase,
+    manifest: dict[str, Any],
+    work_dir: Path,
+    draft_id: str,
+) -> tuple[list[Path], Path, Path | None, Path | None]:
     visuals_dir = work_dir / "visuals"
     visuals: list[Path] = []
     for index, visual in enumerate(manifest.get("visuals") or [], start=1):
@@ -454,7 +561,7 @@ def load_manifest_assets(client: RendererSupabase, manifest: dict[str, Any], wor
         bucket, storage_path = manifest_asset_ref(visual, client.settings.video_output_bucket)
         local_file = visual.get("local_file")
         destination = work_dir / str(local_file) if isinstance(local_file, str) else visuals_dir / f"{index:03d}{Path(storage_path).suffix or '.jpg'}"
-        client.download_to_file(bucket, storage_path, destination)
+        download_storage_file(client, "visual", bucket, storage_path, destination, draft_id)
         if destination.suffix.lower() not in VISUAL_EXTENSIONS:
             raise RuntimeError(f"Unsupported visual extension: {destination.name}")
         visuals.append(destination)
@@ -464,20 +571,20 @@ def load_manifest_assets(client: RendererSupabase, manifest: dict[str, Any], wor
         raise RuntimeError("Manifest missing audio object.")
     audio_bucket, audio_path = manifest_asset_ref(audio, client.settings.video_output_bucket)
     audio_destination = work_dir / str(audio.get("local_file") or "voice.mp3")
-    client.download_to_file(audio_bucket, audio_path, audio_destination)
+    download_storage_file(client, "audio", audio_bucket, audio_path, audio_destination, draft_id)
 
     subtitles = manifest.get("subtitles") if isinstance(manifest.get("subtitles"), dict) else {}
     srt_path = None
     if isinstance(subtitles.get("srt"), dict):
         bucket, storage_path = manifest_asset_ref(subtitles["srt"], client.settings.video_output_bucket)
         srt_path = work_dir / "subtitles.srt"
-        client.download_to_file(bucket, storage_path, srt_path)
+        download_storage_file(client, "srt", bucket, storage_path, srt_path, draft_id)
 
     words_path = None
     if isinstance(subtitles.get("json"), dict):
         bucket, storage_path = manifest_asset_ref(subtitles["json"], client.settings.video_output_bucket)
         words_path = work_dir / "word_timestamps.json"
-        client.download_to_file(bucket, storage_path, words_path)
+        download_storage_file(client, "json", bucket, storage_path, words_path, draft_id)
 
     if not visuals:
         raise RuntimeError("Manifest contains no usable visuals.")
@@ -486,13 +593,13 @@ def load_manifest_assets(client: RendererSupabase, manifest: dict[str, Any], wor
 
 def render_job(settings: Settings, client: RendererSupabase, job: RenderJob) -> tuple[str, str]:
     manifest_bucket, manifest_path = client.read_manifest_reference(job)
-    manifest = json.loads(client.download_bytes(manifest_bucket, manifest_path).decode("utf-8"))
+    manifest = download_storage_json(client, "manifest", manifest_bucket, manifest_path, job.draft_id)
     draft_id = str(manifest.get("draft_id") or job.draft_id)
 
     with tempfile.TemporaryDirectory(prefix="shorts-render-") as temp_name:
         work_dir = Path(temp_name)
         logger.info("Rendering job=%s draft=%s work_dir=%s manifest=%s", job.id, draft_id, work_dir, manifest_path)
-        visuals, audio_path, subtitles_path, words_path = load_manifest_assets(client, manifest, work_dir)
+        visuals, audio_path, subtitles_path, words_path = load_manifest_assets(client, manifest, work_dir, draft_id)
         duration = audio_duration(settings, audio_path)
         durations = visual_durations(duration, len(visuals))
         silent_video = work_dir / "slideshow.mp4"

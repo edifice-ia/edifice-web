@@ -1,11 +1,14 @@
 import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { VISUAL_LIBRARY_BUCKET, VISUAL_LIBRARY_PATH } from "@/lib/server/content-assets";
 
 const VIDEO_RENDERER_BUCKET = "content-assets";
 const DEFAULT_STALE_PROCESSING_MINUTES = 45;
 const STALE_QUEUED_MINUTES = 5;
 const RENDERER_DISPATCH_TIMEOUT_MS = 20000;
+const STALE_DRAFT_VISUAL_MESSAGE =
+  "Les visuels validés de ce brouillon ne sont plus disponibles pour le montage. Sélectionne ou valide de nouveaux visuels.";
 
 type RenderJobStatus = "queued" | "processing" | "completed" | "failed";
 
@@ -36,6 +39,17 @@ type VideoManifestAssetRow = {
 type RenderedAssetRow = {
   created_at: string;
   metadata: Record<string, unknown>;
+};
+
+type VideoManifestVisual = {
+  bucket_name?: unknown;
+  bucketName?: unknown;
+  storage_path?: unknown;
+  storagePath?: unknown;
+};
+
+type VideoManifestPayload = {
+  visuals?: unknown;
 };
 
 export type VideoRenderJobState = {
@@ -112,6 +126,126 @@ function staleProcessingMinutes() {
 
 function minutesAgo(minutes: number) {
   return new Date(Date.now() - minutes * 60_000).toISOString();
+}
+
+function normalizeStoragePath(path: string | null | undefined, bucketName = VIDEO_RENDERER_BUCKET) {
+  const normalized = path?.trim().replace(/^\/+/, "") ?? "";
+  const bucketPrefix = `${bucketName}/`;
+
+  return normalized.startsWith(bucketPrefix)
+    ? normalized.slice(bucketPrefix.length)
+    : normalized;
+}
+
+function storagePathFileName(storagePath: string) {
+  return storagePath.split("/").filter(Boolean).at(-1) ?? storagePath;
+}
+
+function storagePathDirectory(storagePath: string) {
+  const parts = storagePath.split("/").filter(Boolean);
+  parts.pop();
+
+  return parts.join("/");
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function visualStorageRef(visual: VideoManifestVisual) {
+  const bucketName = stringValue(visual.bucket_name) || stringValue(visual.bucketName) || VIDEO_RENDERER_BUCKET;
+  const storagePath = normalizeStoragePath(
+    stringValue(visual.storage_path) || stringValue(visual.storagePath),
+    bucketName,
+  );
+
+  return { bucketName, storagePath };
+}
+
+async function storageObjectExists(bucketName: string, storagePath: string) {
+  const cleanPath = normalizeStoragePath(storagePath, bucketName);
+  const fileName = storagePathFileName(cleanPath);
+  const directory = storagePathDirectory(cleanPath);
+  const { data, error } = await getVideoRendererClient()
+    .storage
+    .from(bucketName)
+    .list(directory, {
+      limit: 100,
+      search: fileName,
+    });
+
+  if (error) {
+    throw new Error(`Verification Storage impossible pour ${bucketName}/${cleanPath}: ${error.message}`);
+  }
+
+  return (data ?? []).some((item) => item.name === fileName);
+}
+
+async function downloadManifestPayload(manifest: VideoManifestAssetRow) {
+  const bucketName = manifest.bucket_name || VIDEO_RENDERER_BUCKET;
+  const storagePath = normalizeStoragePath(manifest.storage_path, bucketName);
+  const { data, error } = await getVideoRendererClient()
+    .storage
+    .from(bucketName)
+    .download(storagePath);
+
+  if (error) {
+    throw new Error(`Telechargement du manifest video impossible depuis ${bucketName}/${storagePath}: ${error.message}`);
+  }
+
+  const text = await data.text();
+
+  try {
+    return JSON.parse(text) as VideoManifestPayload;
+  } catch {
+    throw new Error(`Manifest video invalide: JSON illisible dans ${bucketName}/${storagePath}.`);
+  }
+}
+
+async function assertManifestVisualsAreRenderable(manifest: VideoManifestAssetRow) {
+  const payload = await downloadManifestPayload(manifest);
+  const visuals = Array.isArray(payload.visuals)
+    ? payload.visuals
+    : [];
+  const missingDetails: string[] = [];
+
+  visuals.forEach((entry, index) => {
+    const visual = entry && typeof entry === "object" ? entry as VideoManifestVisual : {};
+    const { bucketName, storagePath } = visualStorageRef(visual);
+    const label = `visuel ${index + 1}`;
+
+    if (!storagePath) {
+      missingDetails.push(`${label}: chemin Storage absent`);
+      return;
+    }
+
+    if (bucketName !== VISUAL_LIBRARY_BUCKET || !storagePath.startsWith(`${VISUAL_LIBRARY_PATH}/`)) {
+      const detail = storagePath.startsWith("drafts/")
+        ? `chemin temporaire ${storagePath}`
+        : `${bucketName}/${storagePath}`;
+      missingDetails.push(`${label}: ${detail}`);
+    }
+  });
+
+  if (missingDetails.length === 0) {
+    for (const [index, entry] of visuals.entries()) {
+      const visual = entry && typeof entry === "object" ? entry as VideoManifestVisual : {};
+      const { bucketName, storagePath } = visualStorageRef(visual);
+      const exists = await storageObjectExists(bucketName, storagePath);
+
+      if (!exists) {
+        missingDetails.push(`visuel ${index + 1}: introuvable dans ${bucketName} a ${storagePath}`);
+      }
+    }
+  }
+
+  if (visuals.length === 0) {
+    missingDetails.push("aucun visuel dans le manifest");
+  }
+
+  if (missingDetails.length > 0) {
+    throw new Error(`${STALE_DRAFT_VISUAL_MESSAGE} Détails: ${missingDetails.join("; ")}.`);
+  }
 }
 
 async function ensureDraftAccess(draftId: string, userId: string) {
@@ -377,6 +511,7 @@ export async function createOrReuseVideoRenderJob({
   }
 
   const manifest = await readLatestManifest(draftId);
+  await assertManifestVisualsAreRenderable(manifest);
 
   if (mode === "retry") {
     const failedJob = await readLatestFailedJob(draftId);

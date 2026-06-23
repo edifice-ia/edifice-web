@@ -250,7 +250,16 @@ export function ShortsVideoPreparationClient() {
   const canPrepareVideo = videoBlockingReasons.length === 0 &&
     !videoPreparationReady &&
     !isPreparingVideo;
+  const canRegenerateManifest = videoBlockingReasons.length === 0 &&
+    videoPreparationReady &&
+    !isPreparingVideo &&
+    !renderIsActive;
   const canGenerateVideo = videoPreparationReady && !renderIsActive && !isRenderingVideo;
+  const manifestRegenerationDisabledReason = renderIsActive
+    ? "Regeneration indisponible pendant un rendu queued ou processing."
+    : videoBlockingReasons.length > 0
+      ? "Texte, visuels, voix et sous-titres doivent etre valides."
+      : null;
 
   async function loadDrafts() {
     setIsLoadingDrafts(true);
@@ -400,8 +409,10 @@ export function ShortsVideoPreparationClient() {
     }
   }
 
-  async function runVideoPreparationAction() {
-    if (!selectedDraft || !canPrepareVideo) {
+  async function runVideoPreparationAction(options?: { force?: boolean }) {
+    const force = Boolean(options?.force);
+
+    if (!selectedDraft || (!force && !canPrepareVideo) || (force && !canRegenerateManifest)) {
       return;
     }
 
@@ -426,7 +437,13 @@ export function ShortsVideoPreparationClient() {
       setMedia(payload.media);
       await loadDrafts();
       await loadVideoRenderStatus(selectedDraft.id, { silent: true });
-      setNotice("Preparation video terminee. Le manifest est pret pour le montage.");
+      setNotice(
+        force
+          ? renderIsCompleted
+            ? "Manifest regenere avec les visuels valides. La video existante reste disponible; un nouveau rendu sera necessaire."
+            : "Manifest regenere avec les visuels valides. Le rendu peut etre relance."
+          : "Preparation video terminee. Le manifest est pret pour le montage.",
+      );
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -625,22 +642,43 @@ export function ShortsVideoPreparationClient() {
             ) : null}
 
             {videoPreparation?.manifestUrl ? (
-              <p className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
-                Manifest:{" "}
-                <a
-                  href={videoPreparation.manifestUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-semibold text-[#39E6D0] hover:text-[#F8FAFC]"
-                >
-                  Voir le manifest
-                </a>
-                {videoPreparation.preparedAt ? (
-                  <span className="ml-2 text-[#64748B]">
-                    {formatDate(videoPreparation.preparedAt)}
-                  </span>
+              <div className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <p>
+                    Manifest:{" "}
+                    <a
+                      href={videoPreparation.manifestUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-[#39E6D0] hover:text-[#F8FAFC]"
+                    >
+                      Voir le manifest
+                    </a>
+                    {videoPreparation.preparedAt ? (
+                      <span className="ml-2 text-[#64748B]">
+                        {formatDate(videoPreparation.preparedAt)}
+                      </span>
+                    ) : null}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={!canRegenerateManifest}
+                    onClick={() => void runVideoPreparationAction({ force: true })}
+                    className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    {isPreparingVideo ? "Regeneration..." : "Regenerer le manifest"}
+                  </button>
+                </div>
+                {manifestRegenerationDisabledReason ? (
+                  <p className="mt-2 text-xs font-semibold text-[#FDBA74]">
+                    {manifestRegenerationDisabledReason}
+                  </p>
+                ) : renderIsCompleted ? (
+                  <p className="mt-2 text-xs text-[#64748B]">
+                    Regenerer le manifest conserve la video existante; un nouveau rendu sera necessaire.
+                  </p>
                 ) : null}
-              </p>
+              </div>
             ) : null}
 
             {renderIsFailed && videoRender?.errorMessage ? (
@@ -684,7 +722,7 @@ export function ShortsVideoPreparationClient() {
                   ? "Preparation..."
                   : videoPreparationReady
                     ? "Preparation video terminee"
-                    : "Preparer la video"}
+                  : "Preparer la video"}
               </button>
               {videoPreparationReady && !renderIsCompleted ? (
                 <button

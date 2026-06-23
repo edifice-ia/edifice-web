@@ -2,10 +2,13 @@ import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getRequiredVisualSceneCount } from "@/lib/content/visual-prompts";
+import { VISUAL_LIBRARY_BUCKET, VISUAL_LIBRARY_PATH } from "@/lib/server/content-assets";
 import { normalizeSubtitleMode, subtitleModeToLocalMode } from "@/lib/subtitles";
 
 const VIDEO_PREPARATION_BUCKET = "content-assets";
 const VIDEO_PREPARATION_PATH = "lignes-interieures/video-preparation";
+const STALE_DRAFT_VISUAL_MESSAGE =
+  "Les visuels validés de ce brouillon ne sont plus disponibles pour le montage. Sélectionne ou valide de nouveaux visuels.";
 
 type DraftRow = {
   id: string;
@@ -175,6 +178,50 @@ function isRetainedScene(scene: VisualSceneRow) {
     scene.generation_status === "retained";
 }
 
+function normalizeStoragePath(path: string | null | undefined, bucketName = VIDEO_PREPARATION_BUCKET) {
+  const normalized = path?.trim().replace(/^\/+/, "") ?? "";
+  const bucketPrefix = `${bucketName}/`;
+
+  return normalized.startsWith(bucketPrefix)
+    ? normalized.slice(bucketPrefix.length)
+    : normalized;
+}
+
+function isCanonicalVisualStorage(bucketName: string | null | undefined, storagePath: string | null | undefined) {
+  return bucketName === VISUAL_LIBRARY_BUCKET &&
+    normalizeStoragePath(storagePath, bucketName).startsWith(`${VISUAL_LIBRARY_PATH}/`);
+}
+
+function storagePathFileName(storagePath: string) {
+  return storagePath.split("/").filter(Boolean).at(-1) ?? storagePath;
+}
+
+function storagePathDirectory(storagePath: string) {
+  const parts = storagePath.split("/").filter(Boolean);
+  parts.pop();
+
+  return parts.join("/");
+}
+
+async function storageObjectExists(bucketName: string, storagePath: string) {
+  const cleanPath = normalizeStoragePath(storagePath, bucketName);
+  const fileName = storagePathFileName(cleanPath);
+  const directory = storagePathDirectory(cleanPath);
+  const { data, error } = await getVideoPreparationClient()
+    .storage
+    .from(bucketName)
+    .list(directory, {
+      limit: 100,
+      search: fileName,
+    });
+
+  if (error) {
+    throw new Error(`Verification Storage impossible pour ${bucketName}/${cleanPath}: ${error.message}`);
+  }
+
+  return (data ?? []).some((item) => item.name === fileName);
+}
+
 async function readDraft(draftId: string, userId: string) {
   const { data, error } = await getVideoPreparationClient()
     .from("content_drafts")
@@ -268,7 +315,7 @@ async function readSelectedAssets(draftId: string) {
         fileName: asset.file_name,
         publicUrl: asset.public_url,
         sceneIndex: link.position ?? index + 1,
-        storagePath: asset.storage_path,
+        storagePath: normalizeStoragePath(asset.storage_path, asset.bucket_name),
       };
     })
     .filter((asset): asset is PreparedVisual => Boolean(asset));
@@ -305,7 +352,7 @@ async function readPreparedVisuals(draft: DraftRow) {
       fileName: asset?.file_name ?? `scene-${scene.visual_prompt_index}`,
       publicUrl: asset?.public_url ?? scene.image_url,
       sceneIndex: scene.visual_prompt_index,
-      storagePath: asset?.storage_path ?? scene.storage_path,
+      storagePath: asset ? normalizeStoragePath(asset.storage_path, asset.bucket_name) : null,
     };
   });
 
@@ -377,6 +424,53 @@ async function readLatestVideoPreparationAsset(draftId: string) {
   return data ?? null;
 }
 
+async function supersedePreviousVideoPreparationAssets({
+  draftId,
+  newStoragePath,
+  supersededAt,
+}: {
+  draftId: string;
+  newStoragePath: string;
+  supersededAt: string;
+}) {
+  const supabase = getVideoPreparationClient();
+  const { data, error } = await supabase
+    .from("content_assets")
+    .select("id, metadata, storage_path")
+    .eq("linked_draft_id", draftId)
+    .eq("asset_type", "video")
+    .eq("source", "video_preparation")
+    .neq("storage_path", newStoragePath)
+    .returns<Array<{ id: string; metadata: Record<string, unknown> | null; storage_path: string }>>();
+
+  if (error) {
+    throw new Error(`Lecture des anciens manifests video impossible: ${error.message}`);
+  }
+
+  await Promise.all((data ?? []).map(async (asset) => {
+    const metadata = asset.metadata ?? {};
+    if (metadata.video_preparation_status !== "ready") {
+      return;
+    }
+
+    const { error: updateError } = await supabase
+      .from("content_assets")
+      .update({
+        metadata: {
+          ...metadata,
+          superseded_at: supersededAt,
+          superseded_by: newStoragePath,
+          video_preparation_status: "superseded",
+        },
+      })
+      .eq("id", asset.id);
+
+    if (updateError) {
+      throw new Error(`Remplacement de l'ancien manifest video impossible: ${updateError.message}`);
+    }
+  }));
+}
+
 export async function readDraftVideoPreparationState({
   draftId,
 }: {
@@ -410,6 +504,63 @@ function buildLocalFileName(index: number, visual: PreparedVisual) {
     : ".jpg";
 
   return `${index.toString().padStart(3, "0")}${extension}`;
+}
+
+async function validatePreparedVisualsForManifest({
+  draftId,
+  requiredVisualCount,
+  visuals,
+}: {
+  draftId: string;
+  requiredVisualCount: number;
+  visuals: PreparedVisual[];
+}) {
+  const selectedVisuals = visuals.slice(0, requiredVisualCount);
+  const missingDetails: string[] = [];
+
+  selectedVisuals.forEach((visual, index) => {
+    const label = `visuel ${index + 1}`;
+    const storagePath = normalizeStoragePath(visual.storagePath, visual.bucketName ?? undefined);
+
+    if (!visual.assetId) {
+      missingDetails.push(`${label}: aucun asset valide selectionne`);
+      return;
+    }
+
+    if (!visual.bucketName || !storagePath) {
+      missingDetails.push(`${label}: chemin Storage absent`);
+      return;
+    }
+
+    if (!isCanonicalVisualStorage(visual.bucketName, storagePath)) {
+      const detail = storagePath.startsWith("drafts/")
+        ? `chemin temporaire ${storagePath}`
+        : `${visual.bucketName}/${storagePath}`;
+      missingDetails.push(`${label}: ${detail}`);
+    }
+  });
+
+  if (missingDetails.length === 0) {
+    for (const [index, visual] of selectedVisuals.entries()) {
+      const bucketName = visual.bucketName ?? "";
+      const storagePath = normalizeStoragePath(visual.storagePath, bucketName);
+      const exists = await storageObjectExists(bucketName, storagePath);
+
+      if (!exists) {
+        missingDetails.push(`visuel ${index + 1}: introuvable dans ${bucketName} a ${storagePath}`);
+      }
+    }
+  }
+
+  if (missingDetails.length > 0) {
+    throw new Error(`${STALE_DRAFT_VISUAL_MESSAGE} Détails: ${missingDetails.join("; ")}. draft_id=${draftId}`);
+  }
+
+  return selectedVisuals.map((visual) => ({
+    ...visual,
+    bucketName: VISUAL_LIBRARY_BUCKET,
+    storagePath: normalizeStoragePath(visual.storagePath, VISUAL_LIBRARY_BUCKET),
+  }));
 }
 
 export async function prepareDraftVideo({
@@ -461,7 +612,11 @@ export async function prepareDraftVideo({
   const timestamp = preparedAt.replace(/[:.]/g, "-");
   const fileName = `video-manifest-${timestamp}.json`;
   const storagePath = `${VIDEO_PREPARATION_PATH}/${draft.id}/${fileName}`;
-  const orderedVisuals = visuals.slice(0, requiredVisualCount);
+  const orderedVisuals = await validatePreparedVisualsForManifest({
+    draftId: draft.id,
+    requiredVisualCount,
+    visuals,
+  });
   const manifest = {
     draft_id: draft.id,
     prepared_at: preparedAt,
@@ -481,8 +636,19 @@ export async function prepareDraftVideo({
       target_seconds: targetDurationSeconds,
     },
     visuals: orderedVisuals.map((visual, index) => ({
-      ...visual,
+      asset_id: visual.assetId,
+      assetId: visual.assetId,
+      bucket_name: visual.bucketName,
+      bucketName: visual.bucketName,
+      file_name: visual.fileName,
+      fileName: visual.fileName,
       local_file: `visuals/${buildLocalFileName(index + 1, visual)}`,
+      public_url: visual.publicUrl,
+      publicUrl: visual.publicUrl,
+      scene_index: visual.sceneIndex,
+      sceneIndex: visual.sceneIndex,
+      storage_path: visual.storagePath,
+      storagePath: visual.storagePath,
     })),
     audio: {
       asset_id: voiceAsset!.id,
@@ -561,6 +727,12 @@ export async function prepareDraftVideo({
   if (assetError) {
     throw new Error(`Indexation du manifest video impossible: ${assetError.message}`);
   }
+
+  await supersedePreviousVideoPreparationAssets({
+    draftId: draft.id,
+    newStoragePath: storagePath,
+    supersededAt: preparedAt,
+  });
 
   const { error: planError } = await supabase
     .from("content_draft_media_plans")

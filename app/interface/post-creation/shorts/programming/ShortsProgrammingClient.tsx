@@ -2,11 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  DEFAULT_RECOMMENDED_SHORTS_SLOTS,
   DEFAULT_SHORTS_SCHEDULE_TIMEZONE,
+  SHORTS_SCHEDULE_RECOMMENDATION_CONFIDENCE_LABELS,
+  SHORTS_SCHEDULE_RECOMMENDATION_SOURCE_LABELS,
   SHORTS_SCHEDULE_PLATFORM_LABELS,
+  addDaysToDateValue,
+  buildShortsScheduleCandidates,
+  clampScheduleStartDate,
+  getDateValueInTimezone,
+  normalizeScheduleTimezone,
+  scheduleDateTimeToIso,
   type ShortsScheduleFrequency,
   type ShortsSchedulePlatform,
+  type ShortsScheduleRecommendationConfidence,
+  type ShortsScheduleRecommendationSource,
 } from "@/lib/shorts-scheduling";
 
 type SchedulableShortVideo = {
@@ -24,7 +33,7 @@ type ShortVideoSchedule = {
   scheduledAt: string;
   timezone: string;
   status: "scheduled" | "cancelled" | "published" | "failed";
-  recommendationSource: "default" | "account_analytics" | "manual";
+  recommendationSource: ShortsScheduleRecommendationSource;
   createdAt: string;
   updatedAt: string;
 };
@@ -40,8 +49,10 @@ type PlanningRow = {
   localDate: string;
   localTime: string;
   platform: ShortsSchedulePlatform;
-  recommendationSource: "default" | "manual";
+  recommendationConfidence: ShortsScheduleRecommendationConfidence;
+  recommendationSource: ShortsScheduleRecommendationSource;
   rowId: string;
+  slotLabel: string;
   status: "draft" | "scheduled";
 };
 
@@ -49,17 +60,19 @@ const platforms: ShortsSchedulePlatform[] = ["tiktok", "instagram", "youtube"];
 const frequencies: ShortsScheduleFrequency[] = [1, 2, 3];
 
 function todayDateValue() {
-  return new Date().toISOString().slice(0, 10);
+  return getDateValueInTimezone(new Date(), DEFAULT_SHORTS_SCHEDULE_TIMEZONE);
 }
 
-function addDays(dateValue: string, days: number) {
-  const date = new Date(`${dateValue}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+function scheduleIso(dateValue: string, timeValue: string, timezone: string) {
+  return scheduleDateTimeToIso(dateValue, timeValue, timezone);
 }
 
-function scheduleIso(dateValue: string, timeValue: string) {
-  return new Date(`${dateValue}T${timeValue}:00`).toISOString();
+function safeScheduleIso(dateValue: string, timeValue: string, timezone: string) {
+  try {
+    return scheduleIso(dateValue, timeValue, timezone);
+  } catch {
+    return `${dateValue}T${timeValue}`;
+  }
 }
 
 function formatDate(value: string) {
@@ -77,10 +90,6 @@ function formatDateTime(value: string) {
     minute: "2-digit",
     month: "short",
   }).format(new Date(value));
-}
-
-function rowKey(row: PlanningRow) {
-  return `${row.draftId}:${row.platform}:${scheduleIso(row.localDate, row.localTime)}`;
 }
 
 export function ShortsProgrammingClient() {
@@ -102,25 +111,30 @@ export function ShortsProgrammingClient() {
     () => new Map(videos.map((video) => [video.draftId, video])),
     [videos],
   );
+  const normalizedTimezone = normalizeScheduleTimezone(timezone);
   const scheduledKeys = useMemo(
     () => new Set(schedules.map((schedule) => `${schedule.draftId}:${schedule.platform}:${new Date(schedule.scheduledAt).toISOString()}`)),
     [schedules],
   );
   const duplicateKeys = useMemo(() => {
     const counts = new Map<string, number>();
-    planningRows.forEach((row) => counts.set(rowKey(row), (counts.get(rowKey(row)) ?? 0) + 1));
-    return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
-  }, [planningRows]);
-  const platformTimeDuplicates = useMemo(() => {
-    const counts = new Map<string, number>();
     planningRows.forEach((row) => {
-      const key = `${row.platform}:${scheduleIso(row.localDate, row.localTime)}`;
+      const key = `${row.draftId}:${row.platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     });
     return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
-  }, [planningRows]);
+  }, [normalizedTimezone, planningRows]);
+  const platformTimeDuplicates = useMemo(() => {
+    const counts = new Map<string, number>();
+    planningRows.forEach((row) => {
+      const key = `${row.platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
+  }, [normalizedTimezone, planningRows]);
   const invalidRows = planningRows.filter((row) => !videoById.has(row.draftId));
-  const periodEnd = addDays(startDate, Math.max(0, daysCount - 1));
+  const effectiveStartDate = clampScheduleStartDate(startDate, normalizedTimezone);
+  const periodEnd = addDaysToDateValue(effectiveStartDate, Math.max(0, daysCount - 1));
 
   async function loadSchedulingState() {
     setIsLoading(true);
@@ -172,43 +186,56 @@ export function ShortsProgrammingClient() {
       return;
     }
 
-    const candidates: Array<{ localDate: string; localTime: string; platform: ShortsSchedulePlatform }> = [];
-    for (let day = 0; day < Math.max(1, daysCount); day += 1) {
-      const localDate = addDays(startDate, day);
-      selectedPlatforms.forEach((platform) => {
-        DEFAULT_RECOMMENDED_SHORTS_SLOTS[platform]
-          .slice(0, frequency)
-          .forEach((slot) => {
-            candidates.push({
-              localDate,
-              localTime: slot.time,
-              platform,
-            });
-          });
-      });
+    const proposal = buildShortsScheduleCandidates({
+      daysCount,
+      frequency,
+      platforms: selectedPlatforms,
+      startDate,
+      timezone: normalizedTimezone,
+    });
+
+    if (proposal.effectiveStartDate !== startDate) {
+      setStartDate(proposal.effectiveStartDate);
+    }
+    if (proposal.timezone !== timezone) {
+      setTimezone(proposal.timezone);
     }
 
-    const rows = candidates.slice(0, videos.length).map((slot, index): PlanningRow => ({
+    const rows = proposal.candidates.slice(0, videos.length).map((slot, index): PlanningRow => ({
       draftId: videos[index % videos.length].draftId,
+      recommendationConfidence: slot.confidence,
       localDate: slot.localDate,
       localTime: slot.localTime,
       platform: slot.platform,
-      recommendationSource: "default",
+      recommendationSource: slot.recommendationSource,
       rowId: `proposal-${index}-${slot.platform}-${slot.localDate}-${slot.localTime}`,
-      status: scheduledKeys.has(`${videos[index % videos.length].draftId}:${slot.platform}:${scheduleIso(slot.localDate, slot.localTime)}`)
+      slotLabel: slot.slotLabel,
+      status: scheduledKeys.has(`${videos[index % videos.length].draftId}:${slot.platform}:${slot.scheduledAt}`)
         ? "scheduled"
         : "draft",
     }));
 
     setPlanningRows(rows);
-    setNotice(`${rows.length} creneau(x) proposes a partir des recommandations par defaut.`);
+    setNotice(
+      `${rows.length} creneau(x) proposes a partir des recommandations par defaut.${
+        proposal.skippedPastSlotCount > 0
+          ? ` ${proposal.skippedPastSlotCount} creneau(x) deja passes ont ete ignores.`
+          : ""
+      }`,
+    );
   }
 
   function updatePlanningRow(rowId: string, patch: Partial<PlanningRow>) {
     setPlanningRows((current) =>
       current.map((row) =>
         row.rowId === rowId
-          ? { ...row, ...patch, recommendationSource: "manual" }
+          ? {
+            ...row,
+            ...patch,
+            recommendationConfidence: "high",
+            recommendationSource: "manual",
+            slotLabel: "Choix manuel",
+          }
           : row,
       ),
     );
@@ -250,8 +277,8 @@ export function ShortsProgrammingClient() {
             draftId: row.draftId,
             platform: row.platform,
             recommendationSource: row.recommendationSource,
-            scheduledAt: scheduleIso(row.localDate, row.localTime),
-            timezone,
+            scheduledAt: scheduleIso(row.localDate, row.localTime, normalizedTimezone),
+            timezone: normalizedTimezone,
           })),
         }),
       });
@@ -432,8 +459,8 @@ export function ShortsProgrammingClient() {
             <p><span className="font-semibold text-[#F8FAFC]">{videos.length}</span> videos disponibles</p>
             <p><span className="font-semibold text-[#F8FAFC]">{planningRows.length}</span> creneaux generes</p>
             <p className="[overflow-wrap:anywhere]">{selectedPlatforms.map((platform) => SHORTS_SCHEDULE_PLATFORM_LABELS[platform]).join(", ") || "Aucune plateforme"}</p>
-            <p>{formatDate(startDate)} - {formatDate(periodEnd)}</p>
-            <p>{timezone}</p>
+            <p>{formatDate(effectiveStartDate)} - {formatDate(periodEnd)}</p>
+            <p>{normalizedTimezone}</p>
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -473,8 +500,8 @@ export function ShortsProgrammingClient() {
                     </td>
                   </tr>
                 ) : planningRows.map((row) => {
-                  const duplicate = duplicateKeys.has(rowKey(row));
-                  const platformTimeDuplicate = platformTimeDuplicates.has(`${row.platform}:${scheduleIso(row.localDate, row.localTime)}`);
+                  const duplicate = duplicateKeys.has(`${row.draftId}:${row.platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`);
+                  const platformTimeDuplicate = platformTimeDuplicates.has(`${row.platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`);
                   return (
                     <tr key={row.rowId} className={duplicate || platformTimeDuplicate ? "bg-[#F97316]/10" : "bg-[#03070B]"}>
                       <td className="px-3 py-3">
@@ -537,6 +564,9 @@ export function ShortsProgrammingClient() {
                         }`}>
                           {row.status === "scheduled" ? "Programme" : "A programmer"}
                         </span>
+                        <p className="mt-2 text-xs leading-5 text-[#A7B0C0]">
+                          {SHORTS_SCHEDULE_RECOMMENDATION_SOURCE_LABELS[row.recommendationSource]} - {SHORTS_SCHEDULE_RECOMMENDATION_CONFIDENCE_LABELS[row.recommendationConfidence]}
+                        </p>
                       </td>
                     </tr>
                   );

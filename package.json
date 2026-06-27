@@ -14,6 +14,7 @@
     "index:content-assets": "node scripts/index-content-assets.mjs",
     "pinterest:storage:reorganize": "node scripts/reorganize-pinterest-storage.mjs",
     "pinterest:sync": "node scripts/sync-pinterest-to-supabase.mjs",
+    "shorts:scheduling:check": "node scripts/shorts-scheduling-check.mjs",
     "shorts:workflow:check": "node scripts/short-workflow-coherence.mjs",
     "sync:pinterest-snapshot": "node scripts/sync-pinterest-snapshot.mjs"
   },

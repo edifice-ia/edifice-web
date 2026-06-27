@@ -1,10 +1,14 @@
 import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { ShortsSchedulePlatform } from "@/lib/shorts-scheduling";
+import {
+  DEFAULT_SHORTS_SCHEDULE_TIMEZONE,
+  normalizeScheduleTimezone,
+  type ShortsSchedulePlatform,
+  type ShortsScheduleRecommendationSource,
+} from "@/lib/shorts-scheduling";
 
 type ScheduleStatus = "scheduled" | "cancelled" | "published" | "failed";
-type RecommendationSource = "default" | "account_analytics" | "manual";
 
 type ValidatedDraftRow = {
   id: string;
@@ -27,7 +31,7 @@ type ScheduleRow = {
   scheduled_at: string;
   timezone: string;
   status: ScheduleStatus;
-  recommendation_source: RecommendationSource;
+  recommendation_source: ShortsScheduleRecommendationSource;
   created_at: string;
   updated_at: string;
 };
@@ -47,7 +51,7 @@ export type ShortVideoSchedule = {
   scheduledAt: string;
   timezone: string;
   status: ScheduleStatus;
-  recommendationSource: RecommendationSource;
+  recommendationSource: ShortsScheduleRecommendationSource;
   createdAt: string;
   updatedAt: string;
 };
@@ -57,7 +61,7 @@ export type ShortVideoScheduleInput = {
   platform: ShortsSchedulePlatform;
   scheduledAt: string;
   timezone: string;
-  recommendationSource?: RecommendationSource;
+  recommendationSource?: ShortsScheduleRecommendationSource;
 };
 
 let schedulingClient: SupabaseClient | null = null;
@@ -106,7 +110,7 @@ function isPlatform(value: string): value is ShortsSchedulePlatform {
 
 function normalizeScheduleInput(input: ShortVideoScheduleInput): ShortVideoScheduleInput {
   const platform = input.platform;
-  const timezone = input.timezone.trim() || "Europe/Paris";
+  const timezone = normalizeScheduleTimezone(input.timezone || DEFAULT_SHORTS_SCHEDULE_TIMEZONE);
   const scheduledAt = new Date(input.scheduledAt);
 
   if (!input.draftId) {
@@ -119,6 +123,10 @@ function normalizeScheduleInput(input: ShortVideoScheduleInput): ShortVideoSched
 
   if (!Number.isFinite(scheduledAt.getTime())) {
     throw new Error(`Date de programmation invalide: ${input.scheduledAt}.`);
+  }
+
+  if (scheduledAt.getTime() <= Date.now()) {
+    throw new Error("Date de programmation invalide: le creneau est deja passe.");
   }
 
   return {

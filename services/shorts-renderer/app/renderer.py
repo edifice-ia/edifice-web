@@ -27,6 +27,8 @@ VISUAL_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 DEFAULT_SUBTITLE_FONT_SIZE = 11
 DEFAULT_SUBTITLE_STROKE_WIDTH = 2
 DEFAULT_SUBTITLE_BOTTOM_MARGIN = 110
+SUBTITLE_VERTICAL_SHIFT_WEB_STANDARD = 40
+MIN_SUBTITLE_BOTTOM_MARGIN = 48
 DEFAULT_SUBTITLE_MAX_WIDTH_RATIO = 0.78
 DEFAULT_SUBTITLE_MAX_LINES = 2
 DEFAULT_SUBTITLE_FONT_SCALE = 0.85
@@ -106,6 +108,10 @@ DEFAULT_RENDER_PROFILE = RENDER_PROFILES["web_standard"]
 WIDTH = DEFAULT_RENDER_PROFILE.width
 HEIGHT = DEFAULT_RENDER_PROFILE.height
 VIDEO_SIZE = DEFAULT_RENDER_PROFILE.video_size
+
+
+def subtitle_vertical_shift(profile: RenderProfile) -> int:
+    return int(round(SUBTITLE_VERTICAL_SHIFT_WEB_STANDARD * profile.height / DEFAULT_RENDER_PROFILE.height))
 
 
 class FfmpegCommandError(RuntimeError):
@@ -517,12 +523,13 @@ def ass_color_env(value: str | None, default: str) -> str:
 
 def subtitle_style(mode: str, manifest: dict[str, Any], profile: RenderProfile = DEFAULT_RENDER_PROFILE) -> SubtitleStyle:
     style = manifest.get("subtitle_style") if isinstance(manifest.get("subtitle_style"), dict) else {}
+    base_bottom_margin = int(style.get("bottom_margin", DEFAULT_SUBTITLE_BOTTOM_MARGIN))
     return SubtitleStyle(
         mode=mode,
         width=profile.width,
         font_size=int(style.get("font_size", DEFAULT_SUBTITLE_FONT_SIZE)),
         stroke_width=int(style.get("stroke_width", DEFAULT_SUBTITLE_STROKE_WIDTH)),
-        bottom_margin=int(style.get("bottom_margin", DEFAULT_SUBTITLE_BOTTOM_MARGIN)),
+        bottom_margin=max(MIN_SUBTITLE_BOTTOM_MARGIN, base_bottom_margin - subtitle_vertical_shift(profile)),
         max_width_ratio=min(0.95, max(0.5, float(style.get("max_width_ratio", DEFAULT_SUBTITLE_MAX_WIDTH_RATIO)))),
         max_lines=max(1, min(3, int(style.get("max_lines", DEFAULT_SUBTITLE_MAX_LINES)))),
         font_scale=min(1.5, max(0.5, float(style.get("font_scale", DEFAULT_SUBTITLE_FONT_SCALE)))),

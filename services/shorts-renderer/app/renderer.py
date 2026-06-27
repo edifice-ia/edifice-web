@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -36,10 +37,16 @@ DEFAULT_KARAOKE_TIMING_OFFSET_MS = 250
 DEFAULT_KARAOKE_ACTIVE_COLOR = "&H0000D7FF"
 DEFAULT_KARAOKE_INACTIVE_COLOR = "&H00FFFFFF"
 MIN_KARAOKE_EVENT_DURATION = 0.05
+FFMPEG_TIMEOUT_SECONDS = 600
+FFMPEG_ERROR_TAIL_LINES = 35
 SUPABASE_PUBLIC_OBJECT_MARKERS = (
     "/storage/v1/object/public/",
     "/object/public/",
 )
+
+
+class FfmpegCommandError(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -64,12 +71,84 @@ class SubtitleStyle:
         return max(40, side_margin)
 
 
-def run_command(command: list[str], cwd: Path | None = None) -> None:
-    logger.info("Running command: %s", " ".join(command))
-    process = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
+def command_for_log(command: list[str]) -> str:
+    return shlex.join(str(part) for part in command)
+
+
+def useful_log_tail(stdout: str, stderr: str, max_lines: int = FFMPEG_ERROR_TAIL_LINES) -> str:
+    combined = "\n".join(part for part in [stdout.strip(), stderr.strip()] if part)
+    lines = [line for line in combined.splitlines() if line.strip()]
+    return "\n".join(lines[-max_lines:])
+
+
+def ffmpeg_error_message(
+    label: str,
+    command: list[str],
+    stdout: str,
+    stderr: str,
+    *,
+    return_code: int | None = None,
+    timeout_seconds: int | None = None,
+) -> str:
+    command_text = command_for_log(command)
+    tail = useful_log_tail(stdout, stderr)
+    if timeout_seconds is not None:
+        title = f"Rendu FFmpeg interrompu apres {timeout_seconds} secondes."
+    else:
+        title = f"{label} a echoue avec le code retour {return_code}."
+
+    details = f"\nDernieres lignes FFmpeg:\n{tail}" if tail else ""
+    return f"{title}\nCommande: {command_text}{details}"
+
+
+def run_command(
+    command: list[str],
+    cwd: Path | None = None,
+    *,
+    label: str = "Commande FFmpeg",
+    timeout_seconds: int = FFMPEG_TIMEOUT_SECONDS,
+) -> None:
+    command_text = command_for_log(command)
+    logger.info("[ffmpeg] start label=%s timeout_seconds=%s cwd=%s command=%s", label, timeout_seconds, cwd, command_text)
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        process.terminate()
+        try:
+            stdout, stderr = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+        logger.error(
+            "[ffmpeg] timeout label=%s timeout_seconds=%s command=%s\n%s",
+            label,
+            timeout_seconds,
+            command_text,
+            useful_log_tail(stdout, stderr, max_lines=80),
+        )
+        raise FfmpegCommandError(
+            ffmpeg_error_message(label, command, stdout, stderr, timeout_seconds=timeout_seconds)
+        )
+
+    logger.info(
+        "[ffmpeg] finished label=%s return_code=%s command=%s\n%s",
+        label,
+        process.returncode,
+        command_text,
+        useful_log_tail(stdout, stderr, max_lines=80),
+    )
     if process.returncode != 0:
-        details = (process.stderr or process.stdout or "").strip()
-        raise RuntimeError(details or f"Command failed: {' '.join(command)}")
+        raise FfmpegCommandError(
+            ffmpeg_error_message(label, command, stdout, stderr, return_code=process.returncode)
+        )
 
 
 def command_output(command: list[str]) -> str:
@@ -100,6 +179,8 @@ def audio_duration(settings: Settings, audio_path: Path) -> float:
 def visual_durations(total_duration: float, visual_count: int) -> list[float]:
     if visual_count <= 0:
         return []
+    if total_duration <= 0:
+        raise RuntimeError(f"Audio duration must be positive, got {total_duration:.3f}s.")
     base_duration = total_duration / visual_count
     durations = [base_duration for _ in range(visual_count)]
     durations[-1] = max(0.1, total_duration - sum(durations[:-1]))
@@ -107,7 +188,15 @@ def visual_durations(total_duration: float, visual_count: int) -> list[float]:
 
 
 def create_slideshow_video(settings: Settings, visuals: list[Path], durations: list[float], destination: Path) -> None:
-    command = [settings.ffmpeg_path, "-y"]
+    if len(visuals) != len(durations):
+        raise RuntimeError(f"Visual count and duration count mismatch: {len(visuals)} visuals, {len(durations)} durations.")
+    if not visuals:
+        raise RuntimeError("Cannot create slideshow without visuals.")
+    for visual, duration in zip(visuals, durations):
+        if duration <= 0:
+            raise RuntimeError(f"Invalid visual duration for {visual.name}: {duration:.3f}s.")
+
+    command = [settings.ffmpeg_path, "-hide_banner", "-nostdin", "-y"]
     for visual, duration in zip(visuals, durations):
         if visual.suffix.lower() in IMAGE_EXTENSIONS:
             command.extend(["-loop", "1", "-t", f"{duration:.3f}", "-i", str(visual)])
@@ -137,6 +226,13 @@ def create_slideshow_video(settings: Settings, visuals: list[Path], durations: l
         concat_inputs.append(f"[v{index}]")
 
     filter_parts.append(f"{''.join(concat_inputs)}concat=n={len(visuals)}:v=1:a=0[vout]")
+    logger.info(
+        "[render montage] visual_count=%s durations=%s output=%s filter=%s",
+        len(visuals),
+        [round(duration, 3) for duration in durations],
+        destination,
+        ";".join(filter_parts),
+    )
     command.extend(
         [
             "-filter_complex",
@@ -159,13 +255,16 @@ def create_slideshow_video(settings: Settings, visuals: list[Path], durations: l
             str(destination),
         ]
     )
-    run_command(command)
+    run_command(command, label="Montage visuels")
 
 
 def add_audio(settings: Settings, video_path: Path, audio_path: Path, destination: Path, duration: float) -> None:
+    logger.info("[render audio] duration_seconds=%.3f source_video=%s audio=%s output=%s", duration, video_path, audio_path, destination)
     run_command(
         [
             settings.ffmpeg_path,
+            "-hide_banner",
+            "-nostdin",
             "-y",
             "-i",
             str(video_path),
@@ -190,7 +289,8 @@ def add_audio(settings: Settings, video_path: Path, audio_path: Path, destinatio
             "-movflags",
             "+faststart",
             str(destination),
-        ]
+        ],
+        label="Ajout audio",
     )
 
 
@@ -231,9 +331,12 @@ def burn_subtitles(settings: Settings, source: Path, subtitles_path: Path, desti
         f"MarginR={style_config.side_margin}"
     )
     subtitles_filter = f"subtitles={subtitles_path.name}:force_style='{style}':wrap_unicode=1"
+    logger.info("[render subtitles] mode=classic source=%s subtitles=%s output=%s", source, subtitles_path, destination)
     run_command(
         [
             settings.ffmpeg_path,
+            "-hide_banner",
+            "-nostdin",
             "-y",
             "-i",
             str(source),
@@ -252,6 +355,7 @@ def burn_subtitles(settings: Settings, source: Path, subtitles_path: Path, desti
             str(destination),
         ],
         cwd=cwd,
+        label="Sous-titres SRT",
     )
 
 
@@ -378,9 +482,12 @@ def ass_path_filter(path: Path) -> str:
 
 
 def burn_ass_subtitles(settings: Settings, source: Path, ass_path: Path, destination: Path) -> None:
+    logger.info("[render subtitles] mode=karaoke source=%s ass=%s output=%s", source, ass_path, destination)
     run_command(
         [
             settings.ffmpeg_path,
+            "-hide_banner",
+            "-nostdin",
             "-y",
             "-i",
             str(source),
@@ -397,7 +504,8 @@ def burn_ass_subtitles(settings: Settings, source: Path, ass_path: Path, destina
             "-movflags",
             "+faststart",
             str(destination),
-        ]
+        ],
+        label="Sous-titres karaoke ASS",
     )
 
 
@@ -420,7 +528,7 @@ def apply_subtitles(
     ).lower()
     if mode == "classic":
         mode = "srt"
-    logger.info("Subtitle mode=%s srt=%s words=%s", mode, bool(subtitles_path), bool(word_timestamps_path))
+    logger.info("[render subtitles] selected_mode=%s srt=%s words=%s output=%s", mode, bool(subtitles_path), bool(word_timestamps_path), output_path)
 
     if mode == "karaoke" and word_timestamps_path:
         try:
@@ -605,12 +713,24 @@ def render_job(settings: Settings, client: RendererSupabase, job: RenderJob) -> 
         silent_video = work_dir / "slideshow.mp4"
         audio_video = work_dir / "with_audio.mp4"
         final_video = work_dir / "final.mp4"
+        logger.info(
+            "[render plan] job=%s draft=%s visual_count=%s audio_duration_seconds=%.3f visual_durations=%s subtitles_srt=%s subtitles_json=%s final_output=%s",
+            job.id,
+            draft_id,
+            len(visuals),
+            duration,
+            [round(value, 3) for value in durations],
+            bool(subtitles_path),
+            bool(words_path),
+            final_video,
+        )
         create_slideshow_video(settings, visuals, durations, silent_video)
         add_audio(settings, silent_video, audio_path, audio_video, duration)
         apply_subtitles(settings, audio_video, subtitles_path, words_path, final_video, work_dir, manifest)
 
         if not final_video.exists() or final_video.stat().st_size <= 0:
             raise RuntimeError("Renderer produced an empty final video.")
+        logger.info("[render output] final_video=%s size_bytes=%s", final_video, final_video.stat().st_size)
 
         timestamp = job.id.replace("-", "")
         file_name = f"{draft_id}-{timestamp}.mp4"

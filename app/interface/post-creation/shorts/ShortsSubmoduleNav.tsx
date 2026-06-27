@@ -21,13 +21,18 @@ const shortsSubmodules = [
     label: "Preparer la video",
     description: "Manifest de montage",
   },
+  {
+    href: "/interface/post-creation/shorts/programming",
+    label: "Programmation",
+    description: "Calendrier manuel",
+  },
 ];
 
-export function ShortsSubmoduleNav({ active }: { active: "drafts" | "visuals" | "voice" | "video" }) {
+export function ShortsSubmoduleNav({ active }: { active: "drafts" | "visuals" | "voice" | "video" | "programming" }) {
   const activeHref = `/interface/post-creation/shorts/${active}`;
 
   return (
-    <nav className="mb-6 grid gap-3 md:grid-cols-4" aria-label="Navigation Shorts">
+    <nav className="mb-6 grid gap-3 md:grid-cols-5" aria-label="Navigation Shorts">
       {shortsSubmodules.map((item) => {
         const isActive = item.href === activeHref;
 

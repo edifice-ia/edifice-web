@@ -150,6 +150,11 @@ textValidatedStatuses.add("video_ready");
 visualReadyStatuses.add("video_ready");
 voiceValidatedStatuses.add("video_ready");
 subtitleReadyStatuses.add("video_ready");
+textValidatedStatuses.add("video_validated");
+visualReadyStatuses.add("video_validated");
+voiceReadyStatuses.add("video_validated");
+voiceValidatedStatuses.add("video_validated");
+subtitleReadyStatuses.add("video_validated");
 
 function normalizeStatus(value: string | null | undefined) {
   return value?.trim() || null;
@@ -259,7 +264,7 @@ export function getShortWorkflowState({
   const videoReady = videoStatus === "ready" ||
     draftStatus === "video_ready" ||
     mediaPipelineStatus === "video_ready";
-  const videoState = videoStatus === "validated" || draftStatus === "ready_to_publish"
+  const videoState = videoStatus === "validated" || draftStatus === "video_validated" || draftStatus === "ready_to_publish"
     ? "validated"
     : videoReady
       ? "ready"
@@ -290,9 +295,11 @@ export function getShortWorkflowState({
                       ? "Valider les sous-titres"
                       : videoState === "pending"
                         ? "video_en_attente"
-                        : readyToPublish === "pending"
-                          ? "Generer la video"
-                          : "Pret a publier";
+                        : videoState === "ready"
+                          ? "Valider la video"
+                          : readyToPublish === "pending"
+                            ? "Preparer la publication"
+                            : "Pret a publier";
 
   return {
     text,

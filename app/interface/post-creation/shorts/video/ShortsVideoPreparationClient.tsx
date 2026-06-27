@@ -58,6 +58,8 @@ type VideoRenderJobState = {
   outputUrl: string | null;
   durationSeconds: number | null;
   renderedAt: string | null;
+  videoValidated: boolean;
+  videoValidatedAt: string | null;
 };
 
 type MediaPayload = {
@@ -94,6 +96,7 @@ const statusLabels: Record<string, string> = {
   sous_titres_en_cours: "Sous-titres en cours",
   validated: "Texte valide",
   video_en_attente: "Video en attente",
+  video_validated: "Video validee",
   video_ready: "Video prete a generer",
   visual_ready: "Visuels prets",
   visuels_prets: "Visuels prets",
@@ -160,6 +163,7 @@ export function ShortsVideoPreparationClient() {
   const [isLoadingRenderStatus, setIsLoadingRenderStatus] = useState(false);
   const [videoRender, setVideoRender] = useState<VideoRenderJobState | null>(null);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  const [confirmValidateVideo, setConfirmValidateVideo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -167,14 +171,23 @@ export function ShortsVideoPreparationClient() {
     () => drafts.find((draft) => draft.id === selectedDraftId) ?? null,
     [drafts, selectedDraftId],
   );
+  const renderIsCompleted = videoRender?.status === "completed" && Boolean(videoRender.outputUrl);
+  const videoIsValidated = Boolean(videoRender?.videoValidated);
   const workflowState = useMemo(
     () =>
       getShortWorkflowState({
         draft: selectedDraft,
         media,
         requiredVisualCount: media?.visualScenes?.length ?? media?.selectedAssets?.length ?? 0,
+        video: {
+          status: videoIsValidated
+            ? "validated"
+            : renderIsCompleted
+              ? "ready"
+              : undefined,
+        },
       }),
-    [media, selectedDraft],
+    [media, renderIsCompleted, selectedDraft, videoIsValidated],
   );
   const voice = media?.voice ?? null;
   const subtitles = media?.subtitles ?? null;
@@ -233,7 +246,6 @@ export function ShortsVideoPreparationClient() {
     .map((item) => `${item.label}: ${item.value}`);
   const videoPreparationReady = videoPreparation?.status === "ready" || workflowState.video === "ready";
   const renderIsActive = videoRender?.status === "queued" || videoRender?.status === "processing";
-  const renderIsCompleted = videoRender?.status === "completed" && Boolean(videoRender.outputUrl);
   const renderIsFailed = videoRender?.status === "failed";
   const renderStatusLabel =
     videoRender?.status === "queued"
@@ -241,7 +253,9 @@ export function ShortsVideoPreparationClient() {
       : videoRender?.status === "processing"
         ? "Rendu en cours"
         : videoRender?.status === "completed"
-          ? "Video prete a valider"
+          ? videoIsValidated
+            ? "Video validee"
+            : "Video prete a valider"
           : videoRender?.status === "failed"
             ? "Echec du rendu"
             : videoPreparationReady
@@ -255,6 +269,12 @@ export function ShortsVideoPreparationClient() {
     !isPreparingVideo &&
     !renderIsActive;
   const canGenerateVideo = videoPreparationReady && !renderIsActive && !isRenderingVideo;
+  const canValidateVideo = renderIsCompleted &&
+    !videoIsValidated &&
+    Boolean(videoRender?.outputPath) &&
+    Boolean(videoRender?.outputUrl) &&
+    videoRender?.status === "completed" &&
+    !isRenderingVideo;
   const manifestRegenerationDisabledReason = renderIsActive
     ? "Regeneration indisponible pendant un rendu queued ou processing."
     : videoBlockingReasons.length > 0
@@ -390,6 +410,7 @@ export function ShortsVideoPreparationClient() {
 
       setVideoRender(payload.videoRender ?? null);
       setConfirmRegenerate(false);
+      setConfirmValidateVideo(false);
       setNotice(
         action === "cancel"
           ? "Job annule. Vous pouvez relancer le rendu."
@@ -402,6 +423,50 @@ export function ShortsVideoPreparationClient() {
         caughtError instanceof Error
           ? caughtError.message
           : "Rendu video indisponible.",
+      );
+      await loadVideoRenderStatus(selectedDraft.id, { silent: true });
+    } finally {
+      setIsRenderingVideo(false);
+    }
+  }
+
+  async function runVideoValidationAction() {
+    if (!selectedDraft || !canValidateVideo) {
+      return;
+    }
+
+    if (!confirmValidateVideo) {
+      setConfirmValidateVideo(true);
+      return;
+    }
+
+    setIsRenderingVideo(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch(`/api/content-workshop/drafts/${selectedDraft.id}/video-render`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action: "validate" }),
+      });
+      const payload = (await response.json()) as VideoRenderPayload;
+
+      if (!response.ok || !payload.videoRender) {
+        throw new Error(payload.error ?? "Validation video indisponible.");
+      }
+
+      setVideoRender(payload.videoRender);
+      setConfirmValidateVideo(false);
+      await loadDrafts();
+      setNotice("Video validee. Elle est prete pour la preparation de publication.");
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Validation video indisponible.",
       );
       await loadVideoRenderStatus(selectedDraft.id, { silent: true });
     } finally {
@@ -688,6 +753,15 @@ export function ShortsVideoPreparationClient() {
               </div>
             ) : null}
 
+            {videoRender?.status === "completed" && !videoRender.outputUrl ? (
+              <div className="mt-4 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-4 py-3 text-sm text-[#FDBA74]">
+                <p className="font-semibold">Video finale indisponible</p>
+                <p className="mt-1 leading-6">
+                  Le job est termine, mais l&apos;URL de sortie est absente. Actualise le statut ou relance le rendu.
+                </p>
+              </div>
+            ) : null}
+
             {renderIsCompleted && videoRender?.outputUrl ? (
               <div className="mt-5 space-y-4">
                 <video
@@ -708,6 +782,59 @@ export function ShortsVideoPreparationClient() {
                     Telecharger la video
                   </a>
                 </div>
+                {videoIsValidated ? (
+                  <div className="rounded-md border border-[#22C55E]/35 bg-[#22C55E]/10 px-4 py-3 text-sm text-[#86EFAC]">
+                    <p className="font-semibold">Video validee</p>
+                    <p className="mt-1 text-[#A7B0C0]">
+                      {videoRender.videoValidatedAt
+                        ? `Validation: ${formatDate(videoRender.videoValidatedAt)}`
+                        : "La video est consideree comme prete pour la publication."}
+                    </p>
+                  </div>
+                ) : null}
+                {confirmValidateVideo ? (
+                  <div className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-4 py-3 text-sm text-[#A7B0C0]">
+                    <p className="font-semibold text-[#F8FAFC]">Valider cette video ?</p>
+                    <p className="mt-1 leading-6">
+                      La video sera consideree comme prete pour la publication.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        disabled={isRenderingVideo}
+                        onClick={() => setConfirmValidateVideo(false)}
+                        className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold text-[#A7B0C0] transition hover:border-[#F97316]/50 hover:text-[#FDBA74] disabled:cursor-not-allowed disabled:opacity-55"
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canValidateVideo}
+                        onClick={() => void runVideoValidationAction()}
+                        className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                      >
+                        {isRenderingVideo ? "Validation..." : "Valider la video"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {confirmRegenerate ? (
+              <div className="mt-4 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-4 py-3 text-sm text-[#FDBA74]">
+                <p className="font-semibold">Regenerer la video ?</p>
+                <p className="mt-1 leading-6">
+                  Regenerer la video necessitera une nouvelle validation.
+                </p>
+                <button
+                  type="button"
+                  disabled={isRenderingVideo}
+                  onClick={() => setConfirmRegenerate(false)}
+                  className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs font-semibold text-[#A7B0C0] transition hover:border-[#F97316]/50 hover:text-[#FDBA74] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  Annuler
+                </button>
               </div>
             ) : null}
 
@@ -749,6 +876,17 @@ export function ShortsVideoPreparationClient() {
                 </button>
               ) : null}
               {renderIsCompleted ? (
+                <>
+                {!videoIsValidated ? (
+                  <button
+                    type="button"
+                    disabled={!canValidateVideo}
+                    onClick={() => void runVideoValidationAction()}
+                    className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    Valider la video
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   disabled={!canGenerateVideo}
@@ -761,6 +899,7 @@ export function ShortsVideoPreparationClient() {
                       ? "Envoi au renderer..."
                       : "Regenerer la video"}
                 </button>
+                </>
               ) : null}
             </div>
           </SectionContainer>

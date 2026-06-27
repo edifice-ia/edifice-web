@@ -5,13 +5,14 @@ import {
   dispatchVideoRenderJob,
   markVideoRenderJobFailed,
   readVideoRenderJobState,
+  validateCompletedVideoRenderJob,
 } from "@/lib/server/video-renderer";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-type RenderAction = "start" | "retry" | "regenerate" | "cancel";
+type RenderAction = "start" | "retry" | "regenerate" | "cancel" | "validate";
 
 function renderErrorPayload(error: unknown) {
   return {
@@ -30,7 +31,12 @@ async function authorizeVideoRenderAccess() {
 }
 
 function normalizeAction(value: unknown): RenderAction {
-  return value === "retry" || value === "regenerate" || value === "cancel" ? value : "start";
+  return value === "retry" ||
+    value === "regenerate" ||
+    value === "cancel" ||
+    value === "validate"
+    ? value
+    : "start";
 }
 
 export async function GET(
@@ -86,6 +92,15 @@ export async function POST(
 
       return NextResponse.json({
         videoRender: await readVideoRenderJobState({ draftId: id, userId: user.id }),
+      });
+    }
+
+    if (action === "validate") {
+      return NextResponse.json({
+        videoRender: await validateCompletedVideoRenderJob({
+          draftId: id,
+          userId: user.id,
+        }),
       });
     }
 

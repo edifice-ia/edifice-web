@@ -66,6 +66,8 @@ export type VideoRenderJobState = {
   outputUrl: string | null;
   durationSeconds: number | null;
   renderedAt: string | null;
+  videoValidated: boolean;
+  videoValidatedAt: string | null;
 };
 
 let videoRendererClient: SupabaseClient | null = null;
@@ -97,6 +99,9 @@ function getVideoRendererClient() {
 function mapJob(row: RenderJobRow, renderedAsset?: RenderedAssetRow | null): VideoRenderJobState {
   const duration = renderedAsset?.metadata?.duration_seconds;
   const durationSeconds = typeof duration === "number" ? duration : Number(duration);
+  const videoValidatedAt = typeof row.metadata?.video_validated_at === "string"
+    ? row.metadata.video_validated_at
+    : null;
 
   return {
     id: row.id,
@@ -112,6 +117,8 @@ function mapJob(row: RenderJobRow, renderedAsset?: RenderedAssetRow | null): Vid
     outputUrl: row.output_url,
     durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : null,
     renderedAt: renderedAsset?.created_at ?? row.completed_at,
+    videoValidated: row.metadata?.video_validation_status === "validated" && Boolean(videoValidatedAt),
+    videoValidatedAt,
   };
 }
 
@@ -426,6 +433,8 @@ export async function failStaleVideoRenderJobs(draftId: string) {
 }
 
 async function createRenderJob(draftId: string, manifest: VideoManifestAssetRow) {
+  await markDraftVideoPending(draftId);
+
   const { data, error } = await getVideoRendererClient()
     .from("video_render_jobs")
     .insert({
@@ -458,6 +467,8 @@ async function createRenderJob(draftId: string, manifest: VideoManifestAssetRow)
 }
 
 async function retryFailedJob(job: RenderJobRow, manifest: VideoManifestAssetRow) {
+  await markDraftVideoPending(job.draft_id);
+
   const { data, error } = await getVideoRendererClient()
     .from("video_render_jobs")
     .update({
@@ -471,6 +482,8 @@ async function retryFailedJob(job: RenderJobRow, manifest: VideoManifestAssetRow
         manifest_created_at: manifest.created_at,
         manifest_public_url: manifest.public_url,
         retried_at: new Date().toISOString(),
+        video_validated_at: null,
+        video_validation_status: "pending",
       },
       output_path: null,
       output_url: null,
@@ -488,6 +501,89 @@ async function retryFailedJob(job: RenderJobRow, manifest: VideoManifestAssetRow
   }
 
   return data;
+}
+
+async function markDraftVideoPending(draftId: string) {
+  const { error } = await getVideoRendererClient()
+    .from("content_drafts")
+    .update({
+      status: "video_ready",
+    })
+    .eq("id", draftId)
+    .neq("status", "ready_to_publish");
+
+  if (error) {
+    throw new Error(`Mise a jour du statut video du brouillon impossible: ${error.message}`);
+  }
+}
+
+async function readCompletedRenderableJob(draftId: string) {
+  const { data, error } = await getVideoRendererClient()
+    .from("video_render_jobs")
+    .select("id,draft_id,manifest_id,manifest_path,status,requested_at,started_at,completed_at,error_message,output_path,output_url,metadata")
+    .eq("draft_id", draftId)
+    .eq("status", "completed")
+    .not("output_path", "is", null)
+    .not("output_url", "is", null)
+    .order("completed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<RenderJobRow>();
+
+  if (error) {
+    throw new Error(`Lecture de la video terminee impossible: ${error.message}`);
+  }
+
+  return data ?? null;
+}
+
+export async function validateCompletedVideoRenderJob({
+  draftId,
+  userId,
+}: {
+  draftId: string;
+  userId: string;
+}) {
+  await ensureDraftAccess(draftId, userId);
+  const job = await readCompletedRenderableJob(draftId);
+
+  if (!job || !job.output_path || !job.output_url) {
+    throw new Error("Aucune video finale disponible a valider. Lancez ou actualisez le rendu video.");
+  }
+
+  const validatedAt = new Date().toISOString();
+  const { data, error } = await getVideoRendererClient()
+    .from("video_render_jobs")
+    .update({
+      metadata: {
+        ...job.metadata,
+        video_validated_at: validatedAt,
+        video_validation_status: "validated",
+        video_validated_output_path: job.output_path,
+        video_validated_output_url: job.output_url,
+      },
+    })
+    .eq("id", job.id)
+    .eq("status", "completed")
+    .select("id,draft_id,manifest_id,manifest_path,status,requested_at,started_at,completed_at,error_message,output_path,output_url,metadata")
+    .single<RenderJobRow>();
+
+  if (error) {
+    throw new Error(`Validation video impossible: ${error.message}`);
+  }
+
+  const { error: draftError } = await getVideoRendererClient()
+    .from("content_drafts")
+    .update({
+      status: "video_validated",
+    })
+    .eq("id", draftId)
+    .neq("status", "ready_to_publish");
+
+  if (draftError) {
+    throw new Error(`Mise a jour du brouillon apres validation video impossible: ${draftError.message}`);
+  }
+
+  return mapJob(data, await readRenderedAsset(data.output_path));
 }
 
 export async function createOrReuseVideoRenderJob({

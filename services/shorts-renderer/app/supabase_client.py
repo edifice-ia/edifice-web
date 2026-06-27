@@ -75,17 +75,27 @@ class RendererSupabase:
             .execute()
         )
 
-    def mark_failed(self, job_id: str, message: str) -> None:
+    def mark_failed(
+        self,
+        job_id: str,
+        message: str,
+        metadata_patch: dict[str, Any] | None = None,
+        existing_metadata: dict[str, Any] | None = None,
+    ) -> None:
         now = dt.datetime.now(dt.UTC).isoformat()
+        payload: dict[str, Any] = {
+            "status": "failed",
+            "completed_at": now,
+            "error_message": message[:4000],
+        }
+        if metadata_patch:
+            payload["metadata"] = {
+                **(existing_metadata or {}),
+                "renderer_failure": metadata_patch,
+            }
         (
             self.client.table("video_render_jobs")
-            .update(
-                {
-                    "status": "failed",
-                    "completed_at": now,
-                    "error_message": message[:4000],
-                }
-            )
+            .update(payload)
             .eq("id", job_id)
             .execute()
         )

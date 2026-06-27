@@ -89,7 +89,7 @@ class FakeClient:
     def mark_completed(self, job_id: str, output_path: str, output_url: str) -> None:
         self.completed.append((job_id, output_path, output_url))
 
-    def mark_failed(self, job_id: str, message: str) -> None:
+    def mark_failed(self, job_id: str, message: str, metadata_patch=None, existing_metadata=None) -> None:
         self.failed.append((job_id, message))
 
 

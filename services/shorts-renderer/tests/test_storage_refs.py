@@ -98,7 +98,20 @@ def test_ffmpeg_error_message_keeps_useful_tail_only():
     assert "real failure: invalid filter" in message
 
 
-def test_slideshow_png_inputs_are_looped_with_explicit_duration(tmp_path: Path):
+def test_ffmpeg_resource_limit_message_is_short_for_sigkill():
+    message = renderer.ffmpeg_error_message(
+        "Montage visuels",
+        ["ffmpeg", "-i", "input.png", "out.mp4"],
+        "",
+        "Killed",
+        return_code=-9,
+    )
+
+    assert message.splitlines()[0] == "Le renderer a ete interrompu par une limite de ressources. Reessaie ou utilise le profil optimise."
+    assert "Diagnostic: Montage visuels a echoue avec le code retour -9." in message
+
+
+def test_visual_segment_png_input_is_looped_with_explicit_duration(tmp_path: Path):
     tmp_path.mkdir(parents=True, exist_ok=True)
     image = tmp_path / "001.png"
     image.write_bytes(b"fake")
@@ -107,10 +120,11 @@ def test_slideshow_png_inputs_are_looped_with_explicit_duration(tmp_path: Path):
 
     try:
         renderer.run_command = lambda command, **kwargs: captured.update({"command": command, "kwargs": kwargs})
-        renderer.create_slideshow_video(
+        renderer.create_visual_segment(
             types.SimpleNamespace(ffmpeg_path="ffmpeg"),
-            [image],
-            [2.5],
+            renderer.DEFAULT_RENDER_PROFILE,
+            image,
+            2.5,
             tmp_path / "out.mp4",
         )
     finally:
@@ -122,7 +136,10 @@ def test_slideshow_png_inputs_are_looped_with_explicit_duration(tmp_path: Path):
     assert command[command.index("-loop") + 1] == "1"
     assert "-t" in command
     assert command[command.index("-t") + 1] == "2.500"
-    assert captured["kwargs"] == {"label": "Montage visuels"}
+    assert "scale=720:1280" in command[command.index("-vf") + 1]
+    assert command[command.index("-preset") + 1] == "veryfast"
+    assert command[command.index("-threads") + 1] == "2"
+    assert captured["kwargs"] == {"label": "Segment visuel 001.png"}
 
 
 if __name__ == "__main__":
@@ -131,5 +148,6 @@ if __name__ == "__main__":
     test_manifest_asset_ref_uses_storage_path_not_local_file()
     test_missing_storage_error_names_file_type_bucket_and_path(ROOT / ".tmp-test")
     test_ffmpeg_error_message_keeps_useful_tail_only()
-    test_slideshow_png_inputs_are_looped_with_explicit_duration(ROOT / ".tmp-test")
+    test_ffmpeg_resource_limit_message_is_short_for_sigkill()
+    test_visual_segment_png_input_is_looped_with_explicit_duration(ROOT / ".tmp-test")
     print("storage refs ok")

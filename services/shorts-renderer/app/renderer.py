@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -18,9 +19,6 @@ from app.supabase_client import RendererSupabase
 
 logger = logging.getLogger(__name__)
 
-VIDEO_SIZE = "1080x1920"
-WIDTH = 1080
-HEIGHT = 1920
 FPS = 30
 TRANSITION_SECONDS = 0.3
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -45,13 +43,88 @@ SUPABASE_PUBLIC_OBJECT_MARKERS = (
 )
 
 
+@dataclass(frozen=True)
+class RenderProfile:
+    name: str
+    width: int
+    height: int
+    preset: str
+    crf: int
+    threads: int
+    maxrate: str
+    bufsize: str
+    audio_bitrate: str = "160k"
+
+    @property
+    def video_size(self) -> str:
+        return f"{self.width}x{self.height}"
+
+    @property
+    def x264_args(self) -> list[str]:
+        return [
+            "-c:v",
+            "libx264",
+            "-preset",
+            self.preset,
+            "-crf",
+            str(self.crf),
+            "-maxrate",
+            self.maxrate,
+            "-bufsize",
+            self.bufsize,
+            "-pix_fmt",
+            "yuv420p",
+            "-threads",
+            str(self.threads),
+        ]
+
+
+RENDER_PROFILES = {
+    "web_standard": RenderProfile(
+        name="web_standard",
+        width=720,
+        height=1280,
+        preset="veryfast",
+        crf=23,
+        threads=2,
+        maxrate="2500k",
+        bufsize="5000k",
+    ),
+    "web_high": RenderProfile(
+        name="web_high",
+        width=1080,
+        height=1920,
+        preset="fast",
+        crf=21,
+        threads=2,
+        maxrate="5000k",
+        bufsize="10000k",
+        audio_bitrate="192k",
+    ),
+}
+DEFAULT_RENDER_PROFILE = RENDER_PROFILES["web_standard"]
+WIDTH = DEFAULT_RENDER_PROFILE.width
+HEIGHT = DEFAULT_RENDER_PROFILE.height
+VIDEO_SIZE = DEFAULT_RENDER_PROFILE.video_size
+
+
 class FfmpegCommandError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        user_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.user_message = user_message or message
+        self.metadata = metadata or {}
 
 
 @dataclass(frozen=True)
 class SubtitleStyle:
     mode: str
+    width: int = WIDTH
     font_size: int = DEFAULT_SUBTITLE_FONT_SIZE
     stroke_width: int = DEFAULT_SUBTITLE_STROKE_WIDTH
     bottom_margin: int = DEFAULT_SUBTITLE_BOTTOM_MARGIN
@@ -67,12 +140,58 @@ class SubtitleStyle:
 
     @property
     def side_margin(self) -> int:
-        side_margin = int(round(WIDTH * (1.0 - self.max_width_ratio) / 2.0))
+        side_margin = int(round(self.width * (1.0 - self.max_width_ratio) / 2.0))
         return max(40, side_margin)
 
 
 def command_for_log(command: list[str]) -> str:
     return shlex.join(str(part) for part in command)
+
+
+def read_first_existing_text(paths: list[str]) -> str | None:
+    for path in paths:
+        try:
+            value = Path(path).read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if value:
+            return value
+    return None
+
+
+def parse_cgroup_int(value: str | None) -> int | None:
+    if not value or value == "max":
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def bytes_to_mib(value: int | None) -> float | None:
+    return round(value / 1024 / 1024, 2) if value is not None else None
+
+
+def memory_snapshot() -> dict[str, int | float | None]:
+    limit = parse_cgroup_int(read_first_existing_text(["/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"]))
+    current = parse_cgroup_int(read_first_existing_text(["/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"]))
+    mem_available = None
+    try:
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("MemAvailable:"):
+                mem_available = int(line.split()[1]) * 1024
+                break
+    except OSError:
+        pass
+    return {
+        "cgroup_limit_bytes": limit,
+        "cgroup_limit_mib": bytes_to_mib(limit),
+        "cgroup_current_bytes": current,
+        "cgroup_current_mib": bytes_to_mib(current),
+        "mem_available_bytes": mem_available,
+        "mem_available_mib": bytes_to_mib(mem_available),
+    }
 
 
 def useful_log_tail(stdout: str, stderr: str, max_lines: int = FFMPEG_ERROR_TAIL_LINES) -> str:
@@ -94,11 +213,16 @@ def ffmpeg_error_message(
     tail = useful_log_tail(stdout, stderr)
     if timeout_seconds is not None:
         title = f"Rendu FFmpeg interrompu apres {timeout_seconds} secondes."
+        user_title = title
+    elif return_code in {-9, 137}:
+        title = f"{label} a echoue avec le code retour {return_code}."
+        user_title = "Le renderer a ete interrompu par une limite de ressources. Reessaie ou utilise le profil optimise."
     else:
         title = f"{label} a echoue avec le code retour {return_code}."
+        user_title = title
 
     details = f"\nDernieres lignes FFmpeg:\n{tail}" if tail else ""
-    return f"{title}\nCommande: {command_text}{details}"
+    return f"{user_title}\nDiagnostic: {title}\nCommande: {command_text}{details}"
 
 
 def run_command(
@@ -109,7 +233,15 @@ def run_command(
     timeout_seconds: int = FFMPEG_TIMEOUT_SECONDS,
 ) -> None:
     command_text = command_for_log(command)
-    logger.info("[ffmpeg] start label=%s timeout_seconds=%s cwd=%s command=%s", label, timeout_seconds, cwd, command_text)
+    started_at = time.monotonic()
+    logger.info(
+        "[ffmpeg] start label=%s timeout_seconds=%s cwd=%s memory=%s command=%s",
+        label,
+        timeout_seconds,
+        cwd,
+        memory_snapshot(),
+        command_text,
+    )
     process = subprocess.Popen(
         command,
         cwd=cwd,
@@ -127,27 +259,54 @@ def run_command(
         except subprocess.TimeoutExpired:
             process.kill()
             stdout, stderr = process.communicate()
+        elapsed = time.monotonic() - started_at
+        tail = useful_log_tail(stdout, stderr, max_lines=80)
         logger.error(
-            "[ffmpeg] timeout label=%s timeout_seconds=%s command=%s\n%s",
+            "[ffmpeg] timeout label=%s timeout_seconds=%s elapsed_seconds=%.3f memory=%s command=%s\n%s",
             label,
             timeout_seconds,
+            elapsed,
+            memory_snapshot(),
             command_text,
-            useful_log_tail(stdout, stderr, max_lines=80),
+            tail,
         )
         raise FfmpegCommandError(
-            ffmpeg_error_message(label, command, stdout, stderr, timeout_seconds=timeout_seconds)
+            ffmpeg_error_message(label, command, stdout, stderr, timeout_seconds=timeout_seconds),
+            metadata={
+                "ffmpeg_label": label,
+                "ffmpeg_timeout_seconds": timeout_seconds,
+                "ffmpeg_elapsed_seconds": round(elapsed, 3),
+                "ffmpeg_command": command_text,
+                "ffmpeg_tail": tail,
+                "memory": memory_snapshot(),
+            },
         )
 
+    elapsed = time.monotonic() - started_at
+    tail = useful_log_tail(stdout, stderr, max_lines=80)
     logger.info(
-        "[ffmpeg] finished label=%s return_code=%s command=%s\n%s",
+        "[ffmpeg] finished label=%s return_code=%s elapsed_seconds=%.3f memory=%s command=%s\n%s",
         label,
         process.returncode,
+        elapsed,
+        memory_snapshot(),
         command_text,
-        useful_log_tail(stdout, stderr, max_lines=80),
+        tail,
     )
     if process.returncode != 0:
+        message = ffmpeg_error_message(label, command, stdout, stderr, return_code=process.returncode)
         raise FfmpegCommandError(
-            ffmpeg_error_message(label, command, stdout, stderr, return_code=process.returncode)
+            message,
+            user_message=message.splitlines()[0],
+            metadata={
+                "ffmpeg_label": label,
+                "ffmpeg_return_code": process.returncode,
+                "ffmpeg_elapsed_seconds": round(elapsed, 3),
+                "ffmpeg_command": command_text,
+                "ffmpeg_tail": tail,
+                "memory": memory_snapshot(),
+                "probable_resource_limit": process.returncode in {-9, 137},
+            },
         )
 
 
@@ -187,7 +346,94 @@ def visual_durations(total_duration: float, visual_count: int) -> list[float]:
     return durations
 
 
-def create_slideshow_video(settings: Settings, visuals: list[Path], durations: list[float], destination: Path) -> None:
+def create_visual_segment(
+    settings: Settings,
+    profile: RenderProfile,
+    visual: Path,
+    duration: float,
+    destination: Path,
+) -> None:
+    fade_in_duration = min(TRANSITION_SECONDS, duration / 4)
+    fade_out_duration = min(TRANSITION_SECONDS, duration / 4)
+    fade_out_start = max(0.0, duration - fade_out_duration)
+    video_filter = (
+        f"scale={profile.width}:{profile.height}:force_original_aspect_ratio=increase,"
+        f"crop={profile.width}:{profile.height},"
+        "setsar=1,"
+        f"fps={FPS},"
+        "eq=contrast=1.06:brightness=-0.025,"
+        f"trim=duration={duration:.3f},"
+        "setpts=PTS-STARTPTS,"
+        f"fade=t=in:st=0:d={fade_in_duration:.3f},"
+        f"fade=t=out:st={fade_out_start:.3f}:d={fade_out_duration:.3f},"
+        "format=yuv420p"
+    )
+    command = [settings.ffmpeg_path, "-hide_banner", "-nostdin", "-y"]
+    if visual.suffix.lower() in IMAGE_EXTENSIONS:
+        command.extend(["-loop", "1", "-t", f"{duration:.3f}", "-i", str(visual)])
+    else:
+        command.extend(["-stream_loop", "-1", "-t", f"{duration:.3f}", "-i", str(visual)])
+    command.extend(
+        [
+            "-vf",
+            video_filter,
+            "-t",
+            f"{duration:.3f}",
+            "-r",
+            str(FPS),
+            "-an",
+            *profile.x264_args,
+            "-movflags",
+            "+faststart",
+            str(destination),
+        ]
+    )
+    logger.info(
+        "[render segment] profile=%s output_size=%s visual=%s duration=%.3f output=%s filter=%s",
+        profile.name,
+        profile.video_size,
+        visual,
+        duration,
+        destination,
+        video_filter,
+    )
+    run_command(command, label=f"Segment visuel {visual.name}")
+
+
+def concat_segments(settings: Settings, profile: RenderProfile, segments: list[Path], destination: Path) -> None:
+    concat_file = destination.with_suffix(".concat.txt")
+    concat_file.write_text(
+        "".join(f"file '{segment.as_posix()}'\n" for segment in segments),
+        encoding="utf-8",
+    )
+    command = [
+        settings.ffmpeg_path,
+        "-hide_banner",
+        "-nostdin",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(concat_file),
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+        str(destination),
+    ]
+    logger.info("[render concat] profile=%s segment_count=%s output=%s", profile.name, len(segments), destination)
+    run_command(command, label="Concat segments visuels")
+
+
+def create_slideshow_video(
+    settings: Settings,
+    visuals: list[Path],
+    durations: list[float],
+    destination: Path,
+    profile: RenderProfile = DEFAULT_RENDER_PROFILE,
+) -> None:
     if len(visuals) != len(durations):
         raise RuntimeError(f"Visual count and duration count mismatch: {len(visuals)} visuals, {len(durations)} durations.")
     if not visuals:
@@ -196,70 +442,42 @@ def create_slideshow_video(settings: Settings, visuals: list[Path], durations: l
         if duration <= 0:
             raise RuntimeError(f"Invalid visual duration for {visual.name}: {duration:.3f}s.")
 
-    command = [settings.ffmpeg_path, "-hide_banner", "-nostdin", "-y"]
-    for visual, duration in zip(visuals, durations):
-        if visual.suffix.lower() in IMAGE_EXTENSIONS:
-            command.extend(["-loop", "1", "-t", f"{duration:.3f}", "-i", str(visual)])
-        else:
-            command.extend(["-stream_loop", "-1", "-t", f"{duration:.3f}", "-i", str(visual)])
-
-    filter_parts = []
-    concat_inputs = []
-    for index, duration in enumerate(durations):
-        fade_in_duration = min(TRANSITION_SECONDS, duration / 4)
-        fade_out_duration = min(TRANSITION_SECONDS, duration / 4)
-        fade_out_start = max(0.0, duration - fade_out_duration)
-        filter_parts.append(
-            f"[{index}:v]"
-            f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
-            f"crop={WIDTH}:{HEIGHT},"
-            "setsar=1,"
-            f"fps={FPS},"
-            "eq=contrast=1.06:brightness=-0.025,"
-            f"trim=duration={duration:.3f},"
-            "setpts=PTS-STARTPTS,"
-            f"fade=t=in:st=0:d={fade_in_duration:.3f},"
-            f"fade=t=out:st={fade_out_start:.3f}:d={fade_out_duration:.3f},"
-            "format=yuv420p"
-            f"[v{index}]"
-        )
-        concat_inputs.append(f"[v{index}]")
-
-    filter_parts.append(f"{''.join(concat_inputs)}concat=n={len(visuals)}:v=1:a=0[vout]")
     logger.info(
-        "[render montage] visual_count=%s durations=%s output=%s filter=%s",
+        "[render montage] profile=%s output_size=%s visual_count=%s durations=%s total_duration=%.3f output=%s memory=%s",
+        profile.name,
+        profile.video_size,
         len(visuals),
         [round(duration, 3) for duration in durations],
+        sum(durations),
         destination,
-        ";".join(filter_parts),
+        memory_snapshot(),
     )
-    command.extend(
-        [
-            "-filter_complex",
-            ";".join(filter_parts),
-            "-map",
-            "[vout]",
-            "-t",
-            f"{sum(durations):.3f}",
-            "-r",
-            str(FPS),
-            "-an",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "18",
-            "-pix_fmt",
-            "yuv420p",
-            str(destination),
-        ]
-    )
-    run_command(command, label="Montage visuels")
+    segments_dir = destination.parent / "segments"
+    segments_dir.mkdir(parents=True, exist_ok=True)
+    segments: list[Path] = []
+    for index, (visual, duration) in enumerate(zip(visuals, durations), start=1):
+        segment = segments_dir / f"segment-{index:03d}.mp4"
+        create_visual_segment(settings, profile, visual, duration, segment)
+        segments.append(segment)
+    concat_segments(settings, profile, segments, destination)
 
 
-def add_audio(settings: Settings, video_path: Path, audio_path: Path, destination: Path, duration: float) -> None:
-    logger.info("[render audio] duration_seconds=%.3f source_video=%s audio=%s output=%s", duration, video_path, audio_path, destination)
+def add_audio(
+    settings: Settings,
+    video_path: Path,
+    audio_path: Path,
+    destination: Path,
+    duration: float,
+    profile: RenderProfile = DEFAULT_RENDER_PROFILE,
+) -> None:
+    logger.info(
+        "[render audio] profile=%s duration_seconds=%.3f source_video=%s audio=%s output=%s",
+        profile.name,
+        duration,
+        video_path,
+        audio_path,
+        destination,
+    )
     run_command(
         [
             settings.ffmpeg_path,
@@ -277,15 +495,11 @@ def add_audio(settings: Settings, video_path: Path, audio_path: Path, destinatio
             "-map",
             "1:a:0",
             "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "18",
+            "copy",
             "-c:a",
             "aac",
             "-b:a",
-            "192k",
+            profile.audio_bitrate,
             "-movflags",
             "+faststart",
             str(destination),
@@ -301,10 +515,11 @@ def ass_color_env(value: str | None, default: str) -> str:
     return color if re.fullmatch(r"&H[0-9A-F]{8}", color) else default
 
 
-def subtitle_style(mode: str, manifest: dict[str, Any]) -> SubtitleStyle:
+def subtitle_style(mode: str, manifest: dict[str, Any], profile: RenderProfile = DEFAULT_RENDER_PROFILE) -> SubtitleStyle:
     style = manifest.get("subtitle_style") if isinstance(manifest.get("subtitle_style"), dict) else {}
     return SubtitleStyle(
         mode=mode,
+        width=profile.width,
         font_size=int(style.get("font_size", DEFAULT_SUBTITLE_FONT_SIZE)),
         stroke_width=int(style.get("stroke_width", DEFAULT_SUBTITLE_STROKE_WIDTH)),
         bottom_margin=int(style.get("bottom_margin", DEFAULT_SUBTITLE_BOTTOM_MARGIN)),
@@ -315,8 +530,16 @@ def subtitle_style(mode: str, manifest: dict[str, Any]) -> SubtitleStyle:
     )
 
 
-def burn_subtitles(settings: Settings, source: Path, subtitles_path: Path, destination: Path, cwd: Path, manifest: dict[str, Any]) -> None:
-    style_config = subtitle_style("srt", manifest)
+def burn_subtitles(
+    settings: Settings,
+    source: Path,
+    subtitles_path: Path,
+    destination: Path,
+    cwd: Path,
+    manifest: dict[str, Any],
+    profile: RenderProfile = DEFAULT_RENDER_PROFILE,
+) -> None:
+    style_config = subtitle_style("srt", manifest, profile)
     style = (
         "FontName=Arial,"
         f"FontSize={style_config.scaled_font_size},"
@@ -331,7 +554,7 @@ def burn_subtitles(settings: Settings, source: Path, subtitles_path: Path, desti
         f"MarginR={style_config.side_margin}"
     )
     subtitles_filter = f"subtitles={subtitles_path.name}:force_style='{style}':wrap_unicode=1"
-    logger.info("[render subtitles] mode=classic source=%s subtitles=%s output=%s", source, subtitles_path, destination)
+    logger.info("[render subtitles] profile=%s mode=classic source=%s subtitles=%s output=%s", profile.name, source, subtitles_path, destination)
     run_command(
         [
             settings.ffmpeg_path,
@@ -342,12 +565,7 @@ def burn_subtitles(settings: Settings, source: Path, subtitles_path: Path, desti
             str(source),
             "-vf",
             subtitles_filter,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "18",
+            *profile.x264_args,
             "-c:a",
             "copy",
             "-movflags",
@@ -446,15 +664,20 @@ def karaoke_event_ranges(group: list[dict[str, object]]) -> list[tuple[float, fl
     ]
 
 
-def write_karaoke_ass(words: list[dict[str, object]], destination: Path, manifest: dict[str, Any]) -> None:
-    style_config = subtitle_style("karaoke", manifest)
+def write_karaoke_ass(
+    words: list[dict[str, object]],
+    destination: Path,
+    manifest: dict[str, Any],
+    profile: RenderProfile = DEFAULT_RENDER_PROFILE,
+) -> None:
+    style_config = subtitle_style("karaoke", manifest, profile)
     style_source = manifest.get("subtitle_style") if isinstance(manifest.get("subtitle_style"), dict) else {}
     active_color = ass_color_env(style_source.get("active_color"), DEFAULT_KARAOKE_ACTIVE_COLOR)
     inactive_color = ass_color_env(style_source.get("inactive_color"), DEFAULT_KARAOKE_INACTIVE_COLOR)
     header = f"""[Script Info]
 ScriptType: v4.00+
-PlayResX: {WIDTH}
-PlayResY: {HEIGHT}
+PlayResX: {profile.width}
+PlayResY: {profile.height}
 WrapStyle: 0
 ScaledBorderAndShadow: yes
 
@@ -481,8 +704,14 @@ def ass_path_filter(path: Path) -> str:
     return path.resolve().as_posix().replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
 
 
-def burn_ass_subtitles(settings: Settings, source: Path, ass_path: Path, destination: Path) -> None:
-    logger.info("[render subtitles] mode=karaoke source=%s ass=%s output=%s", source, ass_path, destination)
+def burn_ass_subtitles(
+    settings: Settings,
+    source: Path,
+    ass_path: Path,
+    destination: Path,
+    profile: RenderProfile = DEFAULT_RENDER_PROFILE,
+) -> None:
+    logger.info("[render subtitles] profile=%s mode=karaoke source=%s ass=%s output=%s", profile.name, source, ass_path, destination)
     run_command(
         [
             settings.ffmpeg_path,
@@ -493,12 +722,7 @@ def burn_ass_subtitles(settings: Settings, source: Path, ass_path: Path, destina
             str(source),
             "-vf",
             f"ass='{ass_path_filter(ass_path)}'",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "18",
+            *profile.x264_args,
             "-c:a",
             "copy",
             "-movflags",
@@ -517,6 +741,7 @@ def apply_subtitles(
     output_path: Path,
     work_dir: Path,
     manifest: dict[str, Any],
+    profile: RenderProfile = DEFAULT_RENDER_PROFILE,
 ) -> None:
     subtitles = manifest.get("subtitles") if isinstance(manifest.get("subtitles"), dict) else {}
     mode = str(
@@ -528,7 +753,14 @@ def apply_subtitles(
     ).lower()
     if mode == "classic":
         mode = "srt"
-    logger.info("[render subtitles] selected_mode=%s srt=%s words=%s output=%s", mode, bool(subtitles_path), bool(word_timestamps_path), output_path)
+    logger.info(
+        "[render subtitles] profile=%s selected_mode=%s srt=%s words=%s output=%s",
+        profile.name,
+        mode,
+        bool(subtitles_path),
+        bool(word_timestamps_path),
+        output_path,
+    )
 
     if mode == "karaoke" and word_timestamps_path:
         try:
@@ -538,14 +770,14 @@ def apply_subtitles(
             style_source = manifest.get("subtitle_style") if isinstance(manifest.get("subtitle_style"), dict) else {}
             offset_ms = int(style_source.get("karaoke_timing_offset_ms", DEFAULT_KARAOKE_TIMING_OFFSET_MS))
             ass_path = work_dir / "subtitles_karaoke.ass"
-            write_karaoke_ass(apply_karaoke_timing_offset(words, offset_ms), ass_path, manifest)
-            burn_ass_subtitles(settings, source, ass_path, output_path)
+            write_karaoke_ass(apply_karaoke_timing_offset(words, offset_ms), ass_path, manifest, profile)
+            burn_ass_subtitles(settings, source, ass_path, output_path, profile)
             return
         except Exception:
             logger.exception("Karaoke subtitles failed; falling back to SRT if available.")
 
     if subtitles_path:
-        burn_subtitles(settings, source, subtitles_path, output_path, work_dir, manifest)
+        burn_subtitles(settings, source, subtitles_path, output_path, work_dir, manifest, profile)
     else:
         shutil.copy2(source, output_path)
 
@@ -700,13 +932,23 @@ def load_manifest_assets(
 
 
 def render_job(settings: Settings, client: RendererSupabase, job: RenderJob) -> tuple[str, str]:
+    profile = DEFAULT_RENDER_PROFILE
     manifest_bucket, manifest_path = client.read_manifest_reference(job)
     manifest = download_storage_json(client, "manifest", manifest_bucket, manifest_path, job.draft_id)
     draft_id = str(manifest.get("draft_id") or job.draft_id)
 
     with tempfile.TemporaryDirectory(prefix="shorts-render-") as temp_name:
         work_dir = Path(temp_name)
-        logger.info("Rendering job=%s draft=%s work_dir=%s manifest=%s", job.id, draft_id, work_dir, manifest_path)
+        logger.info(
+            "Rendering job=%s draft=%s work_dir=%s manifest=%s profile=%s output_size=%s memory=%s",
+            job.id,
+            draft_id,
+            work_dir,
+            manifest_path,
+            profile.name,
+            profile.video_size,
+            memory_snapshot(),
+        )
         visuals, audio_path, subtitles_path, words_path = load_manifest_assets(client, manifest, work_dir, draft_id)
         duration = audio_duration(settings, audio_path)
         durations = visual_durations(duration, len(visuals))
@@ -714,23 +956,33 @@ def render_job(settings: Settings, client: RendererSupabase, job: RenderJob) -> 
         audio_video = work_dir / "with_audio.mp4"
         final_video = work_dir / "final.mp4"
         logger.info(
-            "[render plan] job=%s draft=%s visual_count=%s audio_duration_seconds=%.3f visual_durations=%s subtitles_srt=%s subtitles_json=%s final_output=%s",
+            "[render plan] job=%s draft=%s profile=%s output_size=%s visual_count=%s audio_duration_seconds=%.3f visual_durations=%s subtitles_srt=%s subtitles_json=%s final_output=%s memory=%s",
             job.id,
             draft_id,
+            profile.name,
+            profile.video_size,
             len(visuals),
             duration,
             [round(value, 3) for value in durations],
             bool(subtitles_path),
             bool(words_path),
             final_video,
+            memory_snapshot(),
         )
-        create_slideshow_video(settings, visuals, durations, silent_video)
-        add_audio(settings, silent_video, audio_path, audio_video, duration)
-        apply_subtitles(settings, audio_video, subtitles_path, words_path, final_video, work_dir, manifest)
+        create_slideshow_video(settings, visuals, durations, silent_video, profile)
+        add_audio(settings, silent_video, audio_path, audio_video, duration, profile)
+        apply_subtitles(settings, audio_video, subtitles_path, words_path, final_video, work_dir, manifest, profile)
 
         if not final_video.exists() or final_video.stat().st_size <= 0:
             raise RuntimeError("Renderer produced an empty final video.")
-        logger.info("[render output] final_video=%s size_bytes=%s", final_video, final_video.stat().st_size)
+        logger.info(
+            "[render output] profile=%s output_size=%s final_video=%s size_bytes=%s memory=%s",
+            profile.name,
+            profile.video_size,
+            final_video,
+            final_video.stat().st_size,
+            memory_snapshot(),
+        )
 
         timestamp = job.id.replace("-", "")
         file_name = f"{draft_id}-{timestamp}.mp4"
@@ -751,6 +1003,8 @@ def render_job(settings: Settings, client: RendererSupabase, job: RenderJob) -> 
                 "content_type": "video/mp4",
                 "duration_seconds": duration,
                 "manifest_path": manifest_path,
+                "render_profile": profile.name,
+                "resolution": profile.video_size,
                 "render_job_id": job.id,
                 "renderer": "services/shorts-renderer",
                 "visual_count": len(visuals),

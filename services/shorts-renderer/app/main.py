@@ -78,10 +78,16 @@ async def run_render_job_background(settings, client: RendererSupabase, job) -> 
             client.mark_completed(job.id, output_path, output_url)
             logger.info("Render job completed: %s", job.id)
         except Exception as exc:
-            message = str(exc) or exc.__class__.__name__
+            message = getattr(exc, "user_message", None) or str(exc) or exc.__class__.__name__
+            metadata = getattr(exc, "metadata", None)
             logger.exception("Render job failed: %s", job.id)
             try:
-                client.mark_failed(job.id, message)
+                client.mark_failed(
+                    job.id,
+                    message,
+                    metadata_patch=metadata if isinstance(metadata, dict) else None,
+                    existing_metadata=job.metadata,
+                )
             except Exception:
                 logger.exception("Could not mark failed job: %s", job.id)
         finally:

@@ -7,6 +7,7 @@ import {
   readVideoRenderJobState,
   validateCompletedVideoRenderJob,
 } from "@/lib/server/video-renderer";
+import { recordVideoRenderCost } from "@/lib/server/cost-tracking";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -55,6 +56,13 @@ export async function GET(
       draftId: id,
       userId: user.id,
     });
+    if (videoRender?.status === "completed") {
+      await recordVideoRenderCost({
+        draftId: id,
+        userId: user.id,
+        videoRender,
+      });
+    }
 
     return NextResponse.json({ videoRender });
   } catch (error) {
@@ -131,9 +139,18 @@ export async function POST(
       }
     }
 
+    const videoRender = await readVideoRenderJobState({ draftId: id, userId: user.id });
+    if (videoRender?.status === "completed") {
+      await recordVideoRenderCost({
+        draftId: id,
+        userId: user.id,
+        videoRender,
+      });
+    }
+
     return NextResponse.json({
       reusedActiveJob,
-      videoRender: await readVideoRenderJobState({ draftId: id, userId: user.id }),
+      videoRender,
     });
   } catch (error) {
     console.error("[Video Render API] POST failed", renderErrorPayload(error));

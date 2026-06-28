@@ -29,6 +29,11 @@ import {
   validateDraftSubtitles,
 } from "@/lib/server/subtitle-pipeline";
 import { prepareDraftVideo } from "@/lib/server/video-preparation";
+import {
+  recordSubtitleCostFromMedia,
+  recordVisualCost,
+  recordVoiceCostFromMedia,
+} from "@/lib/server/cost-tracking";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -200,6 +205,11 @@ export async function POST(
         generationQuality: payload.generationQuality,
         userId: user.id,
       });
+      await recordVisualCost({
+        action,
+        draftId: id,
+        userId: user.id,
+      });
 
       return NextResponse.json({ media });
     }
@@ -246,6 +256,12 @@ export async function POST(
             sceneIndex,
             userId: user.id,
             });
+      await recordVisualCost({
+        action,
+        draftId: id,
+        sceneIndex,
+        userId: user.id,
+      });
 
       return NextResponse.json({ media });
     }
@@ -295,6 +311,12 @@ export async function POST(
         userId: user.id,
         includeSuggestions: true,
       });
+      await recordVoiceCostFromMedia({
+        action,
+        draftId: id,
+        media,
+        userId: user.id,
+      });
 
       return NextResponse.json({ media });
     }
@@ -309,6 +331,12 @@ export async function POST(
         draftId: id,
         userId: user.id,
         includeSuggestions: true,
+      });
+      await recordSubtitleCostFromMedia({
+        action,
+        draftId: id,
+        media,
+        userId: user.id,
       });
 
       return NextResponse.json({ media });

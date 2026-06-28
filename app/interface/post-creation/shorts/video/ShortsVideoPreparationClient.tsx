@@ -84,6 +84,25 @@ type VideoRenderPayload = {
   error?: string;
 };
 
+type DraftCostSummary = {
+  alreadyRecordedEur: number | null;
+  currency: "EUR";
+  details: Array<{
+    category: string;
+    estimatedCostEur: number | null;
+    label: string;
+    note: string;
+    recordedCostEur: number | null;
+  }>;
+  remainingEstimatedEur: number | null;
+  totalEstimatedEur: number | null;
+};
+
+type DraftCostPayload = {
+  costs?: DraftCostSummary;
+  error?: string;
+};
+
 const statusLabels: Record<string, string> = {
   approved: "Texte valide",
   draft: "Brouillon texte",
@@ -140,6 +159,19 @@ function formatDuration(seconds: number) {
   return `${minutes}min ${remainingSeconds.toString().padStart(2, "0")}s`;
 }
 
+function formatCost(value: number | null) {
+  if (value === null || !Number.isFinite(value)) {
+    return "Non estime";
+  }
+
+  return new Intl.NumberFormat("fr-FR", {
+    currency: "EUR",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(value);
+}
+
 function formatSubtitleAudioDuration(subtitles: DraftSubtitleState | null, voice: DraftVoiceState | null) {
   if (subtitles && subtitles.durationSeconds > 0) {
     return formatDuration(subtitles.durationSeconds);
@@ -162,6 +194,7 @@ export function ShortsVideoPreparationClient() {
   const [isRenderingVideo, setIsRenderingVideo] = useState(false);
   const [isLoadingRenderStatus, setIsLoadingRenderStatus] = useState(false);
   const [videoRender, setVideoRender] = useState<VideoRenderJobState | null>(null);
+  const [costs, setCosts] = useState<DraftCostSummary | null>(null);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [confirmValidateVideo, setConfirmValidateVideo] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -328,6 +361,7 @@ export function ShortsVideoPreparationClient() {
       }
 
       setMedia(payload.media);
+      await loadDraftCosts(draftId, payload.media);
     } catch (caughtError) {
       setMedia(null);
       setError(
@@ -337,6 +371,38 @@ export function ShortsVideoPreparationClient() {
       );
     } finally {
       setIsLoadingMedia(false);
+    }
+  }
+
+  async function loadDraftCosts(draftId: string, nextMedia = media) {
+    if (!draftId) {
+      setCosts(null);
+      return;
+    }
+
+    try {
+      const duration = nextMedia?.subtitles?.durationSeconds ||
+        nextMedia?.voice?.durationEstimateSeconds ||
+        safeTargetDurationSeconds ||
+        0;
+      const visualCount = Math.max(
+        nextMedia?.visualScenes?.length ?? 0,
+        nextMedia?.selectedAssets?.length ?? 0,
+        requiredVisualCount,
+      );
+      const response = await fetch(
+        `/api/content-workshop/drafts/${draftId}/costs?duration_seconds=${encodeURIComponent(String(duration))}&visual_count=${encodeURIComponent(String(visualCount))}`,
+        { cache: "no-store" },
+      );
+      const payload = (await response.json()) as DraftCostPayload;
+
+      if (!response.ok || !payload.costs) {
+        return;
+      }
+
+      setCosts(payload.costs);
+    } catch {
+      setCosts(null);
     }
   }
 
@@ -361,6 +427,7 @@ export function ShortsVideoPreparationClient() {
       }
 
       setVideoRender(payload.videoRender ?? null);
+      await loadDraftCosts(draftId);
     } catch (caughtError) {
       if (!options?.silent) {
         setError(
@@ -409,6 +476,7 @@ export function ShortsVideoPreparationClient() {
       }
 
       setVideoRender(payload.videoRender ?? null);
+      await loadDraftCosts(selectedDraft.id);
       setConfirmRegenerate(false);
       setConfirmValidateVideo(false);
       setNotice(
@@ -461,6 +529,7 @@ export function ShortsVideoPreparationClient() {
       setVideoRender(payload.videoRender);
       setConfirmValidateVideo(false);
       await loadDrafts();
+      await loadDraftCosts(selectedDraft.id);
       setNotice("Video validee. Elle est prete pour la preparation de publication.");
     } catch (caughtError) {
       setError(
@@ -502,6 +571,7 @@ export function ShortsVideoPreparationClient() {
       setMedia(payload.media);
       await loadDrafts();
       await loadVideoRenderStatus(selectedDraft.id, { silent: true });
+      await loadDraftCosts(selectedDraft.id, payload.media);
       setNotice(
         force
           ? renderIsCompleted
@@ -540,6 +610,7 @@ export function ShortsVideoPreparationClient() {
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       void loadVideoRenderStatus(selectedDraftId);
+      void loadDraftCosts(selectedDraftId);
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
@@ -695,6 +766,58 @@ export function ShortsVideoPreparationClient() {
                   </span>
                 </p>
               ))}
+            </div>
+
+            <div className="mt-5 rounded-md border border-[#1D2A44] bg-[#03070B] p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[#F8FAFC]">Cout de cette video</p>
+                  <p className="mt-1 text-xs leading-5 text-[#A7B0C0]">
+                    Estimation de production. Les montants reels seront distingues lorsqu&apos;une reconciliation fournisseur sera disponible.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => selectedDraftId ? void loadDraftCosts(selectedDraftId) : undefined}
+                  className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
+                >
+                  Actualiser les couts
+                </button>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <div className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2">
+                  <p className="text-xs text-[#A7B0C0]">Deja engage</p>
+                  <p className="mt-1 text-lg font-semibold text-[#F8FAFC]">{formatCost(costs?.alreadyRecordedEur ?? null)}</p>
+                </div>
+                <div className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2">
+                  <p className="text-xs text-[#A7B0C0]">Restant estime</p>
+                  <p className="mt-1 text-lg font-semibold text-[#F8FAFC]">{formatCost(costs?.remainingEstimatedEur ?? null)}</p>
+                </div>
+                <div className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2">
+                  <p className="text-xs text-[#A7B0C0]">Total estime</p>
+                  <p className="mt-1 text-lg font-semibold text-[#39E6D0]">{formatCost(costs?.totalEstimatedEur ?? null)}</p>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-2">
+                {(costs?.details ?? [
+                  { estimatedCostEur: null, label: "Visuels", note: "Chargement", recordedCostEur: null },
+                  { estimatedCostEur: null, label: "Voix", note: "Chargement", recordedCostEur: null },
+                  { estimatedCostEur: null, label: "Sous-titres", note: "Chargement", recordedCostEur: null },
+                  { estimatedCostEur: null, label: "Rendu video", note: "Chargement", recordedCostEur: null },
+                ]).map((detail) => (
+                  <div
+                    key={detail.label}
+                    className="flex flex-col gap-1 rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm md:flex-row md:items-center md:justify-between"
+                  >
+                    <span className="font-semibold text-[#F8FAFC]">{detail.label}</span>
+                    <span className="text-[#A7B0C0]">
+                      Estime: <span className="font-semibold text-[#F8FAFC]">{formatCost(detail.estimatedCostEur)}</span>
+                      {" / "}
+                      engage: <span className="font-semibold text-[#F8FAFC]">{formatCost(detail.recordedCostEur)}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {videoBlockingReasons.length > 0 ? (

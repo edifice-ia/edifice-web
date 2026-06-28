@@ -45,6 +45,18 @@ type DashboardData = {
     state: "connecte" | "actif" | "sandbox" | "reporte";
     detail: string;
   }>;
+  costs: {
+    averagePerCompletedVideoEur: number | null;
+    byAccount: Array<{ accountId: string; totalEur: number }>;
+    byCategory: Array<{ category: string; totalEur: number }>;
+    byDay: Array<{ date: string; totalEur: number }>;
+    byProvider: Array<{ provider: string; totalEur: number }>;
+    costSevenDaysEur: number;
+    costThisMonthEur: number;
+    costTodayEur: number;
+    costTotalEur: number;
+    previousPeriodEur: number | null;
+  };
   recommendations: {
     actions: string[];
     blockers: string[];
@@ -68,6 +80,7 @@ type BlockId =
   | "trajectory"
   | "content"
   | "connections"
+  | "costs"
   | "recommendations"
   | "personal";
 
@@ -76,8 +89,9 @@ const blocks: Array<{ id: BlockId; label: string; shortLabel: string }> = [
   { id: "trajectory", label: "Trajectoire", shortLabel: "2 Trajectoire" },
   { id: "content", label: "Contenus", shortLabel: "3 Contenus" },
   { id: "connections", label: "Connexions", shortLabel: "4 Connexions" },
-  { id: "recommendations", label: "Recommandations", shortLabel: "5 Recos" },
-  { id: "personal", label: "Personnel", shortLabel: "6 Personnel" },
+  { id: "costs", label: "Couts", shortLabel: "5 Couts" },
+  { id: "recommendations", label: "Recommandations", shortLabel: "6 Recos" },
+  { id: "personal", label: "Personnel", shortLabel: "7 Personnel" },
 ];
 
 const connectionClasses: Record<DashboardData["connections"][number]["state"], string> = {
@@ -120,6 +134,19 @@ function MetricCard({
       <p className={`mt-2 text-2xl font-semibold ${toneClass}`}>{value}</p>
     </div>
   );
+}
+
+function formatEuro(value: number | null) {
+  if (value === null || !Number.isFinite(value)) {
+    return "Non estime";
+  }
+
+  return new Intl.NumberFormat("fr-FR", {
+    currency: "EUR",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(value);
 }
 
 function ProgressBar({ value }: { value: number }) {
@@ -171,6 +198,7 @@ export function OverviewDashboardClient({ data }: { data: DashboardData }) {
       { label: "Voir Trajectoire", id: "trajectory" as BlockId },
       { label: "Voir Contenus", id: "content" as BlockId },
       { label: "Voir Connexions", id: "connections" as BlockId },
+      { label: "Voir Couts", id: "costs" as BlockId },
       { label: "Voir Recommandations", id: "recommendations" as BlockId },
       { label: "Voir Vue personnelle", id: "personal" as BlockId },
     ],
@@ -224,6 +252,7 @@ export function OverviewDashboardClient({ data }: { data: DashboardData }) {
             {activeBlock === "trajectory" ? <TrajectoryBlock data={data} /> : null}
             {activeBlock === "content" ? <ContentBlock data={data} /> : null}
             {activeBlock === "connections" ? <ConnectionsBlock data={data} /> : null}
+            {activeBlock === "costs" ? <CostsBlock data={data} /> : null}
             {activeBlock === "recommendations" ? (
               <RecommendationsBlock data={data} />
             ) : null}
@@ -465,6 +494,97 @@ function ConnectionsBlock({ data }: { data: DashboardData }) {
         ))}
       </div>
       <LinkButton href="/interface/settings/connections">Gérer les connexions</LinkButton>
+    </div>
+  );
+}
+
+function CostsBlock({ data }: { data: DashboardData }) {
+  const maxDaily = Math.max(1, ...data.costs.byDay.map((day) => day.totalEur));
+  const previousLabel = data.costs.previousPeriodEur === null
+    ? "Donnees insuffisantes"
+    : formatEuro(data.costs.previousPeriodEur);
+
+  return (
+    <div className="grid gap-5">
+      <div className="grid gap-3 md:grid-cols-3">
+        <MetricCard label="Aujourd'hui" value={formatEuro(data.costs.costTodayEur)} />
+        <MetricCard label="7 jours" value={formatEuro(data.costs.costSevenDaysEur)} />
+        <MetricCard label="Ce mois-ci" value={formatEuro(data.costs.costThisMonthEur)} />
+        <MetricCard label="Total" value={formatEuro(data.costs.costTotalEur)} />
+        <MetricCard label="Periode precedente" value={previousLabel} />
+        <MetricCard label="Moyenne par video terminee" value={formatEuro(data.costs.averagePerCompletedVideoEur)} />
+      </div>
+
+      <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+        <p className="font-semibold text-[#F8FAFC]">Periode et filtres</p>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-[#A7B0C0]">
+          {["Aujourd'hui", "7 jours", "30 jours", "Ce mois-ci"].map((label) => (
+            <span key={label} className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">
+              {label}
+            </span>
+          ))}
+          <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">Tous les comptes</span>
+          <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">Tous les providers</span>
+          <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">Toutes les categories</span>
+        </div>
+        <p className="mt-3 text-sm leading-6 text-[#A7B0C0]">
+          Les montants affiches sont des estimations de production, sauf lorsqu&apos;ils ont ete reconcilies avec une facture fournisseur.
+        </p>
+      </div>
+
+      <div>
+        <h3 className="mb-3 font-semibold text-[#F8FAFC]">Evolution quotidienne</h3>
+        <div className="grid gap-2">
+          {data.costs.byDay.length ? data.costs.byDay.slice(-14).map((day) => (
+            <div key={day.date} className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-semibold text-[#F8FAFC]">{day.date}</span>
+                <span className="text-[#A7B0C0]">{formatEuro(day.totalEur)}</span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#03070B]">
+                <div className="h-full rounded-full bg-[#39E6D0]" style={{ width: `${Math.min(100, (day.totalEur / maxDaily) * 100)}%` }} />
+              </div>
+            </div>
+          )) : (
+            <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#A7B0C0]">
+              Aucun cout enregistre pour le moment.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <CostBreakdown title="Par categorie" items={data.costs.byCategory.map((item) => ({ label: item.category, value: item.totalEur }))} />
+        <CostBreakdown title="Par provider" items={data.costs.byProvider.map((item) => ({ label: item.provider, value: item.totalEur }))} />
+        <CostBreakdown title="Par compte" items={data.costs.byAccount.map((item) => ({ label: item.accountId, value: item.totalEur }))} />
+      </div>
+    </div>
+  );
+}
+
+function CostBreakdown({
+  items,
+  title,
+}: {
+  items: Array<{ label: string; value: number }>;
+  title: string;
+}) {
+  return (
+    <div>
+      <h3 className="mb-3 font-semibold text-[#F8FAFC]">{title}</h3>
+      <div className="grid gap-2">
+        {items.length ? items.map((item) => (
+          <p key={item.label} className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#A7B0C0]">
+            <span className="font-semibold text-[#F8FAFC]">{item.label}</span>
+            {" - "}
+            {formatEuro(item.value)}
+          </p>
+        )) : (
+          <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#A7B0C0]">
+            Aucune donnee.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

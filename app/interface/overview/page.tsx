@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { OverviewDashboardClient } from "./OverviewDashboardClient";
 import { cockpitModules } from "@/lib/cockpit/modules";
 import { readCockpitState } from "@/lib/server/cockpit/read-only-state";
+import { readObservatoryCostSummary } from "@/lib/server/cost-tracking";
 import { readPinterestPublisherPins } from "@/lib/server/pinterest-publisher";
 import { readTrajectoire } from "@/lib/server/trajectoire";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -38,7 +39,7 @@ function isLate(status: string, deadline: string | null) {
 export default async function OverviewPage() {
   const user = await getCurrentUser();
   const isProjectOwner = user?.email === "contact.edificeia@gmail.com";
-  const [cockpitState, trajectoireResult, pinterestPins] = await Promise.all([
+  const [cockpitState, trajectoireResult, pinterestPins, costSummary] = await Promise.all([
     readCockpitState(),
     user
       ? readTrajectoire(user.id)
@@ -52,6 +53,9 @@ export default async function OverviewPage() {
           }))
       : Promise.resolve({ projects: [], error: "Utilisateur non connecte." }),
     readPinterestPublisherPins().catch(() => []),
+    user
+      ? readObservatoryCostSummary(user.id).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const objectives = trajectoireResult.projects.flatMap((project) =>
@@ -222,6 +226,18 @@ export default async function OverviewPage() {
             detail: connectionDetail("pinterest", "OAuth multi-comptes"),
           },
         ],
+        costs: costSummary ?? {
+          averagePerCompletedVideoEur: null,
+          byAccount: [],
+          byCategory: [],
+          byDay: [],
+          byProvider: [],
+          costSevenDaysEur: 0,
+          costThisMonthEur: 0,
+          costTodayEur: 0,
+          costTotalEur: 0,
+          previousPeriodEur: null,
+        },
         recommendations: {
           actions: recommendations,
           blockers: criticalBlockers,

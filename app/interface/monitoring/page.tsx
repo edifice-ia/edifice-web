@@ -8,7 +8,10 @@ import { ProjectMemoryPanel } from "@/components/cockpit/ProjectMemoryPanel";
 import { ProjectObservatory } from "@/components/cockpit/ProjectObservatory";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { StatusBadge } from "@/components/cockpit/StatusBadge";
+import { readObservatoryCostSummary } from "@/lib/server/cost-tracking";
 import { getLiveProjectMemory } from "@/lib/server/observatory/read-model";
+import { getCurrentUser } from "@/src/lib/supabase/server";
+import { ObservatoryCostsPanel } from "./ObservatoryCostsPanel";
 
 export const metadata: Metadata = {
   title: "Observatoire - L'\u00c9difice",
@@ -36,7 +39,13 @@ const logs = [
 ];
 
 export default async function MonitoringPage() {
-  const projectMemory = await getLiveProjectMemory();
+  const [projectMemory, user] = await Promise.all([
+    getLiveProjectMemory(),
+    getCurrentUser(),
+  ]);
+  const costSummary = user
+    ? await readObservatoryCostSummary(user.id).catch(() => null)
+    : null;
   const reviewCount = projectMemory.observatoryItems.filter(
     (item) => item.status === "Review",
   ).length;
@@ -89,7 +98,38 @@ export default async function MonitoringPage() {
         ))}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <ObservatoryCostsPanel
+        initialCosts={costSummary ?? {
+          averagePerCompletedVideoEur: null,
+          availableAccounts: [],
+          availableCategories: [],
+          availableProviders: [],
+          byAccount: [],
+          byCategory: [],
+          byDay: [],
+          byProvider: [],
+          costSevenDaysEur: 0,
+          costThirtyDaysEur: 0,
+          costThisMonthEur: 0,
+          costTodayEur: 0,
+          costTotalEur: 0,
+          estimatedEventsCount: 0,
+          eventsCount: 0,
+          filters: {
+            accountId: null,
+            category: "all",
+            period: "30d",
+            provider: "all",
+          },
+          lastUpdatedAt: null,
+          periodCostEur: 0,
+          periodEventsCount: 0,
+          previousPeriodEur: null,
+          reconciledEventsCount: 0,
+        }}
+      />
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <ProjectObservatory items={projectMemory.observatoryItems} />
 
         <aside className="space-y-6">

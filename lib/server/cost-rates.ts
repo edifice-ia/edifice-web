@@ -29,13 +29,22 @@ function envNumber(name: string) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+const defaultEstimativeRates = {
+  elevenlabsPerCharacterEur: 0.00003,
+  imageAnalysisPerSceneEur: 0.003,
+  imageGenerationPerImageEur: 0.04,
+  railwayRenderPerMinuteEur: 0.015,
+  storagePerGbMonthEur: 0.02,
+  subtitlePerMinuteEur: 0.002,
+};
+
 const rates = {
-  elevenlabsPerCharacterEur: envNumber("COST_ELEVENLABS_EUR_PER_CHARACTER"),
-  imageGenerationPerImageEur: envNumber("COST_OPENAI_IMAGE_EUR_PER_IMAGE"),
-  imageAnalysisPerSceneEur: envNumber("COST_OPENAI_VISION_EUR_PER_SCENE"),
-  railwayRenderPerMinuteEur: envNumber("COST_RAILWAY_RENDER_EUR_PER_MINUTE"),
-  storagePerGbMonthEur: envNumber("COST_SUPABASE_STORAGE_EUR_PER_GB_MONTH"),
-  subtitlePerMinuteEur: envNumber("COST_SUBTITLE_EUR_PER_MINUTE"),
+  elevenlabsPerCharacterEur: envNumber("COST_ELEVENLABS_EUR_PER_CHARACTER") ?? defaultEstimativeRates.elevenlabsPerCharacterEur,
+  imageGenerationPerImageEur: envNumber("COST_OPENAI_IMAGE_EUR_PER_IMAGE") ?? defaultEstimativeRates.imageGenerationPerImageEur,
+  imageAnalysisPerSceneEur: envNumber("COST_OPENAI_VISION_EUR_PER_SCENE") ?? defaultEstimativeRates.imageAnalysisPerSceneEur,
+  railwayRenderPerMinuteEur: envNumber("COST_RAILWAY_RENDER_EUR_PER_MINUTE") ?? defaultEstimativeRates.railwayRenderPerMinuteEur,
+  storagePerGbMonthEur: envNumber("COST_SUPABASE_STORAGE_EUR_PER_GB_MONTH") ?? defaultEstimativeRates.storagePerGbMonthEur,
+  subtitlePerMinuteEur: envNumber("COST_SUBTITLE_EUR_PER_MINUTE") ?? defaultEstimativeRates.subtitlePerMinuteEur,
 };
 
 function roundCost(value: number | null) {
@@ -51,9 +60,7 @@ export function estimateVoiceCost(characterCount: number | null | undefined): Co
     estimatedCostEur: quantity !== null && rates.elevenlabsPerCharacterEur !== null
       ? roundCost(quantity * rates.elevenlabsPerCharacterEur)
       : null,
-    note: rates.elevenlabsPerCharacterEur === null
-      ? "Tarif ElevenLabs non configure: cout non estime."
-      : "Estimation basee sur le nombre de caracteres.",
+    note: "Estimation configurable basee sur le nombre de caracteres.",
     provider: "elevenlabs",
     quantity,
     unit: "character",
@@ -69,9 +76,7 @@ export function estimateSubtitleCost(durationSeconds: number | null | undefined)
     estimatedCostEur: minutes !== null && rates.subtitlePerMinuteEur !== null
       ? roundCost(minutes * rates.subtitlePerMinuteEur)
       : null,
-    note: rates.subtitlePerMinuteEur === null
-      ? "Tarif sous-titres non configure: cout non estime."
-      : "Estimation basee sur la duree audio.",
+    note: "Estimation configurable basee sur la duree audio.",
     provider: "elevenlabs",
     quantity: minutes,
     unit: "minute",
@@ -87,9 +92,7 @@ export function estimateVideoRenderCost(durationSeconds: number | null | undefin
     estimatedCostEur: minutes !== null && rates.railwayRenderPerMinuteEur !== null
       ? roundCost(minutes * rates.railwayRenderPerMinuteEur)
       : null,
-    note: rates.railwayRenderPerMinuteEur === null
-      ? "Tarif Railway non configure: cout non estime."
-      : "Estimation basee sur la duree du rendu.",
+    note: "Estimation configurable basee sur la duree du rendu.",
     provider: "railway",
     quantity: minutes,
     unit: "minute",
@@ -105,9 +108,7 @@ export function estimateImageGenerationCost(imageCount: number | null | undefine
     estimatedCostEur: quantity !== null && rates.imageGenerationPerImageEur !== null
       ? roundCost(quantity * rates.imageGenerationPerImageEur)
       : null,
-    note: rates.imageGenerationPerImageEur === null
-      ? "Tarif generation image non configure: cout non estime."
-      : "Estimation basee sur le nombre d'images.",
+    note: "Estimation configurable basee sur le nombre d'images.",
     provider: "openai",
     quantity,
     unit: "image",
@@ -123,9 +124,7 @@ export function estimateImageAnalysisCost(sceneCount: number | null | undefined)
     estimatedCostEur: quantity !== null && rates.imageAnalysisPerSceneEur !== null
       ? roundCost(quantity * rates.imageAnalysisPerSceneEur)
       : null,
-    note: rates.imageAnalysisPerSceneEur === null
-      ? "Tarif analyse visuelle non configure: cout non estime."
-      : "Estimation basee sur le nombre de scenes.",
+    note: "Estimation configurable basee sur le nombre de scenes.",
     provider: "openai",
     quantity,
     unit: "scene",
@@ -141,9 +140,7 @@ export function estimateStorageCost(sizeGbMonth: number | null | undefined): Cos
     estimatedCostEur: quantity !== null && rates.storagePerGbMonthEur !== null
       ? roundCost(quantity * rates.storagePerGbMonthEur)
       : null,
-    note: rates.storagePerGbMonthEur === null
-      ? "Tarif stockage non configure: cout non estime."
-      : "Estimation basee sur Go/mois.",
+    note: "Estimation configurable basee sur Go/mois.",
     provider: "supabase",
     quantity,
     unit: "gb_month",

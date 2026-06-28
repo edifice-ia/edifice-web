@@ -47,15 +47,31 @@ type DashboardData = {
   }>;
   costs: {
     averagePerCompletedVideoEur: number | null;
+    availableAccounts: Array<{ accountId: string; label: string }>;
+    availableCategories: string[];
+    availableProviders: string[];
     byAccount: Array<{ accountId: string; totalEur: number }>;
     byCategory: Array<{ category: string; totalEur: number }>;
     byDay: Array<{ date: string; totalEur: number }>;
     byProvider: Array<{ provider: string; totalEur: number }>;
     costSevenDaysEur: number;
+    costThirtyDaysEur: number;
     costThisMonthEur: number;
     costTodayEur: number;
     costTotalEur: number;
+    estimatedEventsCount: number;
+    eventsCount: number;
+    filters: {
+      accountId: string | null;
+      category: string;
+      period: string;
+      provider: string;
+    };
+    lastUpdatedAt: string | null;
+    periodCostEur: number;
+    periodEventsCount: number;
     previousPeriodEur: number | null;
+    reconciledEventsCount: number;
   };
   recommendations: {
     actions: string[];
@@ -100,13 +116,6 @@ const connectionClasses: Record<DashboardData["connections"][number]["state"], s
   sandbox: "border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#fbbf24]",
   reporte: "border-[#64748b]/40 bg-[#64748b]/10 text-[#cbd5e1]",
 };
-
-const requiredCostCategories = [
-  { category: "image_generation", label: "Visuels" },
-  { category: "voice_generation", label: "Voix" },
-  { category: "subtitle_generation", label: "Sous-titres" },
-  { category: "video_render", label: "Rendu video" },
-];
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -154,16 +163,6 @@ function formatEuro(value: number | null) {
     minimumFractionDigits: 2,
     style: "currency",
   }).format(value);
-}
-
-function requiredCostCategoryItems(items: DashboardData["costs"]["byCategory"]) {
-  return requiredCostCategories.map((requiredCategory) => {
-    const item = items.find((candidate) => candidate.category === requiredCategory.category);
-    return {
-      label: requiredCategory.label,
-      value: item?.totalEur ?? 0,
-    };
-  });
 }
 
 function ProgressBar({ value }: { value: number }) {
@@ -516,109 +515,36 @@ function ConnectionsBlock({ data }: { data: DashboardData }) {
 }
 
 function CostsBlock({ data }: { data: DashboardData }) {
-  const maxDaily = Math.max(1, ...data.costs.byDay.map((day) => day.totalEur));
-  const previousLabel = data.costs.previousPeriodEur === null
-    ? "Donnees insuffisantes"
-    : formatEuro(data.costs.previousPeriodEur);
+  const lastUpdatedLabel = data.costs.lastUpdatedAt
+    ? new Intl.DateTimeFormat("fr-FR", {
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      month: "short",
+    }).format(new Date(data.costs.lastUpdatedAt))
+    : "Aucune mise a jour";
 
   return (
     <div className="grid gap-5">
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2">
         <MetricCard label="Aujourd'hui" value={formatEuro(data.costs.costTodayEur)} />
-        <MetricCard label="7 jours" value={formatEuro(data.costs.costSevenDaysEur)} />
         <MetricCard label="Ce mois-ci" value={formatEuro(data.costs.costThisMonthEur)} />
-        <MetricCard label="Total" value={formatEuro(data.costs.costTotalEur)} />
-        <MetricCard label="Periode precedente" value={previousLabel} />
-        <MetricCard label="Moyenne par video terminee" value={formatEuro(data.costs.averagePerCompletedVideoEur)} />
       </div>
 
       <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
-        <p className="font-semibold text-[#F8FAFC]">Periode et filtres</p>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-[#A7B0C0]">
-          {["Aujourd'hui", "7 jours", "30 jours", "Ce mois-ci"].map((label) => (
-            <span key={label} className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">
-              {label}
-            </span>
-          ))}
-          <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">Tous les comptes</span>
-          <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">Tous les providers</span>
-          <span className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">Toutes les categories</span>
-        </div>
-        <p className="mt-3 text-sm leading-6 text-[#A7B0C0]">
-          Les montants affiches sont des estimations de production, sauf lorsqu&apos;ils ont ete reconcilies avec une facture fournisseur.
+        <p className="text-sm leading-6 text-[#A7B0C0]">
+          Resume compact des couts de production. Derniere mise a jour :{" "}
+          <span className="font-semibold text-[#F8FAFC]">{lastUpdatedLabel}</span>.
         </p>
-      </div>
-
-      <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
-        <h3 className="font-semibold text-[#F8FAFC]">Repartition des couts</h3>
-        <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
-          Structure de couts Shorts visible meme si certaines categories n&apos;ont pas encore de montant enregistre.
-        </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {requiredCostCategoryItems(data.costs.byCategory).map((item) => (
-            <div
-              key={item.label}
-              className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3"
-            >
-              <p className="text-sm font-semibold text-[#F8FAFC]">{item.label}</p>
-              <p className="mt-2 text-xl font-semibold text-[#39E6D0]">{formatEuro(item.value)}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <h3 className="mb-3 font-semibold text-[#F8FAFC]">Evolution quotidienne</h3>
-        <div className="grid gap-2">
-          {data.costs.byDay.length ? data.costs.byDay.slice(-14).map((day) => (
-            <div key={day.date} className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2">
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="font-semibold text-[#F8FAFC]">{day.date}</span>
-                <span className="text-[#A7B0C0]">{formatEuro(day.totalEur)}</span>
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#03070B]">
-                <div className="h-full rounded-full bg-[#39E6D0]" style={{ width: `${Math.min(100, (day.totalEur / maxDaily) * 100)}%` }} />
-              </div>
-            </div>
-          )) : (
-            <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#A7B0C0]">
-              Aucun cout enregistre pour le moment.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <CostBreakdown title="Par categorie" items={requiredCostCategoryItems(data.costs.byCategory)} />
-        <CostBreakdown title="Par provider" items={data.costs.byProvider.map((item) => ({ label: item.provider, value: item.totalEur }))} />
-        <CostBreakdown title="Par compte" items={data.costs.byAccount.map((item) => ({ label: item.accountId, value: item.totalEur }))} />
-      </div>
-    </div>
-  );
-}
-
-function CostBreakdown({
-  items,
-  title,
-}: {
-  items: Array<{ label: string; value: number }>;
-  title: string;
-}) {
-  return (
-    <div>
-      <h3 className="mb-3 font-semibold text-[#F8FAFC]">{title}</h3>
-      <div className="grid gap-2">
-        {items.length ? items.map((item) => (
-          <p key={item.label} className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#A7B0C0]">
-            <span className="font-semibold text-[#F8FAFC]">{item.label}</span>
-            {" - "}
-            {formatEuro(item.value)}
+        {data.costs.eventsCount === 0 ? (
+          <p className="mt-3 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm text-[#FDBA74]">
+            Aucun cout enregistre. Les couts commencent a etre suivis apres la mise en place du suivi ou via le backfill estimatif.
           </p>
-        )) : (
-          <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#A7B0C0]">
-            Aucune donnee.
-          </p>
-        )}
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <LinkButton href="/interface/monitoring#costs">Voir le detail dans l&apos;Observatoire</LinkButton>
       </div>
     </div>
   );

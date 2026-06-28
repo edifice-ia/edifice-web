@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import {
   createProjectMemoryEntry,
+  getProjectStateMemoryStatus,
   inferProjectMemoryUpdate,
   readProjectMemoryEntries,
   sanitizeProjectMemoryInput,
   updateProjectMemory,
+  updateProjectStateMemorySnapshot,
 } from "@/lib/server/project-memory";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -28,7 +30,8 @@ export async function GET() {
 
   try {
     const entries = await readProjectMemoryEntries();
-    return NextResponse.json({ entries });
+    const snapshot = await getProjectStateMemoryStatus().catch(() => null);
+    return NextResponse.json({ entries, snapshot });
   } catch {
     return NextResponse.json(
       { error: "Lecture memoire projet indisponible." },
@@ -87,6 +90,15 @@ export async function POST(request: Request) {
       });
 
       return NextResponse.json({ entry });
+    }
+
+    if (record.action === "update_project_snapshot") {
+      const entry = await updateProjectStateMemorySnapshot({
+        userId: user.id,
+      });
+      const snapshot = await getProjectStateMemoryStatus();
+
+      return NextResponse.json({ entry, snapshot });
     }
 
     const input = sanitizeProjectMemoryInput(payload);

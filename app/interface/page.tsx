@@ -3,6 +3,7 @@ import { AssistantCommandCenter } from "@/components/cockpit/AssistantCommandCen
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
 import { OAuthResultNotice } from "@/components/cockpit/OAuthResultNotice";
 import { buildProjectContext } from "@/lib/server/assistant/context";
+import { getProjectStateMemoryStatus } from "@/lib/server/project-memory";
 
 export const metadata: Metadata = {
   title: "Assistant de L’Édifice - L’Édifice",
@@ -20,7 +21,10 @@ export default async function InterfacePage({
   }>;
 }) {
   const result = await searchParams;
-  const projectContext = await buildProjectContext();
+  const [projectContext, memorySnapshot] = await Promise.all([
+    buildProjectContext(),
+    getProjectStateMemoryStatus().catch(() => null),
+  ]);
 
   return (
     <div>
@@ -35,7 +39,15 @@ export default async function InterfacePage({
         connected={result.connected}
         status={result.status}
       />
-      <AssistantCommandCenter projectContext={projectContext} />
+      <AssistantCommandCenter
+        memorySnapshot={memorySnapshot
+          ? {
+              lastUpdatedAt: memorySnapshot.lastUpdatedAt,
+              state: memorySnapshot.state,
+            }
+          : undefined}
+        projectContext={projectContext}
+      />
     </div>
   );
 }

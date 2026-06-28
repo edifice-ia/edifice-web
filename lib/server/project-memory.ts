@@ -34,6 +34,16 @@ export type ProjectMemoryUpdateProposal = {
   impact?: string;
 };
 
+export type ProjectMemorySnapshotStatus = {
+  entry: ProjectMemoryEntry | null;
+  expectedContent: string;
+  isUpToDate: boolean;
+  lastUpdatedAt: string | null;
+  state: "up_to_date" | "needs_update";
+};
+
+export const PROJECT_STATE_MEMORY_KEY = "project_state_snapshot";
+
 let projectMemoryClient: SupabaseClient | null = null;
 
 function getProjectMemoryClient() {
@@ -211,6 +221,75 @@ function proposalContent(proposal: ProjectMemoryUpdateProposal) {
   return `Memoire mise a jour par confirmation assistant: ${proposal.title} -> ${proposal.value}`;
 }
 
+function buildCurrentProjectStateSnapshotContent() {
+  return JSON.stringify(
+    {
+      costs: {
+        categories: ["Visuels", "Voix", "Sous-titres", "Rendu video"],
+        historical_backfill:
+          "Les couts historiques doivent etre reconstruits via backfill estimatif si necessaire.",
+        status:
+          "Suivi des couts et section Couts ajoutes a l'Observatoire. Les montants restent estimes tant qu'ils ne sont pas reconcilies.",
+      },
+      guardrails: {
+        no_secrets:
+          "Ne jamais exposer secrets, tokens OAuth, cles Supabase service_role, cles ElevenLabs ou secrets Railway dans l'interface.",
+      },
+      infrastructure: {
+        bucket: "content-assets",
+        renderer:
+          "Railway service short-renderer, connecte a Supabase Storage et appele depuis Vercel avec secret partage.",
+        stack: ["Next.js", "Vercel", "Supabase", "OpenAI"],
+      },
+      settings: {
+        tabs: [
+          "General",
+          "Comptes",
+          "Shorts",
+          "Voix",
+          "Programmation",
+          "Connexions",
+          "Securite",
+        ],
+        priority: "reglage compte -> reglage global -> fallback",
+        status:
+          "Page Reglages existante etendue; Connexions conserve son fonctionnement.",
+      },
+      shorts_pipeline: {
+        manifest:
+          "Genere depuis les ressources validees. Bouton Regenerer le manifest disponible. Les visuels drafts/ ne doivent jamais etre utilises pour le rendu final.",
+        programming:
+          "Module Programmation & Publication cree; programmation fonctionnelle pour TikTok, Instagram et YouTube Shorts; frequence 1/2/3 posts par jour; Europe/Paris; protection contre les creneaux passes; Publication reste placeholder.",
+        subtitles:
+          "Modes Karaoke et Classique disponibles; Karaoke par defaut; validation manuelle ajoutee; position verticale ajustee et validee visuellement.",
+        video:
+          "Renderer Python/FastAPI deploye sur Railway. FFmpeg genere les videos verticales avec profil web_standard optimise Railway. Lecteur integre et validation manuelle video disponibles selon l'etat du brouillon.",
+        workflow:
+          "Texte valide -> Visuels valides -> Voix validee -> Sous-titres valides -> Preparer la video -> Video generee -> Validation video -> Programmation -> Publication future.",
+      },
+    },
+    null,
+    2,
+  );
+}
+
+export function buildCurrentProjectStateSnapshot() {
+  const content = buildCurrentProjectStateSnapshotContent();
+
+  return {
+    category: "etat_projet",
+    confidence: 1,
+    content,
+    key: PROJECT_STATE_MEMORY_KEY,
+    priority: "haute",
+    source: "deterministic_project_snapshot",
+    status: "a_jour",
+    title: "Etat projet L'Edifice",
+    value:
+      "Pipeline Shorts stabilise, renderer Railway operationnel, programmation en place, couts visibles dans l'Observatoire.",
+  };
+}
+
 async function readExistingMemoryByKey(key: string) {
   const supabase = getProjectMemoryClient();
   const { data, error } = await supabase
@@ -224,6 +303,20 @@ async function readExistingMemoryByKey(key: string) {
   }
 
   return data ? mapRow(data) : null;
+}
+
+export async function getProjectStateMemoryStatus(): Promise<ProjectMemorySnapshotStatus> {
+  const snapshot = buildCurrentProjectStateSnapshot();
+  const entry = await readExistingMemoryByKey(snapshot.key);
+  const isUpToDate = entry?.content === snapshot.content;
+
+  return {
+    entry,
+    expectedContent: snapshot.content,
+    isUpToDate,
+    lastUpdatedAt: entry?.updatedAt ?? null,
+    state: isUpToDate ? "up_to_date" : "needs_update",
+  };
 }
 
 async function writeProjectMemoryAudit({
@@ -310,6 +403,58 @@ export async function updateProjectMemory({
     previous,
     next: { ...proposal, key },
     source: proposal.source,
+    userId,
+  });
+
+  return mapRow(data);
+}
+
+export async function updateProjectStateMemorySnapshot({
+  userId,
+}: {
+  userId: string;
+}) {
+  const supabase = getProjectMemoryClient();
+  const snapshot = buildCurrentProjectStateSnapshot();
+  const previous = await readExistingMemoryByKey(snapshot.key);
+  const input = {
+    key: snapshot.key,
+    category: snapshot.category,
+    status: snapshot.status,
+    title: snapshot.title,
+    value: snapshot.value,
+    content: snapshot.content,
+    next_action: null,
+    priority: snapshot.priority,
+    source: snapshot.source,
+    confidence: snapshot.confidence,
+  };
+  const query = previous
+    ? supabase.from("project_memory").update(input).eq("key", snapshot.key)
+    : supabase.from("project_memory").insert(input);
+  const { data, error } = await query
+    .select(selectProjectMemoryColumns(true))
+    .single<ProjectMemoryRow>();
+
+  if (error) {
+    throw new Error(`Failed to update project state memory: ${error.message}`);
+  }
+
+  await writeProjectMemoryAudit({
+    key: snapshot.key,
+    previous,
+    next: {
+      category: snapshot.category,
+      confidence: snapshot.confidence,
+      impact:
+        "Met a jour l'etat projet lu par l'assistant global sans modifier les notes memoire manuelles.",
+      key: snapshot.key,
+      source: snapshot.source,
+      status: snapshot.status,
+      title: snapshot.title,
+      value: snapshot.value,
+    },
+    source: snapshot.source,
     userId,
   });
 

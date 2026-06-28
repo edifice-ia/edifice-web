@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
+import { ProjectMemorySnapshotControl } from "@/components/cockpit/ProjectMemorySnapshotControl";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
-import { readProjectMemoryEntries } from "@/lib/server/project-memory";
+import {
+  getProjectStateMemoryStatus,
+  readProjectMemoryEntries,
+} from "@/lib/server/project-memory";
 
 export const metadata: Metadata = {
   title: "Memoire projet - L'Edifice",
@@ -27,6 +31,15 @@ export default async function ProjectMemoryPage() {
           ? error.message
           : "Lecture memoire projet indisponible.",
     }));
+  const snapshot = await getProjectStateMemoryStatus()
+    .then((status) => ({ status, error: null as string | null }))
+    .catch((error) => ({
+      status: null,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Statut memoire projet indisponible.",
+    }));
 
   return (
     <div>
@@ -42,6 +55,19 @@ export default async function ProjectMemoryPage() {
           {result.error}
         </div>
       ) : null}
+
+      {snapshot.error ? (
+        <div className="mb-6 rounded-md border border-[#f87171]/40 bg-[#f87171]/10 px-4 py-3 text-sm text-[#fecaca]">
+          {snapshot.error}
+        </div>
+      ) : null}
+
+      <div className="mb-6">
+        <ProjectMemorySnapshotControl
+          initialLastUpdatedAt={snapshot.status?.lastUpdatedAt ?? null}
+          initialState={snapshot.status?.state ?? "needs_update"}
+        />
+      </div>
 
       <SectionContainer>
         <div className="mb-5 flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">

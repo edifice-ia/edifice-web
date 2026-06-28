@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { LogPanel } from "./LogPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
+import { ProjectMemorySnapshotControl } from "./ProjectMemorySnapshotControl";
 import { SafetyModeBadge } from "./SafetyModeBadge";
 import { SectionContainer } from "./SectionContainer";
 import { StatusBadge } from "./StatusBadge";
@@ -185,10 +186,15 @@ const quickLinks = [
 ];
 
 type AssistantCommandCenterProps = {
+  memorySnapshot?: {
+    lastUpdatedAt: string | null;
+    state: "up_to_date" | "needs_update";
+  };
   projectContext?: ProjectContext;
 };
 
 export function AssistantCommandCenter({
+  memorySnapshot,
   projectContext,
 }: AssistantCommandCenterProps) {
   const [activeContext, setActiveContext] =
@@ -721,6 +727,11 @@ export function AssistantCommandCenter({
           cockpitRole={memory.cockpitRole}
           safeguards={memory.safeguards}
           nextRecommendedAction={memory.nextRecommendedAction}
+        />
+
+        <ProjectMemorySnapshotControl
+          initialLastUpdatedAt={memorySnapshot?.lastUpdatedAt ?? null}
+          initialState={memorySnapshot?.state ?? "needs_update"}
         />
 
         <SectionContainer>

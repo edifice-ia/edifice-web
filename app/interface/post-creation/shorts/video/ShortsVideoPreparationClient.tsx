@@ -103,6 +103,20 @@ type DraftCostPayload = {
   error?: string;
 };
 
+const costCategoryLabels: Record<string, string> = {
+  image_generation: "Visuels",
+  subtitle_generation: "Sous-titres",
+  video_render: "Rendu video",
+  voice_generation: "Voix",
+};
+
+const requiredVideoCostCategories = [
+  { category: "image_generation", label: "Visuels" },
+  { category: "voice_generation", label: "Voix" },
+  { category: "subtitle_generation", label: "Sous-titres" },
+  { category: "video_render", label: "Rendu video" },
+];
+
 const statusLabels: Record<string, string> = {
   approved: "Texte valide",
   draft: "Brouillon texte",
@@ -170,6 +184,22 @@ function formatCost(value: number | null) {
     minimumFractionDigits: 2,
     style: "currency",
   }).format(value);
+}
+
+function videoCostDetails(costs: DraftCostSummary | null) {
+  return requiredVideoCostCategories.map((requiredCategory) => {
+    const detail = costs?.details.find(
+      (item) => item.category === requiredCategory.category ||
+        item.label === requiredCategory.label,
+    );
+
+    return {
+      category: requiredCategory.category,
+      estimatedCostEur: detail?.estimatedCostEur ?? null,
+      label: costCategoryLabels[requiredCategory.category] ?? requiredCategory.label,
+      recordedCostEur: detail?.recordedCostEur ?? null,
+    };
+  });
 }
 
 function formatSubtitleAudioDuration(subtitles: DraftSubtitleState | null, voice: DraftVoiceState | null) {
@@ -784,39 +814,40 @@ export function ShortsVideoPreparationClient() {
                   Actualiser les couts
                 </button>
               </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {videoCostDetails(costs).map((detail) => (
+                  <div
+                    key={detail.category}
+                    className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="min-w-0 text-sm font-semibold text-[#F8FAFC]">
+                        {detail.label}
+                      </p>
+                      <p className="shrink-0 text-right text-base font-semibold text-[#39E6D0]">
+                        {formatCost(detail.estimatedCostEur)}
+                      </p>
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-[#A7B0C0]">
+                      Deja engage : <span className="font-semibold text-[#F8FAFC]">{formatCost(detail.recordedCostEur)}</span>
+                    </p>
+                  </div>
+                ))}
+              </div>
+
               <div className="mt-4 grid gap-3 md:grid-cols-3">
-                <div className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2">
+                <div className="rounded-md border border-[#22C55E]/30 bg-[#22C55E]/10 px-3 py-2">
                   <p className="text-xs text-[#A7B0C0]">Deja engage</p>
-                  <p className="mt-1 text-lg font-semibold text-[#F8FAFC]">{formatCost(costs?.alreadyRecordedEur ?? null)}</p>
+                  <p className="mt-1 text-lg font-semibold text-[#86EFAC]">{formatCost(costs?.alreadyRecordedEur ?? null)}</p>
                 </div>
-                <div className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2">
+                <div className="rounded-md border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-3 py-2">
                   <p className="text-xs text-[#A7B0C0]">Restant estime</p>
-                  <p className="mt-1 text-lg font-semibold text-[#F8FAFC]">{formatCost(costs?.remainingEstimatedEur ?? null)}</p>
+                  <p className="mt-1 text-lg font-semibold text-[#FBBF24]">{formatCost(costs?.remainingEstimatedEur ?? null)}</p>
                 </div>
-                <div className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2">
+                <div className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2">
                   <p className="text-xs text-[#A7B0C0]">Total estime</p>
                   <p className="mt-1 text-lg font-semibold text-[#39E6D0]">{formatCost(costs?.totalEstimatedEur ?? null)}</p>
                 </div>
-              </div>
-              <div className="mt-4 grid gap-2">
-                {(costs?.details ?? [
-                  { estimatedCostEur: null, label: "Visuels", note: "Chargement", recordedCostEur: null },
-                  { estimatedCostEur: null, label: "Voix", note: "Chargement", recordedCostEur: null },
-                  { estimatedCostEur: null, label: "Sous-titres", note: "Chargement", recordedCostEur: null },
-                  { estimatedCostEur: null, label: "Rendu video", note: "Chargement", recordedCostEur: null },
-                ]).map((detail) => (
-                  <div
-                    key={detail.label}
-                    className="flex flex-col gap-1 rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm md:flex-row md:items-center md:justify-between"
-                  >
-                    <span className="font-semibold text-[#F8FAFC]">{detail.label}</span>
-                    <span className="text-[#A7B0C0]">
-                      Estime: <span className="font-semibold text-[#F8FAFC]">{formatCost(detail.estimatedCostEur)}</span>
-                      {" / "}
-                      engage: <span className="font-semibold text-[#F8FAFC]">{formatCost(detail.recordedCostEur)}</span>
-                    </span>
-                  </div>
-                ))}
               </div>
             </div>
 

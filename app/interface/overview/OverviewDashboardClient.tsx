@@ -101,6 +101,13 @@ const connectionClasses: Record<DashboardData["connections"][number]["state"], s
   reporte: "border-[#64748b]/40 bg-[#64748b]/10 text-[#cbd5e1]",
 };
 
+const requiredCostCategories = [
+  { category: "image_generation", label: "Visuels" },
+  { category: "voice_generation", label: "Voix" },
+  { category: "subtitle_generation", label: "Sous-titres" },
+  { category: "video_render", label: "Rendu video" },
+];
+
 function formatDate(value: string | null) {
   if (!value) {
     return "Sans date";
@@ -147,6 +154,16 @@ function formatEuro(value: number | null) {
     minimumFractionDigits: 2,
     style: "currency",
   }).format(value);
+}
+
+function requiredCostCategoryItems(items: DashboardData["costs"]["byCategory"]) {
+  return requiredCostCategories.map((requiredCategory) => {
+    const item = items.find((candidate) => candidate.category === requiredCategory.category);
+    return {
+      label: requiredCategory.label,
+      value: item?.totalEur ?? 0,
+    };
+  });
 }
 
 function ProgressBar({ value }: { value: number }) {
@@ -532,6 +549,24 @@ function CostsBlock({ data }: { data: DashboardData }) {
         </p>
       </div>
 
+      <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+        <h3 className="font-semibold text-[#F8FAFC]">Repartition des couts</h3>
+        <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+          Structure de couts Shorts visible meme si certaines categories n&apos;ont pas encore de montant enregistre.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {requiredCostCategoryItems(data.costs.byCategory).map((item) => (
+            <div
+              key={item.label}
+              className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3"
+            >
+              <p className="text-sm font-semibold text-[#F8FAFC]">{item.label}</p>
+              <p className="mt-2 text-xl font-semibold text-[#39E6D0]">{formatEuro(item.value)}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div>
         <h3 className="mb-3 font-semibold text-[#F8FAFC]">Evolution quotidienne</h3>
         <div className="grid gap-2">
@@ -554,7 +589,7 @@ function CostsBlock({ data }: { data: DashboardData }) {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <CostBreakdown title="Par categorie" items={data.costs.byCategory.map((item) => ({ label: item.category, value: item.totalEur }))} />
+        <CostBreakdown title="Par categorie" items={requiredCostCategoryItems(data.costs.byCategory)} />
         <CostBreakdown title="Par provider" items={data.costs.byProvider.map((item) => ({ label: item.provider, value: item.totalEur }))} />
         <CostBreakdown title="Par compte" items={data.costs.byAccount.map((item) => ({ label: item.accountId, value: item.totalEur }))} />
       </div>

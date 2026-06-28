@@ -10,6 +10,13 @@ type SnapshotPayload = {
     lastUpdatedAt: string | null;
     state: "up_to_date" | "needs_update";
   } | null;
+  trajectoireSync?: {
+    changedProjects: string[];
+    nextStep: string;
+    priority: string;
+    progress: number;
+    unchangedProjects: string[];
+  };
   error?: string;
 };
 
@@ -49,12 +56,14 @@ export function ProjectMemorySnapshotControl({
   const [lastUpdatedAt, setLastUpdatedAt] = useState(initialLastUpdatedAt);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [syncDetails, setSyncDetails] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function updateSnapshot() {
     setState("updating");
     setError(null);
     setFeedback(null);
+    setSyncDetails([]);
 
     try {
       const response = await fetch("/api/project-memory", {
@@ -70,6 +79,13 @@ export function ProjectMemorySnapshotControl({
       setLastUpdatedAt(payload.snapshot.lastUpdatedAt);
       setShowConfirmation(false);
       setFeedback("Memoire projet mise a jour.");
+      setSyncDetails([
+        ...(payload.trajectoireSync?.changedProjects ?? []),
+        `Priorite recalculee: ${payload.trajectoireSync?.priority ?? "non renseignee"}`,
+        `Progression calculee: ${payload.trajectoireSync?.progress ?? 0}%`,
+        `Prochaine etape: ${payload.trajectoireSync?.nextStep ?? "non renseignee"}`,
+        ...(payload.trajectoireSync?.unchangedProjects ?? []).slice(0, 4),
+      ]);
     } catch (requestError) {
       setState("error");
       setError(
@@ -145,9 +161,18 @@ export function ProjectMemorySnapshotControl({
       ) : null}
 
       {feedback ? (
-        <p className="mt-3 rounded-md border border-[#39E6D0]/30 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
-          {feedback}
-        </p>
+        <div className="mt-3 rounded-md border border-[#39E6D0]/30 bg-[#39E6D0]/10 px-3 py-2 text-sm text-[#A7B0C0]">
+          <p className="font-semibold text-[#39E6D0]">{feedback}</p>
+          {syncDetails.length ? (
+            <ul className="mt-2 grid gap-1">
+              {syncDetails.map((detail) => (
+                <li className="min-w-0 truncate" key={detail}>
+                  {detail}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
       {error ? (
         <p className="mt-3 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm text-[#FDBA74]">

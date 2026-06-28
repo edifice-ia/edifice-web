@@ -157,6 +157,35 @@ type ActionRow = {
   updated_at: string;
 };
 
+type ShortsDraftSignalRow = {
+  id: string;
+  status: string | null;
+  visual_status: string | null;
+  voice_asset_id: string | null;
+  voice_status: string | null;
+};
+
+type ShortsAssetSignalRow = {
+  asset_type: "image" | "audio" | "video" | "subtitle";
+  linked_draft_id: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+type ShortsRenderSignalRow = {
+  draft_id: string;
+  metadata: Record<string, unknown> | null;
+  status: string | null;
+};
+
+type ShortsScheduleSignalRow = {
+  draft_id: string;
+  status: string | null;
+};
+
+type ShortsCostSignalRow = {
+  id: string;
+};
+
 type ProjectInput = {
   title: string;
   description: string;
@@ -182,6 +211,17 @@ type ActionInput = {
   title: string;
   status: TrajectoireActionStatus;
   dueDate: string | null;
+};
+
+export type TrajectoireSyncSummary = {
+  changedProjects: string[];
+  unchangedProjects: string[];
+  nextStep: string;
+  priority: TrajectoirePriority;
+  progress: number;
+  signals: Array<{ done: boolean; label: string; source: string }>;
+  source: string;
+  syncedAt: string;
 };
 
 let trajectoireClient: SupabaseClient | null = null;
@@ -836,6 +876,201 @@ function findProjectByTerms(projects: TrajectoireProject[], terms: string[]) {
   }) ?? null;
 }
 
+function replaceSyncBlock(description: string, marker: string, content: string) {
+  const start = `<!-- ${marker}:start -->`;
+  const end = `<!-- ${marker}:end -->`;
+  const block = `${start}\n${content.trim()}\n${end}`;
+  const pattern = new RegExp(`${start}[\\s\\S]*?${end}`, "m");
+
+  if (pattern.test(description)) {
+    return description.replace(pattern, block).trim();
+  }
+
+  return [description.trim(), block].filter(Boolean).join("\n\n");
+}
+
+function readMetadataString(metadata: Record<string, unknown> | null, key: string) {
+  const value = metadata?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+async function maybeReadShortsSignals(userId: string) {
+  const supabase = getTrajectoireClient();
+  const signals = {
+    costEvents: [] as ShortsCostSignalRow[],
+    drafts: [] as ShortsDraftSignalRow[],
+    renderJobs: [] as ShortsRenderSignalRow[],
+    schedules: [] as ShortsScheduleSignalRow[],
+    subtitleAssets: [] as ShortsAssetSignalRow[],
+    videoManifests: [] as ShortsAssetSignalRow[],
+  };
+
+  const drafts = await supabase
+    .from("content_drafts")
+    .select("id,status,visual_status,voice_status,voice_asset_id")
+    .eq("user_id", userId)
+    .limit(200)
+    .returns<ShortsDraftSignalRow[]>();
+  if (!drafts.error) {
+    signals.drafts = drafts.data ?? [];
+  }
+
+  const draftIds = signals.drafts.map((draft) => draft.id);
+  if (!draftIds.length) {
+    return signals;
+  }
+
+  const [assets, jobs, schedules, costs] = await Promise.all([
+    supabase
+      .from("content_assets")
+      .select("asset_type,linked_draft_id,metadata")
+      .in("linked_draft_id", draftIds)
+      .in("asset_type", ["subtitle", "video"])
+      .returns<ShortsAssetSignalRow[]>(),
+    supabase
+      .from("video_render_jobs")
+      .select("draft_id,status,metadata")
+      .in("draft_id", draftIds)
+      .returns<ShortsRenderSignalRow[]>(),
+    supabase
+      .from("short_video_schedules")
+      .select("draft_id,status")
+      .in("draft_id", draftIds)
+      .returns<ShortsScheduleSignalRow[]>(),
+    supabase
+      .from("cost_events")
+      .select("id")
+      .eq("user_id", userId)
+      .in("category", ["image_generation", "image_analysis", "voice_generation", "subtitle_generation", "video_render"])
+      .limit(1)
+      .returns<ShortsCostSignalRow[]>(),
+  ]);
+
+  if (!assets.error) {
+    const rows = assets.data ?? [];
+    signals.subtitleAssets = rows.filter((asset) => asset.asset_type === "subtitle");
+    signals.videoManifests = rows.filter(
+      (asset) =>
+        asset.asset_type === "video" &&
+        readMetadataString(asset.metadata, "asset_role") === "short_video_preparation_manifest",
+    );
+  }
+  if (!jobs.error) {
+    signals.renderJobs = jobs.data ?? [];
+  }
+  if (!schedules.error) {
+    signals.schedules = schedules.data ?? [];
+  }
+  if (!costs.error) {
+    signals.costEvents = costs.data ?? [];
+  }
+
+  return signals;
+}
+
+function buildShortsMilestones(signals: Awaited<ReturnType<typeof maybeReadShortsSignals>>) {
+  const draftStatuses = new Set(signals.drafts.map((draft) => draft.status ?? ""));
+  const textValidated = signals.drafts.some((draft) =>
+    ["approved", "validated", "media_ready", "voice_ready", "video_ready", "video_validated", "ready_to_publish"].includes(draft.status ?? ""),
+  );
+  const visualsValidated = signals.drafts.some((draft) => draft.visual_status === "visual_ready");
+  const voiceValidated = signals.drafts.some((draft) =>
+    draft.voice_status === "validated" ||
+    ["video_ready", "video_validated", "ready_to_publish"].includes(draft.status ?? "") ||
+    Boolean(draft.voice_asset_id),
+  );
+  const subtitlesValidated = signals.subtitleAssets.some(
+    (asset) => readMetadataString(asset.metadata, "subtitle_validation_status") === "validated",
+  );
+  const manifestPrepared = signals.videoManifests.length > 0;
+  const videoRendered = signals.renderJobs.some((job) => job.status === "completed");
+  const videoValidated = signals.renderJobs.some(
+    (job) => readMetadataString(job.metadata, "video_validation_status") === "validated",
+  ) || draftStatuses.has("video_validated") || draftStatuses.has("ready_to_publish");
+  const programmingReady = signals.schedules.some((schedule) => schedule.status === "scheduled");
+  const costsTracked = signals.costEvents.length > 0;
+
+  return [
+    { done: textValidated, label: "Texte valide", source: "content_drafts.status" },
+    { done: visualsValidated, label: "Visuels valides", source: "content_drafts.visual_status" },
+    { done: voiceValidated, label: "Voix validee", source: "content_drafts.voice_status / voice_asset_id" },
+    { done: subtitlesValidated, label: "Sous-titres valides", source: "content_assets.metadata.subtitle_validation_status" },
+    { done: manifestPrepared, label: "Manifest video prepare", source: "content_assets.metadata.asset_role" },
+    { done: videoRendered, label: "Rendu Railway termine", source: "video_render_jobs.status" },
+    { done: videoValidated, label: "Validation video", source: "video_render_jobs.metadata / content_drafts.status" },
+    { done: programmingReady, label: "Programmation fonctionnelle", source: "short_video_schedules.status" },
+    { done: costsTracked, label: "Suivi des couts alimente", source: "cost_events" },
+    { done: false, label: "Publication reelle multi-plateforme", source: "placeholder publication" },
+    { done: false, label: "Analytics de performances", source: "non implemente" },
+  ];
+}
+
+function shortsNextStep(milestones: Array<{ done: boolean; label: string }>) {
+  const missing = milestones.find((milestone) => !milestone.done);
+  if (!missing) {
+    return "Consolider la publication reelle multi-plateforme avec validation humaine.";
+  }
+
+  if (missing.label.includes("Publication")) {
+    return "Preparer la publication reelle multi-plateforme sans declenchement automatique.";
+  }
+
+  if (missing.label.includes("Analytics")) {
+    return "Construire les analytics de performances par plateforme.";
+  }
+
+  return `Stabiliser le jalon restant: ${missing.label}.`;
+}
+
+function shortsPriority(milestones: Array<{ done: boolean; label: string }>): TrajectoirePriority {
+  const publicationMissing = milestones.some((milestone) => !milestone.done && milestone.label.includes("Publication"));
+  const coreMissing = milestones.some(
+    (milestone) =>
+      !milestone.done &&
+      !milestone.label.includes("Publication") &&
+      !milestone.label.includes("Analytics"),
+  );
+
+  if (coreMissing) {
+    return "haute";
+  }
+
+  return publicationMissing ? "moyenne" : "basse";
+}
+
+function formatShortsSyncDescription({
+  milestones,
+  nextStep,
+  progress,
+  priority,
+  syncedAt,
+}: {
+  milestones: Array<{ done: boolean; label: string; source: string }>;
+  nextStep: string;
+  priority: TrajectoirePriority;
+  progress: number;
+  syncedAt: string;
+}) {
+  const done = milestones.filter((milestone) => milestone.done);
+  const pending = milestones.filter((milestone) => !milestone.done);
+
+  return [
+    "Synchronise depuis la memoire projet et les signaux metier reels.",
+    `Derniere synchronisation: ${syncedAt}`,
+    "Source du dernier changement: content_drafts, content_assets, video_render_jobs, short_video_schedules, cost_events, project_memory.",
+    `Progression calculee: ${progress}%`,
+    `Priorite calculee: ${priority}`,
+    `Prochaine etape: ${nextStep}`,
+    `Jalons realises: ${done.map((milestone) => milestone.label).join(" ; ") || "aucun"}`,
+    `Jalons restants: ${pending.map((milestone) => milestone.label).join(" ; ") || "aucun"}`,
+    "Blocage reel: publication reelle multi-plateforme et analytics non actives.",
+  ].join("\n");
+}
+
+function findAtelierShortsProject(projects: TrajectoireProject[]) {
+  return findProjectByTerms(projects, ["atelier shorts", "shorts", "pipeline shorts", "short"]);
+}
+
 function findObjectiveByTerms(
   project: TrajectoireProject,
   terms: string[],
@@ -1047,6 +1282,180 @@ export async function recalculateTrajectoireProgress(userId: string) {
       throw new Error(error.message);
     }
   }
+}
+
+export async function syncTrajectoireFromProjectMemory({
+  userId,
+}: {
+  userId: string;
+}): Promise<TrajectoireSyncSummary> {
+  const supabase = getTrajectoireClient();
+  const snapshot = await readTrajectoire(userId);
+  const syncedAt = new Date().toISOString();
+  const signals = await maybeReadShortsSignals(userId);
+  const milestones = buildShortsMilestones(signals);
+  const doneCount = milestones.filter((milestone) => milestone.done).length;
+  const progress = Math.round((doneCount / milestones.length) * 100);
+  const priority = shortsPriority(milestones);
+  const nextStep = shortsNextStep(milestones);
+  const changedProjects: string[] = [];
+  const unchangedProjects: string[] = [];
+  const project = findAtelierShortsProject(snapshot.projects);
+
+  if (!project) {
+    return {
+      changedProjects,
+      unchangedProjects: snapshot.projects.map((item) => `${item.title}: aucun signal Shorts rattache`),
+      nextStep,
+      priority,
+      progress,
+      signals: milestones,
+      source: "content_drafts + project_memory",
+      syncedAt,
+    };
+  }
+
+  const syncContent = formatShortsSyncDescription({
+    milestones,
+    nextStep,
+    priority,
+    progress,
+    syncedAt,
+  });
+  const nextProjectDescription = replaceSyncBlock(
+    project.description,
+    "edifice-sync:atelier-shorts",
+    syncContent,
+  );
+  const projectChanged =
+    project.progress !== progress ||
+    project.priority !== priority ||
+    project.description !== nextProjectDescription ||
+    project.status !== "actif";
+
+  if (projectChanged) {
+    const { error } = await supabase
+      .from("trajectoire_projects")
+      .update({
+        description: nextProjectDescription,
+        priority,
+        progress,
+        status: "actif",
+      })
+      .eq("id", project.id)
+      .eq("user_id", userId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+    changedProjects.push(`${project.title}: avancement mis a jour`);
+  } else {
+    unchangedProjects.push(`${project.title}: aucun changement detecte`);
+  }
+
+  const objectiveTitle = "Pipeline Shorts - synchronisation";
+  let objective =
+    findSimilarObjective(project.objectives, objectiveTitle) ??
+    findSimilarObjective(project.objectives, "pipeline shorts");
+  const objectiveStatus: TrajectoireObjectiveStatus = progress >= 100
+    ? "termine"
+    : progress > 0
+      ? "en cours"
+      : "non commence";
+  const nextObjectiveDescription = replaceSyncBlock(
+    objective?.description ?? "",
+    "edifice-sync:atelier-shorts-objective",
+    syncContent,
+  );
+
+  if (!objective) {
+    objective = await createTrajectoireObjective({
+      input: {
+        deadline: null,
+        description: nextObjectiveDescription,
+        priority,
+        progress,
+        projectId: project.id,
+        status: objectiveStatus,
+        title: objectiveTitle,
+      },
+      userId,
+    });
+    changedProjects.push(`${project.title}: objectif de synchronisation ajoute`);
+  } else {
+    const { error } = await supabase
+      .from("trajectoire_objectives")
+      .update({
+        description: nextObjectiveDescription,
+        priority,
+        progress,
+        status: objectiveStatus,
+      })
+      .eq("id", objective.id)
+      .eq("user_id", userId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  const refreshed = await readTrajectoire(userId);
+  const refreshedProject = refreshed.projects.find((item) => item.id === project.id);
+  const refreshedObjective = refreshedProject
+    ? findSimilarObjective(refreshedProject.objectives, objectiveTitle) ??
+      findSimilarObjective(refreshedProject.objectives, "pipeline shorts")
+    : null;
+
+  if (refreshedObjective) {
+    for (const milestone of milestones) {
+      const existingAction = findSimilarAction(refreshedObjective.actions, milestone.label);
+      const status: TrajectoireActionStatus = milestone.done ? "fait" : "a faire";
+
+      if (!existingAction) {
+        await createTrajectoireAction({
+          input: {
+            dueDate: null,
+            objectiveId: refreshedObjective.id,
+            status,
+            title: milestone.label,
+          },
+          userId,
+        });
+        continue;
+      }
+
+      if (existingAction.status !== status) {
+        const { error } = await supabase
+          .from("trajectoire_actions")
+          .update({ status })
+          .eq("id", existingAction.id)
+          .eq("user_id", userId);
+
+        if (error) {
+          throw new Error(error.message);
+        }
+      }
+    }
+  }
+
+  await recalculateTrajectoireProgress(userId);
+
+  for (const item of snapshot.projects) {
+    if (item.id !== project.id) {
+      unchangedProjects.push(`${item.title}: aucun changement recent`);
+    }
+  }
+
+  return {
+    changedProjects: Array.from(new Set(changedProjects)),
+    unchangedProjects: Array.from(new Set(unchangedProjects)),
+    nextStep,
+    priority,
+    progress,
+    signals: milestones,
+    source: "content_drafts + content_assets + video_render_jobs + short_video_schedules + cost_events + project_memory",
+    syncedAt,
+  };
 }
 
 export async function updateTrajectoireProject({

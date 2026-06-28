@@ -8,6 +8,7 @@ import {
   updateProjectMemory,
   updateProjectStateMemorySnapshot,
 } from "@/lib/server/project-memory";
+import { syncTrajectoireFromProjectMemory } from "@/lib/server/trajectoire";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -96,9 +97,12 @@ export async function POST(request: Request) {
       const entry = await updateProjectStateMemorySnapshot({
         userId: user.id,
       });
+      const trajectoireSync = await syncTrajectoireFromProjectMemory({
+        userId: user.id,
+      });
       const snapshot = await getProjectStateMemoryStatus();
 
-      return NextResponse.json({ entry, snapshot });
+      return NextResponse.json({ entry, snapshot, trajectoireSync });
     }
 
     const input = sanitizeProjectMemoryInput(payload);

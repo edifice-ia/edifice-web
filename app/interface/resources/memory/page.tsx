@@ -88,20 +88,30 @@ export default async function ProjectMemoryPage() {
           {result.entries.length ? (
             result.entries.map((entry) => (
               <article
-                className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4"
+                className="min-w-0 overflow-hidden rounded-md border border-[#1D2A44] bg-[#08111A] p-4"
                 key={entry.id}
               >
-                <div className="grid gap-3 lg:grid-cols-[1.1fr_1fr_1fr_150px]">
+                <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_150px]">
                   <Field label="Cle" value={entry.key ?? "ancienne entree"} />
                   <Field label="Titre" value={entry.title} />
                   <Field label="Statut" value={entry.status ?? "non renseigne"} />
                   <Field label="Source" value={entry.source ?? "non renseignee"} />
                 </div>
-                <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1fr_180px]">
+                <div className="mt-3 grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px]">
                   <Field label="Valeur" value={entry.value ?? entry.content ?? "-"} />
                   <Field label="Categorie" value={entry.category ?? "-"} />
                   <Field label="Derniere mise a jour" value={formatDate(entry.updatedAt)} />
                 </div>
+                {entry.content && entry.content !== entry.value ? (
+                  <details className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm">
+                    <summary className="cursor-pointer font-semibold text-[#39E6D0]">
+                      Voir le detail
+                    </summary>
+                    <pre className="mt-3 max-h-80 min-w-0 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-[#A7B0C0]">
+                      {entry.content}
+                    </pre>
+                  </details>
+                ) : null}
               </article>
             ))
           ) : (
@@ -117,11 +127,13 @@ export default async function ProjectMemoryPage() {
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="min-w-0 overflow-hidden">
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#64748b]">
         {label}
       </p>
-      <p className="mt-1 text-sm text-[#F8FAFC]">{value}</p>
+      <p className="mt-1 truncate whitespace-nowrap text-sm text-[#F8FAFC]" title={value}>
+        {value}
+      </p>
     </div>
   );
 }

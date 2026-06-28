@@ -44,6 +44,48 @@ type SchedulingPayload = {
   error?: string;
 };
 
+type PublicationStatus = "draft" | "ready" | "publishing" | "scheduled" | "published" | "failed" | "cancelled";
+type PublicationVisibility = "private" | "unlisted" | "public";
+
+type ShortsPublicationItem = {
+  accountLabel: string;
+  costTotalEstimatedEur: number | null;
+  description: string;
+  draftId: string;
+  errorMessage: string | null;
+  hashtags: string[];
+  isPastDue: boolean;
+  outputUrl: string | null;
+  platform: ShortsSchedulePlatform;
+  publicationId: string | null;
+  publishedAt: string | null;
+  scheduleId: string;
+  scheduledAt: string;
+  status: PublicationStatus | "ready";
+  timezone: string;
+  title: string;
+  validated: boolean;
+  visibility: PublicationVisibility;
+  youtubeUrl: string | null;
+  youtubeVideoId: string | null;
+};
+
+type PublicationPayload = {
+  error?: string;
+  items?: ShortsPublicationItem[];
+  youtubeChannelTitle?: string | null;
+  youtubeConnected?: boolean;
+  youtubeError?: string | null;
+};
+
+type PublicationForm = {
+  description: string;
+  hashtags: string;
+  scheduledAt: string;
+  title: string;
+  visibility: PublicationVisibility;
+};
+
 type PlanningRow = {
   draftId: string;
   localDate: string;
@@ -92,6 +134,39 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function formatDateTimeInput(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return "";
+  }
+
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function inputDateTimeToIso(value: string) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : value;
+}
+
+function formatEuro(value: number | null) {
+  if (value === null || !Number.isFinite(value)) {
+    return "Non estime";
+  }
+
+  return new Intl.NumberFormat("fr-FR", {
+    currency: "EUR",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(value);
+}
+
+function hashtagsToText(hashtags: string[]) {
+  return hashtags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
+}
+
 export function ShortsProgrammingClient() {
   const [activeTab, setActiveTab] = useState<"programming" | "publication">("programming");
   const [frequency, setFrequency] = useState<ShortsScheduleFrequency>(1);
@@ -106,6 +181,18 @@ export function ShortsProgrammingClient() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [publicationItems, setPublicationItems] = useState<ShortsPublicationItem[]>([]);
+  const [publicationFilter, setPublicationFilter] = useState<"todo" | "published" | "failed">("todo");
+  const [publicationError, setPublicationError] = useState<string | null>(null);
+  const [publicationNotice, setPublicationNotice] = useState<string | null>(null);
+  const [youtubeConnected, setYoutubeConnected] = useState(false);
+  const [youtubeChannelTitle, setYoutubeChannelTitle] = useState<string | null>(null);
+  const [youtubeError, setYoutubeError] = useState<string | null>(null);
+  const [selectedPublication, setSelectedPublication] = useState<ShortsPublicationItem | null>(null);
+  const [publicationForm, setPublicationForm] = useState<PublicationForm | null>(null);
+  const [isPublicationLoading, setIsPublicationLoading] = useState(false);
+  const [isPublicationSaving, setIsPublicationSaving] = useState(false);
+  const [confirmingPublicationId, setConfirmingPublicationId] = useState<string | null>(null);
 
   const videoById = useMemo(
     () => new Map(videos.map((video) => [video.draftId, video])),
@@ -135,6 +222,15 @@ export function ShortsProgrammingClient() {
   const invalidRows = planningRows.filter((row) => !videoById.has(row.draftId));
   const effectiveStartDate = clampScheduleStartDate(startDate, normalizedTimezone);
   const periodEnd = addDaysToDateValue(effectiveStartDate, Math.max(0, daysCount - 1));
+  const filteredPublicationItems = useMemo(() => {
+    if (publicationFilter === "published") {
+      return publicationItems.filter((item) => item.status === "published");
+    }
+    if (publicationFilter === "failed") {
+      return publicationItems.filter((item) => item.status === "failed");
+    }
+    return publicationItems.filter((item) => item.status !== "published" && item.status !== "failed" && item.status !== "cancelled");
+  }, [publicationFilter, publicationItems]);
 
   async function loadSchedulingState() {
     setIsLoading(true);
@@ -160,6 +256,158 @@ export function ShortsProgrammingClient() {
       );
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function loadPublicationState() {
+    setIsPublicationLoading(true);
+    setPublicationError(null);
+
+    try {
+      const response = await fetch("/api/content-workshop/shorts-publications", {
+        cache: "no-store",
+      });
+      const payload = (await response.json()) as PublicationPayload;
+
+      if (!response.ok || !payload.items) {
+        throw new Error(payload.error ?? "Lecture des publications indisponible.");
+      }
+
+      setPublicationItems(payload.items);
+      setYoutubeConnected(Boolean(payload.youtubeConnected));
+      setYoutubeChannelTitle(payload.youtubeChannelTitle ?? null);
+      setYoutubeError(payload.youtubeError ?? null);
+      if (selectedPublication) {
+        setSelectedPublication(payload.items.find((item) => item.scheduleId === selectedPublication.scheduleId) ?? null);
+      }
+    } catch (caughtError) {
+      setPublicationError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Lecture des publications indisponible.",
+      );
+    } finally {
+      setIsPublicationLoading(false);
+    }
+  }
+
+  function openPublicationPreparation(item: ShortsPublicationItem) {
+    setSelectedPublication(item);
+    setPublicationForm({
+      description: item.description,
+      hashtags: hashtagsToText(item.hashtags),
+      scheduledAt: formatDateTimeInput(item.scheduledAt),
+      title: item.title,
+      visibility: item.visibility,
+    });
+    setPublicationNotice(null);
+    setPublicationError(null);
+    setConfirmingPublicationId(null);
+  }
+
+  async function savePublicationPreparation() {
+    if (!selectedPublication || !publicationForm) {
+      return;
+    }
+
+    setIsPublicationSaving(true);
+    setPublicationError(null);
+    setPublicationNotice(null);
+
+    try {
+      const response = await fetch("/api/content-workshop/shorts-publications", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "prepare_youtube",
+          scheduleId: selectedPublication.scheduleId,
+          data: {
+            description: publicationForm.description,
+            hashtags: publicationForm.hashtags,
+            scheduledAt: inputDateTimeToIso(publicationForm.scheduledAt),
+            title: publicationForm.title,
+            visibility: publicationForm.visibility,
+          },
+        }),
+      });
+      const payload = (await response.json()) as PublicationPayload;
+
+      if (!response.ok || !payload.items) {
+        throw new Error(payload.error ?? "Preparation YouTube indisponible.");
+      }
+
+      setPublicationItems(payload.items);
+      const next = payload.items.find((item) => item.scheduleId === selectedPublication.scheduleId) ?? null;
+      setSelectedPublication(next);
+      if (next) {
+        setPublicationForm({
+          description: next.description,
+          hashtags: hashtagsToText(next.hashtags),
+          scheduledAt: formatDateTimeInput(next.scheduledAt),
+          title: next.title,
+          visibility: next.visibility,
+        });
+      }
+      setPublicationNotice("Publication YouTube preparee. Aucune video n'a encore ete envoyee.");
+    } catch (caughtError) {
+      setPublicationError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Preparation YouTube indisponible.",
+      );
+    } finally {
+      setIsPublicationSaving(false);
+    }
+  }
+
+  async function publishSelectedPublication() {
+    if (!selectedPublication?.publicationId || !publicationForm) {
+      return;
+    }
+
+    setIsPublicationSaving(true);
+    setPublicationError(null);
+    setPublicationNotice(null);
+
+    try {
+      const response = await fetch("/api/content-workshop/shorts-publications", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "publish_youtube",
+          publicationId: selectedPublication.publicationId,
+          data: {
+            description: publicationForm.description,
+            hashtags: publicationForm.hashtags,
+            scheduledAt: inputDateTimeToIso(publicationForm.scheduledAt),
+            title: publicationForm.title,
+            visibility: publicationForm.visibility,
+          },
+        }),
+      });
+      const payload = (await response.json()) as PublicationPayload;
+
+      if (!response.ok || !payload.items) {
+        throw new Error(payload.error ?? "Publication YouTube indisponible.");
+      }
+
+      setPublicationItems(payload.items);
+      const next = payload.items.find((item) => item.publicationId === selectedPublication.publicationId) ?? null;
+      setSelectedPublication(next);
+      setConfirmingPublicationId(null);
+      setPublicationNotice("Publication YouTube terminee. Historique conserve.");
+    } catch (caughtError) {
+      setPublicationError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Publication YouTube indisponible.",
+      );
+    } finally {
+      setIsPublicationSaving(false);
     }
   }
 
@@ -326,7 +574,10 @@ export function ShortsProgrammingClient() {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("publication")}
+          onClick={() => {
+            setActiveTab("publication");
+            void loadPublicationState();
+          }}
           className={`rounded-md px-4 py-2 text-sm font-semibold transition ${
             activeTab === "publication"
               ? "bg-[#39E6D0]/12 text-[#39E6D0]"
@@ -338,16 +589,287 @@ export function ShortsProgrammingClient() {
       </div>
 
       {activeTab === "publication" ? (
-        <section className="rounded-md border border-[#1D2A44] bg-[#03070B] p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
-            Publication
-          </p>
-          <h2 className="mt-3 text-2xl font-semibold text-[#F8FAFC]">
-            Publication
-          </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#A7B0C0]">
-            Les videos programmees apparaitront ici. La publication multi-plateforme sera activee dans une prochaine etape.
-          </p>
+        <section className="space-y-5 rounded-md border border-[#1D2A44] bg-[#03070B] p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">
+                Publication
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-[#F8FAFC]">
+                Publication YouTube Shorts
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-[#A7B0C0]">
+                Publication v1 manuelle. Aucun envoi ne part sans confirmation explicite.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadPublicationState()}
+              className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
+            >
+              {isPublicationLoading ? "Actualisation..." : "Actualiser"}
+            </button>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-3">
+            <div className={`rounded-md border p-4 ${youtubeConnected ? "border-[#39E6D0]/35 bg-[#39E6D0]/10" : "border-[#F97316]/35 bg-[#F97316]/10"}`}>
+              <p className="text-sm font-semibold text-[#F8FAFC]">YouTube Shorts</p>
+              <p className="mt-2 min-w-0 truncate text-sm text-[#A7B0C0]">
+                {youtubeConnected ? `Connecte: ${youtubeChannelTitle ?? "chaine YouTube"}` : youtubeError ?? "Compte YouTube non connecte"}
+              </p>
+            </div>
+            <ComingSoonPlatform title="Instagram" />
+            <ComingSoonPlatform title="TikTok" />
+          </div>
+
+          {publicationError ? (
+            <p className="rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-4 py-3 text-sm font-semibold text-[#FDBA74]">
+              {publicationError}
+            </p>
+          ) : null}
+          {publicationNotice ? (
+            <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-4 py-3 text-sm font-semibold text-[#39E6D0]">
+              {publicationNotice}
+            </p>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
+            {([
+              ["todo", "A publier"],
+              ["published", "Publiees"],
+              ["failed", "Echecs"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setPublicationFilter(value)}
+                className={`rounded-md border px-3 py-2 text-sm font-semibold transition ${
+                  publicationFilter === value
+                    ? "border-[#39E6D0]/50 bg-[#39E6D0]/10 text-[#39E6D0]"
+                    : "border-[#1D2A44] bg-[#08111A] text-[#A7B0C0] hover:border-[#39E6D0]/40 hover:text-[#F8FAFC]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+            <div className="grid gap-3">
+              {filteredPublicationItems.length ? filteredPublicationItems.map((item) => (
+                <article
+                  key={item.scheduleId}
+                  className="min-w-0 overflow-hidden rounded-md border border-[#1D2A44] bg-[#08111A] p-4"
+                >
+                  <div className="grid gap-4 md:grid-cols-[180px_minmax(0,1fr)]">
+                    <div className="overflow-hidden rounded-md border border-[#1D2A44] bg-[#03070B]">
+                      {item.outputUrl ? (
+                        <video
+                          className="aspect-[9/16] h-52 w-full object-cover"
+                          controls
+                          preload="metadata"
+                          src={item.outputUrl}
+                        />
+                      ) : (
+                        <div className="flex aspect-[9/16] h-52 items-center justify-center px-3 text-center text-sm text-[#A7B0C0]">
+                          Video finale indisponible
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#39E6D0]">
+                            {SHORTS_SCHEDULE_PLATFORM_LABELS[item.platform]}
+                          </p>
+                          <h3 className="mt-1 truncate text-lg font-semibold text-[#F8FAFC]" title={item.title}>
+                            {item.title}
+                          </h3>
+                        </div>
+                        <span className="w-fit rounded-md border border-[#1D2A44] bg-[#03070B] px-2.5 py-1 text-xs font-semibold text-[#A7B0C0]">
+                          {item.status}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-2 text-sm text-[#A7B0C0] sm:grid-cols-2">
+                        <InfoLine label="Compte" value={item.accountLabel} />
+                        <InfoLine label="Horaire" value={formatDateTime(item.scheduledAt)} />
+                        <InfoLine label="Cout estime" value={formatEuro(item.costTotalEstimatedEur)} />
+                        <InfoLine label="Validation" value={item.validated ? "Video validee" : "Video non validee"} />
+                      </div>
+                      {item.isPastDue && item.status !== "published" ? (
+                        <p className="mt-3 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm text-[#FDBA74]">
+                          Creneau depasse - publication manuelle requise.
+                        </p>
+                      ) : null}
+                      {item.errorMessage ? (
+                        <p className="mt-3 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm text-[#FDBA74]">
+                          {item.errorMessage}
+                        </p>
+                      ) : null}
+                      {item.youtubeUrl ? (
+                        <a
+                          className="mt-3 inline-flex rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC]"
+                          href={item.youtubeUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Ouvrir sur YouTube Studio
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openPublicationPreparation(item)}
+                          className="mt-3 rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC]"
+                        >
+                          Preparer la publication
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              )) : (
+                <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-6 text-sm text-[#A7B0C0]">
+                  Aucun element dans cette section.
+                </p>
+              )}
+            </div>
+
+            <aside className="min-w-0 rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+              {selectedPublication && publicationForm ? (
+                <div className="grid gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#39E6D0]">
+                      Preparation YouTube
+                    </p>
+                    <h3 className="mt-2 truncate text-xl font-semibold text-[#F8FAFC]" title={selectedPublication.title}>
+                      {selectedPublication.title}
+                    </h3>
+                  </div>
+                  {selectedPublication.outputUrl ? (
+                    <video
+                      className="aspect-[9/16] max-h-[420px] w-full rounded-md border border-[#1D2A44] bg-[#03070B] object-contain"
+                      controls
+                      preload="metadata"
+                      src={selectedPublication.outputUrl}
+                    />
+                  ) : null}
+                  <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
+                    Titre YouTube
+                    <input
+                      value={publicationForm.title}
+                      onChange={(event) => setPublicationForm({ ...publicationForm, title: event.target.value })}
+                      className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
+                    Description
+                    <textarea
+                      rows={5}
+                      value={publicationForm.description}
+                      onChange={(event) => setPublicationForm({ ...publicationForm, description: event.target.value })}
+                      className="min-w-0 resize-y rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
+                    Hashtags
+                    <input
+                      value={publicationForm.hashtags}
+                      onChange={(event) => setPublicationForm({ ...publicationForm, hashtags: event.target.value })}
+                      className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
+                    />
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
+                      Visibilite
+                      <select
+                        value={publicationForm.visibility}
+                        onChange={(event) => setPublicationForm({ ...publicationForm, visibility: event.target.value as PublicationVisibility })}
+                        className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
+                      >
+                        <option value="private">Privee</option>
+                        <option value="unlisted">Non repertoriee</option>
+                        <option value="public">Publique</option>
+                      </select>
+                    </label>
+                    <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
+                      Date et heure
+                      <input
+                        type="datetime-local"
+                        value={publicationForm.scheduledAt}
+                        onChange={(event) => setPublicationForm({ ...publicationForm, scheduledAt: event.target.value })}
+                        className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
+                      />
+                    </label>
+                  </div>
+                  <div className="grid gap-2 text-sm text-[#A7B0C0]">
+                    <InfoLine label="Statut programmation" value={selectedPublication.status} />
+                    <InfoLine label="Compte YouTube" value={youtubeConnected ? youtubeChannelTitle ?? "Connecte" : youtubeError ?? "Non connecte"} />
+                  </div>
+                  <p className="rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm font-semibold text-[#FDBA74]">
+                    Cette action publiera reellement la video sur YouTube.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={isPublicationSaving}
+                      onClick={() => void savePublicationPreparation()}
+                      className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:opacity-55"
+                    >
+                      Enregistrer la preparation
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        isPublicationSaving ||
+                        !selectedPublication.publicationId ||
+                        !selectedPublication.validated ||
+                        !selectedPublication.outputUrl ||
+                        !youtubeConnected ||
+                        !publicationForm.title.trim() ||
+                        !Number.isFinite(Date.parse(publicationForm.scheduledAt))
+                      }
+                      onClick={() => setConfirmingPublicationId(selectedPublication.publicationId)}
+                      className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      Publier sur YouTube
+                    </button>
+                  </div>
+                  {confirmingPublicationId ? (
+                    <div className="rounded-md border border-[#39E6D0]/30 bg-[#03070B] p-3 text-sm text-[#A7B0C0]">
+                      <p className="font-semibold text-[#F8FAFC]">
+                        Publier cette video sur YouTube ?
+                      </p>
+                      <p className="mt-2 leading-6">
+                        La video sera envoyee au compte YouTube connecte avec la visibilite selectionnee.
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setConfirmingPublicationId(null)}
+                          disabled={isPublicationSaving}
+                          className="rounded-md border border-[#64748b]/50 bg-[#64748b]/10 px-3 py-2 text-xs font-semibold text-[#cbd5e1] transition hover:text-[#F8FAFC]"
+                        >
+                          Annuler
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void publishSelectedPublication()}
+                          disabled={isPublicationSaving}
+                          className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-55"
+                        >
+                          {isPublicationSaving ? "Publication..." : "Confirmer la publication"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-sm leading-6 text-[#A7B0C0]">
+                  Selectionne une video programmee, puis prepare sa publication YouTube.
+                </p>
+              )}
+            </aside>
+          </div>
         </section>
       ) : (
         <section className="space-y-5 rounded-md border border-[#1D2A44] bg-[#03070B] p-5">
@@ -594,5 +1116,29 @@ export function ShortsProgrammingClient() {
         </section>
       )}
     </div>
+  );
+}
+
+function ComingSoonPlatform({ title }: { title: string }) {
+  return (
+    <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+      <p className="truncate text-sm font-semibold text-[#F8FAFC]" title={title}>
+        {title}
+      </p>
+      <p className="mt-2 text-sm text-[#A7B0C0]">
+        Publication bientot disponible.
+      </p>
+    </div>
+  );
+}
+
+function InfoLine({ label, value }: { label: string; value: string }) {
+  return (
+    <p className="min-w-0 overflow-hidden rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">
+      <span className="text-[#A7B0C0]">{label}: </span>
+      <span className="inline-block max-w-full truncate align-bottom font-semibold text-[#F8FAFC]" title={value}>
+        {value}
+      </span>
+    </p>
   );
 }

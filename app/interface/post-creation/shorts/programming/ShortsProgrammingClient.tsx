@@ -27,6 +27,7 @@ type SchedulableShortVideo = {
 };
 
 type ShortVideoSchedule = {
+  draftTitle: string;
   id: string;
   draftId: string;
   platform: ShortsSchedulePlatform;
@@ -84,6 +85,13 @@ type PublicationForm = {
   scheduledAt: string;
   title: string;
   visibility: PublicationVisibility;
+};
+
+type ScheduleEditForm = {
+  draftId: string;
+  localDate: string;
+  localTime: string;
+  platform: ShortsSchedulePlatform;
 };
 
 type PlanningRow = {
@@ -150,6 +158,42 @@ function inputDateTimeToIso(value: string) {
   return Number.isFinite(date.getTime()) ? date.toISOString() : value;
 }
 
+function scheduleToLocalParts(value: string) {
+  const input = formatDateTimeInput(value);
+  const [localDate = "", localTime = ""] = input.split("T");
+
+  return {
+    localDate,
+    localTime,
+  };
+}
+
+function readableStatus(status: string, isPastDue = false) {
+  if (status === "published") {
+    return "Publiee";
+  }
+  if (status === "failed") {
+    return "Echec de publication";
+  }
+  if (status === "cancelled") {
+    return "Annulee";
+  }
+  if (status === "publishing") {
+    return "Publication en cours";
+  }
+  if (isPastDue) {
+    return "Creneau depasse";
+  }
+  if (status === "ready") {
+    return "Prete a publier";
+  }
+  if (status === "scheduled") {
+    return "Programmee";
+  }
+
+  return "A programmer";
+}
+
 function formatEuro(value: number | null) {
   if (value === null || !Number.isFinite(value)) {
     return "Non estime";
@@ -181,6 +225,7 @@ export function ShortsProgrammingClient() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [publicationItems, setPublicationItems] = useState<ShortsPublicationItem[]>([]);
   const [publicationFilter, setPublicationFilter] = useState<"todo" | "published" | "failed">("todo");
   const [publicationError, setPublicationError] = useState<string | null>(null);
@@ -193,6 +238,12 @@ export function ShortsProgrammingClient() {
   const [isPublicationLoading, setIsPublicationLoading] = useState(false);
   const [isPublicationSaving, setIsPublicationSaving] = useState(false);
   const [confirmingPublicationId, setConfirmingPublicationId] = useState<string | null>(null);
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+  const [scheduleEditForm, setScheduleEditForm] = useState<ScheduleEditForm | null>(null);
+  const [confirmingScheduleAction, setConfirmingScheduleAction] = useState<{
+    action: "cancel" | "past_update";
+    scheduleId: string;
+  } | null>(null);
 
   const videoById = useMemo(
     () => new Map(videos.map((video) => [video.draftId, video])),
@@ -232,9 +283,15 @@ export function ShortsProgrammingClient() {
     return publicationItems.filter((item) => item.status !== "published" && item.status !== "failed" && item.status !== "cancelled");
   }, [publicationFilter, publicationItems]);
 
+  const publicationByScheduleId = useMemo(
+    () => new Map(publicationItems.map((item) => [item.scheduleId, item])),
+    [publicationItems],
+  );
+
   async function loadSchedulingState() {
     setIsLoading(true);
     setError(null);
+    setNowMs(Date.now());
 
     try {
       const response = await fetch("/api/content-workshop/shorts-schedules", {
@@ -262,6 +319,7 @@ export function ShortsProgrammingClient() {
   async function loadPublicationState() {
     setIsPublicationLoading(true);
     setPublicationError(null);
+    setNowMs(Date.now());
 
     try {
       const response = await fetch("/api/content-workshop/shorts-publications", {
@@ -489,6 +547,144 @@ export function ShortsProgrammingClient() {
     );
   }
 
+  function startScheduleEdit(schedule: ShortVideoSchedule) {
+    const parts = scheduleToLocalParts(schedule.scheduledAt);
+    setEditingScheduleId(schedule.id);
+    setScheduleEditForm({
+      draftId: schedule.draftId,
+      localDate: parts.localDate,
+      localTime: parts.localTime,
+      platform: schedule.platform,
+    });
+    setConfirmingScheduleAction(null);
+    setError(null);
+    setNotice(null);
+  }
+
+  function duplicateSchedule(schedule: ShortVideoSchedule) {
+    const parts = scheduleToLocalParts(schedule.scheduledAt);
+    setPlanningRows((current) => [
+      ...current,
+      {
+        draftId: schedule.draftId,
+        localDate: parts.localDate,
+        localTime: parts.localTime,
+        platform: schedule.platform,
+        recommendationConfidence: "medium",
+        recommendationSource: "manual",
+        rowId: `duplicate-${schedule.id}-${Date.now()}`,
+        slotLabel: "Duplication manuelle",
+        status: "draft",
+      },
+    ]);
+    setNotice("Programmation dupliquee dans le planning a valider.");
+  }
+
+  async function saveScheduleEdit(options: { allowPast?: boolean } = {}) {
+    if (!editingScheduleId || !scheduleEditForm) {
+      return;
+    }
+
+    const scheduledAt = safeScheduleIso(
+      scheduleEditForm.localDate,
+      scheduleEditForm.localTime,
+      normalizedTimezone,
+    );
+
+    if (!options.allowPast && Date.parse(scheduledAt) <= Date.now()) {
+      setConfirmingScheduleAction({ action: "past_update", scheduleId: editingScheduleId });
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch("/api/content-workshop/shorts-schedules", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "update_schedule",
+          data: {
+            allowPast: Boolean(options.allowPast),
+            draftId: scheduleEditForm.draftId,
+            platform: scheduleEditForm.platform,
+            recommendationSource: "manual",
+            scheduleId: editingScheduleId,
+            scheduledAt,
+            timezone: normalizedTimezone,
+          },
+        }),
+      });
+      const payload = (await response.json()) as SchedulingPayload;
+
+      if (!response.ok || !payload.schedules) {
+        throw new Error(payload.error ?? "Modification de la programmation indisponible.");
+      }
+
+      setSchedules(payload.schedules);
+      setEditingScheduleId(null);
+      setScheduleEditForm(null);
+      setConfirmingScheduleAction(null);
+      setNotice("Programmation modifiee. Aucune publication n'a ete declenchee.");
+      if (activeTab === "publication") {
+        void loadPublicationState();
+      }
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Modification de la programmation indisponible.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function cancelSchedule(scheduleId: string) {
+    setIsSaving(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch("/api/content-workshop/shorts-schedules", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "cancel_schedule",
+          scheduleId,
+        }),
+      });
+      const payload = (await response.json()) as SchedulingPayload;
+
+      if (!response.ok || !payload.schedules) {
+        throw new Error(payload.error ?? "Annulation de la programmation indisponible.");
+      }
+
+      setSchedules(payload.schedules);
+      setConfirmingScheduleAction(null);
+      setEditingScheduleId(null);
+      setScheduleEditForm(null);
+      setNotice("Programmation annulee. Aucune publication n'a ete declenchee.");
+      if (activeTab === "publication") {
+        void loadPublicationState();
+      }
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Annulation de la programmation indisponible.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   async function savePlanning() {
     setError(null);
     setNotice(null);
@@ -687,7 +883,7 @@ export function ShortsProgrammingClient() {
                           </h3>
                         </div>
                         <span className="w-fit rounded-md border border-[#1D2A44] bg-[#03070B] px-2.5 py-1 text-xs font-semibold text-[#A7B0C0]">
-                          {item.status}
+                          {readableStatus(item.status, item.isPastDue)}
                         </span>
                       </div>
                       <div className="mt-3 grid gap-2 text-sm text-[#A7B0C0] sm:grid-cols-2">
@@ -1101,15 +1297,177 @@ export function ShortsProgrammingClient() {
             <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
               <p className="text-sm font-semibold text-[#F8FAFC]">Programmations enregistrees</p>
               <div className="mt-3 grid gap-2">
-                {schedules.slice(0, 10).map((schedule) => (
-                  <p key={schedule.id} className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm text-[#A7B0C0]">
-                    <span className="font-semibold text-[#F8FAFC]">{SHORTS_SCHEDULE_PLATFORM_LABELS[schedule.platform]}</span>
-                    {" - "}
-                    {formatDateTime(schedule.scheduledAt)}
-                    {" - "}
-                    {videoById.get(schedule.draftId)?.title ?? schedule.draftId}
-                  </p>
-                ))}
+                {schedules.map((schedule) => {
+                  const publication = publicationByScheduleId.get(schedule.id);
+                  const locked = publication?.status === "publishing" || publication?.status === "published";
+                  const isEditing = editingScheduleId === schedule.id && scheduleEditForm;
+                  const isPastDue = Date.parse(schedule.scheduledAt) < nowMs && schedule.status !== "published";
+
+                  return (
+                    <article
+                      key={schedule.id}
+                      className="min-w-0 overflow-hidden rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-sm text-[#A7B0C0]"
+                    >
+                      {isEditing ? (
+                        <div className="grid gap-3 lg:grid-cols-[minmax(120px,160px)_110px_minmax(130px,160px)_minmax(180px,1fr)_auto] lg:items-end">
+                          <label className="grid gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#A7B0C0]">Date</span>
+                            <input
+                              type="date"
+                              value={scheduleEditForm.localDate}
+                              onChange={(event) => setScheduleEditForm({ ...scheduleEditForm, localDate: event.target.value })}
+                              disabled={locked}
+                              className="min-w-0 rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-2 text-[#F8FAFC] outline-none disabled:opacity-55"
+                            />
+                          </label>
+                          <label className="grid gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#A7B0C0]">Heure</span>
+                            <input
+                              type="time"
+                              value={scheduleEditForm.localTime}
+                              onChange={(event) => setScheduleEditForm({ ...scheduleEditForm, localTime: event.target.value })}
+                              disabled={locked}
+                              className="min-w-0 rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-2 text-[#F8FAFC] outline-none disabled:opacity-55"
+                            />
+                          </label>
+                          <label className="grid gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#A7B0C0]">Plateforme</span>
+                            <select
+                              value={scheduleEditForm.platform}
+                              onChange={(event) => setScheduleEditForm({ ...scheduleEditForm, platform: event.target.value as ShortsSchedulePlatform })}
+                              disabled={locked}
+                              className="min-w-0 rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-2 text-[#F8FAFC] outline-none disabled:opacity-55"
+                            >
+                              {platforms.map((platform) => (
+                                <option key={platform} value={platform}>
+                                  {SHORTS_SCHEDULE_PLATFORM_LABELS[platform]}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="grid gap-1">
+                            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#A7B0C0]">Video</span>
+                            <select
+                              value={scheduleEditForm.draftId}
+                              onChange={(event) => setScheduleEditForm({ ...scheduleEditForm, draftId: event.target.value })}
+                              disabled={locked}
+                              className="min-w-0 rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-2 text-[#F8FAFC] outline-none disabled:opacity-55"
+                            >
+                              {videos.map((video) => (
+                                <option key={video.draftId} value={video.draftId}>
+                                  {video.title}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void saveScheduleEdit()}
+                              disabled={isSaving || locked}
+                              className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-55"
+                            >
+                              Enregistrer
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingScheduleId(null);
+                                setScheduleEditForm(null);
+                                setConfirmingScheduleAction(null);
+                              }}
+                              className="rounded-md border border-[#64748b]/50 bg-[#64748b]/10 px-3 py-2 text-xs font-semibold text-[#cbd5e1] transition hover:text-[#F8FAFC]"
+                            >
+                              Fermer
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-[#F8FAFC]" title={schedule.draftTitle}>
+                              {schedule.draftTitle}
+                            </p>
+                            <p className="mt-1 text-sm text-[#A7B0C0]">
+                              {SHORTS_SCHEDULE_PLATFORM_LABELS[schedule.platform]} - {formatDateTime(schedule.scheduledAt)}
+                            </p>
+                            <p className="mt-1 text-xs font-semibold text-[#A7B0C0]">
+                              {readableStatus(schedule.status, isPastDue)}
+                            </p>
+                            {isPastDue ? (
+                              <p className="mt-2 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-xs font-semibold text-[#FDBA74]">
+                                Creneau depasse - publication manuelle requise.
+                              </p>
+                            ) : null}
+                            {locked ? (
+                              <p className="mt-2 text-xs text-[#A7B0C0]">
+                                Champs verrouilles: publication en cours ou deja publiee.
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => startScheduleEdit(schedule)}
+                              disabled={locked || schedule.status === "cancelled"}
+                              className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:opacity-55"
+                            >
+                              Modifier
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => duplicateSchedule(schedule)}
+                              className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
+                            >
+                              Dupliquer
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmingScheduleAction({ action: "cancel", scheduleId: schedule.id })}
+                              disabled={locked || schedule.status === "cancelled"}
+                              className="rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-3 py-2 text-xs font-semibold text-[#FDBA74] transition hover:text-[#F8FAFC] disabled:opacity-55"
+                            >
+                              Annuler la programmation
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {confirmingScheduleAction?.scheduleId === schedule.id ? (
+                        <div className="mt-3 rounded-md border border-[#F97316]/35 bg-[#08111A] p-3 text-sm text-[#A7B0C0]">
+                          <p className="font-semibold text-[#F8FAFC]">
+                            {confirmingScheduleAction.action === "cancel"
+                              ? "Annuler cette programmation ?"
+                              : "Enregistrer un creneau deja depasse ?"}
+                          </p>
+                          <p className="mt-2 leading-6">
+                            {confirmingScheduleAction.action === "cancel"
+                              ? "La programmation restera dans l'historique comme annulee et ne publiera rien automatiquement."
+                              : "Le creneau restera visible comme depasse et demandera une publication manuelle."}
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setConfirmingScheduleAction(null)}
+                              className="rounded-md border border-[#64748b]/50 bg-[#64748b]/10 px-3 py-2 text-xs font-semibold text-[#cbd5e1] transition hover:text-[#F8FAFC]"
+                            >
+                              Annuler
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => confirmingScheduleAction.action === "cancel"
+                                ? void cancelSchedule(schedule.id)
+                                : void saveScheduleEdit({ allowPast: true })}
+                              disabled={isSaving}
+                              className="rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-3 py-2 text-xs font-semibold text-[#FDBA74] transition hover:text-[#F8FAFC] disabled:opacity-55"
+                            >
+                              Confirmer
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
               </div>
             </div>
           ) : null}

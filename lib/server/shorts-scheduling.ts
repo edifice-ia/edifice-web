@@ -45,6 +45,7 @@ export type SchedulableShortVideo = {
 };
 
 export type ShortVideoSchedule = {
+  draftTitle: string;
   id: string;
   draftId: string;
   platform: ShortsSchedulePlatform;
@@ -62,6 +63,11 @@ export type ShortVideoScheduleInput = {
   scheduledAt: string;
   timezone: string;
   recommendationSource?: ShortsScheduleRecommendationSource;
+};
+
+export type ShortVideoScheduleUpdateInput = ShortVideoScheduleInput & {
+  allowPast?: boolean;
+  scheduleId: string;
 };
 
 let schedulingClient: SupabaseClient | null = null;
@@ -90,8 +96,9 @@ function getSchedulingClient() {
   return schedulingClient;
 }
 
-function mapSchedule(row: ScheduleRow): ShortVideoSchedule {
+function mapSchedule(row: ScheduleRow, draftById = new Map<string, ValidatedDraftRow>()): ShortVideoSchedule {
   return {
+    draftTitle: draftById.get(row.draft_id)?.title ?? "Sans titre",
     id: row.id,
     draftId: row.draft_id,
     platform: row.platform,
@@ -108,7 +115,7 @@ function isPlatform(value: string): value is ShortsSchedulePlatform {
   return value === "tiktok" || value === "instagram" || value === "youtube";
 }
 
-function normalizeScheduleInput(input: ShortVideoScheduleInput): ShortVideoScheduleInput {
+function normalizeScheduleInput(input: ShortVideoScheduleInput, options: { allowPast?: boolean } = {}): ShortVideoScheduleInput {
   const platform = input.platform;
   const timezone = normalizeScheduleTimezone(input.timezone || DEFAULT_SHORTS_SCHEDULE_TIMEZONE);
   const scheduledAt = new Date(input.scheduledAt);
@@ -125,7 +132,7 @@ function normalizeScheduleInput(input: ShortVideoScheduleInput): ShortVideoSched
     throw new Error(`Date de programmation invalide: ${input.scheduledAt}.`);
   }
 
-  if (scheduledAt.getTime() <= Date.now()) {
+  if (!options.allowPast && scheduledAt.getTime() <= Date.now()) {
     throw new Error("Date de programmation invalide: le creneau est deja passe.");
   }
 
@@ -163,7 +170,6 @@ export async function readShortsSchedulingState({ userId }: { userId: string }) 
     .from("content_drafts")
     .select("id,title,status,created_at")
     .eq("user_id", userId)
-    .in("status", ["video_validated", "ready_to_publish"])
     .order("created_at", { ascending: false })
     .returns<ValidatedDraftRow[]>();
 
@@ -171,12 +177,16 @@ export async function readShortsSchedulingState({ userId }: { userId: string }) 
     throw new Error(`Lecture des videos validees impossible: ${draftError.message}`);
   }
 
-  const draftIds = (draftRows ?? []).map((draft) => draft.id);
-  const { data: jobs, error: jobsError } = draftIds.length > 0
+  const allDraftIds = (draftRows ?? []).map((draft) => draft.id);
+  const validatedDraftRows = (draftRows ?? []).filter((draft) =>
+    ["video_validated", "ready_to_publish"].includes(draft.status ?? ""),
+  );
+  const validatedDraftIds = validatedDraftRows.map((draft) => draft.id);
+  const { data: jobs, error: jobsError } = validatedDraftIds.length > 0
     ? await supabase
       .from("video_render_jobs")
       .select("draft_id,output_url,metadata,completed_at")
-      .in("draft_id", draftIds)
+      .in("draft_id", validatedDraftIds)
       .eq("status", "completed")
       .not("output_url", "is", null)
       .order("completed_at", { ascending: false })
@@ -197,7 +207,7 @@ export async function readShortsSchedulingState({ userId }: { userId: string }) 
     }
   });
 
-  const videos = (draftRows ?? [])
+  const videos = validatedDraftRows
     .map((draft): SchedulableShortVideo | null => {
       const job = latestValidatedJobByDraft.get(draft.id);
       if (!job) {
@@ -219,7 +229,7 @@ export async function readShortsSchedulingState({ userId }: { userId: string }) 
   const { data: schedules, error: scheduleError } = await supabase
     .from("short_video_schedules")
     .select("id,draft_id,platform,scheduled_at,timezone,status,recommendation_source,created_at,updated_at")
-    .in("draft_id", videos.length ? videos.map((video) => video.draftId) : ["00000000-0000-0000-0000-000000000000"])
+    .in("draft_id", allDraftIds.length ? allDraftIds : ["00000000-0000-0000-0000-000000000000"])
     .order("scheduled_at", { ascending: true })
     .returns<ScheduleRow[]>();
 
@@ -227,8 +237,10 @@ export async function readShortsSchedulingState({ userId }: { userId: string }) 
     throw new Error(`Lecture des programmations impossible: ${scheduleError.message}`);
   }
 
+  const draftById = new Map((draftRows ?? []).map((draft) => [draft.id, draft]));
+
   return {
-    schedules: (schedules ?? []).map(mapSchedule),
+    schedules: (schedules ?? []).map((schedule) => mapSchedule(schedule, draftById)),
     videos,
   };
 }
@@ -240,7 +252,7 @@ export async function saveShortVideoSchedules({
   entries: ShortVideoScheduleInput[];
   userId: string;
 }) {
-  const normalizedEntries = entries.map(normalizeScheduleInput);
+  const normalizedEntries = entries.map((entry) => normalizeScheduleInput(entry));
   const uniqueKey = new Set<string>();
   const platformSlotKey = new Set<string>();
   normalizedEntries.forEach((entry) => {
@@ -292,5 +304,157 @@ export async function saveShortVideoSchedules({
     throw new Error(`Enregistrement du planning impossible: ${error.message}`);
   }
 
-  return (data ?? []).map(mapSchedule);
+  return (data ?? []).map((schedule) => mapSchedule(schedule));
+}
+
+async function readScheduleForUpdate(scheduleId: string, userId: string) {
+  const supabase = getSchedulingClient();
+  const { data: schedule, error: scheduleError } = await supabase
+    .from("short_video_schedules")
+    .select("id,draft_id,platform,scheduled_at,timezone,status,recommendation_source,created_at,updated_at")
+    .eq("id", scheduleId)
+    .single<ScheduleRow>();
+
+  if (scheduleError) {
+    throw new Error(`Programmation introuvable: ${scheduleError.message}`);
+  }
+
+  const allowedDraftIds = await ensureDraftAccess([schedule.draft_id], userId);
+  if (!allowedDraftIds.has(schedule.draft_id)) {
+    throw new Error("Programmation non autorisee.");
+  }
+
+  return schedule;
+}
+
+async function ensureScheduleIsEditable(scheduleId: string) {
+  const { data, error } = await getSchedulingClient()
+    .from("short_video_publications")
+    .select("id,status")
+    .eq("schedule_id", scheduleId)
+    .in("status", ["publishing", "published"])
+    .limit(1)
+    .returns<Array<{ id: string; status: string }>>();
+
+  if (error) {
+    throw new Error(`Verification publication impossible: ${error.message}`);
+  }
+
+  if ((data ?? []).length > 0) {
+    throw new Error("Programmation verrouillee: une publication est en cours ou deja publiee.");
+  }
+}
+
+async function ensureNoScheduleCollision({
+  platform,
+  scheduledAt,
+  scheduleId,
+}: {
+  platform: ShortsSchedulePlatform;
+  scheduledAt: string;
+  scheduleId: string;
+}) {
+  const { data, error } = await getSchedulingClient()
+    .from("short_video_schedules")
+    .select("id")
+    .eq("platform", platform)
+    .eq("scheduled_at", scheduledAt)
+    .neq("id", scheduleId)
+    .neq("status", "cancelled")
+    .limit(1)
+    .returns<Array<{ id: string }>>();
+
+  if (error) {
+    throw new Error(`Verification collision impossible: ${error.message}`);
+  }
+
+  if ((data ?? []).length > 0) {
+    throw new Error("Collision: meme plateforme au meme horaire.");
+  }
+}
+
+export async function updateShortVideoSchedule({
+  input,
+  userId,
+}: {
+  input: ShortVideoScheduleUpdateInput;
+  userId: string;
+}) {
+  const existing = await readScheduleForUpdate(input.scheduleId, userId);
+  await ensureScheduleIsEditable(existing.id);
+
+  const normalized = normalizeScheduleInput(input, { allowPast: input.allowPast });
+  const allowedDraftIds = await ensureDraftAccess([normalized.draftId], userId);
+  const state = await readShortsSchedulingState({ userId });
+  const validatedDraftIds = new Set(state.videos.map((video) => video.draftId));
+
+  if (!allowedDraftIds.has(normalized.draftId)) {
+    throw new Error(`Brouillon non autorise pour la programmation: ${normalized.draftId}.`);
+  }
+  if (!validatedDraftIds.has(normalized.draftId)) {
+    throw new Error(`Video non validee: ${normalized.draftId}. Valide la video avant programmation.`);
+  }
+
+  await ensureNoScheduleCollision({
+    platform: normalized.platform,
+    scheduledAt: normalized.scheduledAt,
+    scheduleId: existing.id,
+  });
+
+  const { error } = await getSchedulingClient()
+    .from("short_video_schedules")
+    .update({
+      draft_id: normalized.draftId,
+      platform: normalized.platform,
+      recommendation_source: normalized.recommendationSource ?? "manual",
+      scheduled_at: normalized.scheduledAt,
+      status: "scheduled",
+      timezone: normalized.timezone,
+    })
+    .eq("id", existing.id);
+
+  if (error) {
+    throw new Error(`Modification de la programmation impossible: ${error.message}`);
+  }
+
+  await getSchedulingClient()
+    .from("short_video_publications")
+    .update({
+      draft_id: normalized.draftId,
+      platform: normalized.platform,
+      scheduled_at: normalized.scheduledAt,
+      timezone: normalized.timezone,
+    })
+    .eq("schedule_id", existing.id)
+    .in("status", ["draft", "ready", "scheduled", "failed"]);
+
+  return readShortsSchedulingState({ userId });
+}
+
+export async function cancelShortVideoSchedule({
+  scheduleId,
+  userId,
+}: {
+  scheduleId: string;
+  userId: string;
+}) {
+  const existing = await readScheduleForUpdate(scheduleId, userId);
+  await ensureScheduleIsEditable(existing.id);
+
+  const { error } = await getSchedulingClient()
+    .from("short_video_schedules")
+    .update({ status: "cancelled" })
+    .eq("id", existing.id);
+
+  if (error) {
+    throw new Error(`Annulation de la programmation impossible: ${error.message}`);
+  }
+
+  await getSchedulingClient()
+    .from("short_video_publications")
+    .update({ status: "cancelled" })
+    .eq("schedule_id", existing.id)
+    .in("status", ["draft", "ready", "scheduled", "failed"]);
+
+  return readShortsSchedulingState({ userId });
 }

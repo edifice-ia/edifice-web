@@ -199,6 +199,7 @@ function mapItem({
   schedule: ScheduleRow;
 }): ShortsPublicationItem {
   const title = publication?.title ?? defaultTitle(draft);
+  const scheduledAt = publication?.scheduledAt ?? schedule.scheduled_at;
   return {
     accountLabel: "YouTube connecte",
     costTotalEstimatedEur: costsByDraft.get(schedule.draft_id) ?? null,
@@ -206,14 +207,14 @@ function mapItem({
     draftId: schedule.draft_id,
     errorMessage: publication?.errorMessage ?? null,
     hashtags: publication?.hashtags ?? normalizeHashtags(draft?.hashtags),
-    isPastDue: Date.parse(schedule.scheduled_at) < Date.now(),
+    isPastDue: Date.parse(scheduledAt) < Date.now(),
     outputUrl: job?.output_url ?? null,
     platform: schedule.platform,
     publicationId: publication?.id ?? null,
     publishedAt: publication?.publishedAt ?? null,
     scheduleId: schedule.id,
-    scheduledAt: publication?.scheduledAt ?? schedule.scheduled_at,
-    status: publication?.status ?? "ready",
+    scheduledAt,
+    status: publication?.status ?? (schedule.status === "cancelled" ? "cancelled" : "ready"),
     timezone: publication?.timezone ?? schedule.timezone,
     title,
     validated: Boolean(job && draft && ["video_validated", "ready_to_publish"].includes(draft.status ?? "")),
@@ -237,6 +238,14 @@ async function readYouTubeConnection() {
   }
 
   const tokenInfo = await readYouTubeGrantedScopes(tokenState.accessToken);
+  if (tokenInfo.error) {
+    console.warn("[Shorts Publication YouTube] tokeninfo diagnostic", {
+      code: tokenInfo.error.code,
+      endpoint: "https://oauth2.googleapis.com/tokeninfo",
+      message: tokenInfo.error.message,
+      source: tokenInfo.source,
+    });
+  }
   const grantedScopes =
     tokenInfo.scopes ?? tokenState.token.scope?.split(/[\s,]+/).filter(Boolean) ?? [];
   if (!grantedScopes.includes(YOUTUBE_UPLOAD_SCOPE)) {
@@ -250,10 +259,15 @@ async function readYouTubeConnection() {
 
   const channel = await getYouTubeChannel(tokenState.accessToken);
   if (!channel.ok) {
+    console.warn("[Shorts Publication YouTube] channel diagnostic", {
+      code: channel.error.code,
+      endpoint: "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
+      message: channel.error.message,
+    });
     return {
       accessToken: null,
       connected: false,
-      error: channel.error.message,
+      error: "Connexion YouTube detectee, publication a configurer.",
       channelTitle: null,
     };
   }
@@ -276,6 +290,7 @@ export async function readShortsPublicationState({
     .from("short_video_schedules")
     .select("id,draft_id,platform,scheduled_at,status,timezone")
     .eq("platform", "youtube")
+    .in("status", ["scheduled", "cancelled", "published", "failed"])
     .order("scheduled_at", { ascending: true })
     .returns<ScheduleRow[]>();
 
@@ -630,7 +645,14 @@ async function uploadYouTubeVideo({
 
   if (!initResponse.ok) {
     const payload = await initResponse.json().catch(() => null);
-    throw new Error(sanitizeYouTubeError(payload, initResponse.status).message);
+    const sanitized = sanitizeYouTubeError(payload, initResponse.status);
+    console.error("[Shorts Publication YouTube] resumable init failed", {
+      code: sanitized.code,
+      endpoint: "https://www.googleapis.com/upload/youtube/v3/videos",
+      message: sanitized.message,
+      status: initResponse.status,
+    });
+    throw new Error(`Erreur YouTube: ${sanitized.message}`);
   }
 
   const sessionUrl = initResponse.headers.get("location");
@@ -650,7 +672,14 @@ async function uploadYouTubeVideo({
   const payload = await uploadResponse.json().catch(() => null) as { id?: string } | null;
 
   if (!uploadResponse.ok || !payload?.id) {
-    throw new Error(sanitizeYouTubeError(payload, uploadResponse.status).message);
+    const sanitized = sanitizeYouTubeError(payload, uploadResponse.status);
+    console.error("[Shorts Publication YouTube] upload failed", {
+      code: sanitized.code,
+      endpoint: "youtube resumable upload session",
+      message: sanitized.message,
+      status: uploadResponse.status,
+    });
+    throw new Error(`Erreur YouTube: ${sanitized.message}`);
   }
 
   return {

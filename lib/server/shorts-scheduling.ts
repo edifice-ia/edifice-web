@@ -9,6 +9,7 @@ import {
 } from "@/lib/shorts-scheduling";
 
 type ScheduleStatus = "scheduled" | "cancelled" | "published" | "failed";
+type SchedulePlatformInput = ShortsSchedulePlatform | "all";
 
 type ValidatedDraftRow = {
   id: string;
@@ -59,14 +60,15 @@ export type ShortVideoSchedule = {
 
 export type ShortVideoScheduleInput = {
   draftId: string;
-  platform: ShortsSchedulePlatform;
+  platform: SchedulePlatformInput;
   scheduledAt: string;
   timezone: string;
   recommendationSource?: ShortsScheduleRecommendationSource;
 };
 
-export type ShortVideoScheduleUpdateInput = ShortVideoScheduleInput & {
+export type ShortVideoScheduleUpdateInput = Omit<ShortVideoScheduleInput, "platform"> & {
   allowPast?: boolean;
+  platform: SchedulePlatformInput;
   scheduleId: string;
 };
 
@@ -115,7 +117,13 @@ function isPlatform(value: string): value is ShortsSchedulePlatform {
   return value === "tiktok" || value === "instagram" || value === "youtube";
 }
 
-function normalizeScheduleInput(input: ShortVideoScheduleInput, options: { allowPast?: boolean } = {}): ShortVideoScheduleInput {
+const allSchedulePlatforms: ShortsSchedulePlatform[] = ["tiktok", "instagram", "youtube"];
+
+function expandSchedulePlatforms(platform: SchedulePlatformInput): ShortsSchedulePlatform[] {
+  return platform === "all" ? allSchedulePlatforms : [platform];
+}
+
+function normalizeScheduleInput(input: ShortVideoScheduleInput, options: { allowPast?: boolean } = {}): ShortVideoScheduleInput & { platform: ShortsSchedulePlatform } {
   const platform = input.platform;
   const timezone = normalizeScheduleTimezone(input.timezone || DEFAULT_SHORTS_SCHEDULE_TIMEZONE);
   const scheduledAt = new Date(input.scheduledAt);
@@ -143,6 +151,15 @@ function normalizeScheduleInput(input: ShortVideoScheduleInput, options: { allow
     timezone,
     recommendationSource: input.recommendationSource ?? "default",
   };
+}
+
+function expandScheduleInputs(entries: ShortVideoScheduleInput[]) {
+  return entries.flatMap((entry) =>
+    expandSchedulePlatforms(entry.platform).map((platform) => ({
+      ...entry,
+      platform,
+    })),
+  );
 }
 
 async function ensureDraftAccess(draftIds: string[], userId: string) {
@@ -252,18 +269,18 @@ export async function saveShortVideoSchedules({
   entries: ShortVideoScheduleInput[];
   userId: string;
 }) {
-  const normalizedEntries = entries.map((entry) => normalizeScheduleInput(entry));
+  const normalizedEntries = expandScheduleInputs(entries).map((entry) => normalizeScheduleInput(entry));
   const uniqueKey = new Set<string>();
   const platformSlotKey = new Set<string>();
   normalizedEntries.forEach((entry) => {
     const key = `${entry.draftId}:${entry.platform}:${entry.scheduledAt}`;
     if (uniqueKey.has(key)) {
-      throw new Error("Planning invalide: doublon exact brouillon + plateforme + horaire.");
+      throw new Error("Doublon detecte: ce brouillon est deja programme sur cette plateforme a cet horaire.");
     }
     uniqueKey.add(key);
     const slotKey = `${entry.platform}:${entry.scheduledAt}`;
     if (platformSlotKey.has(slotKey)) {
-      throw new Error("Planning invalide: deux publications de la meme plateforme au meme horaire.");
+      throw new Error("Collision: meme plateforme au meme horaire.");
     }
     platformSlotKey.add(slotKey);
   });
@@ -382,8 +399,11 @@ export async function updateShortVideoSchedule({
 }) {
   const existing = await readScheduleForUpdate(input.scheduleId, userId);
   await ensureScheduleIsEditable(existing.id);
-
-  const normalized = normalizeScheduleInput(input, { allowPast: input.allowPast });
+  const targetPlatforms = expandSchedulePlatforms(input.platform);
+  const normalized = normalizeScheduleInput({
+    ...input,
+    platform: targetPlatforms.includes(existing.platform) ? existing.platform : targetPlatforms[0],
+  }, { allowPast: input.allowPast });
   const allowedDraftIds = await ensureDraftAccess([normalized.draftId], userId);
   const state = await readShortsSchedulingState({ userId });
   const validatedDraftIds = new Set(state.videos.map((video) => video.draftId));
@@ -415,6 +435,36 @@ export async function updateShortVideoSchedule({
 
   if (error) {
     throw new Error(`Modification de la programmation impossible: ${error.message}`);
+  }
+
+  if (input.platform === "all") {
+    const missingPlatforms = targetPlatforms.filter((platform) => platform !== normalized.platform);
+    const existingState = await readShortsSchedulingState({ userId });
+    const activeKeys = new Set(
+      existingState.schedules
+        .filter((schedule) => schedule.status !== "cancelled")
+        .map((schedule) => `${schedule.draftId}:${schedule.platform}:${new Date(schedule.scheduledAt).toISOString()}`),
+    );
+    const rowsToInsert = missingPlatforms
+      .map((platform) => ({
+        draft_id: normalized.draftId,
+        platform,
+        recommendation_source: normalized.recommendationSource ?? "manual",
+        scheduled_at: normalized.scheduledAt,
+        status: "scheduled",
+        timezone: normalized.timezone,
+      }))
+      .filter((row) => !activeKeys.has(`${row.draft_id}:${row.platform}:${new Date(row.scheduled_at).toISOString()}`));
+
+    if (rowsToInsert.length > 0) {
+      const { error: insertError } = await getSchedulingClient()
+        .from("short_video_schedules")
+        .insert(rowsToInsert);
+
+      if (insertError) {
+        throw new Error(`Creation des plateformes manquantes impossible: ${insertError.message}`);
+      }
+    }
   }
 
   await getSchedulingClient()

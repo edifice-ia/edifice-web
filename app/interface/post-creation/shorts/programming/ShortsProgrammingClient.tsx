@@ -47,6 +47,8 @@ type SchedulingPayload = {
 
 type PublicationStatus = "draft" | "ready" | "publishing" | "scheduled" | "published" | "failed" | "cancelled";
 type PublicationVisibility = "private" | "unlisted" | "public";
+type SchedulePlatformChoice = ShortsSchedulePlatform | "all";
+type PublicationFilter = "all" | ShortsSchedulePlatform | "published" | "failed";
 
 type ShortsPublicationItem = {
   accountLabel: string;
@@ -56,6 +58,7 @@ type ShortsPublicationItem = {
   errorMessage: string | null;
   hashtags: string[];
   isPastDue: boolean;
+  manifestUrl: string | null;
   outputUrl: string | null;
   platform: ShortsSchedulePlatform;
   publicationId: string | null;
@@ -97,14 +100,14 @@ type ScheduleEditForm = {
   draftId: string;
   localDate: string;
   localTime: string;
-  platform: ShortsSchedulePlatform;
+  platform: SchedulePlatformChoice;
 };
 
 type PlanningRow = {
   draftId: string;
   localDate: string;
   localTime: string;
-  platform: ShortsSchedulePlatform;
+  platform: SchedulePlatformChoice;
   recommendationConfidence: ShortsScheduleRecommendationConfidence;
   recommendationSource: ShortsScheduleRecommendationSource;
   rowId: string;
@@ -113,6 +116,11 @@ type PlanningRow = {
 };
 
 const platforms: ShortsSchedulePlatform[] = ["tiktok", "instagram", "youtube"];
+const platformChoices: SchedulePlatformChoice[] = ["all", "tiktok", "instagram", "youtube"];
+const platformChoiceLabels: Record<SchedulePlatformChoice, string> = {
+  all: "Toutes les plateformes",
+  ...SHORTS_SCHEDULE_PLATFORM_LABELS,
+};
 const frequencies: ShortsScheduleFrequency[] = [1, 2, 3];
 
 function todayDateValue() {
@@ -229,6 +237,10 @@ function hashtagsToText(hashtags: string[]) {
   return hashtags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
 }
 
+function expandPlatformChoice(platform: SchedulePlatformChoice): ShortsSchedulePlatform[] {
+  return platform === "all" ? platforms : [platform];
+}
+
 export function ShortsProgrammingClient() {
   const [activeTab, setActiveTab] = useState<"programming" | "publication">("programming");
   const [frequency, setFrequency] = useState<ShortsScheduleFrequency>(1);
@@ -245,7 +257,7 @@ export function ShortsProgrammingClient() {
   const [notice, setNotice] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [publicationItems, setPublicationItems] = useState<ShortsPublicationItem[]>([]);
-  const [publicationFilter, setPublicationFilter] = useState<"todo" | "published" | "failed">("todo");
+  const [publicationFilter, setPublicationFilter] = useState<PublicationFilter>("all");
   const [publicationError, setPublicationError] = useState<string | null>(null);
   const [publicationNotice, setPublicationNotice] = useState<string | null>(null);
   const [youtubeConnected, setYoutubeConnected] = useState(false);
@@ -276,16 +288,20 @@ export function ShortsProgrammingClient() {
   const duplicateKeys = useMemo(() => {
     const counts = new Map<string, number>();
     planningRows.forEach((row) => {
-      const key = `${row.draftId}:${row.platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+      expandPlatformChoice(row.platform).forEach((platform) => {
+        const key = `${row.draftId}:${platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      });
     });
     return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
   }, [normalizedTimezone, planningRows]);
   const platformTimeDuplicates = useMemo(() => {
     const counts = new Map<string, number>();
     planningRows.forEach((row) => {
-      const key = `${row.platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+      expandPlatformChoice(row.platform).forEach((platform) => {
+        const key = `${platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      });
     });
     return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
   }, [normalizedTimezone, planningRows]);
@@ -299,7 +315,10 @@ export function ShortsProgrammingClient() {
     if (publicationFilter === "failed") {
       return publicationItems.filter((item) => item.status === "failed");
     }
-    return publicationItems.filter((item) => item.status !== "published" && item.status !== "failed" && item.status !== "cancelled");
+    if (publicationFilter === "tiktok" || publicationFilter === "instagram" || publicationFilter === "youtube") {
+      return publicationItems.filter((item) => item.platform === publicationFilter && item.status !== "cancelled");
+    }
+    return publicationItems.filter((item) => item.status !== "cancelled");
   }, [publicationFilter, publicationItems]);
   const pendingPublicationCount = useMemo(
     () => publicationItems.filter((item) => !["published", "failed", "cancelled"].includes(item.status)).length,
@@ -311,11 +330,32 @@ export function ShortsProgrammingClient() {
       ? `Connecte: ${youtubeChannelTitle ?? "chaine YouTube"}`
       : sanitizePublicationMessage(youtubeError) ?? "Le compte YouTube n'est pas connecte.";
   const youtubeCardIsNeutral = pendingPublicationCount === 0;
+  const publicationCountsByPlatform = useMemo(() => {
+    const counts = new Map<ShortsSchedulePlatform, number>(platforms.map((platform) => [platform, 0]));
+    publicationItems
+      .filter((item) => !["published", "failed", "cancelled"].includes(item.status))
+      .forEach((item) => counts.set(item.platform, (counts.get(item.platform) ?? 0) + 1));
+    return counts;
+  }, [publicationItems]);
 
   const publicationByScheduleId = useMemo(
     () => new Map(publicationItems.map((item) => [item.scheduleId, item])),
     [publicationItems],
   );
+  const schedulesByDraft = useMemo(() => {
+    const groups = new Map<string, ShortVideoSchedule[]>();
+    schedules.forEach((schedule) => {
+      const group = groups.get(schedule.draftId) ?? [];
+      group.push(schedule);
+      groups.set(schedule.draftId, group);
+    });
+
+    return [...groups.entries()].map(([draftId, groupSchedules]) => ({
+      draftId,
+      schedules: groupSchedules,
+      title: groupSchedules[0]?.draftTitle ?? draftId,
+    }));
+  }, [schedules]);
 
   async function loadSchedulingState() {
     setIsLoading(true);
@@ -499,7 +539,12 @@ export function ShortsProgrammingClient() {
     }
   }
 
-  function togglePlatform(platform: ShortsSchedulePlatform) {
+  function togglePlatform(platform: SchedulePlatformChoice) {
+    if (platform === "all") {
+      setSelectedPlatforms((current) => current.length === platforms.length ? [] : platforms);
+      return;
+    }
+
     setSelectedPlatforms((current) =>
       current.includes(platform)
         ? current.filter((item) => item !== platform)
@@ -847,7 +892,9 @@ export function ShortsProgrammingClient() {
             }`}>
               <p className="text-sm font-semibold text-[#F8FAFC]">YouTube Shorts</p>
               <p className="mt-2 min-w-0 truncate text-sm text-[#A7B0C0]">
-                {youtubeCardMessage}
+                {publicationCountsByPlatform.get("youtube")
+                  ? `${publicationCountsByPlatform.get("youtube")} programmation(s) YouTube a traiter.`
+                  : youtubeCardMessage}
               </p>
               {youtubeDiagnostic && pendingPublicationCount > 0 ? (
                 <details className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs text-[#A7B0C0]">
@@ -863,8 +910,14 @@ export function ShortsProgrammingClient() {
                 </details>
               ) : null}
             </div>
-            <ComingSoonPlatform title="Instagram" />
-            <ComingSoonPlatform title="TikTok" />
+            <ComingSoonPlatform
+              count={publicationCountsByPlatform.get("instagram") ?? 0}
+              title="Instagram"
+            />
+            <ComingSoonPlatform
+              count={publicationCountsByPlatform.get("tiktok") ?? 0}
+              title="TikTok"
+            />
           </div>
 
           {publicationError ? (
@@ -880,10 +933,13 @@ export function ShortsProgrammingClient() {
 
           <div className="flex flex-wrap gap-2">
             {([
-              ["todo", "A publier"],
+              ["all", "Toutes"],
+              ["tiktok", "TikTok"],
+              ["instagram", "Instagram"],
+              ["youtube", "YouTube Shorts"],
               ["published", "Publiees"],
               ["failed", "Echecs"],
-            ] as const).map(([value, label]) => (
+            ] as const satisfies Array<readonly [PublicationFilter, string]>).map(([value, label]) => (
               <button
                 key={value}
                 type="button"
@@ -966,7 +1022,7 @@ export function ShortsProgrammingClient() {
                           onClick={() => openPublicationPreparation(item)}
                           className="mt-3 rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC]"
                         >
-                          Preparer la publication
+                          Voir le detail
                         </button>
                       )}
                     </div>
@@ -984,7 +1040,7 @@ export function ShortsProgrammingClient() {
                 <div className="grid gap-4">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#39E6D0]">
-                      Preparation YouTube
+                      Detail publication
                     </p>
                     <h3 className="mt-2 truncate text-xl font-semibold text-[#F8FAFC]" title={selectedPublication.title}>
                       {selectedPublication.title}
@@ -998,11 +1054,37 @@ export function ShortsProgrammingClient() {
                       src={selectedPublication.outputUrl}
                     />
                   ) : null}
+                  <div className="grid gap-2 text-sm text-[#A7B0C0]">
+                    <InfoLine label="Plateforme" value={SHORTS_SCHEDULE_PLATFORM_LABELS[selectedPublication.platform]} />
+                    <InfoLine label="Compte" value={selectedPublication.accountLabel} />
+                    <InfoLine label="Date programmee" value={formatDateTime(selectedPublication.scheduledAt)} />
+                    <InfoLine label="Statut" value={readableStatus(selectedPublication.status, selectedPublication.isPastDue)} />
+                    <InfoLine label="Cout estime" value={formatEuro(selectedPublication.costTotalEstimatedEur)} />
+                    <a
+                      className="min-w-0 overflow-hidden rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC]"
+                      href={`/interface/post-creation/shorts/drafts?draft_id=${selectedPublication.draftId}`}
+                    >
+                      Ouvrir le brouillon
+                    </a>
+                    {selectedPublication.manifestUrl ? (
+                      <a
+                        className="min-w-0 overflow-hidden rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC]"
+                        href={selectedPublication.manifestUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Voir le manifest
+                      </a>
+                    ) : (
+                      <InfoLine label="Manifest" value="Lien indisponible" />
+                    )}
+                  </div>
                   <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
-                    Titre YouTube
+                    Titre
                     <input
                       value={publicationForm.title}
                       onChange={(event) => setPublicationForm({ ...publicationForm, title: event.target.value })}
+                      readOnly={selectedPublication.platform !== "youtube"}
                       className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
                     />
                   </label>
@@ -1012,6 +1094,7 @@ export function ShortsProgrammingClient() {
                       rows={5}
                       value={publicationForm.description}
                       onChange={(event) => setPublicationForm({ ...publicationForm, description: event.target.value })}
+                      readOnly={selectedPublication.platform !== "youtube"}
                       className="min-w-0 resize-y rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
                     />
                   </label>
@@ -1020,10 +1103,12 @@ export function ShortsProgrammingClient() {
                     <input
                       value={publicationForm.hashtags}
                       onChange={(event) => setPublicationForm({ ...publicationForm, hashtags: event.target.value })}
+                      readOnly={selectedPublication.platform !== "youtube"}
                       className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
                     />
                   </label>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  {selectedPublication.platform === "youtube" ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
                     <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
                       Visibilite
                       <select
@@ -1045,15 +1130,19 @@ export function ShortsProgrammingClient() {
                         className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
                       />
                     </label>
-                  </div>
-                  <div className="grid gap-2 text-sm text-[#A7B0C0]">
-                    <InfoLine label="Statut programmation" value={selectedPublication.status} />
-                    <InfoLine label="Compte YouTube" value={youtubeConnected ? youtubeChannelTitle ?? "Connecte" : youtubeError ?? "Non connecte"} />
-                  </div>
-                  <p className="rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm font-semibold text-[#FDBA74]">
-                    Cette action publiera reellement la video sur YouTube.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
+                    </div>
+                  ) : null}
+                  {selectedPublication.platform === "youtube" ? (
+                    <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                      Publication YouTube manuelle. Modifie les metadonnees avant l&apos;etape de publication.
+                    </p>
+                  ) : (
+                    <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">
+                      Publication bientot disponible.
+                    </p>
+                  )}
+                  {selectedPublication.platform === "youtube" ? (
+                    <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
                       disabled={isPublicationSaving}
@@ -1064,21 +1153,13 @@ export function ShortsProgrammingClient() {
                     </button>
                     <button
                       type="button"
-                      disabled={
-                        isPublicationSaving ||
-                        !selectedPublication.publicationId ||
-                        !selectedPublication.validated ||
-                        !selectedPublication.outputUrl ||
-                        !youtubeConnected ||
-                        !publicationForm.title.trim() ||
-                        !Number.isFinite(Date.parse(publicationForm.scheduledAt))
-                      }
-                      onClick={() => setConfirmingPublicationId(selectedPublication.publicationId)}
+                      disabled
                       className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                     >
-                      Publier sur YouTube
+                      Publication reelle desactivee
                     </button>
-                  </div>
+                    </div>
+                  ) : null}
                   {confirmingPublicationId ? (
                     <div className="rounded-md border border-[#39E6D0]/30 bg-[#03070B] p-3 text-sm text-[#A7B0C0]">
                       <p className="font-semibold text-[#F8FAFC]">
@@ -1110,7 +1191,7 @@ export function ShortsProgrammingClient() {
                 </div>
               ) : (
                 <p className="text-sm leading-6 text-[#A7B0C0]">
-                  Selectionne une video programmee, puis prepare sa publication YouTube.
+                  Selectionne une video programmee, puis ouvre sa fiche detail.
                 </p>
               )}
             </aside>
@@ -1204,19 +1285,27 @@ export function ShortsProgrammingClient() {
             <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">Plateformes</p>
               <div className="mt-3 flex flex-wrap gap-2">
-                {platforms.map((platform) => (
+                {platformChoices.map((platform) => (
+                  (() => {
+                    const selected = platform === "all"
+                      ? selectedPlatforms.length === platforms.length
+                      : selectedPlatforms.includes(platform);
+
+                    return (
                   <button
                     key={platform}
                     type="button"
                     onClick={() => togglePlatform(platform)}
                     className={`rounded-md border px-3 py-2 text-xs font-semibold transition ${
-                      selectedPlatforms.includes(platform)
+                      selected
                         ? "border-[#39E6D0]/55 bg-[#39E6D0]/10 text-[#39E6D0]"
                         : "border-[#1D2A44] bg-[#03070B] text-[#A7B0C0] hover:border-[#39E6D0]/45 hover:text-[#F8FAFC]"
                     }`}
                   >
-                    {SHORTS_SCHEDULE_PLATFORM_LABELS[platform]}
+                    {platformChoiceLabels[platform]}
                   </button>
+                    );
+                  })()
                 ))}
               </div>
             </div>
@@ -1267,8 +1356,13 @@ export function ShortsProgrammingClient() {
                     </td>
                   </tr>
                 ) : planningRows.map((row) => {
-                  const duplicate = duplicateKeys.has(`${row.draftId}:${row.platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`);
-                  const platformTimeDuplicate = platformTimeDuplicates.has(`${row.platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`);
+                  const rowPlatforms = expandPlatformChoice(row.platform);
+                  const duplicate = rowPlatforms.some((platform) =>
+                    duplicateKeys.has(`${row.draftId}:${platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`),
+                  );
+                  const platformTimeDuplicate = rowPlatforms.some((platform) =>
+                    platformTimeDuplicates.has(`${platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`),
+                  );
                   return (
                     <tr key={row.rowId} className={duplicate || platformTimeDuplicate ? "bg-[#F97316]/10" : "bg-[#03070B]"}>
                       <td className="px-3 py-3">
@@ -1290,12 +1384,12 @@ export function ShortsProgrammingClient() {
                       <td className="px-3 py-3">
                         <select
                           value={row.platform}
-                          onChange={(event) => updatePlanningRow(row.rowId, { platform: event.target.value as ShortsSchedulePlatform })}
+                          onChange={(event) => updatePlanningRow(row.rowId, { platform: event.target.value as SchedulePlatformChoice })}
                           className="w-40 rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-2 text-[#F8FAFC] outline-none"
                         >
-                          {platforms.map((platform) => (
+                          {platformChoices.map((platform) => (
                             <option key={platform} value={platform}>
-                              {SHORTS_SCHEDULE_PLATFORM_LABELS[platform]}
+                              {platformChoiceLabels[platform]}
                             </option>
                           ))}
                         </select>
@@ -1346,7 +1440,12 @@ export function ShortsProgrammingClient() {
             <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
               <p className="text-sm font-semibold text-[#F8FAFC]">Programmations enregistrees</p>
               <div className="mt-3 grid gap-2">
-                {schedules.map((schedule) => {
+                {schedulesByDraft.map((group) => (
+                  <div key={group.draftId} className="grid gap-2 rounded-md border border-[#1D2A44] bg-[#08111A] p-3">
+                    <p className="truncate text-sm font-semibold text-[#F8FAFC]" title={group.title}>
+                      {group.title}
+                    </p>
+                    {group.schedules.map((schedule) => {
                   const publication = publicationByScheduleId.get(schedule.id);
                   const locked = publication?.status === "publishing" || publication?.status === "published";
                   const isEditing = editingScheduleId === schedule.id && scheduleEditForm;
@@ -1382,14 +1481,14 @@ export function ShortsProgrammingClient() {
                           <label className="grid gap-1">
                             <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#A7B0C0]">Plateforme</span>
                             <select
-                              value={scheduleEditForm.platform}
-                              onChange={(event) => setScheduleEditForm({ ...scheduleEditForm, platform: event.target.value as ShortsSchedulePlatform })}
+                          value={scheduleEditForm.platform}
+                              onChange={(event) => setScheduleEditForm({ ...scheduleEditForm, platform: event.target.value as SchedulePlatformChoice })}
                               disabled={locked}
                               className="min-w-0 rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-2 text-[#F8FAFC] outline-none disabled:opacity-55"
                             >
-                              {platforms.map((platform) => (
+                              {platformChoices.map((platform) => (
                                 <option key={platform} value={platform}>
-                                  {SHORTS_SCHEDULE_PLATFORM_LABELS[platform]}
+                                  {platformChoiceLabels[platform]}
                                 </option>
                               ))}
                             </select>
@@ -1516,7 +1615,9 @@ export function ShortsProgrammingClient() {
                       ) : null}
                     </article>
                   );
-                })}
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
           ) : null}
@@ -1526,13 +1627,16 @@ export function ShortsProgrammingClient() {
   );
 }
 
-function ComingSoonPlatform({ title }: { title: string }) {
+function ComingSoonPlatform({ count, title }: { count: number; title: string }) {
   return (
     <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
       <p className="truncate text-sm font-semibold text-[#F8FAFC]" title={title}>
         {title}
       </p>
       <p className="mt-2 text-sm text-[#A7B0C0]">
+        {count > 0 ? `${count} programmation(s) a traiter.` : "Aucune programmation pour le moment."}
+      </p>
+      <p className="mt-2 text-xs font-semibold text-[#A7B0C0]">
         Publication bientot disponible.
       </p>
     </div>

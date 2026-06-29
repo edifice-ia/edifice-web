@@ -79,6 +79,7 @@ export type ShortsPublicationItem = {
   errorMessage: string | null;
   hashtags: string[];
   isPastDue: boolean;
+  manifestUrl: string | null;
   outputUrl: string | null;
   platform: PublicationPlatform;
   publicationId: string | null;
@@ -257,14 +258,19 @@ function mapItem({
 }): ShortsPublicationItem {
   const title = publication?.title ?? defaultTitle(draft);
   const scheduledAt = publication?.scheduledAt ?? schedule.scheduled_at;
+  const manifestUrl =
+    metadataString(job?.metadata, "manifest_url") ??
+    metadataString(job?.metadata, "manifest_public_url") ??
+    null;
   return {
-    accountLabel: "YouTube connecte",
+    accountLabel: schedule.platform === "youtube" ? "YouTube connecte" : "Compte a configurer",
     costTotalEstimatedEur: costsByDraft.get(schedule.draft_id) ?? null,
     description: publication?.description ?? defaultDescription(draft),
     draftId: schedule.draft_id,
     errorMessage: publication?.errorMessage ?? null,
     hashtags: publication?.hashtags ?? normalizeHashtags(draft?.hashtags),
     isPastDue: Date.parse(scheduledAt) < Date.now(),
+    manifestUrl,
     outputUrl: job?.output_url ?? null,
     platform: schedule.platform,
     publicationId: publication?.id ?? null,
@@ -375,13 +381,12 @@ export async function readShortsPublicationState({
   const { data: schedules, error: scheduleError } = await supabase
     .from("short_video_schedules")
     .select("id,draft_id,platform,scheduled_at,status,timezone")
-    .eq("platform", "youtube")
     .in("status", ["scheduled", "cancelled", "published", "failed"])
     .order("scheduled_at", { ascending: true })
     .returns<ScheduleRow[]>();
 
   if (scheduleError) {
-    throw new Error(`Lecture des programmations YouTube impossible: ${scheduleError.message}`);
+    throw new Error(`Lecture des programmations publication impossible: ${scheduleError.message}`);
   }
 
   const draftIds = [...new Set((schedules ?? []).map((schedule) => schedule.draft_id))];
@@ -416,7 +421,6 @@ export async function readShortsPublicationState({
         .from("short_video_publications")
         .select("id,schedule_id,draft_id,platform,status,title,description,hashtags,visibility,scheduled_at,timezone,account_id,youtube_video_id,youtube_url,published_at,error_message,metadata,created_at,updated_at")
         .in("draft_id", visibleDraftIds)
-        .eq("platform", "youtube")
         .returns<PublicationRow[]>()
       : Promise.resolve({ data: [] as PublicationRow[], error: null }),
     visibleDraftIds.length
@@ -470,6 +474,7 @@ export async function readShortsPublicationState({
     }),
   );
   const hasPendingYouTubePublication = items.some((item) =>
+    item.platform === "youtube" &&
     !["published", "failed", "cancelled"].includes(item.status),
   );
   const youtube = hasPendingYouTubePublication

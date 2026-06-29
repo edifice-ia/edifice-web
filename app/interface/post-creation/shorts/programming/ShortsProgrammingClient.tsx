@@ -48,7 +48,8 @@ type SchedulingPayload = {
 type PublicationStatus = "draft" | "ready" | "publishing" | "scheduled" | "published" | "failed" | "cancelled";
 type PublicationVisibility = "private" | "unlisted" | "public";
 type SchedulePlatformChoice = ShortsSchedulePlatform | "all";
-type PublicationFilter = "all" | ShortsSchedulePlatform | "scheduled" | "published" | "failed";
+type PublicationPlatformFilter = "all" | ShortsSchedulePlatform;
+type PublicationStatusTab = "prepare" | "scheduled" | "published" | "failed" | "cancelled";
 
 type ShortsPublicationItem = {
   accountLabel: string;
@@ -216,10 +217,10 @@ function readableStatus(status: string, isPastDue = false) {
     return "Creneau depasse";
   }
   if (status === "ready") {
-    return "Prete a programmer sur YouTube";
+    return "Prete a publier";
   }
   if (status === "scheduled") {
-    return "Programmee sur YouTube";
+    return "Programmee";
   }
 
   return "A programmer";
@@ -256,6 +257,23 @@ function hashtagsToText(hashtags: string[]) {
 
 function expandPlatformChoice(platform: SchedulePlatformChoice): ShortsSchedulePlatform[] {
   return platform === "all" ? platforms : [platform];
+}
+
+function publicationStatusTabFor(item: ShortsPublicationItem): PublicationStatusTab {
+  if (item.status === "published") {
+    return "published";
+  }
+  if (item.status === "failed") {
+    return "failed";
+  }
+  if (item.status === "cancelled") {
+    return "cancelled";
+  }
+  if (item.status === "scheduled" || item.status === "publishing") {
+    return "scheduled";
+  }
+
+  return "prepare";
 }
 
 function normalizePublicationHashtags(value: string[] | string) {
@@ -315,7 +333,8 @@ export function ShortsProgrammingClient() {
   const [notice, setNotice] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [publicationItems, setPublicationItems] = useState<ShortsPublicationItem[]>([]);
-  const [publicationFilter, setPublicationFilter] = useState<PublicationFilter>("all");
+  const [publicationPlatformFilter, setPublicationPlatformFilter] = useState<PublicationPlatformFilter>("all");
+  const [publicationStatusTab, setPublicationStatusTab] = useState<PublicationStatusTab>("prepare");
   const [publicationError, setPublicationError] = useState<string | null>(null);
   const [publicationNotice, setPublicationNotice] = useState<string | null>(null);
   const [youtubeConnected, setYoutubeConnected] = useState(false);
@@ -343,6 +362,24 @@ export function ShortsProgrammingClient() {
     () => new Set(schedules.map((schedule) => `${schedule.draftId}:${schedule.platform}:${new Date(schedule.scheduledAt).toISOString()}`)),
     [schedules],
   );
+  const activePlatformsByDraft = useMemo(() => {
+    const groups = new Map<string, Set<ShortsSchedulePlatform>>();
+    schedules
+      .filter((schedule) => !["cancelled", "failed", "published"].includes(schedule.status))
+      .forEach((schedule) => {
+        const group = groups.get(schedule.draftId) ?? new Set<ShortsSchedulePlatform>();
+        group.add(schedule.platform);
+        groups.set(schedule.draftId, group);
+      });
+
+    return groups;
+  }, [schedules]);
+  const isDraftAvailableForPlatformChoice = (draftId: string, platform: SchedulePlatformChoice) =>
+    expandPlatformChoice(platform).some((targetPlatform) => !activePlatformsByDraft.get(draftId)?.has(targetPlatform));
+  const activePlatformNamesForDraft = (draftId: string) =>
+    [...(activePlatformsByDraft.get(draftId) ?? new Set<ShortsSchedulePlatform>())]
+      .map((platform) => SHORTS_SCHEDULE_PLATFORM_LABELS[platform])
+      .join(", ");
   const duplicateKeys = useMemo(() => {
     const counts = new Map<string, number>();
     planningRows.forEach((row) => {
@@ -364,23 +401,26 @@ export function ShortsProgrammingClient() {
     return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
   }, [normalizedTimezone, planningRows]);
   const invalidRows = planningRows.filter((row) => !videoById.has(row.draftId));
+  const blockedRows = planningRows.filter((row) =>
+    videoById.has(row.draftId) && !isDraftAvailableForPlatformChoice(row.draftId, row.platform),
+  );
+  const selectedPlatformAvailabilityLabel = selectedPlatforms.length === platforms.length
+    ? "toutes les plateformes selectionnees"
+    : selectedPlatforms.length === 1
+      ? SHORTS_SCHEDULE_PLATFORM_LABELS[selectedPlatforms[0]]
+      : "les plateformes selectionnees";
+  const hiddenVideoCount = videos.filter((video) =>
+    !selectedPlatforms.some((platform) => isDraftAvailableForPlatformChoice(video.draftId, platform)),
+  ).length;
   const effectiveStartDate = clampScheduleStartDate(startDate, normalizedTimezone);
   const periodEnd = addDaysToDateValue(effectiveStartDate, Math.max(0, daysCount - 1));
   const filteredPublicationItems = useMemo(() => {
-    if (publicationFilter === "published") {
-      return publicationItems.filter((item) => item.status === "published");
-    }
-    if (publicationFilter === "failed") {
-      return publicationItems.filter((item) => item.status === "failed");
-    }
-    if (publicationFilter === "scheduled") {
-      return publicationItems.filter((item) => item.status === "scheduled");
-    }
-    if (publicationFilter === "tiktok" || publicationFilter === "instagram" || publicationFilter === "youtube") {
-      return publicationItems.filter((item) => item.platform === publicationFilter && item.status !== "cancelled");
-    }
-    return publicationItems.filter((item) => item.status !== "cancelled");
-  }, [publicationFilter, publicationItems]);
+    return publicationItems.filter((item) => {
+      const statusMatches = publicationStatusTabFor(item) === publicationStatusTab;
+      const platformMatches = publicationPlatformFilter === "all" || item.platform === publicationPlatformFilter;
+      return statusMatches && platformMatches;
+    });
+  }, [publicationItems, publicationPlatformFilter, publicationStatusTab]);
   const pendingPublicationCount = useMemo(
     () => publicationItems.filter((item) => !["published", "failed", "cancelled"].includes(item.status)).length,
     [publicationItems],
@@ -655,19 +695,42 @@ export function ShortsProgrammingClient() {
       setTimezone(proposal.timezone);
     }
 
-    const rows = proposal.candidates.slice(0, videos.length).map((slot, index): PlanningRow => ({
-      draftId: videos[index % videos.length].draftId,
-      recommendationConfidence: slot.confidence,
-      localDate: slot.localDate,
-      localTime: slot.localTime,
-      platform: slot.platform,
-      recommendationSource: slot.recommendationSource,
-      rowId: `proposal-${index}-${slot.platform}-${slot.localDate}-${slot.localTime}`,
-      slotLabel: slot.slotLabel,
-      status: scheduledKeys.has(`${videos[index % videos.length].draftId}:${slot.platform}:${slot.scheduledAt}`)
-        ? "scheduled"
-        : "draft",
-    }));
+    let videoIndex = 0;
+    const rows: PlanningRow[] = [];
+    proposal.candidates.forEach((slot, index) => {
+      if (rows.length >= videos.length) {
+        return;
+      }
+
+      const availableVideos = videos.filter((video) =>
+        isDraftAvailableForPlatformChoice(video.draftId, slot.platform),
+      );
+      if (availableVideos.length === 0) {
+        return;
+      }
+
+      const video = availableVideos[videoIndex % availableVideos.length];
+      videoIndex += 1;
+      rows.push({
+        draftId: video.draftId,
+        recommendationConfidence: slot.confidence,
+        localDate: slot.localDate,
+        localTime: slot.localTime,
+        platform: slot.platform,
+        recommendationSource: slot.recommendationSource,
+        rowId: `proposal-${index}-${slot.platform}-${slot.localDate}-${slot.localTime}`,
+        slotLabel: slot.slotLabel,
+        status: scheduledKeys.has(`${video.draftId}:${slot.platform}:${slot.scheduledAt}`)
+          ? "scheduled"
+          : "draft",
+      });
+    });
+
+    if (rows.length === 0) {
+      setPlanningRows([]);
+      setError("Aucune video disponible pour les plateformes selectionnees. Les doublons actifs sont masques.");
+      return;
+    }
 
     setPlanningRows(rows);
     setNotice(
@@ -856,6 +919,11 @@ export function ShortsProgrammingClient() {
       return;
     }
 
+    if (blockedRows.length > 0) {
+      setError("Planning invalide: une video est deja programmee sur toutes les plateformes ciblees.");
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -1004,22 +1072,47 @@ export function ShortsProgrammingClient() {
             </p>
           ) : null}
 
-          <div className="flex flex-wrap gap-2">
-            {([
-              ["all", "Toutes"],
-              ["tiktok", "TikTok"],
-              ["instagram", "Instagram"],
-              ["youtube", "YouTube Shorts"],
-              ["scheduled", "Programmees"],
-              ["published", "Publiees"],
-              ["failed", "Echecs"],
-            ] as const satisfies Array<readonly [PublicationFilter, string]>).map(([value, label]) => (
+          <div className="grid gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">Plateforme</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {([
+                  ["all", "Toutes plateformes"],
+                  ["tiktok", "TikTok"],
+                  ["instagram", "Instagram"],
+                  ["youtube", "YouTube Shorts"],
+                ] as const satisfies Array<readonly [PublicationPlatformFilter, string]>).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setPublicationPlatformFilter(value)}
+                    className={`rounded-md border px-3 py-2 text-sm font-semibold transition ${
+                      publicationPlatformFilter === value
+                        ? "border-[#39E6D0]/50 bg-[#39E6D0]/10 text-[#39E6D0]"
+                        : "border-[#1D2A44] bg-[#08111A] text-[#A7B0C0] hover:border-[#39E6D0]/40 hover:text-[#F8FAFC]"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">Statut</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {([
+                  ["prepare", "A preparer"],
+                  ["scheduled", "Programmees"],
+                  ["published", "Publiees"],
+                  ["failed", "Echecs"],
+                  ["cancelled", "Annulees"],
+                ] as const satisfies Array<readonly [PublicationStatusTab, string]>).map(([value, label]) => (
               <button
                 key={value}
                 type="button"
-                onClick={() => setPublicationFilter(value)}
+                onClick={() => setPublicationStatusTab(value)}
                 className={`rounded-md border px-3 py-2 text-sm font-semibold transition ${
-                  publicationFilter === value
+                  publicationStatusTab === value
                     ? "border-[#39E6D0]/50 bg-[#39E6D0]/10 text-[#39E6D0]"
                     : "border-[#1D2A44] bg-[#08111A] text-[#A7B0C0] hover:border-[#39E6D0]/40 hover:text-[#F8FAFC]"
                 }`}
@@ -1027,6 +1120,8 @@ export function ShortsProgrammingClient() {
                 {label}
               </button>
             ))}
+              </div>
+            </div>
           </div>
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -1434,6 +1529,11 @@ export function ShortsProgrammingClient() {
             <p>{formatDate(effectiveStartDate)} - {formatDate(periodEnd)}</p>
             <p>{normalizedTimezone}</p>
           </div>
+          {hiddenVideoCount > 0 ? (
+            <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
+              {hiddenVideoCount} video(s) masquee(s) car deja programmee(s) sur {selectedPlatformAvailabilityLabel}.
+            </p>
+          ) : null}
 
           <div className="flex flex-wrap gap-3">
             <button
@@ -1479,8 +1579,12 @@ export function ShortsProgrammingClient() {
                   const platformTimeDuplicate = rowPlatforms.some((platform) =>
                     platformTimeDuplicates.has(`${platform}:${safeScheduleIso(row.localDate, row.localTime, normalizedTimezone)}`),
                   );
+                  const blocked = videoById.has(row.draftId) && !isDraftAvailableForPlatformChoice(row.draftId, row.platform);
+                  const selectableVideos = videos.filter((video) =>
+                    video.draftId === row.draftId || isDraftAvailableForPlatformChoice(video.draftId, row.platform),
+                  );
                   return (
-                    <tr key={row.rowId} className={duplicate || platformTimeDuplicate ? "bg-[#F97316]/10" : "bg-[#03070B]"}>
+                    <tr key={row.rowId} className={duplicate || platformTimeDuplicate || blocked ? "bg-[#F97316]/10" : "bg-[#03070B]"}>
                       <td className="px-3 py-3">
                         <input
                           type="date"
@@ -1516,12 +1620,22 @@ export function ShortsProgrammingClient() {
                           onChange={(event) => updatePlanningRow(row.rowId, { draftId: event.target.value })}
                           className="w-full rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-2 text-[#F8FAFC] outline-none"
                         >
-                          {videos.map((video) => (
+                          {selectableVideos.map((video) => (
                             <option key={video.draftId} value={video.draftId}>
                               {video.title}
                             </option>
                           ))}
                         </select>
+                        {activePlatformNamesForDraft(row.draftId) ? (
+                          <p className="mt-1 text-xs text-[#A7B0C0]">
+                            Deja programmee: {activePlatformNamesForDraft(row.draftId)}
+                          </p>
+                        ) : null}
+                        {blocked ? (
+                          <p className="mt-1 text-xs font-semibold text-[#FDBA74]">
+                            Cette video est deja programmee sur les plateformes ciblees.
+                          </p>
+                        ) : null}
                         {duplicate ? (
                           <p className="mt-1 text-xs font-semibold text-[#FDBA74]">
                             Doublon exact detecte.
@@ -1566,6 +1680,13 @@ export function ShortsProgrammingClient() {
                   const locked = publication?.status === "publishing" || publication?.status === "published";
                   const isEditing = editingScheduleId === schedule.id && scheduleEditForm;
                   const isPastDue = Date.parse(schedule.scheduledAt) < nowMs && schedule.status !== "published";
+                  const selectableEditVideos = isEditing
+                    ? videos.filter((video) =>
+                      video.draftId === schedule.draftId ||
+                      video.draftId === scheduleEditForm.draftId ||
+                      isDraftAvailableForPlatformChoice(video.draftId, scheduleEditForm.platform),
+                    )
+                    : videos;
 
                   return (
                     <article
@@ -1617,12 +1738,17 @@ export function ShortsProgrammingClient() {
                               disabled={locked}
                               className="min-w-0 rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-2 text-[#F8FAFC] outline-none disabled:opacity-55"
                             >
-                              {videos.map((video) => (
+                              {selectableEditVideos.map((video) => (
                                 <option key={video.draftId} value={video.draftId}>
                                   {video.title}
                                 </option>
                               ))}
                             </select>
+                            {scheduleEditForm && activePlatformNamesForDraft(scheduleEditForm.draftId) ? (
+                              <p className="text-xs text-[#A7B0C0]">
+                                Deja programmee: {activePlatformNamesForDraft(scheduleEditForm.draftId)}
+                              </p>
+                            ) : null}
                           </label>
                           <div className="flex flex-wrap gap-2">
                             <button

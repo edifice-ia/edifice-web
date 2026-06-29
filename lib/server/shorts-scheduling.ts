@@ -162,6 +162,10 @@ function expandScheduleInputs(entries: ShortVideoScheduleInput[]) {
   );
 }
 
+function isActiveScheduleStatus(status: ScheduleStatus) {
+  return status !== "cancelled" && status !== "failed" && status !== "published";
+}
+
 async function ensureDraftAccess(draftIds: string[], userId: string) {
   if (draftIds.length === 0) {
     return new Set<string>();
@@ -291,6 +295,11 @@ export async function saveShortVideoSchedules({
   );
   const state = await readShortsSchedulingState({ userId });
   const validatedDraftIds = new Set(state.videos.map((video) => video.draftId));
+  const activeDraftPlatformKeys = new Set(
+    state.schedules
+      .filter((schedule) => isActiveScheduleStatus(schedule.status))
+      .map((schedule) => `${schedule.draftId}:${schedule.platform}`),
+  );
 
   normalizedEntries.forEach((entry) => {
     if (!allowedDraftIds.has(entry.draftId)) {
@@ -301,10 +310,18 @@ export async function saveShortVideoSchedules({
     }
   });
 
+  const rowsToSave = normalizedEntries.filter((entry) =>
+    !activeDraftPlatformKeys.has(`${entry.draftId}:${entry.platform}`),
+  );
+
+  if (rowsToSave.length === 0) {
+    throw new Error("Aucune nouvelle programmation: les plateformes ciblees sont deja programmees pour ces videos.");
+  }
+
   const { data, error } = await getSchedulingClient()
     .from("short_video_schedules")
     .upsert(
-      normalizedEntries.map((entry) => ({
+      rowsToSave.map((entry) => ({
         draft_id: entry.draftId,
         platform: entry.platform,
         recommendation_source: entry.recommendationSource ?? "default",
@@ -363,10 +380,12 @@ async function ensureScheduleIsEditable(scheduleId: string) {
 }
 
 async function ensureNoScheduleCollision({
+  draftId,
   platform,
   scheduledAt,
   scheduleId,
 }: {
+  draftId: string;
   platform: ShortsSchedulePlatform;
   scheduledAt: string;
   scheduleId: string;
@@ -387,6 +406,24 @@ async function ensureNoScheduleCollision({
 
   if ((data ?? []).length > 0) {
     throw new Error("Collision: meme plateforme au meme horaire.");
+  }
+
+  const { data: duplicateDraftRows, error: duplicateDraftError } = await getSchedulingClient()
+    .from("short_video_schedules")
+    .select("id")
+    .eq("draft_id", draftId)
+    .eq("platform", platform)
+    .neq("id", scheduleId)
+    .in("status", ["scheduled"])
+    .limit(1)
+    .returns<Array<{ id: string }>>();
+
+  if (duplicateDraftError) {
+    throw new Error(`Verification doublon impossible: ${duplicateDraftError.message}`);
+  }
+
+  if ((duplicateDraftRows ?? []).length > 0) {
+    throw new Error("Doublon detecte: cette video est deja programmee sur cette plateforme.");
   }
 }
 
@@ -416,6 +453,7 @@ export async function updateShortVideoSchedule({
   }
 
   await ensureNoScheduleCollision({
+    draftId: normalized.draftId,
     platform: normalized.platform,
     scheduledAt: normalized.scheduledAt,
     scheduleId: existing.id,
@@ -442,8 +480,8 @@ export async function updateShortVideoSchedule({
     const existingState = await readShortsSchedulingState({ userId });
     const activeKeys = new Set(
       existingState.schedules
-        .filter((schedule) => schedule.status !== "cancelled")
-        .map((schedule) => `${schedule.draftId}:${schedule.platform}:${new Date(schedule.scheduledAt).toISOString()}`),
+        .filter((schedule) => isActiveScheduleStatus(schedule.status))
+        .map((schedule) => `${schedule.draftId}:${schedule.platform}`),
     );
     const rowsToInsert = missingPlatforms
       .map((platform) => ({
@@ -454,7 +492,7 @@ export async function updateShortVideoSchedule({
         status: "scheduled",
         timezone: normalized.timezone,
       }))
-      .filter((row) => !activeKeys.has(`${row.draft_id}:${row.platform}:${new Date(row.scheduled_at).toISOString()}`));
+      .filter((row) => !activeKeys.has(`${row.draft_id}:${row.platform}`));
 
     if (rowsToInsert.length > 0) {
       const { error: insertError } = await getSchedulingClient()

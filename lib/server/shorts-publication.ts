@@ -96,6 +96,12 @@ export type ShortsPublicationItem = {
 
 export type ShortsPublicationState = {
   items: ShortsPublicationItem[];
+  youtubeDiagnostic: {
+    action: string;
+    cause: string;
+    code: string | number | null;
+    scheduleId: string | null;
+  } | null;
   youtubeConnected: boolean;
   youtubeChannelTitle: string | null;
   youtubeError: string | null;
@@ -185,6 +191,57 @@ function defaultDescription(draft: DraftRow | undefined) {
   return [draft?.caption?.trim(), hashtags].filter(Boolean).join("\n\n");
 }
 
+function readableYouTubeDiagnosticMessage(message: string | null | undefined) {
+  const normalized = message?.trim();
+
+  if (!normalized) {
+    return "Publication YouTube non configuree.";
+  }
+
+  if (/bad request/i.test(normalized)) {
+    return "Publication YouTube non configuree. Reconnecte le compte YouTube si necessaire.";
+  }
+
+  if (/token absent|missing_youtube_token/i.test(normalized)) {
+    return "Le compte YouTube n'est pas connecte.";
+  }
+
+  if (/scope|youtube\.upload/i.test(normalized)) {
+    return "Reconnecte YouTube avec l'autorisation de publication.";
+  }
+
+  if (/configuration serveur|oauth config|client/i.test(normalized)) {
+    return `Erreur de configuration: ${normalized}`;
+  }
+
+  return normalized.startsWith("Erreur YouTube")
+    ? normalized
+    : `Erreur YouTube: ${normalized}`;
+}
+
+function logPublicationDiagnostic(
+  message: string,
+  details: {
+    code?: string | number | null;
+    draftId?: string | null;
+    endpoint?: string;
+    method: string;
+    route: string;
+    scheduleId?: string | null;
+    validation?: string;
+  },
+) {
+  console.warn(message, {
+    code: details.code ?? null,
+    draft_id: details.draftId ?? null,
+    endpoint: details.endpoint,
+    method: details.method,
+    route: details.route,
+    schedule_id: details.scheduleId ?? null,
+    validation: details.validation,
+  });
+}
+
 function mapItem({
   costsByDraft,
   draft,
@@ -229,21 +286,35 @@ async function readYouTubeConnection() {
   const tokenState = await ensureYouTubeAccessToken(token);
 
   if (!tokenState.ok) {
+    logPublicationDiagnostic("[Shorts Publication YouTube] token diagnostic failed", {
+      code: tokenState.error.code,
+      endpoint: tokenState.status === "refresh_failed" ? "https://oauth2.googleapis.com/token" : "oauth token store",
+      method: tokenState.status === "refresh_failed" ? "POST" : "GET",
+      route: "/api/content-workshop/shorts-publications",
+      validation: tokenState.status,
+    });
     return {
       accessToken: null as string | null,
       connected: false,
-      error: tokenState.error.message,
+      diagnostic: {
+        action: "Reconnecter YouTube dans Reglages > Connexions.",
+        cause: readableYouTubeDiagnosticMessage(tokenState.error.message),
+        code: tokenState.error.code,
+        scheduleId: null,
+      },
+      error: readableYouTubeDiagnosticMessage(tokenState.error.message),
       channelTitle: null as string | null,
     };
   }
 
   const tokenInfo = await readYouTubeGrantedScopes(tokenState.accessToken);
   if (tokenInfo.error) {
-    console.warn("[Shorts Publication YouTube] tokeninfo diagnostic", {
+    logPublicationDiagnostic("[Shorts Publication YouTube] tokeninfo diagnostic", {
       code: tokenInfo.error.code,
       endpoint: "https://oauth2.googleapis.com/tokeninfo",
-      message: tokenInfo.error.message,
-      source: tokenInfo.source,
+      method: "GET",
+      route: "/api/content-workshop/shorts-publications",
+      validation: tokenInfo.error.message,
     });
   }
   const grantedScopes =
@@ -252,22 +323,36 @@ async function readYouTubeConnection() {
     return {
       accessToken: null,
       connected: false,
-      error: "Reconnecte YouTube avec le scope youtube.upload.",
+      diagnostic: {
+        action: "Reconnecter YouTube avec l'autorisation youtube.upload.",
+        cause: "Autorisation YouTube de publication manquante.",
+        code: "missing_youtube_upload_scope",
+        scheduleId: null,
+      },
+      error: "Reconnecte YouTube avec l'autorisation de publication.",
       channelTitle: null,
     };
   }
 
   const channel = await getYouTubeChannel(tokenState.accessToken);
   if (!channel.ok) {
-    console.warn("[Shorts Publication YouTube] channel diagnostic", {
+    logPublicationDiagnostic("[Shorts Publication YouTube] channel diagnostic failed", {
       code: channel.error.code,
       endpoint: "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
-      message: channel.error.message,
+      method: "GET",
+      route: "/api/content-workshop/shorts-publications",
+      validation: channel.error.message,
     });
     return {
       accessToken: null,
       connected: false,
-      error: "Connexion YouTube detectee, publication a configurer.",
+      diagnostic: {
+        action: "Verifier la connexion YouTube ou reconnecter le compte.",
+        cause: readableYouTubeDiagnosticMessage(channel.error.message),
+        code: channel.error.code ?? null,
+        scheduleId: null,
+      },
+      error: readableYouTubeDiagnosticMessage(channel.error.message),
       channelTitle: null,
     };
   }
@@ -275,6 +360,7 @@ async function readYouTubeConnection() {
   return {
     accessToken: tokenState.accessToken,
     connected: true,
+    diagnostic: null,
     error: null,
     channelTitle: channel.channelTitle,
   };
@@ -374,25 +460,61 @@ export async function readShortsPublicationState({
     costsByDraft.set(row.draft_id, (costsByDraft.get(row.draft_id) ?? 0) + costValue(row));
   });
 
-  const youtube = await readYouTubeConnection().catch((error) => ({
-    accessToken: null,
-    connected: false,
-    error: error instanceof Error ? error.message : "Lecture YouTube indisponible.",
-    channelTitle: null,
-  }));
+  const items = visibleSchedules.map((schedule) =>
+    mapItem({
+      costsByDraft,
+      draft: draftById.get(schedule.draft_id),
+      job: latestJobByDraft.get(schedule.draft_id),
+      publication: publicationBySchedule.get(schedule.id) ?? null,
+      schedule,
+    }),
+  );
+  const hasPendingYouTubePublication = items.some((item) =>
+    !["published", "failed", "cancelled"].includes(item.status),
+  );
+  const youtube = hasPendingYouTubePublication
+    ? await readYouTubeConnection().catch((error) => {
+      const cause = readableYouTubeDiagnosticMessage(
+        error instanceof Error ? error.message : "Lecture YouTube indisponible.",
+      );
+      logPublicationDiagnostic("[Shorts Publication YouTube] diagnostic exception", {
+        code: "youtube_diagnostic_exception",
+        method: "GET",
+        route: "/api/content-workshop/shorts-publications",
+        validation: cause,
+      });
+
+      return {
+        accessToken: null,
+        connected: false,
+        diagnostic: {
+          action: "Verifier la configuration YouTube cote serveur.",
+          cause,
+          code: "youtube_diagnostic_exception",
+          scheduleId: items[0]?.scheduleId ?? null,
+        },
+        error: cause,
+        channelTitle: null,
+      };
+    })
+    : {
+      accessToken: null,
+      connected: false,
+      diagnostic: null,
+      error: null,
+      channelTitle: null,
+    };
 
   return {
-    items: visibleSchedules.map((schedule) =>
-      mapItem({
-        costsByDraft,
-        draft: draftById.get(schedule.draft_id),
-        job: latestJobByDraft.get(schedule.draft_id),
-        publication: publicationBySchedule.get(schedule.id) ?? null,
-        schedule,
-      }),
-    ),
+    items,
     youtubeChannelTitle: youtube.channelTitle,
     youtubeConnected: youtube.connected,
+    youtubeDiagnostic: youtube.diagnostic
+      ? {
+        ...youtube.diagnostic,
+        scheduleId: youtube.diagnostic.scheduleId ?? items[0]?.scheduleId ?? null,
+      }
+      : null,
     youtubeError: youtube.error,
   };
 }

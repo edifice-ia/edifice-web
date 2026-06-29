@@ -76,6 +76,12 @@ type PublicationPayload = {
   items?: ShortsPublicationItem[];
   youtubeChannelTitle?: string | null;
   youtubeConnected?: boolean;
+  youtubeDiagnostic?: {
+    action: string;
+    cause: string;
+    code: string | number | null;
+    scheduleId: string | null;
+  } | null;
   youtubeError?: string | null;
 };
 
@@ -194,6 +200,18 @@ function readableStatus(status: string, isPastDue = false) {
   return "A programmer";
 }
 
+function sanitizePublicationMessage(message: string | null | undefined) {
+  if (!message?.trim()) {
+    return null;
+  }
+
+  if (/bad request/i.test(message)) {
+    return "La publication YouTube n'est pas encore configuree.";
+  }
+
+  return message;
+}
+
 function formatEuro(value: number | null) {
   if (value === null || !Number.isFinite(value)) {
     return "Non estime";
@@ -232,6 +250,7 @@ export function ShortsProgrammingClient() {
   const [publicationNotice, setPublicationNotice] = useState<string | null>(null);
   const [youtubeConnected, setYoutubeConnected] = useState(false);
   const [youtubeChannelTitle, setYoutubeChannelTitle] = useState<string | null>(null);
+  const [youtubeDiagnostic, setYoutubeDiagnostic] = useState<PublicationPayload["youtubeDiagnostic"]>(null);
   const [youtubeError, setYoutubeError] = useState<string | null>(null);
   const [selectedPublication, setSelectedPublication] = useState<ShortsPublicationItem | null>(null);
   const [publicationForm, setPublicationForm] = useState<PublicationForm | null>(null);
@@ -282,6 +301,16 @@ export function ShortsProgrammingClient() {
     }
     return publicationItems.filter((item) => item.status !== "published" && item.status !== "failed" && item.status !== "cancelled");
   }, [publicationFilter, publicationItems]);
+  const pendingPublicationCount = useMemo(
+    () => publicationItems.filter((item) => !["published", "failed", "cancelled"].includes(item.status)).length,
+    [publicationItems],
+  );
+  const youtubeCardMessage = pendingPublicationCount === 0
+    ? "Aucune video prete a publier pour le moment."
+    : youtubeConnected
+      ? `Connecte: ${youtubeChannelTitle ?? "chaine YouTube"}`
+      : sanitizePublicationMessage(youtubeError) ?? "Le compte YouTube n'est pas connecte.";
+  const youtubeCardIsNeutral = pendingPublicationCount === 0;
 
   const publicationByScheduleId = useMemo(
     () => new Map(publicationItems.map((item) => [item.scheduleId, item])),
@@ -328,20 +357,21 @@ export function ShortsProgrammingClient() {
       const payload = (await response.json()) as PublicationPayload;
 
       if (!response.ok || !payload.items) {
-        throw new Error(payload.error ?? "Lecture des publications indisponible.");
+        throw new Error(sanitizePublicationMessage(payload.error) ?? "Lecture des publications indisponible.");
       }
 
       setPublicationItems(payload.items);
       setYoutubeConnected(Boolean(payload.youtubeConnected));
       setYoutubeChannelTitle(payload.youtubeChannelTitle ?? null);
-      setYoutubeError(payload.youtubeError ?? null);
+      setYoutubeDiagnostic(payload.youtubeDiagnostic ?? null);
+      setYoutubeError(sanitizePublicationMessage(payload.youtubeError));
       if (selectedPublication) {
         setSelectedPublication(payload.items.find((item) => item.scheduleId === selectedPublication.scheduleId) ?? null);
       }
     } catch (caughtError) {
       setPublicationError(
         caughtError instanceof Error
-          ? caughtError.message
+          ? sanitizePublicationMessage(caughtError.message) ?? "Lecture des publications indisponible."
           : "Lecture des publications indisponible.",
       );
     } finally {
@@ -808,11 +838,30 @@ export function ShortsProgrammingClient() {
           </div>
 
           <div className="grid gap-3 lg:grid-cols-3">
-            <div className={`rounded-md border p-4 ${youtubeConnected ? "border-[#39E6D0]/35 bg-[#39E6D0]/10" : "border-[#F97316]/35 bg-[#F97316]/10"}`}>
+            <div className={`rounded-md border p-4 ${
+              youtubeCardIsNeutral
+                ? "border-[#1D2A44] bg-[#08111A]"
+                : youtubeConnected
+                  ? "border-[#39E6D0]/35 bg-[#39E6D0]/10"
+                  : "border-[#F97316]/35 bg-[#F97316]/10"
+            }`}>
               <p className="text-sm font-semibold text-[#F8FAFC]">YouTube Shorts</p>
               <p className="mt-2 min-w-0 truncate text-sm text-[#A7B0C0]">
-                {youtubeConnected ? `Connecte: ${youtubeChannelTitle ?? "chaine YouTube"}` : youtubeError ?? "Compte YouTube non connecte"}
+                {youtubeCardMessage}
               </p>
+              {youtubeDiagnostic && pendingPublicationCount > 0 ? (
+                <details className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs text-[#A7B0C0]">
+                  <summary className="cursor-pointer font-semibold text-[#F8FAFC]">
+                    Detail technique
+                  </summary>
+                  <div className="mt-2 grid gap-1">
+                    <p><span className="text-[#A7B0C0]">Code: </span>{youtubeDiagnostic.code ?? "n/a"}</p>
+                    <p><span className="text-[#A7B0C0]">Cause: </span>{youtubeDiagnostic.cause}</p>
+                    <p><span className="text-[#A7B0C0]">Programmation: </span>{youtubeDiagnostic.scheduleId ?? "n/a"}</p>
+                    <p><span className="text-[#A7B0C0]">Action: </span>{youtubeDiagnostic.action}</p>
+                  </div>
+                </details>
+              ) : null}
             </div>
             <ComingSoonPlatform title="Instagram" />
             <ComingSoonPlatform title="TikTok" />

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getMetaTokenScopeDiagnostic } from "@/lib/server/meta/debug-token";
 import { getOAuthToken } from "@/lib/server/oauth/token-store";
 import {
   getYouTubeChannel,
@@ -14,7 +15,7 @@ import {
 } from "@/lib/server/youtube/youtube-oauth";
 
 type PublicationPlatform = "youtube" | "instagram" | "tiktok";
-type PublicationStatus = "draft" | "ready" | "publishing" | "scheduled" | "published" | "failed" | "cancelled";
+type PublicationStatus = "draft" | "ready" | "publishing" | "processing_media" | "scheduled" | "published" | "failed" | "cancelled";
 type PublicationVisibility = "private" | "unlisted" | "public";
 
 type ScheduleRow = {
@@ -57,6 +58,8 @@ type PublicationRow = {
   error_message: string | null;
   hashtags: string[];
   id: string;
+  instagram_media_id: string | null;
+  instagram_permalink: string | null;
   metadata: Record<string, unknown>;
   platform: PublicationPlatform;
   published_at: string | null;
@@ -82,6 +85,47 @@ type YouTubeVideoStatusResponse = {
   error?: unknown;
 };
 
+type MetaGraphError = {
+  message?: string;
+  type?: string;
+  code?: number;
+  error_subcode?: number;
+};
+
+type MetaAccountsResponse = {
+  data?: Array<{
+    id?: string;
+    name?: string;
+    instagram_business_account?: {
+      id?: string;
+      username?: string;
+    };
+  }>;
+  error?: MetaGraphError;
+};
+
+type InstagramMediaContainerResponse = {
+  id?: string;
+  creation_id?: string;
+  error?: MetaGraphError;
+};
+
+type InstagramContainerStatusResponse = {
+  status?: string;
+  status_code?: string;
+  error?: MetaGraphError;
+};
+
+type InstagramPublishResponse = {
+  id?: string;
+  error?: MetaGraphError;
+};
+
+type InstagramMediaResponse = {
+  permalink?: string;
+  error?: MetaGraphError;
+};
+
 export type ShortsPublicationItem = {
   accountLabel: string;
   costTotalEstimatedEur: number | null;
@@ -90,6 +134,8 @@ export type ShortsPublicationItem = {
   errorMessage: string | null;
   hashtags: string[];
   isPastDue: boolean;
+  instagramMediaId: string | null;
+  instagramPermalink: string | null;
   manifestUrl: string | null;
   outputUrl: string | null;
   platform: PublicationPlatform;
@@ -107,6 +153,10 @@ export type ShortsPublicationItem = {
 };
 
 export type ShortsPublicationState = {
+  instagramAccountLabel: string | null;
+  instagramConnected: boolean;
+  instagramError: string | null;
+  instagramMissingPermissions: string[];
   items: ShortsPublicationItem[];
   youtubeDiagnostic: {
     action: string;
@@ -120,6 +170,9 @@ export type ShortsPublicationState = {
 };
 
 let publicationClient: SupabaseClient | null = null;
+const INSTAGRAM_REQUIRED_SCOPES = ["instagram_basic", "instagram_content_publish", "pages_show_list"];
+const INSTAGRAM_CONTAINER_POLL_ATTEMPTS = 24;
+const INSTAGRAM_CONTAINER_POLL_DELAY_MS = 5000;
 
 function getPublicationClient() {
   if (publicationClient) {
@@ -212,6 +265,8 @@ function mapPublication(row: PublicationRow) {
     errorMessage: row.error_message,
     hashtags: row.hashtags ?? [],
     id: row.id,
+    instagramMediaId: row.instagram_media_id,
+    instagramPermalink: row.instagram_permalink,
     platform: row.platform,
     publishedAt: row.published_at,
     scheduleId: row.schedule_id,
@@ -284,15 +339,64 @@ function logPublicationDiagnostic(
   });
 }
 
+function getInstagramGraphVersion() {
+  return process.env.INSTAGRAM_GRAPH_VERSION?.trim() || "v23.0";
+}
+
+function sanitizeMetaGraphError(payload: { error?: MetaGraphError } | null | undefined, status?: number) {
+  const error = payload?.error;
+  return {
+    code: error?.code ?? status ?? "meta_graph_error",
+    message: error?.message ?? "Meta Graph API request failed.",
+    subcode: error?.error_subcode ?? null,
+    type: error?.type ?? null,
+  };
+}
+
+function readableInstagramError(message: string | null | undefined) {
+  const normalized = message?.trim();
+
+  if (!normalized) {
+    return "Publication Instagram non configuree.";
+  }
+  if (/token|missing_meta_token/i.test(normalized)) {
+    return "Le compte Instagram / Meta n'est pas connecte.";
+  }
+  if (/instagram_content_publish/i.test(normalized)) {
+    return "Permission Instagram manquante: instagram_content_publish.";
+  }
+  if (/instagram_basic/i.test(normalized)) {
+    return "Permission Instagram manquante: instagram_basic.";
+  }
+  if (/pages_show_list/i.test(normalized)) {
+    return "Permission Meta manquante: pages_show_list.";
+  }
+  if (/business|creator|instagram business/i.test(normalized)) {
+    return "Aucun compte Instagram Business/Creator connecte n'a ete trouve.";
+  }
+
+  return normalized.startsWith("Erreur Instagram")
+    ? normalized
+    : `Erreur Instagram: ${normalized}`;
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
 function mapItem({
   costsByDraft,
   draft,
+  instagramAccountLabel,
   job,
   publication,
   schedule,
 }: {
   costsByDraft: Map<string, number>;
   draft: DraftRow | undefined;
+  instagramAccountLabel?: string | null;
   job: RenderJobRow | undefined;
   publication: ReturnType<typeof mapPublication> | null;
   schedule: ScheduleRow;
@@ -307,13 +411,20 @@ function mapItem({
     metadataString(job?.metadata, "manifest_url") ??
     metadataString(job?.metadata, "manifest_public_url") ??
     null;
+  const accountLabel = schedule.platform === "youtube"
+    ? "YouTube connecte"
+    : schedule.platform === "instagram"
+      ? instagramAccountLabel ?? "Instagram a configurer"
+      : "Compte a configurer";
   return {
-    accountLabel: schedule.platform === "youtube" ? "YouTube connecte" : "Compte a configurer",
+    accountLabel,
     costTotalEstimatedEur: costsByDraft.get(schedule.draft_id) ?? null,
     description: separated.description,
     draftId: schedule.draft_id,
     errorMessage: publication?.errorMessage ?? null,
     hashtags: separated.hashtags,
+    instagramMediaId: publication?.instagramMediaId ?? null,
+    instagramPermalink: publication?.instagramPermalink ?? null,
     isPastDue: Date.parse(scheduledAt) < Date.now(),
     manifestUrl,
     outputUrl: job?.output_url ?? null,
@@ -417,6 +528,95 @@ async function readYouTubeConnection() {
   };
 }
 
+async function readInstagramConnection() {
+  const token = await getOAuthToken("meta");
+
+  if (!token?.accessToken) {
+    return {
+      accessToken: null as string | null,
+      accountLabel: null as string | null,
+      businessId: null as string | null,
+      connected: false,
+      error: "Le compte Instagram / Meta n'est pas connecte.",
+      missingPermissions: INSTAGRAM_REQUIRED_SCOPES,
+    };
+  }
+
+  const scopeDiagnostic = await getMetaTokenScopeDiagnostic({
+    userAccessToken: token.accessToken,
+    storedScope: token.scope,
+  });
+  const missingPermissions = INSTAGRAM_REQUIRED_SCOPES.filter((scope) =>
+    !scopeDiagnostic.granted.includes(scope),
+  );
+
+  if (missingPermissions.length > 0) {
+    return {
+      accessToken: null,
+      accountLabel: null,
+      businessId: null,
+      connected: false,
+      error: `Permission Instagram manquante: ${missingPermissions.join(", ")}.`,
+      missingPermissions,
+    };
+  }
+
+  const graphVersion = getInstagramGraphVersion();
+  const accountsUrl = new URL(`https://graph.facebook.com/${graphVersion}/me/accounts`);
+  accountsUrl.searchParams.set("fields", "id,name,instagram_business_account{id,username}");
+  accountsUrl.searchParams.set("access_token", token.accessToken);
+
+  const response = await fetch(accountsUrl, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+    method: "GET",
+  });
+  const payload = await response.json().catch(() => null) as MetaAccountsResponse | null;
+
+  if (!response.ok || payload?.error) {
+    const sanitized = sanitizeMetaGraphError(payload, response.status);
+    logPublicationDiagnostic("[Shorts Publication Instagram] account lookup failed", {
+      code: sanitized.code,
+      endpoint: "https://graph.facebook.com/me/accounts",
+      method: "GET",
+      route: "/api/content-workshop/shorts-publications",
+      validation: sanitized.message,
+    });
+    return {
+      accessToken: null,
+      accountLabel: null,
+      businessId: null,
+      connected: false,
+      error: readableInstagramError(sanitized.message),
+      missingPermissions: [],
+    };
+  }
+
+  const page = payload?.data?.find((item) => Boolean(item.instagram_business_account?.id)) ?? null;
+  const businessId = page?.instagram_business_account?.id ?? null;
+  const username = page?.instagram_business_account?.username ?? null;
+
+  if (!businessId) {
+    return {
+      accessToken: null,
+      accountLabel: null,
+      businessId: null,
+      connected: false,
+      error: "Aucun compte Instagram Business/Creator connecte n'a ete trouve.",
+      missingPermissions: [],
+    };
+  }
+
+  return {
+    accessToken: token.accessToken,
+    accountLabel: username ? `@${username}` : page?.name ?? "Instagram Business",
+    businessId,
+    connected: true,
+    error: null,
+    missingPermissions: [],
+  };
+}
+
 export async function readShortsPublicationState({
   userId,
 }: {
@@ -464,7 +664,7 @@ export async function readShortsPublicationState({
     visibleDraftIds.length
       ? supabase
         .from("short_video_publications")
-        .select("id,schedule_id,draft_id,platform,status,title,description,hashtags,visibility,scheduled_at,timezone,account_id,youtube_video_id,youtube_url,published_at,error_message,metadata,created_at,updated_at")
+        .select("id,schedule_id,draft_id,platform,status,title,description,hashtags,visibility,scheduled_at,timezone,account_id,youtube_video_id,youtube_url,instagram_media_id,instagram_permalink,published_at,error_message,metadata,created_at,updated_at")
         .in("draft_id", visibleDraftIds)
         .returns<PublicationRow[]>()
       : Promise.resolve({ data: [] as PublicationRow[], error: null }),
@@ -496,6 +696,26 @@ export async function readShortsPublicationState({
     }
   });
   const publications = [...(publicationsResponse.data ?? [])];
+  const hasPendingInstagramSchedule = visibleSchedules.some((schedule) =>
+    schedule.platform === "instagram" && schedule.status !== "cancelled",
+  );
+  const instagram = hasPendingInstagramSchedule
+    ? await readInstagramConnection().catch((error) => ({
+      accessToken: null,
+      accountLabel: null,
+      businessId: null,
+      connected: false,
+      error: readableInstagramError(error instanceof Error ? error.message : "Lecture Instagram indisponible."),
+      missingPermissions: [],
+    }))
+    : {
+      accessToken: null,
+      accountLabel: null,
+      businessId: null,
+      connected: false,
+      error: null,
+      missingPermissions: [],
+    };
   const dueScheduledPublications = publications.some((publication) =>
     publication.status === "scheduled" &&
     publication.youtube_video_id &&
@@ -537,6 +757,7 @@ export async function readShortsPublicationState({
       costsByDraft,
       draft: draftById.get(schedule.draft_id),
       job: latestJobByDraft.get(schedule.draft_id),
+      instagramAccountLabel: instagram.accountLabel,
       publication: publicationBySchedule.get(schedule.id) ?? null,
       schedule,
     }),
@@ -579,6 +800,10 @@ export async function readShortsPublicationState({
     };
 
   return {
+    instagramAccountLabel: instagram.accountLabel,
+    instagramConnected: instagram.connected,
+    instagramError: instagram.error,
+    instagramMissingPermissions: instagram.missingPermissions,
     items,
     youtubeChannelTitle: youtube.channelTitle,
     youtubeConnected: youtube.connected,
@@ -606,17 +831,17 @@ function normalizeText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
-async function readScheduleForPublication(scheduleId: string, userId: string) {
+async function readScheduleForPublication(scheduleId: string, userId: string, platform: PublicationPlatform) {
   const supabase = getPublicationClient();
   const { data: schedule, error: scheduleError } = await supabase
     .from("short_video_schedules")
     .select("id,draft_id,platform,scheduled_at,status,timezone")
     .eq("id", scheduleId)
-    .eq("platform", "youtube")
+    .eq("platform", platform)
     .single<ScheduleRow>();
 
   if (scheduleError) {
-    throw new Error(`Programmation YouTube introuvable: ${scheduleError.message}`);
+    throw new Error(`Programmation ${platform} introuvable: ${scheduleError.message}`);
   }
 
   const { data: draft, error: draftError } = await supabase
@@ -675,13 +900,13 @@ async function latestValidatedJob(draftId: string) {
   return (data ?? []).find((job) => metadataString(job.metadata, "video_validation_status") === "validated") ?? null;
 }
 
-async function assertNoActiveDuplicate(draftId: string, scheduleId: string) {
+async function assertNoActiveDuplicate(draftId: string, scheduleId: string, platform: PublicationPlatform) {
   const { data, error } = await getPublicationClient()
     .from("short_video_publications")
     .select("id,status,schedule_id")
     .eq("draft_id", draftId)
-    .eq("platform", "youtube")
-    .in("status", ["draft", "ready", "publishing", "scheduled"])
+    .eq("platform", platform)
+    .in("status", ["draft", "ready", "publishing", "processing_media", "scheduled"])
     .returns<Array<{ id: string; schedule_id: string; status: PublicationStatus }>>();
 
   if (error) {
@@ -690,7 +915,7 @@ async function assertNoActiveDuplicate(draftId: string, scheduleId: string) {
 
   const duplicate = (data ?? []).find((row) => row.schedule_id !== scheduleId);
   if (duplicate) {
-    throw new Error("Publication YouTube active deja existante pour ce brouillon.");
+    throw new Error(`Publication ${platform} active deja existante pour ce brouillon.`);
   }
 }
 
@@ -704,7 +929,7 @@ export async function prepareYouTubeShortPublication({
   userId: string;
 }) {
   const supabase = getPublicationClient();
-  const { draft, schedule } = await readScheduleForPublication(scheduleId, userId);
+  const { draft, schedule } = await readScheduleForPublication(scheduleId, userId, "youtube");
   const normalized = normalizePublicationInput(input, draft, schedule);
   const job = await latestValidatedJob(draft.id);
 
@@ -712,7 +937,7 @@ export async function prepareYouTubeShortPublication({
     throw new Error("Video finale validee introuvable.");
   }
 
-  await assertNoActiveDuplicate(draft.id, schedule.id);
+  await assertNoActiveDuplicate(draft.id, schedule.id, "youtube");
 
   const { data: existingPublication, error: existingError } = await supabase
     .from("short_video_publications")
@@ -758,17 +983,86 @@ export async function prepareYouTubeShortPublication({
   return readShortsPublicationState({ userId });
 }
 
-async function readPreparedPublication(publicationId: string, userId: string) {
+export async function prepareInstagramReelPublication({
+  input,
+  scheduleId,
+  userId,
+}: {
+  input: Record<string, unknown>;
+  scheduleId: string;
+  userId: string;
+}) {
+  const supabase = getPublicationClient();
+  const { draft, schedule } = await readScheduleForPublication(scheduleId, userId, "instagram");
+  const normalized = normalizePublicationInput(input, draft, schedule);
+  const job = await latestValidatedJob(draft.id);
+  const instagram = await readInstagramConnection();
+
+  if (!job?.output_url && !job?.output_path) {
+    throw new Error("Video finale validee introuvable.");
+  }
+  if (!instagram.connected || !instagram.businessId) {
+    throw new Error(instagram.error ?? "Compte Instagram Business/Creator non connecte.");
+  }
+
+  await assertNoActiveDuplicate(draft.id, schedule.id, "instagram");
+
+  const { data: existingPublication, error: existingError } = await supabase
+    .from("short_video_publications")
+    .select("id,status")
+    .eq("schedule_id", schedule.id)
+    .eq("platform", "instagram")
+    .maybeSingle<{ id: string; status: PublicationStatus }>();
+
+  if (existingError) {
+    throw new Error(`Lecture publication Instagram existante impossible: ${existingError.message}`);
+  }
+
+  if (existingPublication && ["publishing", "processing_media", "published"].includes(existingPublication.status)) {
+    throw new Error("Publication Instagram verrouillee apres envoi a Meta.");
+  }
+
+  const row = {
+    account_id: instagram.businessId,
+    description: normalized.description,
+    draft_id: draft.id,
+    hashtags: normalized.hashtags,
+    metadata: {
+      prepared_from: "instagram_reels_v1",
+      video_output_path: job.output_path,
+      video_output_url: job.output_url,
+    },
+    platform: "instagram",
+    schedule_id: schedule.id,
+    scheduled_at: normalized.scheduledAt,
+    status: "ready",
+    timezone: schedule.timezone,
+    title: normalized.title,
+    visibility: "public",
+  };
+
+  const { error } = await supabase
+    .from("short_video_publications")
+    .upsert(row, { onConflict: "schedule_id,platform" });
+
+  if (error) {
+    throw new Error(`Preparation publication Instagram impossible: ${error.message}`);
+  }
+
+  return readShortsPublicationState({ userId });
+}
+
+async function readPreparedPublication(publicationId: string, userId: string, platform: PublicationPlatform) {
   const supabase = getPublicationClient();
   const { data: publication, error: publicationError } = await supabase
     .from("short_video_publications")
-    .select("id,schedule_id,draft_id,platform,status,title,description,hashtags,visibility,scheduled_at,timezone,account_id,youtube_video_id,youtube_url,published_at,error_message,metadata,created_at,updated_at")
+    .select("id,schedule_id,draft_id,platform,status,title,description,hashtags,visibility,scheduled_at,timezone,account_id,youtube_video_id,youtube_url,instagram_media_id,instagram_permalink,published_at,error_message,metadata,created_at,updated_at")
     .eq("id", publicationId)
-    .eq("platform", "youtube")
+    .eq("platform", platform)
     .single<PublicationRow>();
 
   if (publicationError) {
-    throw new Error(`Publication YouTube introuvable: ${publicationError.message}`);
+    throw new Error(`Publication ${platform} introuvable: ${publicationError.message}`);
   }
 
   const { data: draft, error: draftError } = await supabase
@@ -883,6 +1177,209 @@ async function downloadVideoBytes(job: RenderJobRow) {
   };
 }
 
+async function isVideoUrlReachable(videoUrl: string) {
+  const headResponse = await fetch(videoUrl, {
+    cache: "no-store",
+    method: "HEAD",
+  });
+  if (headResponse.ok) {
+    return true;
+  }
+
+  const getResponse = await fetch(videoUrl, {
+    cache: "no-store",
+    headers: { Range: "bytes=0-0" },
+    method: "GET",
+  });
+
+  return getResponse.ok || getResponse.status === 206;
+}
+
+async function instagramVideoUrl(job: RenderJobRow) {
+  if (job.output_url?.startsWith("https://")) {
+    if (!(await isVideoUrlReachable(job.output_url))) {
+      throw new Error("Video finale inaccessible par URL HTTPS pour Meta.");
+    }
+    return job.output_url;
+  }
+
+  if (!job.output_path) {
+    throw new Error("Video finale sans URL publique ni chemin Storage.");
+  }
+
+  const path = job.output_path.replace(/^content-assets\//, "");
+  const { data, error } = await getPublicationClient()
+    .storage
+    .from("content-assets")
+    .createSignedUrl(path, 21_600);
+
+  if (error || !data?.signedUrl) {
+    throw new Error(`Creation URL signee Instagram impossible: ${error?.message ?? "URL absente"}.`);
+  }
+
+  if (!(await isVideoUrlReachable(data.signedUrl))) {
+    throw new Error("URL signee video inaccessible pour Meta.");
+  }
+
+  return data.signedUrl;
+}
+
+async function createInstagramReelContainer({
+  accessToken,
+  businessId,
+  caption,
+  videoUrl,
+}: {
+  accessToken: string;
+  businessId: string;
+  caption: string;
+  videoUrl: string;
+}) {
+  const endpoint = new URL(`https://graph.facebook.com/${getInstagramGraphVersion()}/${businessId}/media`);
+  const body = new URLSearchParams({
+    access_token: accessToken,
+    caption,
+    media_type: "REELS",
+    video_url: videoUrl,
+  });
+  const response = await fetch(endpoint, {
+    body,
+    cache: "no-store",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    method: "POST",
+  });
+  const payload = await response.json().catch(() => null) as InstagramMediaContainerResponse | null;
+  const creationId = payload?.creation_id ?? payload?.id ?? null;
+
+  if (!response.ok || payload?.error || !creationId) {
+    const sanitized = sanitizeMetaGraphError(payload, response.status);
+    throw new Error(`Erreur Instagram: ${sanitized.message}`);
+  }
+
+  return creationId;
+}
+
+async function readInstagramContainerStatus({
+  accessToken,
+  creationId,
+}: {
+  accessToken: string;
+  creationId: string;
+}) {
+  const endpoint = new URL(`https://graph.facebook.com/${getInstagramGraphVersion()}/${creationId}`);
+  endpoint.searchParams.set("access_token", accessToken);
+  endpoint.searchParams.set("fields", "status_code,status");
+  const response = await fetch(endpoint, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+    method: "GET",
+  });
+  const payload = await response.json().catch(() => null) as InstagramContainerStatusResponse | null;
+
+  if (!response.ok || payload?.error) {
+    const sanitized = sanitizeMetaGraphError(payload, response.status);
+    throw new Error(`Erreur Instagram: ${sanitized.message}`);
+  }
+
+  return {
+    status: payload?.status ?? null,
+    statusCode: payload?.status_code ?? null,
+  };
+}
+
+async function waitForInstagramContainer({
+  accessToken,
+  creationId,
+  publicationId,
+}: {
+  accessToken: string;
+  creationId: string;
+  publicationId: string;
+}) {
+  for (let attempt = 1; attempt <= INSTAGRAM_CONTAINER_POLL_ATTEMPTS; attempt += 1) {
+    const status = await readInstagramContainerStatus({ accessToken, creationId });
+    console.info("[Shorts Publication Instagram] media container status", {
+      attempt,
+      creation_id: creationId,
+      publication_id: publicationId,
+      status: status.status,
+      status_code: status.statusCode,
+    });
+
+    if (status.statusCode === "FINISHED") {
+      return status;
+    }
+    if (status.statusCode === "ERROR" || status.statusCode === "EXPIRED") {
+      throw new Error(`Traitement Instagram impossible: ${status.status ?? status.statusCode}.`);
+    }
+    if (attempt < INSTAGRAM_CONTAINER_POLL_ATTEMPTS) {
+      await wait(INSTAGRAM_CONTAINER_POLL_DELAY_MS);
+    }
+  }
+
+  throw new Error("Traitement Instagram non termine dans le delai imparti. Reessaie la publication.");
+}
+
+async function publishInstagramContainer({
+  accessToken,
+  businessId,
+  creationId,
+}: {
+  accessToken: string;
+  businessId: string;
+  creationId: string;
+}) {
+  const endpoint = new URL(`https://graph.facebook.com/${getInstagramGraphVersion()}/${businessId}/media_publish`);
+  const body = new URLSearchParams({
+    access_token: accessToken,
+    creation_id: creationId,
+  });
+  const response = await fetch(endpoint, {
+    body,
+    cache: "no-store",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    method: "POST",
+  });
+  const payload = await response.json().catch(() => null) as InstagramPublishResponse | null;
+
+  if (!response.ok || payload?.error || !payload?.id) {
+    const sanitized = sanitizeMetaGraphError(payload, response.status);
+    throw new Error(`Erreur Instagram: ${sanitized.message}`);
+  }
+
+  return payload.id;
+}
+
+async function readInstagramPermalink({
+  accessToken,
+  mediaId,
+}: {
+  accessToken: string;
+  mediaId: string;
+}) {
+  const endpoint = new URL(`https://graph.facebook.com/${getInstagramGraphVersion()}/${mediaId}`);
+  endpoint.searchParams.set("access_token", accessToken);
+  endpoint.searchParams.set("fields", "permalink");
+  const response = await fetch(endpoint, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+    method: "GET",
+  });
+  const payload = await response.json().catch(() => null) as InstagramMediaResponse | null;
+
+  if (!response.ok || payload?.error) {
+    const sanitized = sanitizeMetaGraphError(payload, response.status);
+    console.warn("[Shorts Publication Instagram] permalink lookup failed", {
+      code: sanitized.code,
+      message: sanitized.message,
+      media_id: mediaId,
+    });
+    return null;
+  }
+
+  return payload?.permalink ?? null;
+}
+
 async function uploadYouTubeVideo({
   accessToken,
   description,
@@ -978,6 +1475,165 @@ async function uploadYouTubeVideo({
   };
 }
 
+export async function publishInstagramReel({
+  input,
+  publicationId,
+  userId,
+}: {
+  input: Record<string, unknown>;
+  publicationId: string;
+  userId: string;
+}) {
+  const supabase = getPublicationClient();
+  const { draft, publication } = await readPreparedPublication(publicationId, userId, "instagram");
+  const normalized = normalizePublicationInput(input, draft, {
+    draft_id: draft.id,
+    id: publication.schedule_id,
+    platform: "instagram",
+    scheduled_at: publication.scheduled_at,
+    status: "scheduled",
+    timezone: publication.timezone,
+  });
+  const job = await latestValidatedJob(draft.id);
+
+  if (!["video_validated", "ready_to_publish"].includes(draft.status ?? "")) {
+    throw new Error("Video non validee.");
+  }
+  if (!job?.output_url && !job?.output_path) {
+    throw new Error("Video finale accessible introuvable.");
+  }
+  if (["publishing", "processing_media", "published"].includes(publication.status)) {
+    throw new Error("Cette publication Instagram est deja envoyee ou publiee.");
+  }
+
+  await assertNoActiveDuplicate(draft.id, publication.schedule_id, "instagram");
+
+  const instagram = await readInstagramConnection();
+  if (!instagram.connected || !instagram.accessToken || !instagram.businessId) {
+    throw new Error(instagram.error ?? "Compte Instagram Business/Creator non connecte.");
+  }
+
+  await supabase
+    .from("short_video_publications")
+    .update({
+      account_id: instagram.businessId,
+      description: normalized.description,
+      error_message: null,
+      hashtags: normalized.hashtags,
+      metadata: {
+        ...publication.metadata,
+        instagram_account_label: instagram.accountLabel,
+        publication_event_source: "manual_instagram_reels_v1",
+      },
+      scheduled_at: new Date().toISOString(),
+      status: "publishing",
+      title: normalized.title,
+      visibility: "public",
+    })
+    .eq("id", publication.id);
+
+  try {
+    const videoUrl = await instagramVideoUrl(job);
+    const caption = composeFinalPublicationDescription(normalized.description, normalized.hashtags);
+    const creationId = await createInstagramReelContainer({
+      accessToken: instagram.accessToken,
+      businessId: instagram.businessId,
+      caption,
+      videoUrl,
+    });
+
+    await supabase
+      .from("short_video_publications")
+      .update({
+        metadata: {
+          ...publication.metadata,
+          instagram_account_label: instagram.accountLabel,
+          instagram_creation_id: creationId,
+          publication_event_source: "manual_instagram_reels_v1",
+          video_output_path: job.output_path,
+        },
+        status: "processing_media",
+      })
+      .eq("id", publication.id);
+
+    await waitForInstagramContainer({
+      accessToken: instagram.accessToken,
+      creationId,
+      publicationId: publication.id,
+    });
+
+    const mediaId = await publishInstagramContainer({
+      accessToken: instagram.accessToken,
+      businessId: instagram.businessId,
+      creationId,
+    });
+    const permalink = await readInstagramPermalink({
+      accessToken: instagram.accessToken,
+      mediaId,
+    });
+    const publishedAt = new Date().toISOString();
+    const { error } = await supabase
+      .from("short_video_publications")
+      .update({
+        error_message: null,
+        instagram_media_id: mediaId,
+        instagram_permalink: permalink,
+        metadata: {
+          ...publication.metadata,
+          instagram_account_label: instagram.accountLabel,
+          instagram_creation_id: creationId,
+          publication_event_source: "manual_instagram_reels_v1",
+          video_output_path: job.output_path,
+        },
+        published_at: publishedAt,
+        scheduled_at: publishedAt,
+        status: "published",
+      })
+      .eq("id", publication.id);
+
+    if (error) {
+      throw new Error(`Publication reussie mais historique Instagram impossible: ${error.message}`);
+    }
+  } catch (error) {
+    const message = readableInstagramError(error instanceof Error ? error.message : "Publication Instagram impossible.");
+    await supabase
+      .from("short_video_publications")
+      .update({
+        error_message: message,
+        status: "failed",
+      })
+      .eq("id", publication.id);
+    throw new Error(message);
+  }
+
+  return readShortsPublicationState({ userId });
+}
+
+export async function processDueInstagramPublication({
+  publicationId,
+  userId,
+}: {
+  publicationId: string;
+  userId: string;
+}) {
+  const { publication } = await readPreparedPublication(publicationId, userId, "instagram");
+  if (publication.status !== "ready" || Date.parse(publication.scheduled_at) > Date.now()) {
+    return readShortsPublicationState({ userId });
+  }
+
+  return publishInstagramReel({
+    input: {
+      description: publication.description,
+      hashtags: publication.hashtags,
+      scheduledAt: new Date().toISOString(),
+      title: publication.title,
+      visibility: publication.visibility,
+    },
+    publicationId,
+    userId,
+  });
+}
+
 export async function publishYouTubeShort({
   input,
   publicationId,
@@ -988,7 +1644,7 @@ export async function publishYouTubeShort({
   userId: string;
 }) {
   const supabase = getPublicationClient();
-  const { draft, publication } = await readPreparedPublication(publicationId, userId);
+  const { draft, publication } = await readPreparedPublication(publicationId, userId, "youtube");
   const normalized = normalizePublicationInput(input, draft, {
     draft_id: draft.id,
     id: publication.schedule_id,
@@ -1009,7 +1665,7 @@ export async function publishYouTubeShort({
     throw new Error("Cette video est deja programmee sur YouTube.");
   }
 
-  await assertNoActiveDuplicate(draft.id, publication.schedule_id);
+  await assertNoActiveDuplicate(draft.id, publication.schedule_id, "youtube");
 
   const youtube = await readYouTubeConnection();
   if (!youtube.connected || !youtube.accessToken) {

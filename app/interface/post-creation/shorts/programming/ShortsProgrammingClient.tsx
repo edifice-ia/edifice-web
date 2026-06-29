@@ -45,7 +45,7 @@ type SchedulingPayload = {
   error?: string;
 };
 
-type PublicationStatus = "draft" | "ready" | "publishing" | "scheduled" | "published" | "failed" | "cancelled";
+type PublicationStatus = "draft" | "ready" | "publishing" | "processing_media" | "scheduled" | "published" | "failed" | "cancelled";
 type PublicationVisibility = "private" | "unlisted" | "public";
 type SchedulePlatformChoice = ShortsSchedulePlatform | "all";
 type PublicationPlatformFilter = "all" | ShortsSchedulePlatform;
@@ -58,6 +58,8 @@ type ShortsPublicationItem = {
   draftId: string;
   errorMessage: string | null;
   hashtags: string[];
+  instagramMediaId: string | null;
+  instagramPermalink: string | null;
   isPastDue: boolean;
   manifestUrl: string | null;
   outputUrl: string | null;
@@ -77,6 +79,10 @@ type ShortsPublicationItem = {
 
 type PublicationPayload = {
   error?: string;
+  instagramAccountLabel?: string | null;
+  instagramConnected?: boolean;
+  instagramError?: string | null;
+  instagramMissingPermissions?: string[];
   items?: ShortsPublicationItem[];
   youtubeChannelTitle?: string | null;
   youtubeConnected?: boolean;
@@ -213,6 +219,9 @@ function readableStatus(status: string, isPastDue = false) {
   if (status === "publishing") {
     return "Publication en cours";
   }
+  if (status === "processing_media") {
+    return "Traitement media";
+  }
   if (isPastDue) {
     return "Creneau depasse";
   }
@@ -269,7 +278,7 @@ function publicationStatusTabFor(item: ShortsPublicationItem): PublicationStatus
   if (item.status === "cancelled") {
     return "cancelled";
   }
-  if (item.status === "scheduled" || item.status === "publishing") {
+  if (item.status === "scheduled" || item.status === "publishing" || item.status === "processing_media") {
     return "scheduled";
   }
 
@@ -341,6 +350,10 @@ export function ShortsProgrammingClient() {
   const [youtubeChannelTitle, setYoutubeChannelTitle] = useState<string | null>(null);
   const [youtubeDiagnostic, setYoutubeDiagnostic] = useState<PublicationPayload["youtubeDiagnostic"]>(null);
   const [youtubeError, setYoutubeError] = useState<string | null>(null);
+  const [instagramConnected, setInstagramConnected] = useState(false);
+  const [instagramAccountLabel, setInstagramAccountLabel] = useState<string | null>(null);
+  const [instagramError, setInstagramError] = useState<string | null>(null);
+  const [instagramMissingPermissions, setInstagramMissingPermissions] = useState<string[]>([]);
   const [selectedPublication, setSelectedPublication] = useState<ShortsPublicationItem | null>(null);
   const [publicationForm, setPublicationForm] = useState<PublicationForm | null>(null);
   const [isPublicationLoading, setIsPublicationLoading] = useState(false);
@@ -421,16 +434,23 @@ export function ShortsProgrammingClient() {
       return statusMatches && platformMatches;
     });
   }, [publicationItems, publicationPlatformFilter, publicationStatusTab]);
-  const pendingPublicationCount = useMemo(
-    () => publicationItems.filter((item) => !["published", "failed", "cancelled"].includes(item.status)).length,
-    [publicationItems],
-  );
-  const youtubeCardMessage = pendingPublicationCount === 0
+  const youtubePendingCount = publicationItems.filter((item) =>
+    item.platform === "youtube" && !["published", "failed", "cancelled"].includes(item.status),
+  ).length;
+  const youtubeCardMessage = youtubePendingCount === 0
     ? "Aucune video prete a publier pour le moment."
     : youtubeConnected
       ? `Connecte: ${youtubeChannelTitle ?? "chaine YouTube"}`
       : sanitizePublicationMessage(youtubeError) ?? "Le compte YouTube n'est pas connecte.";
-  const youtubeCardIsNeutral = pendingPublicationCount === 0;
+  const youtubeCardIsNeutral = youtubePendingCount === 0;
+  const instagramPendingCount = publicationItems.filter((item) =>
+    item.platform === "instagram" && !["published", "failed", "cancelled"].includes(item.status),
+  ).length;
+  const instagramCardMessage = instagramPendingCount === 0
+    ? "Aucune programmation Instagram a traiter."
+    : instagramConnected
+      ? `Connecte: ${instagramAccountLabel ?? "compte Instagram"}`
+      : instagramError ?? "Le compte Instagram Business/Creator n'est pas connecte.";
   const publicationCountsByPlatform = useMemo(() => {
     const counts = new Map<ShortsSchedulePlatform, number>(platforms.map((platform) => [platform, 0]));
     publicationItems
@@ -445,6 +465,12 @@ export function ShortsProgrammingClient() {
     Date.parse(selectedPublicationScheduledIso) > nowMs + 60_000;
   const selectedPublicationIsPast = Number.isFinite(Date.parse(selectedPublicationScheduledIso)) &&
     Date.parse(selectedPublicationScheduledIso) <= nowMs;
+  const selectedPublicationLocked = selectedPublication
+    ? ["scheduled", "published", "publishing", "processing_media"].includes(selectedPublication.status)
+    : false;
+  const selectedPublicationSupportsPreparation = selectedPublication
+    ? selectedPublication.platform === "youtube" || selectedPublication.platform === "instagram"
+    : false;
   const publicationFinalDescriptionPreview = publicationForm
     ? composeFinalPublicationDescription(publicationForm.description, publicationForm.hashtags)
     : "";
@@ -516,6 +542,10 @@ export function ShortsProgrammingClient() {
       setYoutubeChannelTitle(payload.youtubeChannelTitle ?? null);
       setYoutubeDiagnostic(payload.youtubeDiagnostic ?? null);
       setYoutubeError(sanitizePublicationMessage(payload.youtubeError));
+      setInstagramConnected(Boolean(payload.instagramConnected));
+      setInstagramAccountLabel(payload.instagramAccountLabel ?? null);
+      setInstagramError(payload.instagramError ?? null);
+      setInstagramMissingPermissions(payload.instagramMissingPermissions ?? []);
       if (selectedPublication) {
         setSelectedPublication(payload.items.find((item) => item.scheduleId === selectedPublication.scheduleId) ?? null);
       }
@@ -555,13 +585,16 @@ export function ShortsProgrammingClient() {
     setPublicationNotice(null);
 
     try {
+      const action = selectedPublication.platform === "instagram"
+        ? "prepare_instagram"
+        : "prepare_youtube";
       const response = await fetch("/api/content-workshop/shorts-publications", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: "prepare_youtube",
+          action,
           scheduleId: selectedPublication.scheduleId,
           data: {
             description: separatePublicationDescription(publicationForm.description, publicationForm.hashtags).description,
@@ -575,7 +608,7 @@ export function ShortsProgrammingClient() {
       const payload = (await response.json()) as PublicationPayload;
 
       if (!response.ok || !payload.items) {
-        throw new Error(payload.error ?? "Preparation YouTube indisponible.");
+        throw new Error(payload.error ?? "Preparation publication indisponible.");
       }
 
       setPublicationItems(payload.items);
@@ -596,7 +629,7 @@ export function ShortsProgrammingClient() {
       setPublicationError(
         caughtError instanceof Error
           ? caughtError.message
-          : "Preparation YouTube indisponible.",
+          : "Preparation publication indisponible.",
       );
     } finally {
       setIsPublicationSaving(false);
@@ -613,13 +646,16 @@ export function ShortsProgrammingClient() {
     setPublicationNotice(null);
 
     try {
+      const action = selectedPublication.platform === "instagram"
+        ? "publish_instagram"
+        : "publish_youtube";
       const response = await fetch("/api/content-workshop/shorts-publications", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: "publish_youtube",
+          action,
           publicationId: selectedPublication.publicationId,
           data: {
             description: separatePublicationDescription(publicationForm.description, publicationForm.hashtags).description,
@@ -633,19 +669,23 @@ export function ShortsProgrammingClient() {
       const payload = (await response.json()) as PublicationPayload;
 
       if (!response.ok || !payload.items) {
-        throw new Error(payload.error ?? "Publication YouTube indisponible.");
+        throw new Error(payload.error ?? "Publication indisponible.");
       }
 
       setPublicationItems(payload.items);
       const next = payload.items.find((item) => item.publicationId === selectedPublication.publicationId) ?? null;
       setSelectedPublication(next);
       setConfirmingPublicationId(null);
-      setPublicationNotice("Programmee sur YouTube. La publication automatique sera geree par YouTube.");
+      setPublicationNotice(
+        selectedPublication.platform === "instagram"
+          ? "Publie sur Instagram."
+          : "Programmee sur YouTube. La publication automatique sera geree par YouTube.",
+      );
     } catch (caughtError) {
       setPublicationError(
         caughtError instanceof Error
           ? caughtError.message
-          : "Publication YouTube indisponible.",
+          : "Publication indisponible.",
       );
     } finally {
       setIsPublicationSaving(false);
@@ -1037,7 +1077,7 @@ export function ShortsProgrammingClient() {
                   ? `${publicationCountsByPlatform.get("youtube")} programmation(s) YouTube a traiter.`
                   : youtubeCardMessage}
               </p>
-              {youtubeDiagnostic && pendingPublicationCount > 0 ? (
+              {youtubeDiagnostic && youtubePendingCount > 0 ? (
                 <details className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-xs text-[#A7B0C0]">
                   <summary className="cursor-pointer font-semibold text-[#F8FAFC]">
                     Detail technique
@@ -1051,10 +1091,30 @@ export function ShortsProgrammingClient() {
                 </details>
               ) : null}
             </div>
-            <ComingSoonPlatform
-              count={publicationCountsByPlatform.get("instagram") ?? 0}
-              title="Instagram"
-            />
+            <div className={`rounded-md border p-4 ${
+              instagramPendingCount === 0
+                ? "border-[#1D2A44] bg-[#08111A]"
+                : instagramConnected
+                  ? "border-[#39E6D0]/35 bg-[#39E6D0]/10"
+                  : "border-[#F97316]/35 bg-[#F97316]/10"
+            }`}>
+              <p className="text-sm font-semibold text-[#F8FAFC]">Instagram Reels</p>
+              <p className="mt-2 min-w-0 truncate text-sm text-[#A7B0C0]" title={instagramCardMessage}>
+                {instagramPendingCount
+                  ? `${instagramPendingCount} programmation(s) Instagram a traiter.`
+                  : instagramCardMessage}
+              </p>
+              {instagramPendingCount > 0 ? (
+                <p className="mt-2 text-xs font-semibold text-[#A7B0C0]">
+                  {instagramConnected ? `Compte cible: ${instagramAccountLabel ?? "Instagram"}` : instagramCardMessage}
+                </p>
+              ) : null}
+              {instagramMissingPermissions.length > 0 ? (
+                <p className="mt-2 text-xs font-semibold text-[#FDBA74]">
+                  Permission manquante: {instagramMissingPermissions.join(", ")}
+                </p>
+              ) : null}
+            </div>
             <ComingSoonPlatform
               count={publicationCountsByPlatform.get("tiktok") ?? 0}
               title="TikTok"
@@ -1176,6 +1236,16 @@ export function ShortsProgrammingClient() {
                           Envoyee a YouTube - publication automatique prevue le {formatDateTime(item.scheduledAt)}.
                         </p>
                       ) : null}
+                      {item.platform === "instagram" && item.status === "ready" ? (
+                        <p className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">
+                          Programmation enregistree - publication manuelle requise pour le moment.
+                        </p>
+                      ) : null}
+                      {item.platform === "instagram" && item.status === "processing_media" ? (
+                        <p className="mt-3 rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                          Traitement du Reel en cours chez Instagram.
+                        </p>
+                      ) : null}
                       {item.errorMessage ? (
                         <p className="mt-3 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm text-[#FDBA74]">
                           {item.errorMessage}
@@ -1189,6 +1259,15 @@ export function ShortsProgrammingClient() {
                           target="_blank"
                         >
                           Ouvrir sur YouTube Studio
+                        </a>
+                      ) : item.instagramPermalink ? (
+                        <a
+                          className="mt-3 inline-flex rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC]"
+                          href={item.instagramPermalink}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Ouvrir sur Instagram
                         </a>
                       ) : (
                         <button
@@ -1252,23 +1331,33 @@ export function ShortsProgrammingClient() {
                     ) : (
                       <InfoLine label="Manifest" value="Lien indisponible" />
                     )}
+                    {selectedPublication.instagramPermalink ? (
+                      <a
+                        className="min-w-0 overflow-hidden rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC]"
+                        href={selectedPublication.instagramPermalink}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Ouvrir le Reel Instagram
+                      </a>
+                    ) : null}
                   </div>
                   <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
-                    Titre
+                    {selectedPublication.platform === "instagram" ? "Titre interne" : "Titre"}
                     <input
                       value={publicationForm.title}
                       onChange={(event) => setPublicationForm({ ...publicationForm, title: event.target.value })}
-                      readOnly={selectedPublication.platform !== "youtube"}
+                      readOnly={!selectedPublicationSupportsPreparation || selectedPublicationLocked}
                       className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
                     />
                   </label>
                   <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
-                    Description
+                    {selectedPublication.platform === "instagram" ? "Legende" : "Description"}
                     <textarea
                       rows={5}
                       value={publicationForm.description}
                       onChange={(event) => setPublicationForm({ ...publicationForm, description: event.target.value })}
-                      readOnly={selectedPublication.platform !== "youtube"}
+                      readOnly={!selectedPublicationSupportsPreparation || selectedPublicationLocked}
                       className="min-w-0 resize-y rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
                     />
                   </label>
@@ -1277,13 +1366,13 @@ export function ShortsProgrammingClient() {
                     <input
                       value={publicationForm.hashtags}
                       onChange={(event) => setPublicationForm({ ...publicationForm, hashtags: event.target.value })}
-                      readOnly={selectedPublication.platform !== "youtube"}
+                      readOnly={!selectedPublicationSupportsPreparation || selectedPublicationLocked}
                       className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
                     />
                   </label>
                   <div className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#A7B0C0]">
-                      Description finale publiee
+                      {selectedPublication.platform === "instagram" ? "Legende finale publiee" : "Description finale publiee"}
                     </p>
                     <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[#F8FAFC]">
                       {publicationFinalDescriptionPreview || "Aucune description finale."}
@@ -1296,7 +1385,7 @@ export function ShortsProgrammingClient() {
                       <select
                         value={selectedPublicationIsFuture ? "private" : publicationForm.visibility}
                         onChange={(event) => setPublicationForm({ ...publicationForm, visibility: event.target.value as PublicationVisibility })}
-                        disabled={selectedPublicationIsFuture || ["scheduled", "published", "publishing"].includes(selectedPublication.status)}
+                        disabled={selectedPublicationIsFuture || selectedPublicationLocked}
                         className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
                       >
                         {selectedPublicationIsFuture ? (
@@ -1316,7 +1405,7 @@ export function ShortsProgrammingClient() {
                         type="datetime-local"
                         value={publicationForm.scheduledAt}
                         onChange={(event) => setPublicationForm({ ...publicationForm, scheduledAt: event.target.value })}
-                        disabled={["scheduled", "published", "publishing"].includes(selectedPublication.status)}
+                        disabled={selectedPublicationLocked}
                         className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
                       />
                     </label>
@@ -1336,21 +1425,58 @@ export function ShortsProgrammingClient() {
                         Prete a programmer sur YouTube. L&apos;upload sera envoye maintenant en prive avec une publication automatique par YouTube.
                       </p>
                     )
+                  ) : selectedPublication.platform === "instagram" ? (
+                    selectedPublication.status === "published" ? (
+                      <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                        Publie sur Instagram{selectedPublication.publishedAt ? ` le ${formatDateTime(selectedPublication.publishedAt)}` : ""}.
+                      </p>
+                    ) : selectedPublication.status === "processing_media" || selectedPublication.status === "publishing" ? (
+                      <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                        Envoi Instagram en cours. Le Reel sera publie lorsque le conteneur sera pret.
+                      </p>
+                    ) : selectedPublicationIsFuture ? (
+                      <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">
+                        Programmation enregistree - publication automatique Instagram a activer.
+                      </p>
+                    ) : (
+                      <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                        Prete pour une publication immediate sur Instagram Reels.
+                      </p>
+                    )
                   ) : (
                     <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">
                       Publication bientot disponible.
                     </p>
                   )}
-                  {selectedPublication.platform === "youtube" ? (
+                  {selectedPublicationSupportsPreparation ? (
                     <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      disabled={isPublicationSaving || ["scheduled", "published", "publishing"].includes(selectedPublication.status)}
+                      disabled={isPublicationSaving || selectedPublicationLocked}
                       onClick={() => void savePublicationPreparation()}
                       className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:opacity-55"
                     >
                       Enregistrer la preparation
                     </button>
+                    {selectedPublication.platform === "instagram" ? (
+                      <button
+                        type="button"
+                        disabled={
+                          isPublicationSaving ||
+                          !selectedPublication.publicationId ||
+                          !selectedPublication.validated ||
+                          !selectedPublication.outputUrl ||
+                          !instagramConnected ||
+                          !publicationForm.title.trim() ||
+                          !publicationFinalDescriptionPreview.trim() ||
+                          selectedPublicationLocked
+                        }
+                        onClick={() => setConfirmingPublicationId(selectedPublication.publicationId)}
+                        className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                      >
+                        Publier maintenant sur Instagram
+                      </button>
+                    ) : (
                     <button
                       type="button"
                       disabled={
@@ -1362,22 +1488,27 @@ export function ShortsProgrammingClient() {
                         !publicationForm.title.trim() ||
                         !Number.isFinite(Date.parse(selectedPublicationScheduledIso)) ||
                         selectedPublicationIsPast ||
-                        ["scheduled", "published", "publishing"].includes(selectedPublication.status)
+                        selectedPublicationLocked
                       }
                       onClick={() => setConfirmingPublicationId(selectedPublication.publicationId)}
                       className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                     >
                       Programmer sur YouTube
                     </button>
+                    )}
                     </div>
                   ) : null}
                   {confirmingPublicationId ? (
                     <div className="rounded-md border border-[#39E6D0]/30 bg-[#03070B] p-3 text-sm text-[#A7B0C0]">
                       <p className="font-semibold text-[#F8FAFC]">
-                        Programmer cette video sur YouTube ?
+                        {selectedPublication.platform === "instagram"
+                          ? "Publier ce Reel sur Instagram ?"
+                          : "Programmer cette video sur YouTube ?"}
                       </p>
                       <p className="mt-2 leading-6">
-                        La video sera envoyee maintenant en prive a YouTube, puis publiee automatiquement le {publicationForm ? formatDateTime(safeInputDateTimeToIso(publicationForm.scheduledAt)) : ""} selon le fuseau Europe/Paris.
+                        {selectedPublication.platform === "instagram"
+                          ? "La video sera envoyee maintenant au compte Instagram connecte et publiee des que le media est pret."
+                          : `La video sera envoyee maintenant en prive a YouTube, puis publiee automatiquement le ${publicationForm ? formatDateTime(safeInputDateTimeToIso(publicationForm.scheduledAt)) : ""} selon le fuseau Europe/Paris.`}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
@@ -1394,7 +1525,9 @@ export function ShortsProgrammingClient() {
                           disabled={isPublicationSaving}
                           className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-55"
                         >
-                          {isPublicationSaving ? "Programmation..." : "Confirmer la programmation"}
+                          {isPublicationSaving
+                            ? selectedPublication.platform === "instagram" ? "Publication..." : "Programmation..."
+                            : selectedPublication.platform === "instagram" ? "Confirmer la publication" : "Confirmer la programmation"}
                         </button>
                       </div>
                     </div>

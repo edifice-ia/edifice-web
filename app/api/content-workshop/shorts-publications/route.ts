@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import {
+  prepareInstagramReelPublication,
   prepareYouTubeShortPublication,
+  publishInstagramReel,
   publishYouTubeShort,
   readShortsPublicationState,
 } from "@/lib/server/shorts-publication";
@@ -23,7 +25,7 @@ function publicationErrorPayload(error: unknown) {
   const message = error instanceof Error ? error.message : "Publication Shorts indisponible.";
   return {
     error: /bad request/i.test(message)
-      ? "Publication YouTube non configuree. Verifie la connexion YouTube."
+      ? "Publication non configuree. Verifie la connexion de la plateforme."
       : message,
   };
 }
@@ -118,6 +120,26 @@ export async function POST(request: Request) {
       }));
     }
 
+    if (action === "prepare_instagram") {
+      const scheduleId = typeof payload.scheduleId === "string" ? payload.scheduleId : "";
+      if (!scheduleId) {
+        logPublicationApiFailure({
+          action,
+          error: new Error("Programmation Instagram manquante."),
+          method: "POST",
+          route: "/api/content-workshop/shorts-publications",
+          validation: "missing_schedule_id",
+        });
+        return NextResponse.json({ error: "Programmation Instagram manquante." }, { status: 400 });
+      }
+
+      return NextResponse.json(await prepareInstagramReelPublication({
+        input: data,
+        scheduleId,
+        userId: user.id,
+      }));
+    }
+
     if (action === "publish_youtube") {
       const publicationId = typeof payload.publicationId === "string" ? payload.publicationId : "";
       if (!publicationId) {
@@ -132,6 +154,26 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json(await publishYouTubeShort({
+        input: data,
+        publicationId,
+        userId: user.id,
+      }));
+    }
+
+    if (action === "publish_instagram") {
+      const publicationId = typeof payload.publicationId === "string" ? payload.publicationId : "";
+      if (!publicationId) {
+        logPublicationApiFailure({
+          action,
+          error: new Error("Publication Instagram manquante."),
+          method: "POST",
+          route: "/api/content-workshop/shorts-publications",
+          validation: "missing_publication_id",
+        });
+        return NextResponse.json({ error: "Publication Instagram manquante." }, { status: 400 });
+      }
+
+      return NextResponse.json(await publishInstagramReel({
         input: data,
         publicationId,
         userId: user.id,

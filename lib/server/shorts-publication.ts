@@ -71,6 +71,17 @@ type PublicationRow = {
   youtube_video_id: string | null;
 };
 
+type YouTubeVideoStatusResponse = {
+  items?: Array<{
+    id?: string;
+    status?: {
+      privacyStatus?: string;
+      publishAt?: string;
+    };
+  }>;
+  error?: unknown;
+};
+
 export type ShortsPublicationItem = {
   accountLabel: string;
   costTotalEstimatedEur: number | null;
@@ -450,8 +461,31 @@ export async function readShortsPublicationState({
       latestJobByDraft.set(job.draft_id, job);
     }
   });
+  const publications = [...(publicationsResponse.data ?? [])];
+  const dueScheduledPublications = publications.some((publication) =>
+    publication.status === "scheduled" &&
+    publication.youtube_video_id &&
+    Date.parse(publication.scheduled_at) <= Date.now(),
+  );
+  let youtubeForReconciliation: Awaited<ReturnType<typeof readYouTubeConnection>> | null = null;
+  if (dueScheduledPublications) {
+    youtubeForReconciliation = await readYouTubeConnection().catch(() => null);
+    if (youtubeForReconciliation?.connected && youtubeForReconciliation.accessToken) {
+      const publishedIds = await reconcileScheduledYouTubePublications({
+        accessToken: youtubeForReconciliation.accessToken,
+        publications,
+      });
+
+      publications.forEach((publication) => {
+        if (publishedIds.has(publication.id)) {
+          publication.status = "published";
+          publication.published_at = publication.published_at ?? new Date().toISOString();
+        }
+      });
+    }
+  }
   const publicationBySchedule = new Map(
-    (publicationsResponse.data ?? []).map((publication) => [
+    publications.map((publication) => [
       publication.schedule_id,
       mapPublication(publication),
     ]),
@@ -478,7 +512,7 @@ export async function readShortsPublicationState({
     !["published", "failed", "cancelled"].includes(item.status),
   );
   const youtube = hasPendingYouTubePublication
-    ? await readYouTubeConnection().catch((error) => {
+    ? youtubeForReconciliation ?? await readYouTubeConnection().catch((error) => {
       const cause = readableYouTubeDiagnosticMessage(
         error instanceof Error ? error.message : "Lecture YouTube indisponible.",
       );
@@ -528,6 +562,10 @@ function normalizeVisibility(value: unknown): PublicationVisibility {
   return value === "public" || value === "unlisted" || value === "private"
     ? value
     : "private";
+}
+
+function isFutureDate(value: string) {
+  return Date.parse(value) > Date.now() + 60_000;
 }
 
 function normalizeText(value: unknown, maxLength: number) {
@@ -639,6 +677,21 @@ export async function prepareYouTubeShortPublication({
 
   await assertNoActiveDuplicate(draft.id, schedule.id);
 
+  const { data: existingPublication, error: existingError } = await supabase
+    .from("short_video_publications")
+    .select("id,status")
+    .eq("schedule_id", schedule.id)
+    .eq("platform", "youtube")
+    .maybeSingle<{ id: string; status: PublicationStatus }>();
+
+  if (existingError) {
+    throw new Error(`Lecture publication existante impossible: ${existingError.message}`);
+  }
+
+  if (existingPublication && ["publishing", "scheduled", "published"].includes(existingPublication.status)) {
+    throw new Error("Publication YouTube verrouillee apres envoi a YouTube.");
+  }
+
   const row = {
     description: normalized.description,
     draft_id: draft.id,
@@ -695,6 +748,74 @@ async function readPreparedPublication(publicationId: string, userId: string) {
   return { draft, publication };
 }
 
+async function reconcileScheduledYouTubePublications({
+  accessToken,
+  publications,
+}: {
+  accessToken: string;
+  publications: PublicationRow[];
+}) {
+  const duePublications = publications.filter((publication) =>
+    publication.platform === "youtube" &&
+    publication.status === "scheduled" &&
+    publication.youtube_video_id &&
+    Date.parse(publication.scheduled_at) <= Date.now(),
+  );
+
+  if (duePublications.length === 0) {
+    return new Set<string>();
+  }
+
+  const publishedIds = new Set<string>();
+  await Promise.all(duePublications.map(async (publication) => {
+    const url = new URL("https://www.googleapis.com/youtube/v3/videos");
+    url.searchParams.set("part", "status");
+    url.searchParams.set("id", publication.youtube_video_id ?? "");
+
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      method: "GET",
+    });
+    const payload = await response.json().catch(() => null) as YouTubeVideoStatusResponse | null;
+    const video = payload?.items?.[0];
+
+    if (!response.ok || !video?.status) {
+      const sanitized = sanitizeYouTubeError(payload, response.status);
+      logPublicationDiagnostic("[Shorts Publication YouTube] status reconciliation failed", {
+        code: sanitized.code,
+        endpoint: "https://www.googleapis.com/youtube/v3/videos?part=status",
+        method: "GET",
+        route: "/api/content-workshop/shorts-publications",
+        scheduleId: publication.schedule_id,
+        validation: sanitized.message,
+      });
+      return;
+    }
+
+    if (video.status.privacyStatus === "public") {
+      await getPublicationClient()
+        .from("short_video_publications")
+        .update({
+          error_message: null,
+          metadata: {
+            ...publication.metadata,
+            youtube_reconciled_at: new Date().toISOString(),
+          },
+          published_at: new Date().toISOString(),
+          status: "published",
+        })
+        .eq("id", publication.id);
+      publishedIds.add(publication.id);
+    }
+  }));
+
+  return publishedIds;
+}
+
 async function downloadVideoBytes(job: RenderJobRow) {
   if (job.output_path) {
     const { data, error } = await getPublicationClient()
@@ -729,6 +850,7 @@ async function uploadYouTubeVideo({
   accessToken,
   description,
   hashtags,
+  publishAt,
   title,
   video,
   visibility,
@@ -736,6 +858,7 @@ async function uploadYouTubeVideo({
   accessToken: string;
   description: string;
   hashtags: string[];
+  publishAt?: string | null;
   title: string;
   video: { bytes: ArrayBuffer; contentType: string };
   visibility: PublicationVisibility;
@@ -745,6 +868,7 @@ async function uploadYouTubeVideo({
   uploadUrl.searchParams.set("uploadType", "resumable");
 
   const hashtagText = hashtags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
+  const isScheduled = Boolean(publishAt);
   const metadata = {
     snippet: {
       categoryId: "22",
@@ -753,7 +877,8 @@ async function uploadYouTubeVideo({
       title,
     },
     status: {
-      privacyStatus: visibility,
+      privacyStatus: isScheduled ? "private" : visibility,
+      ...(isScheduled ? { publishAt } : {}),
       selfDeclaredMadeForKids: false,
     },
   };
@@ -842,6 +967,9 @@ export async function publishYouTubeShort({
   if (!job?.output_url && !job?.output_path) {
     throw new Error("Video finale disponible introuvable.");
   }
+  if (publication.status === "scheduled" && publication.youtube_video_id) {
+    throw new Error("Cette video est deja programmee sur YouTube.");
+  }
 
   await assertNoActiveDuplicate(draft.id, publication.schedule_id);
 
@@ -854,6 +982,10 @@ export async function publishYouTubeShort({
   const grantedScopes = token?.scope?.split(/[\s,]+/).filter(Boolean) ?? [];
   const scopeDiagnostic = buildYouTubeScopeDiagnostic(grantedScopes);
 
+  const futureSchedule = isFutureDate(normalized.scheduledAt);
+  const uploadVisibility = futureSchedule ? "private" : normalized.visibility;
+  const nextPublishingStatus = futureSchedule ? "publishing" : "publishing";
+
   await supabase
     .from("short_video_publications")
     .update({
@@ -863,12 +995,13 @@ export async function publishYouTubeShort({
       metadata: {
         ...publication.metadata,
         channel_title: youtube.channelTitle,
+        requested_visibility: normalized.visibility,
         scope_diagnostic: scopeDiagnostic,
       },
       scheduled_at: normalized.scheduledAt,
-      status: "publishing",
+      status: nextPublishingStatus,
       title: normalized.title,
-      visibility: normalized.visibility,
+      visibility: uploadVisibility,
     })
     .eq("id", publication.id);
 
@@ -878,25 +1011,33 @@ export async function publishYouTubeShort({
       accessToken: youtube.accessToken,
       description: normalized.description,
       hashtags: normalized.hashtags,
+      publishAt: futureSchedule ? normalized.scheduledAt : null,
       title: normalized.title,
       video,
-      visibility: normalized.visibility,
+      visibility: uploadVisibility,
     });
     const publishedAt = new Date().toISOString();
     const { error } = await supabase
       .from("short_video_publications")
       .update({
         error_message: null,
-        published_at: publishedAt,
-        status: "published",
+        published_at: futureSchedule ? null : publishedAt,
+        scheduled_at: normalized.scheduledAt,
+        status: futureSchedule ? "scheduled" : "published",
         youtube_url: upload.url,
         youtube_video_id: upload.videoId,
         metadata: {
           ...publication.metadata,
           channel_title: youtube.channelTitle,
-          publication_event_source: "manual_youtube_shorts_v1",
+          publication_event_source: futureSchedule
+            ? "scheduled_youtube_shorts_v1"
+            : "manual_youtube_shorts_v1",
+          publish_at_utc: futureSchedule ? normalized.scheduledAt : null,
+          requested_visibility: normalized.visibility,
+          upload_visibility: uploadVisibility,
           video_output_path: job.output_path,
         },
+        visibility: uploadVisibility,
       })
       .eq("id", publication.id);
 

@@ -48,7 +48,7 @@ type SchedulingPayload = {
 type PublicationStatus = "draft" | "ready" | "publishing" | "scheduled" | "published" | "failed" | "cancelled";
 type PublicationVisibility = "private" | "unlisted" | "public";
 type SchedulePlatformChoice = ShortsSchedulePlatform | "all";
-type PublicationFilter = "all" | ShortsSchedulePlatform | "published" | "failed";
+type PublicationFilter = "all" | ShortsSchedulePlatform | "scheduled" | "published" | "failed";
 
 type ShortsPublicationItem = {
   accountLabel: string;
@@ -168,8 +168,25 @@ function formatDateTimeInput(value: string) {
 }
 
 function inputDateTimeToIso(value: string) {
+  const [dateValue, timeValue] = value.split("T");
+  if (dateValue && timeValue) {
+    return scheduleDateTimeToIso(
+      dateValue,
+      timeValue.slice(0, 5),
+      DEFAULT_SHORTS_SCHEDULE_TIMEZONE,
+    );
+  }
+
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? date.toISOString() : value;
+}
+
+function safeInputDateTimeToIso(value: string) {
+  try {
+    return inputDateTimeToIso(value);
+  } catch {
+    return value;
+  }
 }
 
 function scheduleToLocalParts(value: string) {
@@ -199,10 +216,10 @@ function readableStatus(status: string, isPastDue = false) {
     return "Creneau depasse";
   }
   if (status === "ready") {
-    return "Prete a publier";
+    return "Prete a programmer sur YouTube";
   }
   if (status === "scheduled") {
-    return "Programmee";
+    return "Programmee sur YouTube";
   }
 
   return "A programmer";
@@ -315,6 +332,9 @@ export function ShortsProgrammingClient() {
     if (publicationFilter === "failed") {
       return publicationItems.filter((item) => item.status === "failed");
     }
+    if (publicationFilter === "scheduled") {
+      return publicationItems.filter((item) => item.status === "scheduled");
+    }
     if (publicationFilter === "tiktok" || publicationFilter === "instagram" || publicationFilter === "youtube") {
       return publicationItems.filter((item) => item.platform === publicationFilter && item.status !== "cancelled");
     }
@@ -337,6 +357,13 @@ export function ShortsProgrammingClient() {
       .forEach((item) => counts.set(item.platform, (counts.get(item.platform) ?? 0) + 1));
     return counts;
   }, [publicationItems]);
+  const selectedPublicationScheduledIso = publicationForm
+    ? safeInputDateTimeToIso(publicationForm.scheduledAt)
+    : "";
+  const selectedPublicationIsFuture = Number.isFinite(Date.parse(selectedPublicationScheduledIso)) &&
+    Date.parse(selectedPublicationScheduledIso) > nowMs + 60_000;
+  const selectedPublicationIsPast = Number.isFinite(Date.parse(selectedPublicationScheduledIso)) &&
+    Date.parse(selectedPublicationScheduledIso) <= nowMs;
 
   const publicationByScheduleId = useMemo(
     () => new Map(publicationItems.map((item) => [item.scheduleId, item])),
@@ -456,7 +483,7 @@ export function ShortsProgrammingClient() {
             hashtags: publicationForm.hashtags,
             scheduledAt: inputDateTimeToIso(publicationForm.scheduledAt),
             title: publicationForm.title,
-            visibility: publicationForm.visibility,
+            visibility: selectedPublicationIsFuture ? "private" : publicationForm.visibility,
           },
         }),
       });
@@ -478,7 +505,7 @@ export function ShortsProgrammingClient() {
           visibility: next.visibility,
         });
       }
-      setPublicationNotice("Publication YouTube preparee. Aucune video n'a encore ete envoyee.");
+      setPublicationNotice("Preparation enregistree. Aucune video n'a encore ete envoyee.");
     } catch (caughtError) {
       setPublicationError(
         caughtError instanceof Error
@@ -513,7 +540,7 @@ export function ShortsProgrammingClient() {
             hashtags: publicationForm.hashtags,
             scheduledAt: inputDateTimeToIso(publicationForm.scheduledAt),
             title: publicationForm.title,
-            visibility: publicationForm.visibility,
+            visibility: selectedPublicationIsFuture ? "private" : publicationForm.visibility,
           },
         }),
       });
@@ -527,7 +554,7 @@ export function ShortsProgrammingClient() {
       const next = payload.items.find((item) => item.publicationId === selectedPublication.publicationId) ?? null;
       setSelectedPublication(next);
       setConfirmingPublicationId(null);
-      setPublicationNotice("Publication YouTube terminee. Historique conserve.");
+      setPublicationNotice("Programmee sur YouTube. La publication automatique sera geree par YouTube.");
     } catch (caughtError) {
       setPublicationError(
         caughtError instanceof Error
@@ -937,6 +964,7 @@ export function ShortsProgrammingClient() {
               ["tiktok", "TikTok"],
               ["instagram", "Instagram"],
               ["youtube", "YouTube Shorts"],
+              ["scheduled", "Programmees"],
               ["published", "Publiees"],
               ["failed", "Echecs"],
             ] as const satisfies Array<readonly [PublicationFilter, string]>).map(([value, label]) => (
@@ -1000,6 +1028,11 @@ export function ShortsProgrammingClient() {
                       {item.isPastDue && item.status !== "published" ? (
                         <p className="mt-3 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm text-[#FDBA74]">
                           Creneau depasse - publication manuelle requise.
+                        </p>
+                      ) : null}
+                      {item.status === "scheduled" && item.platform === "youtube" ? (
+                        <p className="mt-3 rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                          Envoyee a YouTube - publication automatique prevue le {formatDateTime(item.scheduledAt)}.
                         </p>
                       ) : null}
                       {item.errorMessage ? (
@@ -1112,13 +1145,20 @@ export function ShortsProgrammingClient() {
                     <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
                       Visibilite
                       <select
-                        value={publicationForm.visibility}
+                        value={selectedPublicationIsFuture ? "private" : publicationForm.visibility}
                         onChange={(event) => setPublicationForm({ ...publicationForm, visibility: event.target.value as PublicationVisibility })}
+                        disabled={selectedPublicationIsFuture || ["scheduled", "published", "publishing"].includes(selectedPublication.status)}
                         className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
                       >
-                        <option value="private">Privee</option>
-                        <option value="unlisted">Non repertoriee</option>
-                        <option value="public">Publique</option>
+                        {selectedPublicationIsFuture ? (
+                          <option value="private">Programmee publique par YouTube (upload prive)</option>
+                        ) : (
+                          <>
+                            <option value="private">Privee</option>
+                            <option value="unlisted">Non repertoriee</option>
+                            <option value="public">Publique</option>
+                          </>
+                        )}
                       </select>
                     </label>
                     <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
@@ -1127,15 +1167,26 @@ export function ShortsProgrammingClient() {
                         type="datetime-local"
                         value={publicationForm.scheduledAt}
                         onChange={(event) => setPublicationForm({ ...publicationForm, scheduledAt: event.target.value })}
+                        disabled={["scheduled", "published", "publishing"].includes(selectedPublication.status)}
                         className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
                       />
                     </label>
                     </div>
                   ) : null}
                   {selectedPublication.platform === "youtube" ? (
-                    <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
-                      Publication YouTube manuelle. Modifie les metadonnees avant l&apos;etape de publication.
-                    </p>
+                    selectedPublication.status === "scheduled" ? (
+                      <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                        Programmee sur YouTube - publication automatique par YouTube le {formatDateTime(selectedPublication.scheduledAt)}.
+                      </p>
+                    ) : selectedPublicationIsPast ? (
+                      <p className="rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm font-semibold text-[#FDBA74]">
+                        Creneau depasse - publier immediatement ou reprogrammer.
+                      </p>
+                    ) : (
+                      <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                        Prete a programmer sur YouTube. L&apos;upload sera envoye maintenant en prive avec une publication automatique par YouTube.
+                      </p>
+                    )
                   ) : (
                     <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">
                       Publication bientot disponible.
@@ -1145,7 +1196,7 @@ export function ShortsProgrammingClient() {
                     <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      disabled={isPublicationSaving}
+                      disabled={isPublicationSaving || ["scheduled", "published", "publishing"].includes(selectedPublication.status)}
                       onClick={() => void savePublicationPreparation()}
                       className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:opacity-55"
                     >
@@ -1153,20 +1204,31 @@ export function ShortsProgrammingClient() {
                     </button>
                     <button
                       type="button"
-                      disabled
+                      disabled={
+                        isPublicationSaving ||
+                        !selectedPublication.publicationId ||
+                        !selectedPublication.validated ||
+                        !selectedPublication.outputUrl ||
+                        !youtubeConnected ||
+                        !publicationForm.title.trim() ||
+                        !Number.isFinite(Date.parse(selectedPublicationScheduledIso)) ||
+                        selectedPublicationIsPast ||
+                        ["scheduled", "published", "publishing"].includes(selectedPublication.status)
+                      }
+                      onClick={() => setConfirmingPublicationId(selectedPublication.publicationId)}
                       className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                     >
-                      Publication reelle desactivee
+                      Programmer sur YouTube
                     </button>
                     </div>
                   ) : null}
                   {confirmingPublicationId ? (
                     <div className="rounded-md border border-[#39E6D0]/30 bg-[#03070B] p-3 text-sm text-[#A7B0C0]">
                       <p className="font-semibold text-[#F8FAFC]">
-                        Publier cette video sur YouTube ?
+                        Programmer cette video sur YouTube ?
                       </p>
                       <p className="mt-2 leading-6">
-                        La video sera envoyee au compte YouTube connecte avec la visibilite selectionnee.
+                        La video sera envoyee maintenant en prive a YouTube, puis publiee automatiquement le {publicationForm ? formatDateTime(safeInputDateTimeToIso(publicationForm.scheduledAt)) : ""} selon le fuseau Europe/Paris.
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
@@ -1183,7 +1245,7 @@ export function ShortsProgrammingClient() {
                           disabled={isPublicationSaving}
                           className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-55"
                         >
-                          {isPublicationSaving ? "Publication..." : "Confirmer la publication"}
+                          {isPublicationSaving ? "Programmation..." : "Confirmer la programmation"}
                         </button>
                       </div>
                     </div>

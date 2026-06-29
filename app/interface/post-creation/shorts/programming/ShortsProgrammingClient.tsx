@@ -251,11 +251,52 @@ function formatEuro(value: number | null) {
 }
 
 function hashtagsToText(hashtags: string[]) {
-  return hashtags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
+  return normalizePublicationHashtags(hashtags).map((tag) => `#${tag}`).join(" ");
 }
 
 function expandPlatformChoice(platform: SchedulePlatformChoice): ShortsSchedulePlatform[] {
   return platform === "all" ? platforms : [platform];
+}
+
+function normalizePublicationHashtags(value: string[] | string) {
+  const rawItems = Array.isArray(value)
+    ? value.map((item) => String(item))
+    : value.split(/[,\s]+/);
+  const seen = new Set<string>();
+
+  return rawItems
+    .map((item) => item.trim().replace(/^#+/, ""))
+    .filter(Boolean)
+    .filter((item) => {
+      const key = item.toLocaleLowerCase("fr-FR");
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
+function separatePublicationDescription(description: string, hashtags: string[] | string) {
+  const extracted = normalizePublicationHashtags(description.match(/#[\p{L}\p{N}_-]+/gu) ?? []);
+  const cleanDescription = description
+    .replace(/#[\p{L}\p{N}_-]+/gu, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+
+  return {
+    description: cleanDescription,
+    hashtags: normalizePublicationHashtags([...extracted, ...normalizePublicationHashtags(hashtags)]),
+  };
+}
+
+function composeFinalPublicationDescription(description: string, hashtags: string[] | string) {
+  const separated = separatePublicationDescription(description, hashtags);
+  const hashtagText = separated.hashtags.map((tag) => `#${tag}`).join(" ");
+
+  return [separated.description, hashtagText].filter(Boolean).join("\n\n");
 }
 
 export function ShortsProgrammingClient() {
@@ -364,6 +405,9 @@ export function ShortsProgrammingClient() {
     Date.parse(selectedPublicationScheduledIso) > nowMs + 60_000;
   const selectedPublicationIsPast = Number.isFinite(Date.parse(selectedPublicationScheduledIso)) &&
     Date.parse(selectedPublicationScheduledIso) <= nowMs;
+  const publicationFinalDescriptionPreview = publicationForm
+    ? composeFinalPublicationDescription(publicationForm.description, publicationForm.hashtags)
+    : "";
 
   const publicationByScheduleId = useMemo(
     () => new Map(publicationItems.map((item) => [item.scheduleId, item])),
@@ -447,10 +491,11 @@ export function ShortsProgrammingClient() {
   }
 
   function openPublicationPreparation(item: ShortsPublicationItem) {
+    const separated = separatePublicationDescription(item.description, item.hashtags);
     setSelectedPublication(item);
     setPublicationForm({
-      description: item.description,
-      hashtags: hashtagsToText(item.hashtags),
+      description: separated.description,
+      hashtags: hashtagsToText(separated.hashtags),
       scheduledAt: formatDateTimeInput(item.scheduledAt),
       title: item.title,
       visibility: item.visibility,
@@ -479,8 +524,8 @@ export function ShortsProgrammingClient() {
           action: "prepare_youtube",
           scheduleId: selectedPublication.scheduleId,
           data: {
-            description: publicationForm.description,
-            hashtags: publicationForm.hashtags,
+            description: separatePublicationDescription(publicationForm.description, publicationForm.hashtags).description,
+            hashtags: hashtagsToText(separatePublicationDescription(publicationForm.description, publicationForm.hashtags).hashtags),
             scheduledAt: inputDateTimeToIso(publicationForm.scheduledAt),
             title: publicationForm.title,
             visibility: selectedPublicationIsFuture ? "private" : publicationForm.visibility,
@@ -497,9 +542,10 @@ export function ShortsProgrammingClient() {
       const next = payload.items.find((item) => item.scheduleId === selectedPublication.scheduleId) ?? null;
       setSelectedPublication(next);
       if (next) {
+        const separated = separatePublicationDescription(next.description, next.hashtags);
         setPublicationForm({
-          description: next.description,
-          hashtags: hashtagsToText(next.hashtags),
+          description: separated.description,
+          hashtags: hashtagsToText(separated.hashtags),
           scheduledAt: formatDateTimeInput(next.scheduledAt),
           title: next.title,
           visibility: next.visibility,
@@ -536,8 +582,8 @@ export function ShortsProgrammingClient() {
           action: "publish_youtube",
           publicationId: selectedPublication.publicationId,
           data: {
-            description: publicationForm.description,
-            hashtags: publicationForm.hashtags,
+            description: separatePublicationDescription(publicationForm.description, publicationForm.hashtags).description,
+            hashtags: hashtagsToText(separatePublicationDescription(publicationForm.description, publicationForm.hashtags).hashtags),
             scheduledAt: inputDateTimeToIso(publicationForm.scheduledAt),
             title: publicationForm.title,
             visibility: selectedPublicationIsFuture ? "private" : publicationForm.visibility,
@@ -1140,6 +1186,14 @@ export function ShortsProgrammingClient() {
                       className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-medium text-[#F8FAFC] outline-none"
                     />
                   </label>
+                  <div className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#A7B0C0]">
+                      Description finale publiee
+                    </p>
+                    <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[#F8FAFC]">
+                      {publicationFinalDescriptionPreview || "Aucune description finale."}
+                    </p>
+                  </div>
                   {selectedPublication.platform === "youtube" ? (
                     <div className="grid gap-3 sm:grid-cols-2">
                     <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">

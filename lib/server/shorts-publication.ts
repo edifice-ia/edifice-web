@@ -155,22 +155,53 @@ function metadataString(metadata: Record<string, unknown> | null | undefined, ke
 }
 
 function normalizeHashtags(value: unknown) {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => String(item).trim())
-      .filter(Boolean)
-      .map((item) => item.replace(/^#/, ""));
-  }
+  const rawItems = Array.isArray(value)
+    ? value.map((item) => String(item))
+    : typeof value === "string"
+      ? value.split(/[,\s]+/)
+      : [];
+  const seen = new Set<string>();
 
-  if (typeof value === "string") {
-    return value
-      .split(/[,\s]+/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((item) => item.replace(/^#/, ""));
-  }
+  return rawItems
+    .map((item) => item.trim().replace(/^#+/, ""))
+    .filter(Boolean)
+    .filter((item) => {
+      const key = item.toLocaleLowerCase("fr-FR");
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
 
-  return [];
+function extractHashtagsFromText(value: string) {
+  const hashtags = normalizeHashtags(value.match(/#[\p{L}\p{N}_-]+/gu) ?? []);
+  const description = value
+    .replace(/#[\p{L}\p{N}_-]+/gu, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+
+  return { description, hashtags };
+}
+
+function separateDescriptionAndHashtags(descriptionValue: unknown, hashtagValue: unknown) {
+  const rawDescription = typeof descriptionValue === "string" ? descriptionValue : "";
+  const extracted = extractHashtagsFromText(rawDescription);
+
+  return {
+    description: extracted.description,
+    hashtags: normalizeHashtags([...extracted.hashtags, ...normalizeHashtags(hashtagValue)]),
+  };
+}
+
+function composeFinalPublicationDescription(descriptionValue: string, hashtagsValue: unknown) {
+  const separated = separateDescriptionAndHashtags(descriptionValue, hashtagsValue);
+  const hashtagText = separated.hashtags.map((tag) => `#${tag}`).join(" ");
+
+  return [separated.description, hashtagText].filter(Boolean).join("\n\n");
 }
 
 function mapPublication(row: PublicationRow) {
@@ -199,8 +230,7 @@ function defaultTitle(draft: DraftRow | undefined) {
 }
 
 function defaultDescription(draft: DraftRow | undefined) {
-  const hashtags = normalizeHashtags(draft?.hashtags).map((tag) => `#${tag}`).join(" ");
-  return [draft?.caption?.trim(), hashtags].filter(Boolean).join("\n\n");
+  return separateDescriptionAndHashtags(draft?.caption?.trim() ?? "", draft?.hashtags).description;
 }
 
 function readableYouTubeDiagnosticMessage(message: string | null | undefined) {
@@ -269,6 +299,10 @@ function mapItem({
 }): ShortsPublicationItem {
   const title = publication?.title ?? defaultTitle(draft);
   const scheduledAt = publication?.scheduledAt ?? schedule.scheduled_at;
+  const separated = separateDescriptionAndHashtags(
+    publication?.description ?? defaultDescription(draft),
+    publication?.hashtags ?? normalizeHashtags(draft?.hashtags),
+  );
   const manifestUrl =
     metadataString(job?.metadata, "manifest_url") ??
     metadataString(job?.metadata, "manifest_public_url") ??
@@ -276,10 +310,10 @@ function mapItem({
   return {
     accountLabel: schedule.platform === "youtube" ? "YouTube connecte" : "Compte a configurer",
     costTotalEstimatedEur: costsByDraft.get(schedule.draft_id) ?? null,
-    description: publication?.description ?? defaultDescription(draft),
+    description: separated.description,
     draftId: schedule.draft_id,
     errorMessage: publication?.errorMessage ?? null,
-    hashtags: publication?.hashtags ?? normalizeHashtags(draft?.hashtags),
+    hashtags: separated.hashtags,
     isPastDue: Date.parse(scheduledAt) < Date.now(),
     manifestUrl,
     outputUrl: job?.output_url ?? null,
@@ -601,7 +635,10 @@ async function readScheduleForPublication(scheduleId: string, userId: string) {
 
 function normalizePublicationInput(input: Record<string, unknown>, draft: DraftRow, schedule: ScheduleRow) {
   const title = normalizeText(input.title, 100) || defaultTitle(draft);
-  const description = normalizeText(input.description, 5000) || defaultDescription(draft);
+  const separated = separateDescriptionAndHashtags(
+    normalizeText(input.description, 5000) || defaultDescription(draft),
+    input.hashtags,
+  );
   const scheduledAt = normalizeText(input.scheduledAt, 80) || schedule.scheduled_at;
   const parsedDate = new Date(scheduledAt);
 
@@ -613,8 +650,8 @@ function normalizePublicationInput(input: Record<string, unknown>, draft: DraftR
   }
 
   return {
-    description,
-    hashtags: normalizeHashtags(input.hashtags),
+    description: separated.description,
+    hashtags: separated.hashtags,
     scheduledAt: parsedDate.toISOString(),
     title,
     visibility: normalizeVisibility(input.visibility),
@@ -867,13 +904,14 @@ async function uploadYouTubeVideo({
   uploadUrl.searchParams.set("part", "snippet,status");
   uploadUrl.searchParams.set("uploadType", "resumable");
 
-  const hashtagText = hashtags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ");
+  const normalizedHashtags = normalizeHashtags(hashtags);
+  const finalDescription = composeFinalPublicationDescription(description, normalizedHashtags);
   const isScheduled = Boolean(publishAt);
   const metadata = {
     snippet: {
       categoryId: "22",
-      description: [description, hashtagText].filter(Boolean).join("\n\n"),
-      tags: hashtags,
+      description: finalDescription,
+      tags: normalizedHashtags,
       title,
     },
     status: {

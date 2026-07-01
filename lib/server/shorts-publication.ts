@@ -15,7 +15,7 @@ import {
 } from "@/lib/server/youtube/youtube-oauth";
 
 type PublicationPlatform = "youtube" | "instagram" | "tiktok";
-type PublicationStatus = "draft" | "ready" | "publishing" | "processing_media" | "scheduled" | "published" | "failed" | "cancelled";
+type PublicationStatus = "draft" | "ready" | "scheduled" | "due" | "publishing" | "processing_media" | "published" | "failed" | "cancelled";
 type PublicationVisibility = "private" | "unlisted" | "public";
 
 type ScheduleRow = {
@@ -33,6 +33,10 @@ type DraftRow = {
   id: string;
   status: string | null;
   title: string | null;
+};
+
+type DraftOwnerRow = DraftRow & {
+  user_id: string;
 };
 
 type RenderJobRow = {
@@ -906,7 +910,7 @@ async function assertNoActiveDuplicate(draftId: string, scheduleId: string, plat
     .select("id,status,schedule_id")
     .eq("draft_id", draftId)
     .eq("platform", platform)
-    .in("status", ["draft", "ready", "publishing", "processing_media", "scheduled"])
+    .in("status", ["draft", "ready", "scheduled", "due", "publishing", "processing_media"])
     .returns<Array<{ id: string; schedule_id: string; status: PublicationStatus }>>();
 
   if (error) {
@@ -1004,6 +1008,7 @@ export async function prepareInstagramReelPublication({
   if (!instagram.connected || !instagram.businessId) {
     throw new Error(instagram.error ?? "Compte Instagram Business/Creator non connecte.");
   }
+  await instagramVideoUrl(job);
 
   await assertNoActiveDuplicate(draft.id, schedule.id, "instagram");
 
@@ -1022,6 +1027,7 @@ export async function prepareInstagramReelPublication({
     throw new Error("Publication Instagram verrouillee apres envoi a Meta.");
   }
 
+  const futureSchedule = isFutureDate(normalized.scheduledAt);
   const row = {
     account_id: instagram.businessId,
     description: normalized.description,
@@ -1035,7 +1041,7 @@ export async function prepareInstagramReelPublication({
     platform: "instagram",
     schedule_id: schedule.id,
     scheduled_at: normalized.scheduledAt,
-    status: "ready",
+    status: futureSchedule ? "scheduled" : "ready",
     timezone: schedule.timezone,
     title: normalized.title,
     visibility: "public",
@@ -1478,10 +1484,12 @@ async function uploadYouTubeVideo({
 export async function publishInstagramReel({
   input,
   publicationId,
+  trigger = "manual",
   userId,
 }: {
   input: Record<string, unknown>;
   publicationId: string;
+  trigger?: "manual" | "cron";
   userId: string;
 }) {
   const supabase = getPublicationClient();
@@ -1502,7 +1510,7 @@ export async function publishInstagramReel({
   if (!job?.output_url && !job?.output_path) {
     throw new Error("Video finale accessible introuvable.");
   }
-  if (["publishing", "processing_media", "published"].includes(publication.status)) {
+  if (["publishing", "processing_media", "published", "cancelled"].includes(publication.status)) {
     throw new Error("Cette publication Instagram est deja envoyee ou publiee.");
   }
 
@@ -1513,7 +1521,13 @@ export async function publishInstagramReel({
     throw new Error(instagram.error ?? "Compte Instagram Business/Creator non connecte.");
   }
 
-  await supabase
+  const publicationEventSource = trigger === "cron"
+    ? "scheduled_instagram_reels_v1"
+    : "manual_instagram_reels_v1";
+  const claimedScheduledAt = trigger === "cron"
+    ? normalized.scheduledAt
+    : new Date().toISOString();
+  const { data: claimedRows, error: claimError } = await supabase
     .from("short_video_publications")
     .update({
       account_id: instagram.businessId,
@@ -1523,14 +1537,24 @@ export async function publishInstagramReel({
       metadata: {
         ...publication.metadata,
         instagram_account_label: instagram.accountLabel,
-        publication_event_source: "manual_instagram_reels_v1",
+        publication_event_source: publicationEventSource,
       },
-      scheduled_at: new Date().toISOString(),
+      scheduled_at: claimedScheduledAt,
       status: "publishing",
       title: normalized.title,
       visibility: "public",
     })
-    .eq("id", publication.id);
+    .eq("id", publication.id)
+    .in("status", ["ready", "scheduled", "due", "failed"])
+    .select("id")
+    .returns<Array<{ id: string }>>();
+
+  if (claimError) {
+    throw new Error(`Reservation publication Instagram impossible: ${claimError.message}`);
+  }
+  if ((claimedRows ?? []).length === 0) {
+    throw new Error("Publication Instagram deja en cours, publiee ou annulee.");
+  }
 
   try {
     const videoUrl = await instagramVideoUrl(job);
@@ -1549,7 +1573,7 @@ export async function publishInstagramReel({
           ...publication.metadata,
           instagram_account_label: instagram.accountLabel,
           instagram_creation_id: creationId,
-          publication_event_source: "manual_instagram_reels_v1",
+          publication_event_source: publicationEventSource,
           video_output_path: job.output_path,
         },
         status: "processing_media",
@@ -1582,7 +1606,7 @@ export async function publishInstagramReel({
           ...publication.metadata,
           instagram_account_label: instagram.accountLabel,
           instagram_creation_id: creationId,
-          publication_event_source: "manual_instagram_reels_v1",
+          publication_event_source: publicationEventSource,
           video_output_path: job.output_path,
         },
         published_at: publishedAt,
@@ -1617,21 +1641,127 @@ export async function processDueInstagramPublication({
   userId: string;
 }) {
   const { publication } = await readPreparedPublication(publicationId, userId, "instagram");
-  if (publication.status !== "ready" || Date.parse(publication.scheduled_at) > Date.now()) {
+  if (!["scheduled", "due"].includes(publication.status) || Date.parse(publication.scheduled_at) > Date.now()) {
     return readShortsPublicationState({ userId });
+  }
+
+  if (publication.status === "scheduled") {
+    await getPublicationClient()
+      .from("short_video_publications")
+      .update({
+        metadata: {
+          ...publication.metadata,
+          due_marked_at: new Date().toISOString(),
+        },
+        status: "due",
+      })
+      .eq("id", publication.id)
+      .eq("status", "scheduled");
   }
 
   return publishInstagramReel({
     input: {
       description: publication.description,
       hashtags: publication.hashtags,
-      scheduledAt: new Date().toISOString(),
+      scheduledAt: publication.scheduled_at,
       title: publication.title,
       visibility: publication.visibility,
     },
     publicationId,
+    trigger: "cron",
     userId,
   });
+}
+
+export async function processScheduledInstagramPublications({
+  limit = 5,
+}: {
+  limit?: number;
+}) {
+  const supabase = getPublicationClient();
+  const nowIso = new Date().toISOString();
+  const { data: publications, error } = await supabase
+    .from("short_video_publications")
+    .select("id,schedule_id,draft_id,platform,status,title,description,hashtags,visibility,scheduled_at,timezone,account_id,youtube_video_id,youtube_url,instagram_media_id,instagram_permalink,published_at,error_message,metadata,created_at,updated_at")
+    .eq("platform", "instagram")
+    .in("status", ["scheduled", "due"])
+    .lte("scheduled_at", nowIso)
+    .order("scheduled_at", { ascending: true })
+    .limit(Math.max(1, Math.min(limit, 10)))
+    .returns<PublicationRow[]>();
+
+  if (error) {
+    throw new Error(`Lecture publications Instagram dues impossible: ${error.message}`);
+  }
+
+  const draftIds = [...new Set((publications ?? []).map((publication) => publication.draft_id))];
+  const { data: drafts, error: draftError } = draftIds.length
+    ? await supabase
+      .from("content_drafts")
+      .select("id,title,caption,hashtags,status,user_id")
+      .in("id", draftIds)
+      .returns<DraftOwnerRow[]>()
+    : { data: [] as DraftOwnerRow[], error: null };
+
+  if (draftError) {
+    throw new Error(`Lecture brouillons Instagram dus impossible: ${draftError.message}`);
+  }
+
+  const draftById = new Map((drafts ?? []).map((draft) => [draft.id, draft]));
+  const results: Array<{
+    publicationId: string;
+    scheduleId: string;
+    status: "skipped" | "published" | "failed";
+    message: string | null;
+  }> = [];
+
+  for (const publication of publications ?? []) {
+    const draft = draftById.get(publication.draft_id);
+    if (!draft?.user_id) {
+      results.push({
+        publicationId: publication.id,
+        scheduleId: publication.schedule_id,
+        status: "skipped",
+        message: "Brouillon introuvable ou utilisateur absent.",
+      });
+      continue;
+    }
+
+    try {
+      await processDueInstagramPublication({
+        publicationId: publication.id,
+        userId: draft.user_id,
+      });
+      results.push({
+        publicationId: publication.id,
+        scheduleId: publication.schedule_id,
+        status: "published",
+        message: null,
+      });
+    } catch (error) {
+      const message = readableInstagramError(
+        error instanceof Error ? error.message : "Publication Instagram planifiee impossible.",
+      );
+      console.error("[Shorts Publication Instagram Cron] publication failed", {
+        publication_id: publication.id,
+        schedule_id: publication.schedule_id,
+        message,
+      });
+      results.push({
+        publicationId: publication.id,
+        scheduleId: publication.schedule_id,
+        status: "failed",
+        message,
+      });
+    }
+  }
+
+  return {
+    dueCount: publications?.length ?? 0,
+    processedCount: results.filter((result) => result.status !== "skipped").length,
+    results,
+    timezone: "Europe/Paris",
+  };
 }
 
 export async function publishYouTubeShort({

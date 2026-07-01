@@ -45,7 +45,7 @@ type SchedulingPayload = {
   error?: string;
 };
 
-type PublicationStatus = "draft" | "ready" | "publishing" | "processing_media" | "scheduled" | "published" | "failed" | "cancelled";
+type PublicationStatus = "draft" | "ready" | "scheduled" | "due" | "publishing" | "processing_media" | "published" | "failed" | "cancelled";
 type PublicationVisibility = "private" | "unlisted" | "public";
 type SchedulePlatformChoice = ShortsSchedulePlatform | "all";
 type PublicationPlatformFilter = "all" | ShortsSchedulePlatform;
@@ -222,6 +222,9 @@ function readableStatus(status: string, isPastDue = false) {
   if (status === "processing_media") {
     return "Traitement media";
   }
+  if (status === "due") {
+    return "Publication due";
+  }
   if (isPastDue) {
     return "Creneau depasse";
   }
@@ -278,7 +281,7 @@ function publicationStatusTabFor(item: ShortsPublicationItem): PublicationStatus
   if (item.status === "cancelled") {
     return "cancelled";
   }
-  if (item.status === "scheduled" || item.status === "publishing" || item.status === "processing_media") {
+  if (item.status === "scheduled" || item.status === "due" || item.status === "publishing" || item.status === "processing_media") {
     return "scheduled";
   }
 
@@ -466,7 +469,8 @@ export function ShortsProgrammingClient() {
   const selectedPublicationIsPast = Number.isFinite(Date.parse(selectedPublicationScheduledIso)) &&
     Date.parse(selectedPublicationScheduledIso) <= nowMs;
   const selectedPublicationLocked = selectedPublication
-    ? ["scheduled", "published", "publishing", "processing_media"].includes(selectedPublication.status)
+    ? ["published", "publishing", "processing_media"].includes(selectedPublication.status) ||
+      (selectedPublication.platform === "youtube" && selectedPublication.status === "scheduled")
     : false;
   const selectedPublicationSupportsPreparation = selectedPublication
     ? selectedPublication.platform === "youtube" || selectedPublication.platform === "instagram"
@@ -624,7 +628,11 @@ export function ShortsProgrammingClient() {
           visibility: next.visibility,
         });
       }
-      setPublicationNotice("Preparation enregistree. Aucune video n'a encore ete envoyee.");
+      setPublicationNotice(
+        selectedPublication.platform === "instagram" && next?.status === "scheduled"
+          ? "Preparation enregistree. Publication automatique Instagram activee."
+          : "Preparation enregistree. Aucune video n'a encore ete envoyee.",
+      );
     } catch (caughtError) {
       setPublicationError(
         caughtError instanceof Error
@@ -936,6 +944,42 @@ export function ShortsProgrammingClient() {
     }
   }
 
+  async function cancelPublicationSchedule(scheduleId: string) {
+    setIsPublicationSaving(true);
+    setPublicationError(null);
+    setPublicationNotice(null);
+
+    try {
+      const response = await fetch("/api/content-workshop/shorts-schedules", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "cancel_schedule",
+          scheduleId,
+        }),
+      });
+      const payload = (await response.json()) as SchedulingPayload;
+
+      if (!response.ok || !payload.schedules) {
+        throw new Error(payload.error ?? "Annulation de la programmation indisponible.");
+      }
+
+      setSchedules(payload.schedules);
+      setPublicationNotice("Programmation annulee. Aucune publication automatique ne sera declenchee.");
+      await loadPublicationState();
+    } catch (caughtError) {
+      setPublicationError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Annulation de la programmation indisponible.",
+      );
+    } finally {
+      setIsPublicationSaving(false);
+    }
+  }
+
   async function savePlanning() {
     setError(null);
     setNotice(null);
@@ -1241,6 +1285,16 @@ export function ShortsProgrammingClient() {
                           Programmation enregistree - publication manuelle requise pour le moment.
                         </p>
                       ) : null}
+                      {item.platform === "instagram" && item.status === "scheduled" ? (
+                        <p className="mt-3 rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                          Programmee automatiquement - publication Instagram prevue autour de {formatDateTime(item.scheduledAt)}.
+                        </p>
+                      ) : null}
+                      {item.platform === "instagram" && item.status === "due" ? (
+                        <p className="mt-3 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm font-semibold text-[#FDBA74]">
+                          Horaire atteint - publication au prochain passage du cron.
+                        </p>
+                      ) : null}
                       {item.platform === "instagram" && item.status === "processing_media" ? (
                         <p className="mt-3 rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
                           Traitement du Reel en cours chez Instagram.
@@ -1378,8 +1432,9 @@ export function ShortsProgrammingClient() {
                       {publicationFinalDescriptionPreview || "Aucune description finale."}
                     </p>
                   </div>
-                  {selectedPublication.platform === "youtube" ? (
+                  {selectedPublication.platform === "youtube" || selectedPublication.platform === "instagram" ? (
                     <div className="grid gap-3 sm:grid-cols-2">
+                    {selectedPublication.platform === "youtube" ? (
                     <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
                       Visibilite
                       <select
@@ -1399,6 +1454,7 @@ export function ShortsProgrammingClient() {
                         )}
                       </select>
                     </label>
+                    ) : null}
                     <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
                       Date et heure
                       <input
@@ -1434,9 +1490,17 @@ export function ShortsProgrammingClient() {
                       <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
                         Envoi Instagram en cours. Le Reel sera publie lorsque le conteneur sera pret.
                       </p>
+                    ) : selectedPublication.status === "scheduled" ? (
+                      <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                        Programmee automatiquement - publication Instagram prevue autour de {formatDateTime(selectedPublication.scheduledAt)} selon le passage du cron Vercel.
+                      </p>
+                    ) : selectedPublication.status === "due" ? (
+                      <p className="rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm font-semibold text-[#FDBA74]">
+                        Horaire atteint - publication automatique en attente du prochain passage du cron.
+                      </p>
                     ) : selectedPublicationIsFuture ? (
                       <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">
-                        Programmation enregistree - publication automatique Instagram a activer.
+                        Enregistre la preparation pour activer la publication automatique Instagram autour de cette heure.
                       </p>
                     ) : (
                       <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
@@ -1455,10 +1519,11 @@ export function ShortsProgrammingClient() {
                       disabled={isPublicationSaving || selectedPublicationLocked}
                       onClick={() => void savePublicationPreparation()}
                       className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] disabled:opacity-55"
-                    >
-                      Enregistrer la preparation
-                    </button>
+                      >
+                        Enregistrer la preparation
+                      </button>
                     {selectedPublication.platform === "instagram" ? (
+                      <>
                       <button
                         type="button"
                         disabled={
@@ -1474,8 +1539,17 @@ export function ShortsProgrammingClient() {
                         onClick={() => setConfirmingPublicationId(selectedPublication.publicationId)}
                         className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
                       >
-                        Publier maintenant sur Instagram
+                        {selectedPublication.status === "failed" ? "Reessayer maintenant sur Instagram" : "Publier maintenant sur Instagram"}
                       </button>
+                      <button
+                        type="button"
+                        disabled={isPublicationSaving || selectedPublicationLocked || selectedPublication.status === "cancelled"}
+                        onClick={() => void cancelPublicationSchedule(selectedPublication.scheduleId)}
+                        className="rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-3 py-2 text-sm font-semibold text-[#FDBA74] transition hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                      >
+                        Annuler
+                      </button>
+                      </>
                     ) : (
                     <button
                       type="button"

@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import {
   prepareInstagramReelPublication,
+  prepareTikTokShortPublication,
   prepareYouTubeShortPublication,
   publishInstagramReel,
   publishYouTubeShort,
   readShortsPublicationState,
+  sendTikTokShort,
 } from "@/lib/server/shorts-publication";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -140,6 +142,26 @@ export async function POST(request: Request) {
       }));
     }
 
+    if (action === "prepare_tiktok") {
+      const scheduleId = typeof payload.scheduleId === "string" ? payload.scheduleId : "";
+      if (!scheduleId) {
+        logPublicationApiFailure({
+          action,
+          error: new Error("Programmation TikTok manquante."),
+          method: "POST",
+          route: "/api/content-workshop/shorts-publications",
+          validation: "missing_schedule_id",
+        });
+        return NextResponse.json({ error: "Programmation TikTok manquante." }, { status: 400 });
+      }
+
+      return NextResponse.json(await prepareTikTokShortPublication({
+        input: data,
+        scheduleId,
+        userId: user.id,
+      }));
+    }
+
     if (action === "publish_youtube") {
       const publicationId = typeof payload.publicationId === "string" ? payload.publicationId : "";
       if (!publicationId) {
@@ -174,6 +196,26 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json(await publishInstagramReel({
+        input: data,
+        publicationId,
+        userId: user.id,
+      }));
+    }
+
+    if (action === "send_tiktok") {
+      const publicationId = typeof payload.publicationId === "string" ? payload.publicationId : "";
+      if (!publicationId) {
+        logPublicationApiFailure({
+          action,
+          error: new Error("Publication TikTok manquante."),
+          method: "POST",
+          route: "/api/content-workshop/shorts-publications",
+          validation: "missing_publication_id",
+        });
+        return NextResponse.json({ error: "Publication TikTok manquante." }, { status: 400 });
+      }
+
+      return NextResponse.json(await sendTikTokShort({
         input: data,
         publicationId,
         userId: user.id,

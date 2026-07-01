@@ -45,7 +45,19 @@ type SchedulingPayload = {
   error?: string;
 };
 
-type PublicationStatus = "draft" | "ready" | "scheduled" | "due" | "publishing" | "processing_media" | "published" | "failed" | "cancelled";
+type PublicationStatus =
+  | "draft"
+  | "ready"
+  | "scheduled"
+  | "due"
+  | "publishing"
+  | "processing_media"
+  | "sending_to_tiktok"
+  | "uploaded_to_tiktok"
+  | "awaiting_tiktok_confirmation"
+  | "published"
+  | "failed"
+  | "cancelled";
 type PublicationVisibility = "private" | "unlisted" | "public";
 type SchedulePlatformChoice = ShortsSchedulePlatform | "all";
 type PublicationPlatformFilter = "all" | ShortsSchedulePlatform;
@@ -69,6 +81,10 @@ type ShortsPublicationItem = {
   scheduleId: string;
   scheduledAt: string;
   status: PublicationStatus | "ready";
+  tiktokDirectPostAvailable: boolean;
+  tiktokPublishId: string | null;
+  tiktokUrl: string | null;
+  tiktokUploadId: string | null;
   timezone: string;
   title: string;
   validated: boolean;
@@ -84,6 +100,10 @@ type PublicationPayload = {
   instagramError?: string | null;
   instagramMissingPermissions?: string[];
   items?: ShortsPublicationItem[];
+  tiktokConnected?: boolean;
+  tiktokDirectPostAvailable?: boolean;
+  tiktokError?: string | null;
+  tiktokScopes?: string[];
   youtubeChannelTitle?: string | null;
   youtubeConnected?: boolean;
   youtubeDiagnostic?: {
@@ -222,6 +242,12 @@ function readableStatus(status: string, isPastDue = false) {
   if (status === "processing_media") {
     return "Traitement media";
   }
+  if (status === "sending_to_tiktok") {
+    return "Envoi vers TikTok";
+  }
+  if (status === "uploaded_to_tiktok" || status === "awaiting_tiktok_confirmation") {
+    return "Envoyee a TikTok";
+  }
   if (status === "due") {
     return "Publication due";
   }
@@ -281,7 +307,15 @@ function publicationStatusTabFor(item: ShortsPublicationItem): PublicationStatus
   if (item.status === "cancelled") {
     return "cancelled";
   }
-  if (item.status === "scheduled" || item.status === "due" || item.status === "publishing" || item.status === "processing_media") {
+  if (
+    item.status === "scheduled" ||
+    item.status === "due" ||
+    item.status === "publishing" ||
+    item.status === "processing_media" ||
+    item.status === "sending_to_tiktok" ||
+    item.status === "uploaded_to_tiktok" ||
+    item.status === "awaiting_tiktok_confirmation"
+  ) {
     return "scheduled";
   }
 
@@ -357,6 +391,10 @@ export function ShortsProgrammingClient() {
   const [instagramAccountLabel, setInstagramAccountLabel] = useState<string | null>(null);
   const [instagramError, setInstagramError] = useState<string | null>(null);
   const [instagramMissingPermissions, setInstagramMissingPermissions] = useState<string[]>([]);
+  const [tiktokConnected, setTiktokConnected] = useState(false);
+  const [tiktokDirectPostAvailable, setTiktokDirectPostAvailable] = useState(false);
+  const [tiktokError, setTiktokError] = useState<string | null>(null);
+  const [tiktokScopes, setTiktokScopes] = useState<string[]>([]);
   const [selectedPublication, setSelectedPublication] = useState<ShortsPublicationItem | null>(null);
   const [publicationForm, setPublicationForm] = useState<PublicationForm | null>(null);
   const [isPublicationLoading, setIsPublicationLoading] = useState(false);
@@ -454,6 +492,14 @@ export function ShortsProgrammingClient() {
     : instagramConnected
       ? `Connecte: ${instagramAccountLabel ?? "compte Instagram"}`
       : instagramError ?? "Le compte Instagram Business/Creator n'est pas connecte.";
+  const tiktokPendingCount = publicationItems.filter((item) =>
+    item.platform === "tiktok" && !["published", "failed", "cancelled"].includes(item.status),
+  ).length;
+  const tiktokCardMessage = tiktokPendingCount === 0
+    ? "Aucune programmation TikTok a traiter."
+    : tiktokConnected
+      ? "Connecte: TikTok"
+      : tiktokError ?? "Le compte TikTok n'est pas connecte.";
   const publicationCountsByPlatform = useMemo(() => {
     const counts = new Map<ShortsSchedulePlatform, number>(platforms.map((platform) => [platform, 0]));
     publicationItems
@@ -469,11 +515,11 @@ export function ShortsProgrammingClient() {
   const selectedPublicationIsPast = Number.isFinite(Date.parse(selectedPublicationScheduledIso)) &&
     Date.parse(selectedPublicationScheduledIso) <= nowMs;
   const selectedPublicationLocked = selectedPublication
-    ? ["published", "publishing", "processing_media"].includes(selectedPublication.status) ||
+    ? ["published", "publishing", "processing_media", "sending_to_tiktok", "uploaded_to_tiktok", "awaiting_tiktok_confirmation"].includes(selectedPublication.status) ||
       (selectedPublication.platform === "youtube" && selectedPublication.status === "scheduled")
     : false;
   const selectedPublicationSupportsPreparation = selectedPublication
-    ? selectedPublication.platform === "youtube" || selectedPublication.platform === "instagram"
+    ? selectedPublication.platform === "youtube" || selectedPublication.platform === "instagram" || selectedPublication.platform === "tiktok"
     : false;
   const publicationFinalDescriptionPreview = publicationForm
     ? composeFinalPublicationDescription(publicationForm.description, publicationForm.hashtags)
@@ -550,6 +596,10 @@ export function ShortsProgrammingClient() {
       setInstagramAccountLabel(payload.instagramAccountLabel ?? null);
       setInstagramError(payload.instagramError ?? null);
       setInstagramMissingPermissions(payload.instagramMissingPermissions ?? []);
+      setTiktokConnected(Boolean(payload.tiktokConnected));
+      setTiktokDirectPostAvailable(Boolean(payload.tiktokDirectPostAvailable));
+      setTiktokError(payload.tiktokError ?? null);
+      setTiktokScopes(payload.tiktokScopes ?? []);
       if (selectedPublication) {
         setSelectedPublication(payload.items.find((item) => item.scheduleId === selectedPublication.scheduleId) ?? null);
       }
@@ -591,7 +641,9 @@ export function ShortsProgrammingClient() {
     try {
       const action = selectedPublication.platform === "instagram"
         ? "prepare_instagram"
-        : "prepare_youtube";
+        : selectedPublication.platform === "tiktok"
+          ? "prepare_tiktok"
+          : "prepare_youtube";
       const response = await fetch("/api/content-workshop/shorts-publications", {
         method: "POST",
         headers: {
@@ -656,7 +708,9 @@ export function ShortsProgrammingClient() {
     try {
       const action = selectedPublication.platform === "instagram"
         ? "publish_instagram"
-        : "publish_youtube";
+        : selectedPublication.platform === "tiktok"
+          ? "send_tiktok"
+          : "publish_youtube";
       const response = await fetch("/api/content-workshop/shorts-publications", {
         method: "POST",
         headers: {
@@ -687,7 +741,9 @@ export function ShortsProgrammingClient() {
       setPublicationNotice(
         selectedPublication.platform === "instagram"
           ? "Publie sur Instagram."
-          : "Programmee sur YouTube. La publication automatique sera geree par YouTube.",
+          : selectedPublication.platform === "tiktok"
+            ? "Envoyee vers TikTok. Finalise la publication depuis ton compte TikTok."
+            : "Programmee sur YouTube. La publication automatique sera geree par YouTube.",
       );
     } catch (caughtError) {
       setPublicationError(
@@ -1159,10 +1215,33 @@ export function ShortsProgrammingClient() {
                 </p>
               ) : null}
             </div>
-            <ComingSoonPlatform
-              count={publicationCountsByPlatform.get("tiktok") ?? 0}
-              title="TikTok"
-            />
+            <div className={`rounded-md border p-4 ${
+              tiktokPendingCount === 0
+                ? "border-[#1D2A44] bg-[#08111A]"
+                : tiktokConnected
+                  ? "border-[#39E6D0]/35 bg-[#39E6D0]/10"
+                  : "border-[#F97316]/35 bg-[#F97316]/10"
+            }`}>
+              <p className="text-sm font-semibold text-[#F8FAFC]">TikTok</p>
+              <p className="mt-2 min-w-0 truncate text-sm text-[#A7B0C0]" title={tiktokCardMessage}>
+                {tiktokPendingCount
+                  ? `${tiktokPendingCount} programmation(s) TikTok a traiter.`
+                  : tiktokCardMessage}
+              </p>
+              <p className="mt-2 text-xs font-semibold text-[#A7B0C0]">
+                Scopes: {tiktokScopes.length ? tiktokScopes.join(", ") : "non detectes"}
+              </p>
+              {tiktokDirectPostAvailable ? (
+                <p className="mt-2 w-fit rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-2 py-1 text-xs font-semibold text-[#39E6D0]">
+                  Publication directe disponible
+                </p>
+              ) : null}
+              {!tiktokConnected && tiktokPendingCount > 0 ? (
+                <p className="mt-2 text-xs font-semibold text-[#FDBA74]">
+                  {tiktokCardMessage}
+                </p>
+              ) : null}
+            </div>
           </div>
 
           {publicationError ? (
@@ -1300,6 +1379,16 @@ export function ShortsProgrammingClient() {
                           Traitement du Reel en cours chez Instagram.
                         </p>
                       ) : null}
+                      {item.platform === "tiktok" && item.status === "ready" ? (
+                        <p className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">
+                          Programmation enregistree - envoi TikTok manuel requis pour le moment.
+                        </p>
+                      ) : null}
+                      {item.platform === "tiktok" && ["sending_to_tiktok", "uploaded_to_tiktok", "awaiting_tiktok_confirmation"].includes(item.status) ? (
+                        <p className="mt-3 rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                          Envoyee a TikTok - finalisation requise depuis ton compte.
+                        </p>
+                      ) : null}
                       {item.errorMessage ? (
                         <p className="mt-3 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm text-[#FDBA74]">
                           {item.errorMessage}
@@ -1322,6 +1411,15 @@ export function ShortsProgrammingClient() {
                           target="_blank"
                         >
                           Ouvrir sur Instagram
+                        </a>
+                      ) : item.tiktokUrl ? (
+                        <a
+                          className="mt-3 inline-flex rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC]"
+                          href={item.tiktokUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Ouvrir sur TikTok
                         </a>
                       ) : (
                         <button
@@ -1395,9 +1493,12 @@ export function ShortsProgrammingClient() {
                         Ouvrir le Reel Instagram
                       </a>
                     ) : null}
+                    {selectedPublication.tiktokPublishId ? (
+                      <InfoLine label="TikTok publish_id" value={selectedPublication.tiktokPublishId} />
+                    ) : null}
                   </div>
                   <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
-                    {selectedPublication.platform === "instagram" ? "Titre interne" : "Titre"}
+                    {selectedPublication.platform === "instagram" || selectedPublication.platform === "tiktok" ? "Titre interne" : "Titre"}
                     <input
                       value={publicationForm.title}
                       onChange={(event) => setPublicationForm({ ...publicationForm, title: event.target.value })}
@@ -1406,7 +1507,7 @@ export function ShortsProgrammingClient() {
                     />
                   </label>
                   <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
-                    {selectedPublication.platform === "instagram" ? "Legende" : "Description"}
+                    {selectedPublication.platform === "instagram" || selectedPublication.platform === "tiktok" ? "Legende" : "Description"}
                     <textarea
                       rows={5}
                       value={publicationForm.description}
@@ -1426,13 +1527,13 @@ export function ShortsProgrammingClient() {
                   </label>
                   <div className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2">
                     <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#A7B0C0]">
-                      {selectedPublication.platform === "instagram" ? "Legende finale publiee" : "Description finale publiee"}
+                      {selectedPublication.platform === "instagram" || selectedPublication.platform === "tiktok" ? "Legende finale publiee" : "Description finale publiee"}
                     </p>
                     <p className="mt-2 whitespace-pre-line text-sm leading-6 text-[#F8FAFC]">
                       {publicationFinalDescriptionPreview || "Aucune description finale."}
                     </p>
                   </div>
-                  {selectedPublication.platform === "youtube" || selectedPublication.platform === "instagram" ? (
+                  {selectedPublication.platform === "youtube" || selectedPublication.platform === "instagram" || selectedPublication.platform === "tiktok" ? (
                     <div className="grid gap-3 sm:grid-cols-2">
                     {selectedPublication.platform === "youtube" ? (
                     <label className="grid gap-1 text-sm font-semibold text-[#F8FAFC]">
@@ -1507,6 +1608,22 @@ export function ShortsProgrammingClient() {
                         Prete pour une publication immediate sur Instagram Reels.
                       </p>
                     )
+                  ) : selectedPublication.platform === "tiktok" ? (
+                    selectedPublication.status === "awaiting_tiktok_confirmation" ||
+                    selectedPublication.status === "uploaded_to_tiktok" ||
+                    selectedPublication.status === "sending_to_tiktok" ? (
+                      <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                        Envoyee a TikTok - ouvre TikTok pour finaliser ou publier la video.
+                      </p>
+                    ) : selectedPublicationIsFuture ? (
+                      <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">
+                        Programmation enregistree - envoi TikTok manuel requis pour le moment.
+                      </p>
+                    ) : (
+                      <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                        La video sera envoyee a TikTok pour etre finalisee et publiee depuis ton compte.
+                      </p>
+                    )
                   ) : (
                     <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">
                       Publication bientot disponible.
@@ -1550,6 +1667,39 @@ export function ShortsProgrammingClient() {
                         Annuler
                       </button>
                       </>
+                    ) : selectedPublication.platform === "tiktok" ? (
+                      <>
+                      {tiktokDirectPostAvailable ? (
+                        <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+                          Publication directe disponible
+                        </span>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={
+                          isPublicationSaving ||
+                          !selectedPublication.publicationId ||
+                          !selectedPublication.validated ||
+                          !selectedPublication.outputUrl ||
+                          !tiktokConnected ||
+                          !publicationForm.title.trim() ||
+                          !publicationFinalDescriptionPreview.trim() ||
+                          selectedPublicationLocked
+                        }
+                        onClick={() => setConfirmingPublicationId(selectedPublication.publicationId)}
+                        className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#1D2A44] hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                      >
+                        {selectedPublication.status === "failed" ? "Reessayer l'envoi TikTok" : "Envoyer vers TikTok"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isPublicationSaving || selectedPublicationLocked || selectedPublication.status === "cancelled"}
+                        onClick={() => void cancelPublicationSchedule(selectedPublication.scheduleId)}
+                        className="rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-3 py-2 text-sm font-semibold text-[#FDBA74] transition hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-55"
+                      >
+                        Annuler
+                      </button>
+                      </>
                     ) : (
                     <button
                       type="button"
@@ -1577,11 +1727,15 @@ export function ShortsProgrammingClient() {
                       <p className="font-semibold text-[#F8FAFC]">
                         {selectedPublication.platform === "instagram"
                           ? "Publier ce Reel sur Instagram ?"
+                          : selectedPublication.platform === "tiktok"
+                            ? "Envoyer cette video vers TikTok ?"
                           : "Programmer cette video sur YouTube ?"}
                       </p>
                       <p className="mt-2 leading-6">
                         {selectedPublication.platform === "instagram"
                           ? "La video sera envoyee maintenant au compte Instagram connecte et publiee des que le media est pret."
+                          : selectedPublication.platform === "tiktok"
+                            ? "La video sera envoyee a TikTok pour etre finalisee et publiee depuis ton compte."
                           : `La video sera envoyee maintenant en prive a YouTube, puis publiee automatiquement le ${publicationForm ? formatDateTime(safeInputDateTimeToIso(publicationForm.scheduledAt)) : ""} selon le fuseau Europe/Paris.`}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -1601,7 +1755,11 @@ export function ShortsProgrammingClient() {
                         >
                           {isPublicationSaving
                             ? selectedPublication.platform === "instagram" ? "Publication..." : "Programmation..."
-                            : selectedPublication.platform === "instagram" ? "Confirmer la publication" : "Confirmer la programmation"}
+                            : selectedPublication.platform === "instagram"
+                              ? "Confirmer la publication"
+                              : selectedPublication.platform === "tiktok"
+                                ? "Confirmer l'envoi"
+                                : "Confirmer la programmation"}
                         </button>
                       </div>
                     </div>
@@ -2072,22 +2230,6 @@ export function ShortsProgrammingClient() {
           ) : null}
         </section>
       )}
-    </div>
-  );
-}
-
-function ComingSoonPlatform({ count, title }: { count: number; title: string }) {
-  return (
-    <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
-      <p className="truncate text-sm font-semibold text-[#F8FAFC]" title={title}>
-        {title}
-      </p>
-      <p className="mt-2 text-sm text-[#A7B0C0]">
-        {count > 0 ? `${count} programmation(s) a traiter.` : "Aucune programmation pour le moment."}
-      </p>
-      <p className="mt-2 text-xs font-semibold text-[#A7B0C0]">
-        Publication bientot disponible.
-      </p>
     </div>
   );
 }

@@ -15,7 +15,19 @@ import {
 } from "@/lib/server/youtube/youtube-oauth";
 
 type PublicationPlatform = "youtube" | "instagram" | "tiktok";
-type PublicationStatus = "draft" | "ready" | "scheduled" | "due" | "publishing" | "processing_media" | "published" | "failed" | "cancelled";
+type PublicationStatus =
+  | "draft"
+  | "ready"
+  | "scheduled"
+  | "due"
+  | "publishing"
+  | "processing_media"
+  | "sending_to_tiktok"
+  | "uploaded_to_tiktok"
+  | "awaiting_tiktok_confirmation"
+  | "published"
+  | "failed"
+  | "cancelled";
 type PublicationVisibility = "private" | "unlisted" | "public";
 
 type ScheduleRow = {
@@ -70,6 +82,9 @@ type PublicationRow = {
   schedule_id: string;
   scheduled_at: string;
   status: PublicationStatus;
+  tiktok_publish_id: string | null;
+  tiktok_upload_id: string | null;
+  tiktok_url: string | null;
   timezone: string;
   title: string;
   updated_at: string;
@@ -130,6 +145,19 @@ type InstagramMediaResponse = {
   error?: MetaGraphError;
 };
 
+type TikTokUploadInitPayload = {
+  data?: {
+    publish_id?: string;
+    upload_id?: string;
+    upload_url?: string;
+  };
+  error?: {
+    code?: string;
+    log_id?: string;
+    message?: string;
+  };
+};
+
 export type ShortsPublicationItem = {
   accountLabel: string;
   costTotalEstimatedEur: number | null;
@@ -148,6 +176,10 @@ export type ShortsPublicationItem = {
   scheduleId: string;
   scheduledAt: string;
   status: PublicationStatus | "ready";
+  tiktokDirectPostAvailable: boolean;
+  tiktokPublishId: string | null;
+  tiktokUrl: string | null;
+  tiktokUploadId: string | null;
   timezone: string;
   title: string;
   validated: boolean;
@@ -162,6 +194,10 @@ export type ShortsPublicationState = {
   instagramError: string | null;
   instagramMissingPermissions: string[];
   items: ShortsPublicationItem[];
+  tiktokConnected: boolean;
+  tiktokDirectPostAvailable: boolean;
+  tiktokError: string | null;
+  tiktokScopes: string[];
   youtubeDiagnostic: {
     action: string;
     cause: string;
@@ -177,6 +213,9 @@ let publicationClient: SupabaseClient | null = null;
 const INSTAGRAM_REQUIRED_SCOPES = ["instagram_basic", "instagram_content_publish", "pages_show_list"];
 const INSTAGRAM_CONTAINER_POLL_ATTEMPTS = 24;
 const INSTAGRAM_CONTAINER_POLL_DELAY_MS = 5000;
+const TIKTOK_REQUIRED_UPLOAD_SCOPE = "video.upload";
+const TIKTOK_DIRECT_POST_SCOPE = "video.publish";
+const TIKTOK_INBOX_UPLOAD_INIT_URL = "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/";
 
 function getPublicationClient() {
   if (publicationClient) {
@@ -209,6 +248,19 @@ function costValue(row: CostRow) {
 function metadataString(metadata: Record<string, unknown> | null | undefined, key: string) {
   const value = metadata?.[key];
   return typeof value === "string" ? value : null;
+}
+
+function splitScopes(scope: string | null | undefined) {
+  return scope?.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean) ?? [];
+}
+
+function isExpired(expiresAt: string | null) {
+  if (!expiresAt) {
+    return false;
+  }
+
+  const value = Date.parse(expiresAt);
+  return Number.isFinite(value) && value <= Date.now();
 }
 
 function normalizeHashtags(value: unknown) {
@@ -276,6 +328,9 @@ function mapPublication(row: PublicationRow) {
     scheduleId: row.schedule_id,
     scheduledAt: row.scheduled_at,
     status: row.status,
+    tiktokPublishId: row.tiktok_publish_id,
+    tiktokUploadId: row.tiktok_upload_id,
+    tiktokUrl: row.tiktok_url,
     timezone: row.timezone,
     title: row.title,
     visibility: row.visibility,
@@ -384,6 +439,27 @@ function readableInstagramError(message: string | null | undefined) {
     : `Erreur Instagram: ${normalized}`;
 }
 
+function readableTikTokError(message: string | null | undefined) {
+  const normalized = message?.trim();
+
+  if (!normalized) {
+    return "Publication TikTok non configuree.";
+  }
+  if (/token|missing_token/i.test(normalized)) {
+    return "Le compte TikTok n'est pas connecte.";
+  }
+  if (/expire/i.test(normalized)) {
+    return "Le token TikTok est expire. Reconnecte TikTok.";
+  }
+  if (/video\.upload|scope/i.test(normalized)) {
+    return "Permission TikTok manquante: video.upload.";
+  }
+
+  return normalized.startsWith("Erreur TikTok")
+    ? normalized
+    : `Erreur TikTok: ${normalized}`;
+}
+
 function wait(milliseconds: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, milliseconds);
@@ -397,6 +473,7 @@ function mapItem({
   job,
   publication,
   schedule,
+  tiktokDirectPostAvailable,
 }: {
   costsByDraft: Map<string, number>;
   draft: DraftRow | undefined;
@@ -404,6 +481,7 @@ function mapItem({
   job: RenderJobRow | undefined;
   publication: ReturnType<typeof mapPublication> | null;
   schedule: ScheduleRow;
+  tiktokDirectPostAvailable?: boolean;
 }): ShortsPublicationItem {
   const title = publication?.title ?? defaultTitle(draft);
   const scheduledAt = publication?.scheduledAt ?? schedule.scheduled_at;
@@ -419,7 +497,9 @@ function mapItem({
     ? "YouTube connecte"
     : schedule.platform === "instagram"
       ? instagramAccountLabel ?? "Instagram a configurer"
-      : "Compte a configurer";
+      : schedule.platform === "tiktok"
+        ? "TikTok connecte"
+        : "Compte a configurer";
   return {
     accountLabel,
     costTotalEstimatedEur: costsByDraft.get(schedule.draft_id) ?? null,
@@ -438,6 +518,10 @@ function mapItem({
     scheduleId: schedule.id,
     scheduledAt,
     status: publication?.status ?? (schedule.status === "cancelled" ? "cancelled" : "ready"),
+    tiktokDirectPostAvailable: Boolean(tiktokDirectPostAvailable),
+    tiktokPublishId: publication?.tiktokPublishId ?? null,
+    tiktokUploadId: publication?.tiktokUploadId ?? null,
+    tiktokUrl: publication?.tiktokUrl ?? null,
     timezone: publication?.timezone ?? schedule.timezone,
     title,
     validated: Boolean(job && draft && ["video_validated", "ready_to_publish"].includes(draft.status ?? "")),
@@ -621,6 +705,49 @@ async function readInstagramConnection() {
   };
 }
 
+async function readTikTokConnection() {
+  const token = await getOAuthToken("tiktok");
+
+  if (!token?.accessToken) {
+    return {
+      accessToken: null as string | null,
+      connected: false,
+      directPostAvailable: false,
+      error: "Le compte TikTok n'est pas connecte.",
+      scopes: [] as string[],
+    };
+  }
+
+  if (isExpired(token.expiresAt)) {
+    return {
+      accessToken: null,
+      connected: false,
+      directPostAvailable: false,
+      error: "Le token TikTok est expire. Reconnecte TikTok.",
+      scopes: splitScopes(token.scope),
+    };
+  }
+
+  const scopes = splitScopes(token.scope);
+  if (!scopes.includes(TIKTOK_REQUIRED_UPLOAD_SCOPE)) {
+    return {
+      accessToken: null,
+      connected: false,
+      directPostAvailable: scopes.includes(TIKTOK_DIRECT_POST_SCOPE),
+      error: "Permission TikTok manquante: video.upload.",
+      scopes,
+    };
+  }
+
+  return {
+    accessToken: token.accessToken,
+    connected: true,
+    directPostAvailable: scopes.includes(TIKTOK_DIRECT_POST_SCOPE),
+    error: null,
+    scopes,
+  };
+}
+
 export async function readShortsPublicationState({
   userId,
 }: {
@@ -668,7 +795,7 @@ export async function readShortsPublicationState({
     visibleDraftIds.length
       ? supabase
         .from("short_video_publications")
-        .select("id,schedule_id,draft_id,platform,status,title,description,hashtags,visibility,scheduled_at,timezone,account_id,youtube_video_id,youtube_url,instagram_media_id,instagram_permalink,published_at,error_message,metadata,created_at,updated_at")
+        .select("id,schedule_id,draft_id,platform,status,title,description,hashtags,visibility,scheduled_at,timezone,account_id,youtube_video_id,youtube_url,instagram_media_id,instagram_permalink,tiktok_publish_id,tiktok_upload_id,tiktok_url,published_at,error_message,metadata,created_at,updated_at")
         .in("draft_id", visibleDraftIds)
         .returns<PublicationRow[]>()
       : Promise.resolve({ data: [] as PublicationRow[], error: null }),
@@ -703,6 +830,9 @@ export async function readShortsPublicationState({
   const hasPendingInstagramSchedule = visibleSchedules.some((schedule) =>
     schedule.platform === "instagram" && schedule.status !== "cancelled",
   );
+  const hasPendingTikTokSchedule = visibleSchedules.some((schedule) =>
+    schedule.platform === "tiktok" && schedule.status !== "cancelled",
+  );
   const instagram = hasPendingInstagramSchedule
     ? await readInstagramConnection().catch((error) => ({
       accessToken: null,
@@ -719,6 +849,21 @@ export async function readShortsPublicationState({
       connected: false,
       error: null,
       missingPermissions: [],
+    };
+  const tiktok = hasPendingTikTokSchedule
+    ? await readTikTokConnection().catch((error) => ({
+      accessToken: null,
+      connected: false,
+      directPostAvailable: false,
+      error: readableTikTokError(error instanceof Error ? error.message : "Lecture TikTok indisponible."),
+      scopes: [] as string[],
+    }))
+    : {
+      accessToken: null,
+      connected: false,
+      directPostAvailable: false,
+      error: null,
+      scopes: [] as string[],
     };
   const dueScheduledPublications = publications.some((publication) =>
     publication.status === "scheduled" &&
@@ -764,6 +909,7 @@ export async function readShortsPublicationState({
       instagramAccountLabel: instagram.accountLabel,
       publication: publicationBySchedule.get(schedule.id) ?? null,
       schedule,
+      tiktokDirectPostAvailable: tiktok.directPostAvailable,
     }),
   );
   const hasPendingYouTubePublication = items.some((item) =>
@@ -809,6 +955,10 @@ export async function readShortsPublicationState({
     instagramError: instagram.error,
     instagramMissingPermissions: instagram.missingPermissions,
     items,
+    tiktokConnected: tiktok.connected,
+    tiktokDirectPostAvailable: tiktok.directPostAvailable,
+    tiktokError: tiktok.error,
+    tiktokScopes: tiktok.scopes,
     youtubeChannelTitle: youtube.channelTitle,
     youtubeConnected: youtube.connected,
     youtubeDiagnostic: youtube.diagnostic
@@ -910,7 +1060,17 @@ async function assertNoActiveDuplicate(draftId: string, scheduleId: string, plat
     .select("id,status,schedule_id")
     .eq("draft_id", draftId)
     .eq("platform", platform)
-    .in("status", ["draft", "ready", "scheduled", "due", "publishing", "processing_media"])
+    .in("status", [
+      "draft",
+      "ready",
+      "scheduled",
+      "due",
+      "publishing",
+      "processing_media",
+      "sending_to_tiktok",
+      "uploaded_to_tiktok",
+      "awaiting_tiktok_confirmation",
+    ])
     .returns<Array<{ id: string; schedule_id: string; status: PublicationStatus }>>();
 
   if (error) {
@@ -1058,11 +1218,82 @@ export async function prepareInstagramReelPublication({
   return readShortsPublicationState({ userId });
 }
 
+export async function prepareTikTokShortPublication({
+  input,
+  scheduleId,
+  userId,
+}: {
+  input: Record<string, unknown>;
+  scheduleId: string;
+  userId: string;
+}) {
+  const supabase = getPublicationClient();
+  const { draft, schedule } = await readScheduleForPublication(scheduleId, userId, "tiktok");
+  const normalized = normalizePublicationInput(input, draft, schedule);
+  const job = await latestValidatedJob(draft.id);
+  const tiktok = await readTikTokConnection();
+
+  if (!job?.output_url && !job?.output_path) {
+    throw new Error("Video finale validee introuvable.");
+  }
+  if (!tiktok.connected) {
+    throw new Error(tiktok.error ?? "Compte TikTok non connecte.");
+  }
+
+  await assertNoActiveDuplicate(draft.id, schedule.id, "tiktok");
+
+  const { data: existingPublication, error: existingError } = await supabase
+    .from("short_video_publications")
+    .select("id,status")
+    .eq("schedule_id", schedule.id)
+    .eq("platform", "tiktok")
+    .maybeSingle<{ id: string; status: PublicationStatus }>();
+
+  if (existingError) {
+    throw new Error(`Lecture publication TikTok existante impossible: ${existingError.message}`);
+  }
+
+  if (existingPublication && ["sending_to_tiktok", "uploaded_to_tiktok", "awaiting_tiktok_confirmation", "published"].includes(existingPublication.status)) {
+    throw new Error("Publication TikTok verrouillee apres envoi a TikTok.");
+  }
+
+  const row = {
+    account_id: "tiktok",
+    description: normalized.description,
+    draft_id: draft.id,
+    hashtags: normalized.hashtags,
+    metadata: {
+      direct_post_available: tiktok.directPostAvailable,
+      prepared_from: "tiktok_upload_v1",
+      tiktok_scopes: tiktok.scopes,
+      video_output_path: job.output_path,
+      video_output_url: job.output_url,
+    },
+    platform: "tiktok",
+    schedule_id: schedule.id,
+    scheduled_at: normalized.scheduledAt,
+    status: "ready",
+    timezone: schedule.timezone,
+    title: normalized.title,
+    visibility: "private",
+  };
+
+  const { error } = await supabase
+    .from("short_video_publications")
+    .upsert(row, { onConflict: "schedule_id,platform" });
+
+  if (error) {
+    throw new Error(`Preparation publication TikTok impossible: ${error.message}`);
+  }
+
+  return readShortsPublicationState({ userId });
+}
+
 async function readPreparedPublication(publicationId: string, userId: string, platform: PublicationPlatform) {
   const supabase = getPublicationClient();
   const { data: publication, error: publicationError } = await supabase
     .from("short_video_publications")
-    .select("id,schedule_id,draft_id,platform,status,title,description,hashtags,visibility,scheduled_at,timezone,account_id,youtube_video_id,youtube_url,instagram_media_id,instagram_permalink,published_at,error_message,metadata,created_at,updated_at")
+    .select("id,schedule_id,draft_id,platform,status,title,description,hashtags,visibility,scheduled_at,timezone,account_id,youtube_video_id,youtube_url,instagram_media_id,instagram_permalink,tiktok_publish_id,tiktok_upload_id,tiktok_url,published_at,error_message,metadata,created_at,updated_at")
     .eq("id", publicationId)
     .eq("platform", platform)
     .single<PublicationRow>();
@@ -1228,6 +1459,83 @@ async function instagramVideoUrl(job: RenderJobRow) {
   }
 
   return data.signedUrl;
+}
+
+async function tiktokVideoUrl(job: RenderJobRow) {
+  if (job.output_url?.startsWith("https://")) {
+    if (!(await isVideoUrlReachable(job.output_url))) {
+      throw new Error("Video finale inaccessible par URL HTTPS pour TikTok.");
+    }
+    return job.output_url;
+  }
+
+  if (!job.output_path) {
+    throw new Error("Video finale sans URL publique ni chemin Storage.");
+  }
+
+  const path = job.output_path.replace(/^content-assets\//, "");
+  const { data, error } = await getPublicationClient()
+    .storage
+    .from("content-assets")
+    .createSignedUrl(path, 21_600);
+
+  if (error || !data?.signedUrl) {
+    throw new Error(`Creation URL signee TikTok impossible: ${error?.message ?? "URL absente"}.`);
+  }
+
+  if (!(await isVideoUrlReachable(data.signedUrl))) {
+    throw new Error("URL signee video inaccessible pour TikTok.");
+  }
+
+  return data.signedUrl;
+}
+
+function sanitizeTikTokError(payload?: TikTokUploadInitPayload | null) {
+  return {
+    code: payload?.error?.code,
+    logId: payload?.error?.log_id,
+    message: payload?.error?.message,
+  };
+}
+
+async function initTikTokInboxUpload({
+  accessToken,
+  videoUrl,
+}: {
+  accessToken: string;
+  videoUrl: string;
+}) {
+  const response = await fetch(TIKTOK_INBOX_UPLOAD_INIT_URL, {
+    body: JSON.stringify({
+      source_info: {
+        source: "PULL_FROM_URL",
+        video_url: videoUrl,
+      },
+    }),
+    cache: "no-store",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+    method: "POST",
+  });
+  const payload = await response.json().catch(() => null) as TikTokUploadInitPayload | null;
+
+  if (!response.ok || payload?.error?.code !== "ok" || !payload?.data?.publish_id) {
+    const sanitized = sanitizeTikTokError(payload);
+    console.warn("[Shorts Publication TikTok] inbox init failed", {
+      code: sanitized.code ?? response.status,
+      log_id: sanitized.logId ?? null,
+      message: sanitized.message ?? "TikTok init failed",
+    });
+    throw new Error(`Erreur TikTok: ${sanitized.message ?? "Initialisation upload impossible."}`);
+  }
+
+  return {
+    publishId: payload.data.publish_id,
+    uploadId: payload.data.upload_id ?? null,
+    uploadUrlPresent: Boolean(payload.data.upload_url),
+  };
 }
 
 async function createInstagramReelContainer({
@@ -1620,6 +1928,121 @@ export async function publishInstagramReel({
     }
   } catch (error) {
     const message = readableInstagramError(error instanceof Error ? error.message : "Publication Instagram impossible.");
+    await supabase
+      .from("short_video_publications")
+      .update({
+        error_message: message,
+        status: "failed",
+      })
+      .eq("id", publication.id);
+    throw new Error(message);
+  }
+
+  return readShortsPublicationState({ userId });
+}
+
+export async function sendTikTokShort({
+  input,
+  publicationId,
+  userId,
+}: {
+  input: Record<string, unknown>;
+  publicationId: string;
+  userId: string;
+}) {
+  const supabase = getPublicationClient();
+  const { draft, publication } = await readPreparedPublication(publicationId, userId, "tiktok");
+  const normalized = normalizePublicationInput(input, draft, {
+    draft_id: draft.id,
+    id: publication.schedule_id,
+    platform: "tiktok",
+    scheduled_at: publication.scheduled_at,
+    status: "scheduled",
+    timezone: publication.timezone,
+  });
+  const job = await latestValidatedJob(draft.id);
+
+  if (!["video_validated", "ready_to_publish"].includes(draft.status ?? "")) {
+    throw new Error("Video non validee.");
+  }
+  if (!job?.output_url && !job?.output_path) {
+    throw new Error("Video finale accessible introuvable.");
+  }
+  if (["sending_to_tiktok", "uploaded_to_tiktok", "awaiting_tiktok_confirmation", "published", "cancelled"].includes(publication.status)) {
+    throw new Error("Cette video est deja envoyee a TikTok, publiee ou annulee.");
+  }
+
+  await assertNoActiveDuplicate(draft.id, publication.schedule_id, "tiktok");
+
+  const tiktok = await readTikTokConnection();
+  if (!tiktok.connected || !tiktok.accessToken) {
+    throw new Error(tiktok.error ?? "Compte TikTok non connecte.");
+  }
+
+  const { data: claimedRows, error: claimError } = await supabase
+    .from("short_video_publications")
+    .update({
+      description: normalized.description,
+      error_message: null,
+      hashtags: normalized.hashtags,
+      metadata: {
+        ...publication.metadata,
+        direct_post_available: tiktok.directPostAvailable,
+        publication_event_source: "manual_tiktok_upload_v1",
+        tiktok_scopes: tiktok.scopes,
+      },
+      scheduled_at: new Date().toISOString(),
+      status: "sending_to_tiktok",
+      title: normalized.title,
+      visibility: "private",
+    })
+    .eq("id", publication.id)
+    .in("status", ["ready", "failed"])
+    .select("id")
+    .returns<Array<{ id: string }>>();
+
+  if (claimError) {
+    throw new Error(`Reservation envoi TikTok impossible: ${claimError.message}`);
+  }
+  if ((claimedRows ?? []).length === 0) {
+    throw new Error("Envoi TikTok deja en cours, finalise ou annule.");
+  }
+
+  try {
+    const videoUrl = await tiktokVideoUrl(job);
+    const caption = composeFinalPublicationDescription(normalized.description, normalized.hashtags);
+    const upload = await initTikTokInboxUpload({
+      accessToken: tiktok.accessToken,
+      videoUrl,
+    });
+    const sentAt = new Date().toISOString();
+    const { error } = await supabase
+      .from("short_video_publications")
+      .update({
+        error_message: null,
+        metadata: {
+          ...publication.metadata,
+          caption_preview: caption,
+          direct_post_available: tiktok.directPostAvailable,
+          publication_event_source: "manual_tiktok_upload_v1",
+          tiktok_scopes: tiktok.scopes,
+          tiktok_upload_url_present: upload.uploadUrlPresent,
+          video_output_path: job.output_path,
+        },
+        published_at: null,
+        scheduled_at: sentAt,
+        status: "awaiting_tiktok_confirmation",
+        tiktok_publish_id: upload.publishId,
+        tiktok_upload_id: upload.uploadId,
+        tiktok_url: null,
+      })
+      .eq("id", publication.id);
+
+    if (error) {
+      throw new Error(`Envoi TikTok reussi mais historique impossible: ${error.message}`);
+    }
+  } catch (error) {
+    const message = readableTikTokError(error instanceof Error ? error.message : "Envoi TikTok impossible.");
     await supabase
       .from("short_video_publications")
       .update({

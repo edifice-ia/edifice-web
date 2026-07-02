@@ -459,6 +459,17 @@ export async function updateShortVideoSchedule({
     scheduleId: existing.id,
   });
 
+  console.info("[Shorts Scheduling] updating schedule", {
+    scheduleId: existing.id,
+    previousDraftId: existing.draft_id,
+    previousPlatform: existing.platform,
+    previousScheduledAt: existing.scheduled_at,
+    nextDraftId: normalized.draftId,
+    nextPlatform: normalized.platform,
+    nextScheduledAt: normalized.scheduledAt,
+    timezone: normalized.timezone,
+  });
+
   const { error } = await getSchedulingClient()
     .from("short_video_schedules")
     .update({
@@ -472,6 +483,13 @@ export async function updateShortVideoSchedule({
     .eq("id", existing.id);
 
   if (error) {
+    console.error("[Shorts Scheduling] schedule update failed", {
+      scheduleId: existing.id,
+      previousScheduledAt: existing.scheduled_at,
+      nextScheduledAt: normalized.scheduledAt,
+      platform: normalized.platform,
+      supabaseError: error.message,
+    });
     throw new Error(`Modification de la programmation impossible: ${error.message}`);
   }
 
@@ -500,12 +518,18 @@ export async function updateShortVideoSchedule({
         .insert(rowsToInsert);
 
       if (insertError) {
+        console.error("[Shorts Scheduling] missing platform insert failed", {
+          scheduleId: existing.id,
+          nextScheduledAt: normalized.scheduledAt,
+          rowsCount: rowsToInsert.length,
+          supabaseError: insertError.message,
+        });
         throw new Error(`Creation des plateformes manquantes impossible: ${insertError.message}`);
       }
     }
   }
 
-  await getSchedulingClient()
+  const { error: publicationUpdateError } = await getSchedulingClient()
     .from("short_video_publications")
     .update({
       draft_id: normalized.draftId,
@@ -515,6 +539,23 @@ export async function updateShortVideoSchedule({
     })
     .eq("schedule_id", existing.id)
     .in("status", ["draft", "ready", "scheduled", "failed"]);
+
+  if (publicationUpdateError) {
+    console.error("[Shorts Scheduling] linked publication update failed", {
+      scheduleId: existing.id,
+      previousScheduledAt: existing.scheduled_at,
+      nextScheduledAt: normalized.scheduledAt,
+      platform: normalized.platform,
+      supabaseError: publicationUpdateError.message,
+    });
+  }
+
+  console.info("[Shorts Scheduling] schedule updated", {
+    scheduleId: existing.id,
+    previousScheduledAt: existing.scheduled_at,
+    nextScheduledAt: normalized.scheduledAt,
+    platform: normalized.platform,
+  });
 
   return readShortsSchedulingState({ userId });
 }

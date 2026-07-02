@@ -69,6 +69,15 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Programmation manquante." }, { status: 400 });
       }
 
+      console.info("[Shorts Scheduling API] update_schedule received", {
+        scheduleId: data.scheduleId,
+        draftId: data.draftId,
+        platform: data.platform,
+        scheduledAt: data.scheduledAt,
+        timezone: data.timezone,
+        allowPast: Boolean(data.allowPast),
+      });
+
       return NextResponse.json(await updateShortVideoSchedule({
         input: data,
         userId: user.id,

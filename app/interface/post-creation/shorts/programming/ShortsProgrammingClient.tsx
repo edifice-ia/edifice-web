@@ -128,6 +128,7 @@ type ScheduleEditForm = {
   localDate: string;
   localTime: string;
   platform: SchedulePlatformChoice;
+  timezone: string;
 };
 
 type PlanningRow = {
@@ -174,24 +175,42 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
-function formatDateTime(value: string) {
+function formatDateTime(value: string, timezone = DEFAULT_SHORTS_SCHEDULE_TIMEZONE) {
   return new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     month: "short",
+    timeZone: normalizeScheduleTimezone(timezone),
   }).format(new Date(value));
 }
 
-function formatDateTimeInput(value: string) {
+function formatDateTimeInput(value: string, timezone = DEFAULT_SHORTS_SCHEDULE_TIMEZONE) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) {
     return "";
   }
 
-  const offset = date.getTimezoneOffset();
-  const local = new Date(date.getTime() - offset * 60_000);
-  return local.toISOString().slice(0, 16);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    month: "2-digit",
+    timeZone: normalizeScheduleTimezone(timezone),
+    year: "numeric",
+  });
+  const parts = Object.fromEntries(
+    formatter.formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+
+  if (!parts.year || !parts.month || !parts.day || !parts.hour || !parts.minute) {
+    return "";
+  }
+
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
 function inputDateTimeToIso(value: string) {
@@ -216,8 +235,8 @@ function safeInputDateTimeToIso(value: string) {
   }
 }
 
-function scheduleToLocalParts(value: string) {
-  const input = formatDateTimeInput(value);
+function scheduleToLocalParts(value: string, timezone = DEFAULT_SHORTS_SCHEDULE_TIMEZONE) {
+  const input = formatDateTimeInput(value, timezone);
   const [localDate = "", localTime = ""] = input.split("T");
 
   return {
@@ -863,13 +882,15 @@ export function ShortsProgrammingClient() {
   }
 
   function startScheduleEdit(schedule: ShortVideoSchedule) {
-    const parts = scheduleToLocalParts(schedule.scheduledAt);
+    const scheduleTimezone = normalizeScheduleTimezone(schedule.timezone || normalizedTimezone);
+    const parts = scheduleToLocalParts(schedule.scheduledAt, scheduleTimezone);
     setEditingScheduleId(schedule.id);
     setScheduleEditForm({
       draftId: schedule.draftId,
       localDate: parts.localDate,
       localTime: parts.localTime,
       platform: schedule.platform,
+      timezone: scheduleTimezone,
     });
     setConfirmingScheduleAction(null);
     setError(null);
@@ -877,7 +898,7 @@ export function ShortsProgrammingClient() {
   }
 
   function duplicateSchedule(schedule: ShortVideoSchedule) {
-    const parts = scheduleToLocalParts(schedule.scheduledAt);
+    const parts = scheduleToLocalParts(schedule.scheduledAt, schedule.timezone);
     setPlanningRows((current) => [
       ...current,
       {
@@ -903,8 +924,13 @@ export function ShortsProgrammingClient() {
     const scheduledAt = safeScheduleIso(
       scheduleEditForm.localDate,
       scheduleEditForm.localTime,
-      normalizedTimezone,
+      scheduleEditForm.timezone,
     );
+
+    if (!scheduleEditForm.localDate || !scheduleEditForm.localTime || !Number.isFinite(Date.parse(scheduledAt))) {
+      setError("Date ou heure de programmation invalide.");
+      return;
+    }
 
     if (!options.allowPast && Date.parse(scheduledAt) <= Date.now()) {
       setConfirmingScheduleAction({ action: "past_update", scheduleId: editingScheduleId });
@@ -930,7 +956,7 @@ export function ShortsProgrammingClient() {
             recommendationSource: "manual",
             scheduleId: editingScheduleId,
             scheduledAt,
-            timezone: normalizedTimezone,
+            timezone: scheduleEditForm.timezone,
           },
         }),
       });
@@ -2144,14 +2170,14 @@ export function ShortsProgrammingClient() {
                               {schedule.draftTitle}
                             </p>
                             <p className="mt-1 text-sm text-[#A7B0C0]">
-                              {SHORTS_SCHEDULE_PLATFORM_LABELS[schedule.platform]} - {formatDateTime(schedule.scheduledAt)}
+                              {SHORTS_SCHEDULE_PLATFORM_LABELS[schedule.platform]} - {formatDateTime(schedule.scheduledAt, schedule.timezone)}
                             </p>
                             <p className="mt-1 text-xs font-semibold text-[#A7B0C0]">
                               {readableStatus(schedule.status, isPastDue)}
                             </p>
                             {isPastDue ? (
                               <p className="mt-2 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-xs font-semibold text-[#FDBA74]">
-                                Creneau depasse - publication manuelle requise.
+                                Creneau depasse - publication manuelle requise. Programmation modifiable tant qu&apos;elle n&apos;est pas publiee.
                               </p>
                             ) : null}
                             {locked ? (

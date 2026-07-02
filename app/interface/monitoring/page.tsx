@@ -10,8 +10,10 @@ import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { StatusBadge } from "@/components/cockpit/StatusBadge";
 import { readObservatoryCostSummary } from "@/lib/server/cost-tracking";
 import { getLiveProjectMemory } from "@/lib/server/observatory/read-model";
+import { readPublicationPerformanceState } from "@/lib/server/publication-performance";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 import { ObservatoryCostsPanel } from "./ObservatoryCostsPanel";
+import { PublicationPerformancePanel } from "./PublicationPerformancePanel";
 
 export const metadata: Metadata = {
   title: "Observatoire - L'\u00c9difice",
@@ -45,6 +47,9 @@ export default async function MonitoringPage() {
   ]);
   const costSummary = user
     ? await readObservatoryCostSummary(user.id).catch(() => null)
+    : null;
+  const performanceSummary = user
+    ? await readPublicationPerformanceState(user.id).catch(() => null)
     : null;
   const reviewCount = projectMemory.observatoryItems.filter(
     (item) => item.status === "Review",
@@ -126,6 +131,52 @@ export default async function MonitoringPage() {
           periodEventsCount: 0,
           previousPeriodEur: null,
           reconciledEventsCount: 0,
+        }}
+      />
+
+      <PublicationPerformancePanel
+        initialPerformance={performanceSummary ?? {
+          averageRetentionPercentage: null,
+          availableAccounts: [],
+          byAccount: [],
+          byDay: [],
+          byPlatform: [],
+          filters: {
+            accountId: null,
+            period: "30d",
+            platform: "all",
+            status: "all",
+          },
+          lastSyncAt: null,
+          limitationNotes: [
+            "Aucune table de performance lue pour le moment ou migration non appliquee.",
+          ],
+          recommendations: [],
+          sampleSize: 0,
+          sync: {
+            instagram: {
+              connected: false,
+              lastResult: null,
+              missingPermissions: [],
+            },
+            tiktok: {
+              enabled: false,
+              message: "TikTok reste en lecture placeholder pour cette v1.",
+            },
+            youtube: {
+              connected: false,
+              lastResult: null,
+              missingPermissions: [],
+            },
+          },
+          topPublications: [],
+          totalComments: 0,
+          totalInteractions: 0,
+          totalLikes: 0,
+          totalReach: null,
+          totalSaves: 0,
+          totalShares: 0,
+          totalViews: 0,
         }}
       />
 

@@ -842,9 +842,7 @@ export function ShortsVoiceClient() {
               {subtitles?.errorMessage ? (
                 <div className="mt-4 rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-4 py-3 text-sm text-[#FDBA74]">
                   <p className="font-semibold">
-                    {subtitles.errorMessage.includes("ElevenLabs")
-                      ? "Configuration ElevenLabs indisponible."
-                      : subtitles.errorMessage}
+                    {subtitles.errorMessage}
                   </p>
                   {subtitles.errorTechnicalDetails.length ? (
                     <details className="mt-2">

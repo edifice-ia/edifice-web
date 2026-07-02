@@ -762,6 +762,49 @@ function normalizeAlignedWords(payload: unknown) {
     .filter((word): word is AlignedWord => Boolean(word));
 }
 
+function scriptWords(script: string) {
+  return script
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .map((word) => word.trim())
+    .filter(Boolean);
+}
+
+function estimateDurationFromScript(script: string) {
+  return Math.max(1, scriptWords(script).length / 2.45);
+}
+
+function buildEstimatedAlignedWords(script: string, durationSeconds: number | null): AlignedWord[] {
+  const words = scriptWords(script);
+
+  if (words.length === 0) {
+    return [];
+  }
+
+  const safeDuration = Math.max(1, durationSeconds ?? estimateDurationFromScript(script));
+  const totalWeight = words.reduce(
+    (sum, word) => sum + Math.max(0.6, word.replace(/[.,!?;:]/g, "").length / 5),
+    0,
+  );
+  let cursor = 0;
+
+  return words.map((text, index) => {
+    const weight = Math.max(0.6, text.replace(/[.,!?;:]/g, "").length / 5);
+    const wordDuration = index === words.length - 1
+      ? safeDuration - cursor
+      : safeDuration * weight / totalWeight;
+    const start = cursor;
+    const end = Math.min(safeDuration, cursor + Math.max(0.12, wordDuration));
+    cursor = end;
+
+    return {
+      end,
+      start,
+      text,
+    };
+  });
+}
+
 function applyKaraokeOffset(words: AlignedWord[]) {
   const offsetSeconds = TIMING_OFFSET_MS / 1000;
 
@@ -1032,10 +1075,6 @@ export async function generateDraftSubtitles({
   const subtitleMode = normalizeSubtitleMode(mode);
   const localMode = subtitleModeToLocalMode(subtitleMode);
 
-  if (!apiKey) {
-    throw new Error("Configuration ElevenLabs indisponible.");
-  }
-
   const draft = await readDraft(draftId, userId);
   const script = cleanText(draft.script);
 
@@ -1071,12 +1110,16 @@ export async function generateDraftSubtitles({
   const audioProbe = await probeAudioDuration({ draftId, voiceAsset });
   console.info("[Subtitle Pipeline] audio duration probe", {
     draftId,
+    voiceStatus: draft.voice_status,
+    audioStatus: voiceAsset.status,
     audioStoragePath: voiceAsset.storage_path,
     audioPublicUrlPresent: Boolean(voiceAsset.public_url),
     durationSeconds: audioProbe.durationSeconds,
     error: audioProbe.status === "unreadable" ? audioProbe.message : null,
     method: audioProbe.method,
     status: audioProbe.status,
+    elevenLabsAlignmentConfigured: Boolean(apiKey),
+    elevenLabsRequiredForStep: false,
   });
 
   const { data: audioBlob, error: downloadError } = await supabase.storage
@@ -1124,16 +1167,55 @@ export async function generateDraftSubtitles({
       fileName: voiceAsset.file_name,
       subtitleMode,
     });
-    const alignment = await requestForcedAlignment({
-      apiKey,
-      audioBytes,
-      fileName: voiceAsset.file_name,
-      script,
-    });
-    const words = applyKaraokeOffset(normalizeAlignedWords(alignment));
+    let alignmentProvider = "local_estimated_timing";
+    let alignedWords: AlignedWord[] = [];
+
+    if (apiKey) {
+      try {
+        const alignment = await requestForcedAlignment({
+          apiKey,
+          audioBytes,
+          fileName: voiceAsset.file_name,
+          script,
+        });
+        alignedWords = normalizeAlignedWords(alignment);
+        if (alignedWords.length > 0) {
+          alignmentProvider = "elevenlabs_forced_alignment";
+        } else {
+          console.warn("[Subtitle Pipeline] ElevenLabs alignment returned no usable words, using local fallback", {
+            draftId,
+            voiceStatus: draft.voice_status,
+            audioStatus: voiceAsset.status,
+            audioPublicUrlPresent: Boolean(voiceAsset.public_url),
+          });
+        }
+      } catch (alignmentError) {
+        console.warn("[Subtitle Pipeline] ElevenLabs alignment failed, using local fallback", {
+          draftId,
+          voiceStatus: draft.voice_status,
+          audioStatus: voiceAsset.status,
+          audioPublicUrlPresent: Boolean(voiceAsset.public_url),
+          error: alignmentError instanceof Error ? alignmentError.message : String(alignmentError),
+        });
+      }
+    } else {
+      console.info("[Subtitle Pipeline] ElevenLabs alignment skipped, using local fallback", {
+        draftId,
+        voiceStatus: draft.voice_status,
+        audioStatus: voiceAsset.status,
+        audioPublicUrlPresent: Boolean(voiceAsset.public_url),
+        step: "subtitle_alignment",
+      });
+    }
+
+    const words = applyKaraokeOffset(
+      alignedWords.length > 0
+        ? alignedWords
+        : buildEstimatedAlignedWords(script, audioProbe.durationSeconds),
+    );
 
     if (words.length === 0) {
-      throw new Error("ElevenLabs n'a retourne aucun timing mot a mot exploitable.");
+      throw new Error("Generation sous-titres impossible: aucun mot exploitable dans le script.");
     }
 
     const segments = buildSegments(words);
@@ -1151,6 +1233,8 @@ export async function generateDraftSubtitles({
       local_mode: localMode,
       mode: subtitleMode,
       provider: SUBTITLE_PROVIDER,
+      alignment_provider: alignmentProvider,
+      audio_duration_method: audioProbe.method,
       segments,
       style: KARAOKE_STYLE,
       timing_offset_ms: TIMING_OFFSET_MS,
@@ -1216,11 +1300,15 @@ export async function generateDraftSubtitles({
     const message = readableSubtitleFailure(error);
     console.error("[Subtitle Pipeline] generation failed", {
       draftId,
+      voiceStatus: draft.voice_status,
+      audioStatus: voiceAsset.status,
       audioStoragePath: voiceAsset.storage_path,
       audioPublicUrlPresent: Boolean(voiceAsset.public_url),
       audioDurationMethod: audioProbe.method,
       audioDurationSeconds: audioProbe.durationSeconds,
       audioDurationStatus: audioProbe.status,
+      elevenLabsAlignmentConfigured: Boolean(apiKey),
+      elevenLabsRequiredForStep: false,
       error: error instanceof Error ? error.message : String(error),
       readableMessage: message,
     });

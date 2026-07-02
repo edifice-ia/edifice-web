@@ -1,19 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ConstructionJournal } from "@/components/cockpit/ConstructionJournal";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
-import { CockpitStatePanel } from "@/components/cockpit/CockpitStatePanel";
-import { LogPanel } from "@/components/cockpit/LogPanel";
-import { ProjectMemoryPanel } from "@/components/cockpit/ProjectMemoryPanel";
-import { ProjectObservatory } from "@/components/cockpit/ProjectObservatory";
-import { SectionContainer } from "@/components/cockpit/SectionContainer";
-import { StatusBadge } from "@/components/cockpit/StatusBadge";
 import { readObservatoryCostSummary } from "@/lib/server/cost-tracking";
 import { getLiveProjectMemory } from "@/lib/server/observatory/read-model";
 import { readPublicationPerformanceState } from "@/lib/server/publication-performance";
+import { readShortsPublicationState } from "@/lib/server/shorts-publication";
 import { getCurrentUser } from "@/src/lib/supabase/server";
-import { ObservatoryCostsPanel } from "./ObservatoryCostsPanel";
-import { PublicationPerformancePanel } from "./PublicationPerformancePanel";
+import { MonitoringDashboardClient } from "./MonitoringDashboardClient";
 
 export const metadata: Metadata = {
   title: "Observatoire - L'\u00c9difice",
@@ -51,6 +43,9 @@ export default async function MonitoringPage() {
   const performanceSummary = user
     ? await readPublicationPerformanceState(user.id).catch(() => null)
     : null;
+  const publicationSummary = user
+    ? await readShortsPublicationState({ userId: user.id }).catch(() => null)
+    : null;
   const reviewCount = projectMemory.observatoryItems.filter(
     (item) => item.status === "Review",
   ).length;
@@ -66,45 +61,8 @@ export default async function MonitoringPage() {
         status="En cours"
       />
 
-      <div className="mb-6 grid gap-4 md:grid-cols-4">
-        {[
-          [
-            "Modules suivis",
-            String(projectMemory.overview.totalModules),
-            "En cours",
-          ],
-          [
-            "Op\u00e9rationnels",
-            String(projectMemory.overview.operational),
-            "Operationnel",
-          ],
-          ["Bloqu\u00e9s", String(projectMemory.overview.blocked), "Bloque"],
-          ["En review", String(reviewCount), "Review"],
-        ].map(([label, value, status]) => (
-          <SectionContainer key={label}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm text-[#A7B0C0]">{label}</p>
-                <p className="mt-2 text-2xl font-semibold text-[#F8FAFC]">
-                  {value}
-                </p>
-              </div>
-              <StatusBadge
-                status={
-                  status as
-                    | "En cours"
-                    | "Operationnel"
-                    | "Bloque"
-                    | "Review"
-                }
-              />
-            </div>
-          </SectionContainer>
-        ))}
-      </div>
-
-      <ObservatoryCostsPanel
-        initialCosts={costSummary ?? {
+      <MonitoringDashboardClient
+        costs={costSummary ?? {
           averagePerCompletedVideoEur: null,
           availableAccounts: [],
           availableCategories: [],
@@ -132,10 +90,8 @@ export default async function MonitoringPage() {
           previousPeriodEur: null,
           reconciledEventsCount: 0,
         }}
-      />
-
-      <PublicationPerformancePanel
-        initialPerformance={performanceSummary ?? {
+        logs={logs}
+        performance={performanceSummary ?? {
           averageRetentionPercentage: null,
           availableAccounts: [],
           byAccount: [],
@@ -178,42 +134,20 @@ export default async function MonitoringPage() {
           totalShares: 0,
           totalViews: 0,
         }}
+        projectMemory={projectMemory}
+        publications={publicationSummary ?? {
+          instagramConnected: false,
+          instagramError: null,
+          items: [],
+          tiktokConnected: false,
+          tiktokDirectPostAvailable: false,
+          tiktokError: null,
+          tiktokScopes: [],
+          youtubeConnected: false,
+          youtubeError: null,
+        }}
+        reviewCount={reviewCount}
       />
-
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <ProjectObservatory items={projectMemory.observatoryItems} />
-
-        <aside className="space-y-6">
-          <CockpitStatePanel state={projectMemory.cockpitState} />
-          <ProjectMemoryPanel
-            cockpitRole={projectMemory.cockpitRole}
-            safeguards={projectMemory.safeguards}
-            nextRecommendedAction={projectMemory.nextRecommendedAction}
-          />
-          <ConstructionJournal
-            initialEntries={projectMemory.projectMemoryEntries}
-          />
-          <SectionContainer>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
-              Ressources
-            </p>
-            <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
-              Outils opérationnels
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-[#A7B0C0]">
-              Accéder aux plateformes externes utiles au pilotage sans exposer
-              de secrets ni déclencher d&apos;action.
-            </p>
-            <Link
-              href="/interface/resources"
-              className="mt-4 inline-flex rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-            >
-              Ouvrir les ressources
-            </Link>
-          </SectionContainer>
-          <LogPanel logs={logs} title={"Signaux r\u00e9cents"} />
-        </aside>
-      </div>
     </div>
   );
 }

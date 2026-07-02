@@ -323,7 +323,7 @@ export function PublicationPerformancePanel({
             onClick={() => runAction("sync_youtube")}
             type="button"
           >
-            Synchroniser YouTube
+            Synchroniser les performances YouTube
           </button>
           <button
             className="rounded-md border border-[#E879F9]/50 bg-[#E879F9]/10 px-3 py-2 text-sm font-semibold text-[#F0ABFC] transition hover:bg-[#E879F9]/20 disabled:cursor-not-allowed disabled:opacity-50"
@@ -331,7 +331,7 @@ export function PublicationPerformancePanel({
             onClick={() => runAction("sync_instagram")}
             type="button"
           >
-            Synchroniser Instagram
+            Synchroniser les performances Instagram
           </button>
         </div>
       </div>
@@ -373,15 +373,20 @@ export function PublicationPerformancePanel({
 
       <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
         <MetricCard label="Vues" value={formatNumber(performance.totalViews)} />
+        <MetricCard label="Likes" value={formatNumber(performance.totalLikes)} />
+        <MetricCard label="Commentaires" value={formatNumber(performance.totalComments)} />
         <MetricCard label="Interactions" value={formatNumber(performance.totalInteractions)} />
         <MetricCard label="Reach" value={formatNumber(performance.totalReach)} />
+        <MetricCard label="Partages" value={formatNumber(performance.totalShares)} />
+        <MetricCard label="Sauvegardes" value={formatNumber(performance.totalSaves)} />
         <MetricCard label="Retention moyenne" value={formatRetention(performance.averageRetentionPercentage)} />
+        <MetricCard label="Duree moyenne YouTube" value="Non disponible" />
         <MetricCard label="Derniere synchro" value={formatDateTime(performance.lastSyncAt)} />
       </div>
 
       {performance.sampleSize === 0 ? (
         <p className="mt-5 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm text-[#FDBA74]">
-          Aucune performance synchronisee pour cette periode. Synchronise YouTube ou Instagram lorsque des publications existent.
+          Aucune donnee disponible pour cette periode ou aucune publication eligible. Les donnees apparaitront apres synchronisation YouTube ou Instagram.
         </p>
       ) : null}
 
@@ -425,6 +430,32 @@ export function PublicationPerformancePanel({
               <p className="text-sm text-[#A7B0C0]">Aucune plateforme alimentee.</p>
             )}
           </div>
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+        <h3 className="font-semibold text-[#F8FAFC]">Performances par compte</h3>
+        <div className="mt-4 grid gap-2 md:grid-cols-2">
+          {performance.byAccount.length ? performance.byAccount.map((item) => {
+            const account = performance.availableAccounts.find(
+              (availableAccount) => availableAccount.accountId === item.accountId,
+            );
+            return (
+              <div className="min-w-0 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2" key={item.accountId}>
+                <div className="flex min-w-0 justify-between gap-3">
+                  <p className="truncate text-sm font-semibold text-[#F8FAFC]">
+                    {account?.label ?? item.accountId}
+                  </p>
+                  <p className="shrink-0 text-sm text-[#39E6D0]">{formatNumber(item.views)}</p>
+                </div>
+                <p className="mt-1 truncate text-xs text-[#A7B0C0]">
+                  {formatNumber(item.interactions)} interactions / engagement {formatPercent(item.averageEngagementRate)}
+                </p>
+              </div>
+            );
+          }) : (
+            <p className="text-sm text-[#A7B0C0]">Aucun compte alimente pour cette periode.</p>
+          )}
         </div>
       </div>
 

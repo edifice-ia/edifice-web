@@ -73,9 +73,11 @@ type PreparedSubtitle = {
 };
 
 export type DraftVideoPreparationState = {
+  localSubtitleMode: "karaoke" | "srt" | null;
   manifestStoragePath: string | null;
   manifestUrl: string | null;
   preparedAt: string | null;
+  subtitleMode: "karaoke" | "classic" | null;
   status: "pending" | "ready";
 };
 
@@ -482,9 +484,11 @@ export async function readDraftVideoPreparationState({
   const ready = metadataString(asset, "video_preparation_status") === "ready";
 
   return {
+    localSubtitleMode: metadataString(asset, "local_subtitle_mode") === "karaoke" ? "karaoke" : metadataString(asset, "local_subtitle_mode") === "srt" ? "srt" : null,
     manifestStoragePath: asset?.storage_path ?? null,
     manifestUrl: asset?.public_url ?? null,
     preparedAt,
+    subtitleMode: ready ? normalizeSubtitleMode(metadataString(asset, "subtitle_mode")) : null,
     status: ready ? "ready" : "pending",
   };
 }

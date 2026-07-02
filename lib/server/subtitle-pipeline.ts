@@ -32,6 +32,8 @@ type SubtitleStatus = "pending" | "generating" | "ready" | "validated" | "ignore
 type DraftSubtitleRow = {
   id: string;
   script: string | null;
+  subtitle_error: string | null;
+  subtitle_mode: string | null;
   status: string | null;
   user_id: string;
   voice_asset_id: string | null;
@@ -72,6 +74,7 @@ export type DraftSubtitleState = {
   canGenerate: boolean;
   durationSeconds: number;
   errorMessage: string | null;
+  errorTechnicalDetails: string[];
   generatedAt: string | null;
   jsonUrl: string | null;
   localMode: "karaoke" | "srt";
@@ -140,15 +143,25 @@ function hasValidatedVoiceStatus(draft: DraftSubtitleRow) {
   );
 }
 
-function defaultState(status: SubtitleStatus, canGenerate: boolean): DraftSubtitleState {
+function defaultState(
+  status: SubtitleStatus,
+  canGenerate: boolean,
+  options: {
+    errorMessage?: string | null;
+    errorTechnicalDetails?: string[];
+    mode?: SubtitleMode;
+  } = {},
+): DraftSubtitleState {
+  const mode = options.mode ?? DEFAULT_SUBTITLE_MODE;
   return {
     canGenerate,
     durationSeconds: 0,
-    errorMessage: status === "error" ? "Generation sous-titres impossible." : null,
+    errorMessage: status === "error" ? options.errorMessage ?? "Generation sous-titres impossible." : options.errorMessage ?? null,
+    errorTechnicalDetails: options.errorTechnicalDetails ?? [],
     generatedAt: null,
     jsonUrl: null,
-    localMode: subtitleModeToLocalMode(DEFAULT_SUBTITLE_MODE),
-    mode: DEFAULT_SUBTITLE_MODE,
+    localMode: subtitleModeToLocalMode(mode),
+    mode,
     previewSegments: [],
     provider: SUBTITLE_PROVIDER,
     segmentsCount: 0,
@@ -165,7 +178,7 @@ function defaultState(status: SubtitleStatus, canGenerate: boolean): DraftSubtit
 async function readDraft(draftId: string, userId: string) {
   const { data, error } = await getSubtitleClient()
     .from("content_drafts")
-    .select("id, user_id, script, status, voice_asset_id, voice_status, voice_validated_at")
+    .select("id, user_id, script, status, subtitle_error, subtitle_mode, voice_asset_id, voice_status, voice_validated_at")
     .eq("id", draftId)
     .eq("user_id", userId)
     .maybeSingle<DraftSubtitleRow>();
@@ -179,6 +192,135 @@ async function readDraft(draftId: string, userId: string) {
   }
 
   return data;
+}
+
+function readableSubtitleFailure(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error || "");
+
+  if (/configuration elevenlabs/i.test(raw)) {
+    return "Configuration ElevenLabs indisponible.";
+  }
+  if (/Valide la voix|voix avant/i.test(raw)) {
+    return "Voix non generée pour ce brouillon.";
+  }
+  if (/fichier absent|introuvable|not_found|object not found/i.test(raw)) {
+    return "Fichier audio introuvable dans le stockage.";
+  }
+  if (/download|Lecture de l'audio|Audio inaccessible/i.test(raw)) {
+    return "Audio inaccessible au generateur de sous-titres.";
+  }
+  if (/format|audio/i.test(raw) && /refuse|unsupported|unprocessable|422/i.test(raw)) {
+    return "Format audio non pris en charge.";
+  }
+  if (/timing|alignement|aucun timing|aucun mot/i.test(raw)) {
+    return "Durée audio impossible à lire.";
+  }
+  if (/ElevenLabs a refuse/i.test(raw)) {
+    return raw;
+  }
+
+  return raw || "Erreur serveur lors de l'analyse audio.";
+}
+
+function storagePathFileName(storagePath: string) {
+  return storagePath.split("/").filter(Boolean).at(-1) ?? storagePath;
+}
+
+function storagePathDirectory(storagePath: string) {
+  const parts = storagePath.split("/").filter(Boolean);
+  parts.pop();
+
+  return parts.join("/");
+}
+
+async function storageObjectExists(bucketName: string, storagePath: string) {
+  const cleanPath = storagePath.trim().replace(/^\/+/, "");
+  const fileName = storagePathFileName(cleanPath);
+  const directory = storagePathDirectory(cleanPath);
+  const { data, error } = await getSubtitleClient()
+    .storage
+    .from(bucketName)
+    .list(directory, {
+      limit: 100,
+      search: fileName,
+    });
+
+  if (error) {
+    throw new Error(`Verification Storage impossible pour ${bucketName}/${cleanPath}: ${error.message}`);
+  }
+
+  return (data ?? []).some((item) => item.name === fileName);
+}
+
+async function diagnoseSubtitleReadiness(
+  draft: DraftSubtitleRow,
+  voiceAsset: ContentAssetRow | null,
+) {
+  const details = [
+    `draft_status=${draft.status ?? "null"}`,
+    `voice_status=${draft.voice_status ?? "null"}`,
+    `voice_asset_id=${draft.voice_asset_id ?? "null"}`,
+  ];
+
+  if (!hasValidatedVoiceStatus(draft)) {
+    return {
+      message: "Voix non generée pour ce brouillon.",
+      details,
+    };
+  }
+
+  if (!voiceAsset) {
+    return {
+      message: "Fichier audio introuvable dans le stockage.",
+      details: [...details, "audio_asset=missing"],
+    };
+  }
+
+  details.push(`audio_bucket=${voiceAsset.bucket_name}`);
+  details.push(`audio_storage_path=${voiceAsset.storage_path}`);
+  details.push(`audio_public_url=${voiceAsset.public_url ? "present" : "missing"}`);
+  details.push(`audio_status=${voiceAsset.status}`);
+
+  if (voiceAsset.bucket_name !== SUBTITLE_BUCKET) {
+    return {
+      message: "Bucket audio incorrect pour ce brouillon.",
+      details,
+    };
+  }
+
+  if (!voiceAsset.storage_path || !voiceAsset.storage_path.startsWith(`${VOICE_AUDIO_PATH}/${draft.id}/`)) {
+    return {
+      message: "Chemin audio incoherent pour ce brouillon.",
+      details,
+    };
+  }
+
+  if (!voiceAsset.public_url) {
+    return {
+      message: "Audio inaccessible au generateur de sous-titres.",
+      details,
+    };
+  }
+
+  try {
+    const exists = await storageObjectExists(voiceAsset.bucket_name, voiceAsset.storage_path);
+    if (!exists) {
+      return {
+        message: "Fichier audio introuvable dans le stockage.",
+        details,
+      };
+    }
+  } catch (error) {
+    return {
+      message: "Erreur serveur lors de l'analyse audio.",
+      details: [...details, error instanceof Error ? error.message : String(error)],
+    };
+  }
+
+  return {
+    message: "Derniere generation sous-titres echouee. Relance une generation pour obtenir le detail si l'erreur persiste.",
+    details,
+  };
 }
 
 async function readVoiceAsset(assetId: string) {
@@ -334,7 +476,11 @@ function normalizeAlignedWords(payload: unknown) {
   const alignment = root.alignment && typeof root.alignment === "object"
     ? root.alignment as Record<string, unknown>
     : root;
-  const words = Array.isArray(alignment.words) ? alignment.words : [];
+  const words = Array.isArray(alignment.words)
+    ? alignment.words
+    : Array.isArray(root.words)
+      ? root.words
+      : [];
 
   return words
     .map((word) => {
@@ -516,6 +662,7 @@ async function uploadSubtitleAsset({
     subtitle_format: format,
     subtitle_group_id: groupId,
     timing_offset_ms: TIMING_OFFSET_MS,
+    words_count: jsonSegments.reduce((sum, segment) => sum + segment.words.length, 0),
   };
 
   const { error: uploadError } = await supabase.storage
@@ -564,21 +711,32 @@ export async function readDraftSubtitleState({
     ? await readVoiceAssetForDraft(draft)
     : null;
   const canGenerate = Boolean(voiceAsset);
+  const savedMode = normalizeSubtitleMode(draft.subtitle_mode);
 
   if (draft.status === "sous_titres_en_cours") {
-    return defaultState("generating", false);
+    return defaultState("generating", false, { mode: savedMode });
   }
 
   if (draft.status === "sous_titres_erreur") {
-    return defaultState("error", canGenerate);
+    const diagnostic = await diagnoseSubtitleReadiness(draft, voiceAsset);
+    return defaultState("error", canGenerate, {
+      errorMessage: draft.subtitle_error ?? diagnostic.message,
+      errorTechnicalDetails: diagnostic.details,
+      mode: savedMode,
+    });
   }
 
   if (draft.status === "sous_titres_ignor\u00e9s" || draft.status === "sous_titres_ignores") {
-    return defaultState("ignored", canGenerate);
+    return defaultState("ignored", canGenerate, { mode: savedMode });
   }
 
   if (!voiceAsset || !canGenerate) {
-    return defaultState("pending", false);
+    const diagnostic = await diagnoseSubtitleReadiness(draft, voiceAsset);
+    return defaultState("pending", false, {
+      errorMessage: diagnostic.message,
+      errorTechnicalDetails: diagnostic.details,
+      mode: savedMode,
+    });
   }
 
   const assets = await readSubtitleAssets(draftId);
@@ -587,7 +745,7 @@ export async function readDraftSubtitleState({
   );
   const readyState = buildReadyState(matchingAssets);
 
-  return readyState ?? defaultState("pending", true);
+  return readyState ?? defaultState("pending", true, { mode: savedMode });
 }
 
 export async function generateDraftSubtitles({
@@ -620,11 +778,24 @@ export async function generateDraftSubtitles({
     : null;
 
   if (!voiceAsset) {
-    throw new Error("Valide la voix avant de generer les sous-titres.");
+    throw new Error("Voix non generée pour ce brouillon.");
   }
 
   if (draft.status === "sous_titres_en_cours") {
     throw new Error("Une generation de sous-titres est deja en cours.");
+  }
+
+  if (!voiceAsset.bucket_name || voiceAsset.bucket_name !== SUBTITLE_BUCKET) {
+    throw new Error(`Bucket audio incorrect pour ce brouillon: ${voiceAsset.bucket_name || "absent"}.`);
+  }
+
+  if (!voiceAsset.storage_path || !voiceAsset.storage_path.startsWith(`${VOICE_AUDIO_PATH}/${draft.id}/`)) {
+    throw new Error(`Chemin audio incoherent pour ce brouillon: ${voiceAsset.storage_path || "absent"}.`);
+  }
+
+  const exists = await storageObjectExists(voiceAsset.bucket_name, voiceAsset.storage_path);
+  if (!exists) {
+    throw new Error(`Fichier audio introuvable dans le stockage: ${voiceAsset.bucket_name}/${voiceAsset.storage_path}.`);
   }
 
   const { data: audioBlob, error: downloadError } = await supabase.storage
@@ -637,7 +808,11 @@ export async function generateDraftSubtitles({
 
   const { data: lockedDraft, error: lockError } = await supabase
     .from("content_drafts")
-    .update({ status: "sous_titres_en_cours" })
+    .update({
+      status: "sous_titres_en_cours",
+      subtitle_error: null,
+      subtitle_mode: subtitleMode,
+    })
     .eq("id", draftId)
     .eq("user_id", userId)
     .neq("status", "sous_titres_en_cours")
@@ -654,6 +829,9 @@ export async function generateDraftSubtitles({
 
   try {
     const audioBytes = Buffer.from(await audioBlob.arrayBuffer());
+    if (audioBytes.length === 0) {
+      throw new Error("Audio inaccessible au generateur de sous-titres: fichier vide.");
+    }
     const alignment = await requestForcedAlignment({
       apiKey,
       audioBytes,
@@ -663,7 +841,7 @@ export async function generateDraftSubtitles({
     const words = applyKaraokeOffset(normalizeAlignedWords(alignment));
 
     if (words.length === 0) {
-      throw new Error("ElevenLabs n'a retourne aucun timing exploitable.");
+      throw new Error("ElevenLabs n'a retourne aucun timing mot a mot exploitable.");
     }
 
     const segments = buildSegments(words);
@@ -684,6 +862,7 @@ export async function generateDraftSubtitles({
       segments,
       style: KARAOKE_STYLE,
       timing_offset_ms: TIMING_OFFSET_MS,
+      words,
     };
 
     await uploadSubtitleAsset({
@@ -728,7 +907,11 @@ export async function generateDraftSubtitles({
 
     const { error: updateError } = await supabase
       .from("content_drafts")
-      .update({ status: "sous_titres_pr\u00eats" })
+      .update({
+        status: "sous_titres_pr\u00eats",
+        subtitle_error: null,
+        subtitle_mode: subtitleMode,
+      })
       .eq("id", draftId)
       .eq("user_id", userId);
 
@@ -738,13 +921,18 @@ export async function generateDraftSubtitles({
 
     return readDraftSubtitleState({ draftId, userId });
   } catch (error) {
+    const message = readableSubtitleFailure(error);
     await supabase
       .from("content_drafts")
-      .update({ status: "sous_titres_erreur" })
+      .update({
+        status: "sous_titres_erreur",
+        subtitle_error: message,
+        subtitle_mode: subtitleMode,
+      })
       .eq("id", draftId)
       .eq("user_id", userId);
 
-    throw error;
+    throw new Error(message);
   }
 }
 
@@ -790,6 +978,7 @@ export async function validateDraftSubtitles({
           subtitle_validated_at: now,
           subtitle_validated_by: userId,
           subtitle_validation_status: "validated",
+          validated_mode: metadataString(jsonAsset, "mode") ?? DEFAULT_SUBTITLE_MODE,
         },
       })
       .eq("id", asset.id);
@@ -801,7 +990,11 @@ export async function validateDraftSubtitles({
 
   const { error: draftError } = await supabase
     .from("content_drafts")
-    .update({ status: "video_en_attente" })
+    .update({
+      status: "video_en_attente",
+      subtitle_error: null,
+      subtitle_mode: normalizeSubtitleMode(metadataString(jsonAsset, "mode")),
+    })
     .eq("id", draftId)
     .eq("user_id", userId);
 

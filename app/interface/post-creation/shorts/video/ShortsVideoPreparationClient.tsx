@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { ShortWorkflowStatus } from "@/components/cockpit/ShortWorkflowStatus";
 import { getShortWorkflowState } from "@/lib/short-workflow";
-import { normalizeSubtitleMode, subtitleModeLabel } from "@/lib/subtitles";
+import { normalizeSubtitleMode, subtitleModeLabel, type SubtitleMode } from "@/lib/subtitles";
 
 type ContentDraft = {
   id: string;
@@ -38,9 +38,11 @@ type DraftSubtitleState = {
 };
 
 type DraftVideoPreparationState = {
+  localSubtitleMode: "karaoke" | "srt" | null;
   manifestStoragePath: string | null;
   manifestUrl: string | null;
   preparedAt: string | null;
+  subtitleMode: SubtitleMode | null;
   status: "pending" | "ready";
 };
 
@@ -256,6 +258,16 @@ export function ShortsVideoPreparationClient() {
   const subtitles = media?.subtitles ?? null;
   const videoPreparation = media?.videoPreparation ?? null;
   const generatedSubtitleMode = normalizeSubtitleMode(subtitles?.mode);
+  const videoPreparationReady = videoPreparation?.status === "ready" || workflowState.video === "ready";
+  const manifestSubtitleMode = videoPreparation?.subtitleMode
+    ? normalizeSubtitleMode(videoPreparation.subtitleMode)
+    : null;
+  const subtitleModeConflict = Boolean(
+    videoPreparationReady &&
+      manifestSubtitleMode &&
+      subtitles?.mode &&
+      manifestSubtitleMode !== generatedSubtitleMode,
+  );
   const targetDurationSeconds = Number(selectedDraft?.score.duration_seconds);
   const safeTargetDurationSeconds = Number.isFinite(targetDurationSeconds) && targetDurationSeconds > 0
     ? targetDurationSeconds
@@ -292,6 +304,11 @@ export function ShortsVideoPreparationClient() {
       value: subtitleModeLabel(generatedSubtitleMode),
     },
     {
+      label: "Style manifest",
+      ok: !videoPreparationReady || !subtitleModeConflict,
+      value: manifestSubtitleMode ? subtitleModeLabel(manifestSubtitleMode) : "manifest absent",
+    },
+    {
       label: "Duree audio",
       ok: Boolean(voice?.audioUrl),
       value: formatSubtitleAudioDuration(subtitles, voice),
@@ -307,7 +324,6 @@ export function ShortsVideoPreparationClient() {
   const videoBlockingReasons = videoChecklist
     .filter((item) => !item.ok)
     .map((item) => `${item.label}: ${item.value}`);
-  const videoPreparationReady = videoPreparation?.status === "ready" || workflowState.video === "ready";
   const renderIsActive = videoRender?.status === "queued" || videoRender?.status === "processing";
   const renderIsFailed = videoRender?.status === "failed";
   const renderStatusLabel =
@@ -856,6 +872,15 @@ export function ShortsVideoPreparationClient() {
                 <p className="font-semibold">Preparation bloquee</p>
                 <p className="mt-1 leading-6">
                   {videoBlockingReasons.join(" ")}
+                </p>
+              </div>
+            ) : null}
+
+            {subtitleModeConflict && manifestSubtitleMode ? (
+              <div className="mt-4 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-4 py-3 text-sm text-[#FDBA74]">
+                <p className="font-semibold">Conflit de style sous-titres</p>
+                <p className="mt-1 leading-6">
+                  Attention : le style genere est {subtitleModeLabel(generatedSubtitleMode)} mais le manifest contient {subtitleModeLabel(manifestSubtitleMode)}. Regenere le manifest avant un nouveau rendu.
                 </p>
               </div>
             ) : null}

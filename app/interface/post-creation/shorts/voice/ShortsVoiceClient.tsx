@@ -51,6 +51,7 @@ type DraftSubtitleState = {
   canGenerate: boolean;
   durationSeconds: number;
   errorMessage: string | null;
+  errorTechnicalDetails: string[];
   generatedAt: string | null;
   jsonUrl: string | null;
   localMode: "karaoke" | "srt";
@@ -255,6 +256,7 @@ export function ShortsVoiceClient() {
   const subtitles = media?.subtitles ?? null;
   const generatedSubtitleMode = normalizeSubtitleMode(subtitles?.mode);
   const subtitleStyleChanged = selectedSubtitleMode !== generatedSubtitleMode;
+  const hasGeneratedSubtitles = Boolean(subtitles?.jsonUrl);
   const subtitlesBusy = activeAction === "generate_subtitles" ||
     activeAction === "regenerate_subtitles" ||
     activeAction === "validate_subtitles" ||
@@ -676,7 +678,7 @@ export function ShortsVoiceClient() {
                 <div>
                   <p className="text-sm font-semibold text-[#F8FAFC]">Sous-titres</p>
                   <p className="mt-1 text-sm text-[#A7B0C0]">
-                    {subtitleModeLabel(generatedSubtitleMode)} - ElevenLabs
+                    Selection : {subtitleModeLabel(selectedSubtitleMode)} - ElevenLabs
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -693,7 +695,7 @@ export function ShortsVoiceClient() {
 
               <div className="mt-5">
                 <p className="text-sm font-semibold text-[#F8FAFC]">Style de sous-titres</p>
-                {subtitles?.jsonUrl ? (
+                {hasGeneratedSubtitles ? (
                   <p className="mt-1 text-xs text-[#A7B0C0]">
                     Style genere : <span className="font-semibold text-[#F8FAFC]">{subtitleModeLabel(generatedSubtitleMode)}</span>
                   </p>
@@ -757,14 +759,19 @@ export function ShortsVoiceClient() {
                 </div>
                 {subtitleStyleChanged ? (
                   <p className="mt-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
-                    Le nouveau style sera applique lors de la prochaine generation.
+                    {hasGeneratedSubtitles
+                      ? `Le style genere reste ${subtitleModeLabel(generatedSubtitleMode)}. Une regeneration complete est necessaire pour obtenir ${subtitleModeLabel(selectedSubtitleMode)}.`
+                      : "Le nouveau style sera applique lors de la prochaine generation."}
                   </p>
                 ) : null}
               </div>
 
               <div className="mt-4 grid gap-3 md:grid-cols-4">
                 <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
-                  Mode: <span className="font-semibold text-[#F8FAFC]">{subtitleModeLabel(generatedSubtitleMode)}</span>
+                  Mode selectionne: <span className="font-semibold text-[#F8FAFC]">{subtitleModeLabel(selectedSubtitleMode)}</span>
+                </p>
+                <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
+                  Mode genere: <span className="font-semibold text-[#F8FAFC]">{hasGeneratedSubtitles ? subtitleModeLabel(generatedSubtitleMode) : "Aucune generation"}</span>
                 </p>
                 <p className="rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3 text-sm text-[#A7B0C0]">
                   Duree audio:{" "}
@@ -787,11 +794,27 @@ export function ShortsVoiceClient() {
               </div>
 
               {subtitles?.errorMessage ? (
-                <p className="mt-4 rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-4 py-3 text-sm font-semibold text-[#FDBA74]">
-                  {subtitles.errorMessage.includes("ElevenLabs")
-                    ? "Configuration ElevenLabs indisponible."
-                    : subtitles.errorMessage}
-                </p>
+                <div className="mt-4 rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-4 py-3 text-sm text-[#FDBA74]">
+                  <p className="font-semibold">
+                    {subtitles.errorMessage.includes("ElevenLabs")
+                      ? "Configuration ElevenLabs indisponible."
+                      : subtitles.errorMessage}
+                  </p>
+                  {subtitles.errorTechnicalDetails.length ? (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs font-semibold text-[#FDBA74]">
+                        Voir le detail technique
+                      </summary>
+                      <div className="mt-2 grid gap-1 text-xs text-[#FED7AA]">
+                        {subtitles.errorTechnicalDetails.map((detail) => (
+                          <p className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap" key={detail} title={detail}>
+                            {detail}
+                          </p>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
+                </div>
               ) : null}
 
               {subtitleBlockedReason ? (

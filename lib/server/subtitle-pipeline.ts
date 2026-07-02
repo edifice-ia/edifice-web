@@ -70,7 +70,21 @@ type SubtitleSegment = {
   words: AlignedWord[];
 };
 
+type AudioDurationStatus = "readable" | "estimated" | "unreadable" | "missing";
+
+type AudioDurationProbe = {
+  durationSeconds: number | null;
+  message: string;
+  method: string;
+  status: AudioDurationStatus;
+  technicalDetails: string[];
+};
+
 export type DraftSubtitleState = {
+  audioDurationMessage: string;
+  audioDurationMethod: string;
+  audioDurationSeconds: number | null;
+  audioDurationStatus: AudioDurationStatus;
   canGenerate: boolean;
   durationSeconds: number;
   errorMessage: string | null;
@@ -147,13 +161,19 @@ function defaultState(
   status: SubtitleStatus,
   canGenerate: boolean,
   options: {
+    audioProbe?: AudioDurationProbe | null;
     errorMessage?: string | null;
     errorTechnicalDetails?: string[];
     mode?: SubtitleMode;
   } = {},
 ): DraftSubtitleState {
   const mode = options.mode ?? DEFAULT_SUBTITLE_MODE;
+  const audioProbe = options.audioProbe;
   return {
+    audioDurationMessage: audioProbe?.message ?? "Audio non verifie.",
+    audioDurationMethod: audioProbe?.method ?? "none",
+    audioDurationSeconds: audioProbe?.durationSeconds ?? null,
+    audioDurationStatus: audioProbe?.status ?? "missing",
     canGenerate,
     durationSeconds: 0,
     errorMessage: status === "error" ? options.errorMessage ?? "Generation sous-titres impossible." : options.errorMessage ?? null,
@@ -172,6 +192,236 @@ function defaultState(
     validatedAt: null,
     validatedBy: null,
     vttUrl: null,
+  };
+}
+
+function metadataDurationEstimate(asset: ContentAssetRow | null) {
+  if (!asset) {
+    return null;
+  }
+
+  const value = asset.metadata?.estimated_duration_seconds ?? asset.metadata?.duration_seconds;
+  const duration = typeof value === "number" ? value : Number(value);
+
+  return Number.isFinite(duration) && duration > 0 ? duration : null;
+}
+
+function syncSafeSize(buffer: Buffer, offset: number) {
+  return (
+    ((buffer[offset] & 0x7f) << 21) |
+    ((buffer[offset + 1] & 0x7f) << 14) |
+    ((buffer[offset + 2] & 0x7f) << 7) |
+    (buffer[offset + 3] & 0x7f)
+  );
+}
+
+function parseWavDurationSeconds(buffer: Buffer) {
+  if (buffer.length < 44 || buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WAVE") {
+    return null;
+  }
+
+  let offset = 12;
+  let byteRate: number | null = null;
+  let dataSize: number | null = null;
+
+  while (offset + 8 <= buffer.length) {
+    const chunkId = buffer.toString("ascii", offset, offset + 4);
+    const chunkSize = buffer.readUInt32LE(offset + 4);
+    const chunkDataOffset = offset + 8;
+
+    if (chunkId === "fmt " && chunkSize >= 16 && chunkDataOffset + 12 <= buffer.length) {
+      byteRate = buffer.readUInt32LE(chunkDataOffset + 8);
+    }
+
+    if (chunkId === "data") {
+      dataSize = chunkSize;
+    }
+
+    offset = chunkDataOffset + chunkSize + (chunkSize % 2);
+  }
+
+  if (!byteRate || !dataSize) {
+    return null;
+  }
+
+  const duration = dataSize / byteRate;
+  return Number.isFinite(duration) && duration > 0 ? duration : null;
+}
+
+const mpegBitratesKbps: Record<string, number[]> = {
+  "1-1": [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448],
+  "1-2": [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384],
+  "1-3": [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+  "2-1": [0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256],
+  "2-2": [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+  "2-3": [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+};
+
+function parseMp3DurationSeconds(buffer: Buffer) {
+  let offset = buffer.length >= 10 && buffer.toString("ascii", 0, 3) === "ID3"
+    ? 10 + syncSafeSize(buffer, 6)
+    : 0;
+  let duration = 0;
+  let frames = 0;
+  let guard = 0;
+
+  while (offset + 4 <= buffer.length && guard < 50_000) {
+    guard += 1;
+
+    if (buffer[offset] !== 0xff || (buffer[offset + 1] & 0xe0) !== 0xe0) {
+      offset += 1;
+      continue;
+    }
+
+    const versionBits = (buffer[offset + 1] >> 3) & 0x03;
+    const layerBits = (buffer[offset + 1] >> 1) & 0x03;
+    const bitrateIndex = (buffer[offset + 2] >> 4) & 0x0f;
+    const sampleRateIndex = (buffer[offset + 2] >> 2) & 0x03;
+    const padding = (buffer[offset + 2] >> 1) & 0x01;
+
+    if (versionBits === 1 || layerBits === 0 || bitrateIndex === 0 || bitrateIndex === 15 || sampleRateIndex === 3) {
+      offset += 1;
+      continue;
+    }
+
+    const mpegVersion = versionBits === 3 ? 1 : versionBits === 2 ? 2 : 2.5;
+    const layer = 4 - layerBits;
+    const bitrateTableKey = `${mpegVersion === 1 ? 1 : 2}-${layer}`;
+    const bitrate = (mpegBitratesKbps[bitrateTableKey]?.[bitrateIndex] ?? 0) * 1000;
+    const baseSampleRates = [44_100, 48_000, 32_000];
+    const sampleRate = baseSampleRates[sampleRateIndex] / (mpegVersion === 1 ? 1 : mpegVersion === 2 ? 2 : 4);
+
+    if (!bitrate || !sampleRate) {
+      offset += 1;
+      continue;
+    }
+
+    const samplesPerFrame = layer === 1 ? 384 : layer === 3 && mpegVersion !== 1 ? 576 : 1152;
+    const frameLength = layer === 1
+      ? Math.floor((12 * bitrate / sampleRate + padding) * 4)
+      : layer === 3 && mpegVersion !== 1
+        ? Math.floor(72 * bitrate / sampleRate + padding)
+        : Math.floor(144 * bitrate / sampleRate + padding);
+
+    if (frameLength <= 4 || offset + frameLength > buffer.length + 1) {
+      offset += 1;
+      continue;
+    }
+
+    duration += samplesPerFrame / sampleRate;
+    frames += 1;
+    offset += frameLength;
+  }
+
+  return frames > 2 && Number.isFinite(duration) && duration > 0 ? duration : null;
+}
+
+function parseAudioDurationSeconds(buffer: Buffer) {
+  return parseWavDurationSeconds(buffer) ?? parseMp3DurationSeconds(buffer);
+}
+
+async function fetchPublicAudioBytes(publicUrl: string) {
+  const response = await fetch(publicUrl, { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function downloadStorageAudioBytes(bucketName: string, storagePath: string) {
+  const { data, error } = await getSubtitleClient()
+    .storage
+    .from(bucketName)
+    .download(storagePath);
+
+  if (error || !data) {
+    throw new Error(error?.message ?? "fichier absent");
+  }
+
+  return Buffer.from(await data.arrayBuffer());
+}
+
+async function probeAudioDuration({
+  draftId,
+  voiceAsset,
+}: {
+  draftId: string;
+  voiceAsset: ContentAssetRow | null;
+}): Promise<AudioDurationProbe> {
+  if (!voiceAsset) {
+    return {
+      durationSeconds: null,
+      message: "Audio introuvable.",
+      method: "none",
+      status: "missing",
+      technicalDetails: [`draft_id=${draftId}`, "audio_asset=missing"],
+    };
+  }
+
+  const technicalDetails = [
+    `draft_id=${draftId}`,
+    `audio_storage_path=${voiceAsset.storage_path}`,
+    `audio_public_url=${voiceAsset.public_url ? "present" : "missing"}`,
+  ];
+
+  const attempts: Array<{
+    getBytes: () => Promise<Buffer>;
+    method: string;
+  }> = [];
+
+  if (voiceAsset.public_url) {
+    attempts.push({
+      getBytes: () => fetchPublicAudioBytes(voiceAsset.public_url),
+      method: "public_url_parser",
+    });
+  }
+
+  attempts.push({
+    getBytes: () => downloadStorageAudioBytes(voiceAsset.bucket_name, voiceAsset.storage_path),
+    method: "storage_download_parser",
+  });
+
+  for (const attempt of attempts) {
+    try {
+      const bytes = await attempt.getBytes();
+      const durationSeconds = parseAudioDurationSeconds(bytes);
+      technicalDetails.push(`${attempt.method}=bytes:${bytes.length}`);
+
+      if (durationSeconds) {
+        return {
+          durationSeconds,
+          message: `Audio trouve, duree lisible (${Math.round(durationSeconds)}s).`,
+          method: attempt.method,
+          status: "readable",
+          technicalDetails,
+        };
+      }
+
+      technicalDetails.push(`${attempt.method}=duration_unreadable`);
+    } catch (error) {
+      technicalDetails.push(`${attempt.method}=failed:${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const estimatedDuration = metadataDurationEstimate(voiceAsset);
+  if (estimatedDuration) {
+    return {
+      durationSeconds: estimatedDuration,
+      message: `Audio trouve, duree estimee depuis les metadonnees (${Math.round(estimatedDuration)}s).`,
+      method: "asset_metadata_estimate",
+      status: "estimated",
+      technicalDetails,
+    };
+  }
+
+  return {
+    durationSeconds: null,
+    message: "Audio trouve, mais duree non lisible. Relance la generation; si l'erreur persiste, regenere la voix.",
+    method: "unreadable",
+    status: "unreadable",
+    technicalDetails,
   };
 }
 
@@ -212,8 +462,11 @@ function readableSubtitleFailure(error: unknown) {
   if (/format|audio/i.test(raw) && /refuse|unsupported|unprocessable|422/i.test(raw)) {
     return "Format audio non pris en charge.";
   }
-  if (/timing|alignement|aucun timing|aucun mot/i.test(raw)) {
+  if (/duration probe|duree audio|durée audio/i.test(raw)) {
     return "Durée audio impossible à lire.";
+  }
+  if (/timing|alignement|aucun timing|aucun mot/i.test(raw)) {
+    return "Alignement sous-titres impossible: ElevenLabs n'a retourné aucun timing exploitable.";
   }
   if (/ElevenLabs a refuse/i.test(raw)) {
     return raw;
@@ -454,9 +707,16 @@ function buildReadyState(assets: ContentAssetRow[]): DraftSubtitleState | null {
   const durationSeconds = metadataNumber(jsonAsset, "duration_seconds") ?? 0;
   const mode = normalizeSubtitleMode(metadataString(jsonAsset, "mode"));
   const validated = metadataString(jsonAsset, "subtitle_validation_status") === "validated";
+  const audioProbe: AudioDurationProbe = {
+    durationSeconds,
+    message: `Sous-titres generes, duree issue des timings (${Math.round(durationSeconds)}s).`,
+    method: "subtitle_timings",
+    status: durationSeconds > 0 ? "readable" : "unreadable",
+    technicalDetails: [`subtitle_json_asset=${jsonAsset.id}`],
+  };
 
   return {
-    ...defaultState(validated ? "validated" : "ready", true),
+    ...defaultState(validated ? "validated" : "ready", true, { audioProbe }),
     durationSeconds,
     generatedAt: metadataString(jsonAsset, "generated_at") ?? jsonAsset.created_at,
     jsonUrl: jsonAsset.public_url,
@@ -712,27 +972,37 @@ export async function readDraftSubtitleState({
     : null;
   const canGenerate = Boolean(voiceAsset);
   const savedMode = normalizeSubtitleMode(draft.subtitle_mode);
+  const audioProbe = canGenerate
+    ? await probeAudioDuration({ draftId, voiceAsset })
+    : null;
 
   if (draft.status === "sous_titres_en_cours") {
-    return defaultState("generating", false, { mode: savedMode });
+    return defaultState("generating", false, { audioProbe, mode: savedMode });
   }
 
   if (draft.status === "sous_titres_erreur") {
     const diagnostic = await diagnoseSubtitleReadiness(draft, voiceAsset);
     return defaultState("error", canGenerate, {
+      audioProbe,
       errorMessage: draft.subtitle_error ?? diagnostic.message,
-      errorTechnicalDetails: diagnostic.details,
+      errorTechnicalDetails: [
+        ...diagnostic.details,
+        ...(audioProbe?.technicalDetails ?? []),
+        audioProbe ? `audio_duration_method=${audioProbe.method}` : "audio_duration_method=none",
+        audioProbe ? `audio_duration_status=${audioProbe.status}` : "audio_duration_status=missing",
+      ],
       mode: savedMode,
     });
   }
 
   if (draft.status === "sous_titres_ignor\u00e9s" || draft.status === "sous_titres_ignores") {
-    return defaultState("ignored", canGenerate, { mode: savedMode });
+    return defaultState("ignored", canGenerate, { audioProbe, mode: savedMode });
   }
 
   if (!voiceAsset || !canGenerate) {
     const diagnostic = await diagnoseSubtitleReadiness(draft, voiceAsset);
     return defaultState("pending", false, {
+      audioProbe,
       errorMessage: diagnostic.message,
       errorTechnicalDetails: diagnostic.details,
       mode: savedMode,
@@ -745,7 +1015,7 @@ export async function readDraftSubtitleState({
   );
   const readyState = buildReadyState(matchingAssets);
 
-  return readyState ?? defaultState("pending", true, { mode: savedMode });
+  return readyState ?? defaultState("pending", true, { audioProbe, mode: savedMode });
 }
 
 export async function generateDraftSubtitles({
@@ -798,6 +1068,17 @@ export async function generateDraftSubtitles({
     throw new Error(`Fichier audio introuvable dans le stockage: ${voiceAsset.bucket_name}/${voiceAsset.storage_path}.`);
   }
 
+  const audioProbe = await probeAudioDuration({ draftId, voiceAsset });
+  console.info("[Subtitle Pipeline] audio duration probe", {
+    draftId,
+    audioStoragePath: voiceAsset.storage_path,
+    audioPublicUrlPresent: Boolean(voiceAsset.public_url),
+    durationSeconds: audioProbe.durationSeconds,
+    error: audioProbe.status === "unreadable" ? audioProbe.message : null,
+    method: audioProbe.method,
+    status: audioProbe.status,
+  });
+
   const { data: audioBlob, error: downloadError } = await supabase.storage
     .from(voiceAsset.bucket_name)
     .download(voiceAsset.storage_path);
@@ -832,6 +1113,17 @@ export async function generateDraftSubtitles({
     if (audioBytes.length === 0) {
       throw new Error("Audio inaccessible au generateur de sous-titres: fichier vide.");
     }
+    console.info("[Subtitle Pipeline] forced alignment start", {
+      draftId,
+      audioStoragePath: voiceAsset.storage_path,
+      audioPublicUrlPresent: Boolean(voiceAsset.public_url),
+      audioDurationMethod: audioProbe.method,
+      audioDurationSeconds: audioProbe.durationSeconds,
+      audioDurationStatus: audioProbe.status,
+      audioSizeBytes: audioBytes.length,
+      fileName: voiceAsset.file_name,
+      subtitleMode,
+    });
     const alignment = await requestForcedAlignment({
       apiKey,
       audioBytes,
@@ -922,6 +1214,16 @@ export async function generateDraftSubtitles({
     return readDraftSubtitleState({ draftId, userId });
   } catch (error) {
     const message = readableSubtitleFailure(error);
+    console.error("[Subtitle Pipeline] generation failed", {
+      draftId,
+      audioStoragePath: voiceAsset.storage_path,
+      audioPublicUrlPresent: Boolean(voiceAsset.public_url),
+      audioDurationMethod: audioProbe.method,
+      audioDurationSeconds: audioProbe.durationSeconds,
+      audioDurationStatus: audioProbe.status,
+      error: error instanceof Error ? error.message : String(error),
+      readableMessage: message,
+    });
     await supabase
       .from("content_drafts")
       .update({

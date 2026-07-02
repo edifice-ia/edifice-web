@@ -48,6 +48,10 @@ type SubtitleSegmentPreview = {
 };
 
 type DraftSubtitleState = {
+  audioDurationMessage: string;
+  audioDurationMethod: string;
+  audioDurationSeconds: number | null;
+  audioDurationStatus: "readable" | "estimated" | "unreadable" | "missing";
   canGenerate: boolean;
   durationSeconds: number;
   errorMessage: string | null;
@@ -182,11 +186,33 @@ function formatSubtitleAudioDuration(subtitles: DraftSubtitleState | null, voice
     return formatDuration(subtitles.durationSeconds);
   }
 
+  if (subtitles?.audioDurationSeconds && subtitles.audioDurationSeconds > 0) {
+    return subtitles.audioDurationStatus === "estimated"
+      ? `${formatDuration(subtitles.audioDurationSeconds)} estimee`
+      : formatDuration(subtitles.audioDurationSeconds);
+  }
+
   if (voice?.audioUrl) {
-    return "Duree en cours de verification";
+    return subtitles?.audioDurationMessage ?? "Audio trouve, duree en verification";
   }
 
   return "0s";
+}
+
+function subtitleAudioNextAction(subtitles: DraftSubtitleState | null) {
+  if (!subtitles) {
+    return "Charge le brouillon pour verifier l'audio.";
+  }
+
+  if (subtitles.audioDurationStatus === "readable" || subtitles.audioDurationStatus === "estimated") {
+    return "Tu peux lancer la generation des sous-titres.";
+  }
+
+  if (subtitles.audioDurationStatus === "unreadable") {
+    return "La generation peut etre tentee; si elle echoue encore, regenere la voix.";
+  }
+
+  return "Valide ou regenere la voix avant les sous-titres.";
 }
 
 function generationBlockedReason(voice: DraftVoiceState | null) {
@@ -792,6 +818,26 @@ export function ShortsVoiceClient() {
                   </span>
                 </p>
               </div>
+
+              {voice?.audioUrl ? (
+                <div className={`mt-4 rounded-md border px-4 py-3 text-sm ${
+                  subtitles?.audioDurationStatus === "readable" || subtitles?.audioDurationStatus === "estimated"
+                    ? "border-[#39E6D0]/35 bg-[#39E6D0]/10 text-[#A7F3D0]"
+                    : "border-[#F97316]/35 bg-[#F97316]/10 text-[#FDBA74]"
+                }`}>
+                  <p className="font-semibold">
+                    Audio trouve - {subtitles?.audioDurationMessage ?? "duree en verification."}
+                  </p>
+                  <p className="mt-2 leading-6">
+                    Prochaine action : {subtitleAudioNextAction(subtitles)}
+                  </p>
+                  {subtitles?.audioDurationMethod ? (
+                    <p className="mt-1 text-xs opacity-80">
+                      Methode de lecture : {subtitles.audioDurationMethod}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
               {subtitles?.errorMessage ? (
                 <div className="mt-4 rounded-md border border-[#F97316]/40 bg-[#F97316]/10 px-4 py-3 text-sm text-[#FDBA74]">

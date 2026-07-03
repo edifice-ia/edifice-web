@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   cancelShortVideoSchedule,
+  markShortVideoSchedulePublished,
   readShortsSchedulingState,
   saveShortVideoSchedules,
   updateShortVideoSchedule,
@@ -91,6 +92,22 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json(await cancelShortVideoSchedule({
+        scheduleId,
+        userId: user.id,
+      }));
+    }
+
+    if (action === "mark_schedule_published") {
+      const scheduleId = typeof payload.scheduleId === "string" ? payload.scheduleId : "";
+      if (!scheduleId) {
+        return NextResponse.json({ error: "Programmation manquante." }, { status: 400 });
+      }
+
+      console.info("[Shorts Scheduling API] mark_schedule_published received", {
+        scheduleId,
+      });
+
+      return NextResponse.json(await markShortVideoSchedulePublished({
         scheduleId,
         userId: user.id,
       }));

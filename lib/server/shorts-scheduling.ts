@@ -37,6 +37,20 @@ type ScheduleRow = {
   updated_at: string;
 };
 
+type SchedulePublicationRow = {
+  draft_id: string;
+  instagram_media_id: string | null;
+  instagram_permalink: string | null;
+  platform: ShortsSchedulePlatform;
+  published_at: string | null;
+  schedule_id: string;
+  scheduled_at: string;
+  status: string;
+  tiktok_url: string | null;
+  youtube_url: string | null;
+  youtube_video_id: string | null;
+};
+
 export type SchedulableShortVideo = {
   draftId: string;
   title: string;
@@ -166,6 +180,118 @@ function isActiveScheduleStatus(status: ScheduleStatus) {
   return status !== "cancelled" && status !== "failed" && status !== "published";
 }
 
+function publicationLooksPublished(publication: SchedulePublicationRow) {
+  if (publication.status === "published" || publication.published_at) {
+    return true;
+  }
+
+  if (publication.platform === "instagram") {
+    return Boolean(publication.instagram_media_id || publication.instagram_permalink);
+  }
+
+  if (publication.platform === "tiktok") {
+    return Boolean(publication.tiktok_url);
+  }
+
+  return Boolean(
+    publication.platform === "youtube" &&
+      publication.youtube_video_id &&
+      Date.parse(publication.scheduled_at) <= Date.now(),
+  );
+}
+
+async function readSchedulePublications(scheduleIds: string[]) {
+  if (scheduleIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await getSchedulingClient()
+    .from("short_video_publications")
+    .select("schedule_id,draft_id,platform,status,scheduled_at,published_at,youtube_video_id,youtube_url,instagram_media_id,instagram_permalink,tiktok_url")
+    .in("schedule_id", scheduleIds)
+    .returns<SchedulePublicationRow[]>();
+
+  if (error) {
+    throw new Error(`Lecture des publications liees impossible: ${error.message}`);
+  }
+
+  return data ?? [];
+}
+
+async function reconcilePublishedSchedules(schedules: ScheduleRow[]) {
+  const publications = await readSchedulePublications(schedules.map((schedule) => schedule.id));
+  const publishedByScheduleId = new Map<string, SchedulePublicationRow>();
+
+  publications.forEach((publication) => {
+    if (publicationLooksPublished(publication)) {
+      publishedByScheduleId.set(publication.schedule_id, publication);
+    }
+  });
+
+  const schedulesToMark = schedules.filter(
+    (schedule) =>
+      schedule.status !== "published" &&
+      schedule.status !== "cancelled" &&
+      Boolean(publishedByScheduleId.get(schedule.id)),
+  );
+
+  if (schedulesToMark.length > 0) {
+    const scheduleIds = schedulesToMark.map((schedule) => schedule.id);
+    const { error } = await getSchedulingClient()
+      .from("short_video_schedules")
+      .update({ status: "published" })
+      .in("id", scheduleIds);
+
+    if (error) {
+      console.error("[Shorts Scheduling] published schedule reconciliation failed", {
+        scheduleIds,
+        supabaseError: error.message,
+      });
+    } else {
+      console.info("[Shorts Scheduling] published schedule reconciliation", {
+        scheduleIds,
+        publications: schedulesToMark.map((schedule) => {
+          const publication = publishedByScheduleId.get(schedule.id);
+          return {
+            scheduleId: schedule.id,
+            draftId: schedule.draft_id,
+            platform: schedule.platform,
+            publicationStatus: publication?.status,
+            publishedAt: publication?.published_at,
+          };
+        }),
+      });
+      schedulesToMark.forEach((schedule) => {
+        schedule.status = "published";
+      });
+    }
+  }
+
+  const publicationsToMark = publications.filter(
+    (publication) => publicationLooksPublished(publication) && publication.status !== "published",
+  );
+  if (publicationsToMark.length > 0) {
+    const publicationScheduleIds = publicationsToMark.map((publication) => publication.schedule_id);
+    const { error } = await getSchedulingClient()
+      .from("short_video_publications")
+      .update({
+        published_at: new Date().toISOString(),
+        status: "published",
+      })
+      .in("schedule_id", publicationScheduleIds)
+      .neq("status", "published");
+
+    if (error) {
+      console.error("[Shorts Scheduling] publication status reconciliation failed", {
+        scheduleIds: publicationScheduleIds,
+        supabaseError: error.message,
+      });
+    }
+  }
+
+  return schedules;
+}
+
 async function ensureDraftAccess(draftIds: string[], userId: string) {
   if (draftIds.length === 0) {
     return new Set<string>();
@@ -258,10 +384,11 @@ export async function readShortsSchedulingState({ userId }: { userId: string }) 
     throw new Error(`Lecture des programmations impossible: ${scheduleError.message}`);
   }
 
+  const reconciledSchedules = await reconcilePublishedSchedules(schedules ?? []);
   const draftById = new Map((draftRows ?? []).map((draft) => [draft.id, draft]));
 
   return {
-    schedules: (schedules ?? []).map((schedule) => mapSchedule(schedule, draftById)),
+    schedules: reconciledSchedules.map((schedule) => mapSchedule(schedule, draftById)),
     videos,
   };
 }
@@ -584,6 +711,58 @@ export async function cancelShortVideoSchedule({
     .update({ status: "cancelled" })
     .eq("schedule_id", existing.id)
     .in("status", ["draft", "ready", "scheduled", "failed"]);
+
+  return readShortsSchedulingState({ userId });
+}
+
+export async function markShortVideoSchedulePublished({
+  scheduleId,
+  userId,
+}: {
+  scheduleId: string;
+  userId: string;
+}) {
+  const existing = await readScheduleForUpdate(scheduleId, userId);
+  const publishedAt = new Date().toISOString();
+
+  console.info("[Shorts Scheduling] mark schedule published", {
+    scheduleId: existing.id,
+    draftId: existing.draft_id,
+    platform: existing.platform,
+    scheduledAt: existing.scheduled_at,
+  });
+
+  const { error } = await getSchedulingClient()
+    .from("short_video_schedules")
+    .update({ status: "published" })
+    .eq("id", existing.id);
+
+  if (error) {
+    console.error("[Shorts Scheduling] mark schedule published failed", {
+      scheduleId: existing.id,
+      platform: existing.platform,
+      supabaseError: error.message,
+    });
+    throw new Error(`Marquage publication impossible: ${error.message}`);
+  }
+
+  const { error: publicationError } = await getSchedulingClient()
+    .from("short_video_publications")
+    .update({
+      published_at: publishedAt,
+      status: "published",
+    })
+    .eq("schedule_id", existing.id)
+    .eq("platform", existing.platform)
+    .neq("status", "published");
+
+  if (publicationError) {
+    console.error("[Shorts Scheduling] linked publication mark published failed", {
+      scheduleId: existing.id,
+      platform: existing.platform,
+      supabaseError: publicationError.message,
+    });
+  }
 
   return readShortsSchedulingState({ userId });
 }

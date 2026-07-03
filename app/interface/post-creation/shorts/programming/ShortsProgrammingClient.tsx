@@ -1026,6 +1026,52 @@ export function ShortsProgrammingClient() {
     }
   }
 
+  async function markSchedulePublished(schedule: ShortVideoSchedule) {
+    setIsSaving(true);
+    setError(null);
+    setNotice(null);
+
+    console.info("[Shorts Scheduling UI] mark schedule published", {
+      scheduleId: schedule.id,
+      draftId: schedule.draftId,
+      platform: schedule.platform,
+      scheduledAt: schedule.scheduledAt,
+    });
+
+    try {
+      const response = await fetch("/api/content-workshop/shorts-schedules", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "mark_schedule_published",
+          scheduleId: schedule.id,
+        }),
+      });
+      const payload = (await response.json()) as SchedulingPayload;
+
+      if (!response.ok || !payload.schedules) {
+        throw new Error(payload.error ?? "Synchronisation du statut indisponible.");
+      }
+
+      setSchedules(payload.schedules);
+      setEditingScheduleId(null);
+      setScheduleEditForm(null);
+      setConfirmingScheduleAction(null);
+      setNotice("Programmation marquee comme publiee.");
+      void loadPublicationState();
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Synchronisation du statut indisponible.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   async function cancelPublicationSchedule(scheduleId: string) {
     setIsPublicationSaving(true);
     setPublicationError(null);
@@ -2068,16 +2114,30 @@ export function ShortsProgrammingClient() {
                     </p>
                     {group.schedules.map((schedule) => {
                   const publication = publicationByScheduleId.get(schedule.id);
-                  const locked = publication?.status === "publishing" || publication?.status === "published";
+                  const isPublished = schedule.status === "published" || publication?.status === "published" || Boolean(publication?.publishedAt);
+                  const locked = isPublished || publication?.status === "publishing";
                   const isEditing = editingScheduleId === schedule.id && scheduleEditForm;
-                  const isPastDue = Date.parse(schedule.scheduledAt) < nowMs && schedule.status !== "published";
-                  const selectableEditVideos = isEditing
+                  const displayStatus = isPublished ? "published" : schedule.status;
+                  const isPastDue = Date.parse(schedule.scheduledAt) < nowMs && !isPublished && schedule.status !== "cancelled";
+                  const selectableEditVideosBase = isEditing
                     ? videos.filter((video) =>
                       video.draftId === schedule.draftId ||
                       video.draftId === scheduleEditForm.draftId ||
                       isDraftAvailableForPlatformChoice(video.draftId, scheduleEditForm.platform),
                     )
                     : videos;
+                  const selectableEditVideos = isEditing && !selectableEditVideosBase.some((video) => video.draftId === scheduleEditForm.draftId)
+                    ? [
+                      {
+                        draftId: scheduleEditForm.draftId || schedule.draftId,
+                        outputUrl: null,
+                        renderedAt: null,
+                        title: schedule.draftTitle || "Video associee",
+                        validatedAt: null,
+                      },
+                      ...selectableEditVideosBase,
+                    ]
+                    : selectableEditVideosBase;
 
                   return (
                     <article
@@ -2173,7 +2233,7 @@ export function ShortsProgrammingClient() {
                               {SHORTS_SCHEDULE_PLATFORM_LABELS[schedule.platform]} - {formatDateTime(schedule.scheduledAt, schedule.timezone)}
                             </p>
                             <p className="mt-1 text-xs font-semibold text-[#A7B0C0]">
-                              {readableStatus(schedule.status, isPastDue)}
+                              {readableStatus(displayStatus, isPastDue)}
                             </p>
                             {isPastDue ? (
                               <p className="mt-2 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-xs font-semibold text-[#FDBA74]">
@@ -2195,6 +2255,16 @@ export function ShortsProgrammingClient() {
                             >
                               Modifier
                             </button>
+                            {isPastDue ? (
+                              <button
+                                type="button"
+                                onClick={() => void markSchedulePublished(schedule)}
+                                disabled={isSaving}
+                                className="rounded-md border border-[#39E6D0]/40 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-55"
+                              >
+                                Marquer comme publiee
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => duplicateSchedule(schedule)}

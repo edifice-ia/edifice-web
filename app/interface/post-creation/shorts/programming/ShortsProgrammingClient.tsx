@@ -425,6 +425,11 @@ export function ShortsProgrammingClient() {
     action: "cancel" | "past_update";
     scheduleId: string;
   } | null>(null);
+  const [scheduleEditFeedback, setScheduleEditFeedback] = useState<{
+    scheduleId: string;
+    tone: "error" | "success";
+    message: string;
+  } | null>(null);
 
   const videoById = useMemo(
     () => new Map(videos.map((video) => [video.draftId, video])),
@@ -449,10 +454,20 @@ export function ShortsProgrammingClient() {
   }, [schedules]);
   const isDraftAvailableForPlatformChoice = (draftId: string, platform: SchedulePlatformChoice) =>
     expandPlatformChoice(platform).some((targetPlatform) => !activePlatformsByDraft.get(draftId)?.has(targetPlatform));
-  const activePlatformNamesForDraft = (draftId: string) =>
-    [...(activePlatformsByDraft.get(draftId) ?? new Set<ShortsSchedulePlatform>())]
+  const activePlatformNamesForDraft = (draftId: string, excludedScheduleId?: string) => {
+    const activePlatforms = new Set<ShortsSchedulePlatform>();
+    schedules
+      .filter((schedule) =>
+        schedule.draftId === draftId &&
+        schedule.id !== excludedScheduleId &&
+        !["cancelled", "failed", "published"].includes(schedule.status),
+      )
+      .forEach((schedule) => activePlatforms.add(schedule.platform));
+
+    return [...activePlatforms]
       .map((platform) => SHORTS_SCHEDULE_PLATFORM_LABELS[platform])
       .join(", ");
+  };
   const duplicateKeys = useMemo(() => {
     const counts = new Map<string, number>();
     planningRows.forEach((row) => {
@@ -893,6 +908,7 @@ export function ShortsProgrammingClient() {
       timezone: scheduleTimezone,
     });
     setConfirmingScheduleAction(null);
+    setScheduleEditFeedback(null);
     setError(null);
     setNotice(null);
   }
@@ -921,6 +937,7 @@ export function ShortsProgrammingClient() {
       return;
     }
 
+    const currentSchedule = schedules.find((schedule) => schedule.id === editingScheduleId);
     const scheduledAt = safeScheduleIso(
       scheduleEditForm.localDate,
       scheduleEditForm.localTime,
@@ -940,6 +957,33 @@ export function ShortsProgrammingClient() {
     setIsSaving(true);
     setError(null);
     setNotice(null);
+    setScheduleEditFeedback({
+      scheduleId: editingScheduleId,
+      tone: "success",
+      message: "Enregistrement de la programmation...",
+    });
+
+    const updatePayload = {
+      action: "update_schedule",
+      data: {
+        allowPast: Boolean(options.allowPast),
+        draftId: scheduleEditForm.draftId,
+        platform: scheduleEditForm.platform,
+        recommendationSource: "manual",
+        scheduleId: editingScheduleId,
+        scheduledAt,
+        timezone: scheduleEditForm.timezone,
+      },
+    };
+
+    console.info("[Shorts Scheduling UI] update schedule submit", {
+      scheduleId: editingScheduleId,
+      draftId: scheduleEditForm.draftId,
+      platform: scheduleEditForm.platform,
+      previousScheduledAt: currentSchedule?.scheduledAt ?? null,
+      nextScheduledAt: scheduledAt,
+      payload: updatePayload,
+    });
 
     try {
       const response = await fetch("/api/content-workshop/shorts-schedules", {
@@ -947,26 +991,28 @@ export function ShortsProgrammingClient() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          action: "update_schedule",
-          data: {
-            allowPast: Boolean(options.allowPast),
-            draftId: scheduleEditForm.draftId,
-            platform: scheduleEditForm.platform,
-            recommendationSource: "manual",
-            scheduleId: editingScheduleId,
-            scheduledAt,
-            timezone: scheduleEditForm.timezone,
-          },
-        }),
+        body: JSON.stringify(updatePayload),
       });
       const payload = (await response.json()) as SchedulingPayload;
+
+      console.info("[Shorts Scheduling UI] update schedule response", {
+        scheduleId: editingScheduleId,
+        ok: response.ok,
+        status: response.status,
+        schedulesCount: payload.schedules?.length ?? 0,
+        error: payload.error ?? null,
+      });
 
       if (!response.ok || !payload.schedules) {
         throw new Error(payload.error ?? "Modification de la programmation indisponible.");
       }
 
       setSchedules(payload.schedules);
+      setScheduleEditFeedback({
+        scheduleId: editingScheduleId,
+        tone: "success",
+        message: "Programmation enregistree.",
+      });
       setEditingScheduleId(null);
       setScheduleEditForm(null);
       setConfirmingScheduleAction(null);
@@ -980,6 +1026,13 @@ export function ShortsProgrammingClient() {
           ? caughtError.message
           : "Modification de la programmation indisponible.",
       );
+      setScheduleEditFeedback({
+        scheduleId: editingScheduleId,
+        tone: "error",
+        message: caughtError instanceof Error
+          ? caughtError.message
+          : "Modification de la programmation indisponible.",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -2119,6 +2172,9 @@ export function ShortsProgrammingClient() {
                   const isEditing = editingScheduleId === schedule.id && scheduleEditForm;
                   const displayStatus = isPublished ? "published" : schedule.status;
                   const isPastDue = Date.parse(schedule.scheduledAt) < nowMs && !isPublished && schedule.status !== "cancelled";
+                  const activePlatformNamesForEditedDraft = isEditing
+                    ? activePlatformNamesForDraft(scheduleEditForm.draftId, schedule.id)
+                    : "";
                   const selectableEditVideosBase = isEditing
                     ? videos.filter((video) =>
                       video.draftId === schedule.draftId ||
@@ -2195,9 +2251,9 @@ export function ShortsProgrammingClient() {
                                 </option>
                               ))}
                             </select>
-                            {scheduleEditForm && activePlatformNamesForDraft(scheduleEditForm.draftId) ? (
+                            {scheduleEditForm && activePlatformNamesForEditedDraft ? (
                               <p className="text-xs text-[#A7B0C0]">
-                                Deja programmee: {activePlatformNamesForDraft(scheduleEditForm.draftId)}
+                                Deja programmee ailleurs: {activePlatformNamesForEditedDraft}
                               </p>
                             ) : null}
                           </label>
@@ -2208,7 +2264,7 @@ export function ShortsProgrammingClient() {
                               disabled={isSaving || locked}
                               className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-55"
                             >
-                              Enregistrer
+                              {isSaving ? "Enregistrement..." : "Enregistrer"}
                             </button>
                             <button
                               type="button"
@@ -2216,12 +2272,25 @@ export function ShortsProgrammingClient() {
                                 setEditingScheduleId(null);
                                 setScheduleEditForm(null);
                                 setConfirmingScheduleAction(null);
+                                setScheduleEditFeedback(null);
                               }}
                               className="rounded-md border border-[#64748b]/50 bg-[#64748b]/10 px-3 py-2 text-xs font-semibold text-[#cbd5e1] transition hover:text-[#F8FAFC]"
                             >
                               Fermer
                             </button>
                           </div>
+                          {scheduleEditFeedback?.scheduleId === schedule.id ? (
+                            <p
+                              className={[
+                                "lg:col-span-5 rounded-md border px-3 py-2 text-xs font-semibold",
+                                scheduleEditFeedback.tone === "error"
+                                  ? "border-[#F97316]/35 bg-[#F97316]/10 text-[#FDBA74]"
+                                  : "border-[#39E6D0]/35 bg-[#39E6D0]/10 text-[#39E6D0]",
+                              ].join(" ")}
+                            >
+                              {scheduleEditFeedback.message}
+                            </p>
+                          ) : null}
                         </div>
                       ) : (
                         <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

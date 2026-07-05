@@ -621,6 +621,9 @@ export async function prepareDraftVideo({
     requiredVisualCount,
     visuals,
   });
+  // NOTE: Railway must only receive canonical Supabase Storage references.
+  // drafts/{draft_id}/images paths are temporary workshop artifacts and must not
+  // enter this manifest.
   const manifest = {
     draft_id: draft.id,
     prepared_at: preparedAt,
@@ -671,6 +674,9 @@ export async function prepareDraftVideo({
       word_timestamps_source: "subtitles.json",
     },
     local_pipeline_contract: {
+      // NOTE: This block documents the old local renderer contract. Railway
+      // reconstructs those local files in a Linux temp directory from the
+      // bucket/path references above.
       script: "agents/lignes_interieures/shorts_montage/shorts_montage.py",
       expected_post_folder: {
         audio: "voice.mp3",

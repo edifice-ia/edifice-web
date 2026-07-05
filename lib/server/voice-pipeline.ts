@@ -539,6 +539,9 @@ export async function validateDraftVoice({
   }
 
   const now = new Date().toISOString();
+  // NOTE: Downstream steps use voice_status=validated and voice_validated_at as
+  // the stable signal that an audio asset can be consumed. Do not rely only on
+  // the legacy draft.status label.
   const { error } = await getVoiceClient()
     .from("content_drafts")
     .update({

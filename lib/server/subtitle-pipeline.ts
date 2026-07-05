@@ -509,6 +509,9 @@ async function diagnoseSubtitleReadiness(
   draft: DraftSubtitleRow,
   voiceAsset: ContentAssetRow | null,
 ) {
+  // NOTE: Subtitle generation consumes an already validated audio asset. It
+  // should not require ElevenLabs voice-generation configuration unless a new
+  // voice is being generated upstream.
   const details = [
     `draft_status=${draft.status ?? "null"}`,
     `voice_status=${draft.voice_status ?? "null"}`,

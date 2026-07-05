@@ -435,6 +435,8 @@ export async function failStaleVideoRenderJobs(draftId: string) {
 async function createRenderJob(draftId: string, manifest: VideoManifestAssetRow) {
   await markDraftVideoPending(draftId);
 
+  // NOTE: Vercel only creates the Supabase job and dispatches Railway. FFmpeg
+  // must stay on the renderer service; this row is the handoff contract.
   const { data, error } = await getVideoRendererClient()
     .from("video_render_jobs")
     .insert({
@@ -551,6 +553,9 @@ export async function validateCompletedVideoRenderJob({
   }
 
   const validatedAt = new Date().toISOString();
+  // NOTE: The durable validation signal for the final MP4 lives in
+  // video_render_jobs.metadata. content_drafts.status is updated as a UI
+  // convenience and may lag behind during partial failures.
   const { data, error } = await getVideoRendererClient()
     .from("video_render_jobs")
     .update({

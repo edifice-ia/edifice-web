@@ -100,6 +100,10 @@ const textValidatedStatuses = new Set([
   "ready_to_publish",
 ]);
 
+// NOTE: The cockpit still aggregates several generations of Supabase statuses
+// (ASCII, mojibake accents and newer English statuses). These sets are a UI
+// compatibility layer; server pipelines should keep writing the newest
+// canonical statuses when they mutate a draft.
 const visualReadyStatuses = new Set([
   "media_ready",
   "visual_ready",
@@ -208,6 +212,9 @@ export function getShortWorkflowState({
   const effectiveRequiredVisualCount =
     requiredVisualCount || visualScenes.length || selectedAssetsCount;
 
+  // NOTE: This function is the cockpit summary, not the transactional source of
+  // truth. Sensitive actions re-read their dedicated server tables
+  // (content_assets, video_render_jobs, etc.).
   const text = draftStatus && textValidatedStatuses.has(draftStatus)
     ? "validated"
     : "pending";

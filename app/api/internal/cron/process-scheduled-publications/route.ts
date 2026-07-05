@@ -4,6 +4,8 @@ import { processScheduledInstagramPublications } from "@/lib/server/shorts-publi
 export const runtime = "nodejs";
 
 function isAuthorized(request: Request) {
+  // NOTE: This route is intended for Vercel Cron or an internal caller only.
+  // Never call it from the browser; CRON_SECRET must stay server-side.
   const secret = process.env.CRON_SECRET?.trim();
   if (!secret) {
     return false;

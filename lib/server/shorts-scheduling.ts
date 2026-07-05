@@ -192,6 +192,8 @@ function isActiveScheduleStatus(status: ScheduleStatus) {
 }
 
 function publicationLooksPublished(publication: SchedulePublicationRow) {
+  // NOTE: Platforms do not expose the same publication signal. Reconcile the
+  // schedule from internal status, published dates and stored external media ids.
   if (publication.status === "published" || publication.published_at) {
     return true;
   }
@@ -230,6 +232,9 @@ async function readSchedulePublications(scheduleIds: string[]) {
 }
 
 async function reconcilePublishedSchedules(schedules: ScheduleRow[]) {
+  // NOTE: readShortsSchedulingState intentionally has a small side effect:
+  // it fixes old schedules when a linked publication proves the content is
+  // already published. This prevents false "past due" states.
   const publications = await readSchedulePublications(schedules.map((schedule) => schedule.id));
   const publishedByScheduleId = new Map<string, SchedulePublicationRow>();
 
@@ -331,6 +336,9 @@ function isVideoProgrammable(draft: ValidatedDraftRow, job: RenderJobRow | undef
   diagnostic: VideoProgrammabilityDiagnostic;
   video: SchedulableShortVideo | null;
 } {
+  // NOTE: Video preparation and scheduling must share this rule: a programmable
+  // video is primarily a validated final render in video_render_jobs.
+  // content_drafts.status can be stale and is only a compatibility fallback.
   const videoStatus = metadataString(job?.metadata, "video_validation_status");
   const validatedAt = metadataString(job?.metadata, "video_validated_at");
   const finalVideoUrlPresent = Boolean(job?.output_url);
@@ -376,6 +384,8 @@ function isVideoProgrammable(draft: ValidatedDraftRow, job: RenderJobRow | undef
 }
 
 function renderJobPriority(job: RenderJobRow) {
+  // NOTE: A newer incomplete render must not hide an older validated MP4, so
+  // prefer the latest completed and validated job explicitly.
   if (
     job.status === "completed" &&
     job.output_url &&
@@ -612,6 +622,9 @@ async function ensureNoScheduleCollision({
   scheduledAt: string;
   scheduleId: string;
 }) {
+  // NOTE: Two distinct guards: no two posts for the same platform at the same
+  // instant, and no active duplicate draft/platform schedule. The current
+  // schedule id is excluded to keep edits possible.
   const { data, error } = await getSchedulingClient()
     .from("short_video_schedules")
     .select("id")

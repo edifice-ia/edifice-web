@@ -754,6 +754,9 @@ export async function readShortsPublicationState({
   userId: string;
 }): Promise<ShortsPublicationState> {
   const supabase = getPublicationClient();
+  // NOTE: short_video_schedules is the planning intent. short_video_publications
+  // is the platform-specific execution/preparation record. Keep both visible so
+  // scheduled items do not disappear before a publication row exists.
   const { data: schedules, error: scheduleError } = await supabase
     .from("short_video_schedules")
     .select("id,draft_id,platform,scheduled_at,status,timezone")
@@ -872,6 +875,8 @@ export async function readShortsPublicationState({
   );
   let youtubeForReconciliation: Awaited<ReturnType<typeof readYouTubeConnection>> | null = null;
   if (dueScheduledPublications) {
+    // NOTE: YouTube publishAt happens on YouTube's side. The UI reconciles the
+    // local status lazily when the scheduled private upload should now be public.
     youtubeForReconciliation = await readYouTubeConnection().catch(() => null);
     if (youtubeForReconciliation?.connected && youtubeForReconciliation.accessToken) {
       const publishedIds = await reconcileScheduledYouTubePublications({
@@ -2069,6 +2074,8 @@ export async function processDueInstagramPublication({
   }
 
   if (publication.status === "scheduled") {
+    // NOTE: Claim the scheduled row as due before calling Meta. The subsequent
+    // publish flow uses status transitions to avoid double publishing.
     await getPublicationClient()
       .from("short_video_publications")
       .update({
@@ -2103,6 +2110,8 @@ export async function processScheduledInstagramPublications({
 }) {
   const supabase = getPublicationClient();
   const nowIso = new Date().toISOString();
+  // NOTE: Vercel Cron is best-effort, not minute-perfect. This query processes
+  // every due Instagram publication on the next run and caps each batch.
   const { data: publications, error } = await supabase
     .from("short_video_publications")
     .select("id,schedule_id,draft_id,platform,status,title,description,hashtags,visibility,scheduled_at,timezone,account_id,youtube_video_id,youtube_url,instagram_media_id,instagram_permalink,published_at,error_message,metadata,created_at,updated_at")

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   executeAssistantWorkflow,
   type AssistantWorkflow,
-} from "@/lib/server/assistant-workflows/shorts-workflow-engine";
+} from "@/lib/server/assistant-workflows/engine";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 

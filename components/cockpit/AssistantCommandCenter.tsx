@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { LogPanel } from "./LogPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { ProjectMemorySnapshotControl } from "./ProjectMemorySnapshotControl";
 import { SafetyModeBadge } from "./SafetyModeBadge";
@@ -12,97 +11,19 @@ import {
   projectMemoryForAssistant,
   projectStatusOverview,
 } from "@/lib/cockpit/observatory";
-import type {
-  AssistantQuestion,
-  CockpitLog,
-  ProjectContext,
-} from "@/types/cockpit";
+import type { ProjectContext } from "@/types/cockpit";
 
 type AssistantContext = "Projet" | "Interieur" | "Equilibre";
-type AssistantExchange = {
-  id: string;
-  role: "user" | "assistant";
-  message: string;
-  detailedAnalysis?: string;
-  workflowPlan?: AssistantWorkflow;
-  workflowCancelled?: boolean;
-  recommendation?: AssistantRecommendation;
-  memoryProposal?: ProjectMemoryProposal;
-  memoryConfirmed?: boolean;
-  memoryCancelled?: boolean;
-  trajectoryProposal?: TrajectoryProposal;
-  trajectoryConfirmed?: boolean;
-  trajectoryCancelled?: boolean;
-  trajectoryCreationSummary?: string;
-  trajectoryUpdateProposal?: TrajectoryUpdateProposal;
-  trajectoryUpdateConfirmed?: boolean;
-  trajectoryUpdateCancelled?: boolean;
-  trajectoryUpdateSummary?: string;
-};
 
-type AssistantRecommendation = {
-  action: string;
-  reason: string;
-  dependency: string | null;
-  feasibleNow: boolean;
-};
+type WorkflowActionStatus = "pending" | "running" | "success" | "failed" | "skipped";
 
-type ProjectMemoryProposal = {
-  key: string;
-  category: string;
-  title: string;
-  value: string;
-  status: string;
-  source: string;
-  confidence: number;
-  previousValue?: string | null;
-  impact?: string;
-};
-
-type TrajectoryProposal = {
-  project: string;
-  objective: string;
-  deadline: string | null;
-  planAction: string[];
-  actions: string[];
-  means: string[];
-  initialProgress: number;
-  confidence: number;
-  mode?: "create" | "update";
-  existingProjectId?: string | null;
-  existingObjectiveId?: string | null;
-  rationale?: string;
-  memoryContext?: string[];
-};
-
-type TrajectoryUpdateProposal = {
-  type: "action_status" | "objective_status";
-  projectId: string;
-  projectTitle: string;
-  objectiveId: string;
-  objectiveTitle: string;
-  actionId?: string | null;
-  actionTitle?: string | null;
-  previousValue: string;
-  nextValue: string;
-  impact: string;
-  confidence: number;
-};
-
-type AssistantWorkflowActionStatus =
-  | "pending"
-  | "running"
-  | "success"
-  | "failed"
-  | "skipped";
-
-type AssistantWorkflowAction = {
+type WorkflowAction = {
   id: string;
   type: string;
   label: string;
   draft_id: string | null;
   draft_title: string | null;
-  status: AssistantWorkflowActionStatus;
+  status: WorkflowActionStatus;
   estimated_time_seconds: number;
   estimated_cost: {
     estimatedCostEur: number | null;
@@ -116,14 +37,28 @@ type AssistantWorkflowAction = {
   error?: string;
 };
 
+type WorkflowStage = {
+  key: string;
+  label: string;
+  status: "done" | "pending" | "running";
+};
+
 type AssistantWorkflow = {
   id: string;
   user_intent: string;
   normalized_intent: string;
   summary: string;
-  status: "planned" | "running" | "success" | "failed" | "cancelled";
+  status: "planned" | "awaiting_confirmation" | "running" | "success" | "failed" | "cancelled";
   created_at: string;
-  actions: AssistantWorkflowAction[];
+  current_stage: string;
+  stages: WorkflowStage[];
+  actions: WorkflowAction[];
+  estimates: {
+    estimated_time_seconds: number;
+    estimated_cost_eur: number | null;
+  };
+  dependencies: string[];
+  resources: string[];
   guardrails: string[];
   analysis: {
     objective: string;
@@ -133,134 +68,60 @@ type AssistantWorkflow = {
   };
 };
 
-type AssistantWorkflowExecutionResult = {
-  ok: boolean;
-  workflow: AssistantWorkflow;
-  failed_action: AssistantWorkflowAction | null;
+type AssistantResponse = {
+  ok?: boolean;
+  answer?: string;
+  detailedAnalysis?: string;
+  workflow?: AssistantWorkflow;
+  error?: string;
 };
 
-const contexts: Record<
-  AssistantContext,
-  {
-    description: string;
-    suggestions: string[];
-    sources: string[];
-    systemMessage: string;
-    userExample: string;
-    assistantExample: string;
-  }
-> = {
+type AssistantCommandCenterProps = {
+  memorySnapshot?: {
+    lastUpdatedAt: string | null;
+    state: "up_to_date" | "needs_update";
+  };
+  projectContext?: ProjectContext;
+};
+
+const contexts: Record<AssistantContext, { description: string; mode: "project" | "interior" | "balance" }> = {
   Projet: {
-    description:
-      "Pour batir L'Edifice, creer du contenu, preparer les publications, suivre les connexions OAuth et garder le cap sur l'oeuvre.",
-    suggestions: [
-      "Que dois-je faire maintenant ?",
-      "Ou en est le projet ?",
-      "Quels sont les blocages ?",
-      "Qu'est-ce qui depend de moi ?",
-      "Qu'est-ce qui depend d'un service externe ?",
-    ],
-    sources: ["Project memory", "Observatoire", "OAuth Tokens", "Modules cockpit"],
-    systemMessage:
-      "Assistant de L'Edifice pret en mode Projet. Les actions sensibles restent verrouillees.",
-    userExample: "Que dois-je faire maintenant ?",
-    assistantExample:
-      "Je lis l'etat reel du projet et je propose la prochaine pierre sans declencher d'action externe.",
+    description: "Orchestration du cockpit, des Shorts, des publications et des prochaines etapes.",
+    mode: "project",
   },
   Interieur: {
-    description:
-      "Pour organiser le quotidien, les routines, les objectifs, les notes, l'energie et la vision personnelle.",
-    suggestions: [
-      "Aide-moi a clarifier ma prochaine action",
-      "Comment avancer sans surcharge ?",
-      "Resume mon point d'appui du jour",
-      "Quelle action simple garder ?",
-    ],
-    sources: ["Vision du jour", "Routines", "Objectifs", "Notes rapides"],
-    systemMessage:
-      "Assistant de L'Edifice pret en mode Interieur. L'espace reste local et sans action sensible.",
-    userExample: "Aide-moi a remettre de l'ordre dans ma journee.",
-    assistantExample:
-      "Je peux proposer une structure simple entre taches, routines, energie et objectifs.",
+    description: "Organisation sobre du travail personnel, sans action sensible automatique.",
+    mode: "interior",
   },
   Equilibre: {
-    description:
-      "Pour arbitrer entre ambition, repos, priorites, discipline et charge mentale.",
-    suggestions: [
-      "Quelle est l'action sobre ?",
-      "Comment avancer sans ouvrir trop de fronts ?",
-      "Quels risques garder visibles ?",
-      "Aide-moi a prioriser",
-    ],
-    sources: ["Priorites", "Energie du jour", "Projet + interieur", "Decisions"],
-    systemMessage:
-      "Assistant de L'Edifice pret en mode Equilibre. Le cockpit aide a garder le cap sans forcer l'allure.",
-    userExample: "Aide-moi a arbitrer entre avancer et preserver mon energie.",
-    assistantExample:
-      "Je peux mettre en balance l'impact, la charge et le repos avant toute decision.",
+    description: "Arbitrage entre priorite, charge et prochaine action realiste.",
+    mode: "balance",
   },
 };
 
-const signals: CockpitLog[] = [
-  {
-    timestamp: "10:00",
-    type: "system",
-    message: "Contexte assistant charge cote serveur.",
-    status: "Disponible",
-  },
-  {
-    timestamp: "10:04",
-    type: "security",
-    message: "Garde-fou actif: actions sensibles verrouillees.",
-    status: "A securiser",
-  },
-  {
-    timestamp: "10:08",
-    type: "assistant",
-    message: "Copilote de chantier connecte a l'API globale.",
-    status: "En cours",
-  },
-  {
-    timestamp: "10:12",
-    type: "publication",
-    message: "Publication reelle bloquee sans validation humaine.",
-    status: "A securiser",
-  },
+const exampleCommands = [
+  "Termine tous les brouillons commences",
+  "Prepare 7 jours de publications",
+  "Programme les videos pretes",
+  "Analyse le cockpit",
+  "Organise le travail",
+  "Prepare les prochaines etapes",
 ];
 
 const quickLinks = [
-  { href: "/interface/post-creation", label: "Atelier de contenu" },
-  { href: "/interface/publishers", label: "Publications" },
-  { href: "/interface/settings/connections", label: "Connexions OAuth" },
+  { href: "/interface/post-creation/shorts/pilotage-ia", label: "Pilotage IA Shorts" },
+  { href: "/interface/post-creation/shorts/drafts", label: "Brouillons Shorts" },
+  { href: "/interface/post-creation/shorts/programming", label: "Programmation" },
   { href: "/interface/monitoring", label: "Observatoire" },
-  { href: "/interface/personnel", label: "Espace interieur" },
-  { href: "/interface/resources", label: "Ressources" },
+  { href: "/interface/trajectoire", label: "Trajectoire" },
 ];
 
-// Detects whether a project-mode message should also be converted into an
-// operational Shorts workflow. Non-matching chat remains unchanged.
-function shouldPlanWorkflow(message: string) {
-  const normalized = message
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "");
-
-  return (
-    normalized.includes("short") ||
-    normalized.includes("brouillon") ||
-    normalized.includes("video") ||
-    normalized.includes("publication") ||
-    normalized.includes("programme") ||
-    normalized.includes("planning")
-  ) && (
-    normalized.includes("termine") ||
-    normalized.includes("prepare") ||
-    normalized.includes("programme") ||
-    normalized.includes("bloqu")
-  );
+function formatDuration(seconds: number) {
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  return `${minutes} min`;
 }
 
-function formatWorkflowCost(value: number | null | undefined) {
+function formatCost(value: number | null | undefined) {
   if (typeof value !== "number") {
     return "a estimer";
   }
@@ -272,33 +133,19 @@ function formatWorkflowCost(value: number | null | undefined) {
   }).format(value);
 }
 
-type AssistantCommandCenterProps = {
-  memorySnapshot?: {
-    lastUpdatedAt: string | null;
-    state: "up_to_date" | "needs_update";
-  };
-  projectContext?: ProjectContext;
-};
-
+// Main cockpit assistant. The UI no longer branches into legacy advisory cards:
+// every command is analyzed into a workflow, shown, confirmed, executed, tracked.
 export function AssistantCommandCenter({
   memorySnapshot,
   projectContext,
 }: AssistantCommandCenterProps) {
-  const [activeContext, setActiveContext] =
-    useState<AssistantContext>("Projet");
-  const [draft, setDraft] = useState("");
-  const [exchanges, setExchanges] = useState<AssistantExchange[]>([]);
-  const [isSending, setIsSending] = useState(false);
-  const [confirmingProposalId, setConfirmingProposalId] = useState<string | null>(null);
-  const [confirmingTrajectoryProposalId, setConfirmingTrajectoryProposalId] =
-    useState<string | null>(null);
-  const [confirmingTrajectoryUpdateId, setConfirmingTrajectoryUpdateId] =
-    useState<string | null>(null);
-  const [executingWorkflowId, setExecutingWorkflowId] = useState<string | null>(null);
+  const [activeContext, setActiveContext] = useState<AssistantContext>("Projet");
+  const [command, setCommand] = useState(exampleCommands[0]);
+  const [workflow, setWorkflow] = useState<AssistantWorkflow | null>(null);
+  const [detailedAnalysis, setDetailedAnalysis] = useState<string | null>(null);
+  const [isPlanning, setIsPlanning] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeQuestion, setActiveQuestion] = useState<AssistantQuestion>(
-    "Que dois-je faire maintenant ?",
-  );
 
   const context = contexts[activeContext];
   const memory = projectContext
@@ -314,132 +161,63 @@ export function AssistantCommandCenter({
         projectMemoryEntries: [],
         overview: projectStatusOverview,
       };
-  const recommendation =
-    projectContext?.recommendations[activeQuestion] ??
-    memory.nextRecommendedAction;
-  const supportedQuestions = projectContext
-    ? (Object.keys(projectContext.recommendations) as AssistantQuestion[])
-    : (["Que dois-je faire maintenant ?"] as AssistantQuestion[]);
-  const placeholder = useMemo(
-    () => `Question en mode ${activeContext}. Lecture seule, aucun declenchement.`,
-    [activeContext],
+  const completedActions = useMemo(
+    () => workflow?.actions.filter((action) => ["success", "failed", "skipped"].includes(action.status)).length ?? 0,
+    [workflow],
   );
-  const assistantMode =
-    activeContext === "Interieur"
-      ? "interior"
-      : activeContext === "Equilibre"
-        ? "balance"
-        : "project";
+  const progress = workflow?.actions.length
+    ? Math.round((completedActions / workflow.actions.length) * 100)
+    : 0;
 
-  async function handleAssistantSubmit(event: React.FormEvent<HTMLFormElement>) {
+  // Sends the command to the canonical assistant route. The response always
+  // contains a workflow; there is no separate chat/advisor format anymore.
+  async function planWorkflow(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const nextCommand = command.trim();
 
-    const message = draft.trim();
-
-    if (!message || isSending) {
+    if (!nextCommand || isPlanning) {
       return;
     }
 
-    setExchanges((current) => [
-      ...current,
-      { id: `user-${Date.now()}`, role: "user", message },
-    ]);
-    setDraft("");
+    setIsPlanning(true);
+    setWorkflow(null);
+    setDetailedAnalysis(null);
     setError(null);
-    setIsSending(true);
 
     try {
       const response = await fetch("/api/assistant/global", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message,
-          mode: assistantMode,
+          message: nextCommand,
+          mode: context.mode,
         }),
       });
-      const payload = (await response.json()) as {
-        ok?: boolean;
-        answer?: string;
-        detailedAnalysis?: string;
-        recommendation?: AssistantRecommendation;
-        memoryProposal?: ProjectMemoryProposal;
-        trajectoryProposal?: TrajectoryProposal | null;
-        trajectoryUpdateProposal?: TrajectoryUpdateProposal | null;
-        requiresConfirmation?: boolean;
-        error?: string;
-      };
+      const payload = (await response.json()) as AssistantResponse;
 
-      if (!response.ok || !payload.ok || !payload.answer) {
+      if (!response.ok || !payload.ok || !payload.workflow) {
         throw new Error(payload.error ?? "Assistant indisponible.");
       }
 
-      const answer = payload.answer;
-      let workflowPlan: AssistantWorkflow | undefined;
-
-      if (assistantMode === "project" && shouldPlanWorkflow(message)) {
-        const workflowResponse = await fetch("/api/assistant/workflows/plan", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ command: message }),
-        });
-        const workflowPayload = (await workflowResponse.json()) as {
-          ok?: boolean;
-          workflow?: AssistantWorkflow;
-          error?: string;
-        };
-
-        if (!workflowResponse.ok || !workflowPayload.ok || !workflowPayload.workflow) {
-          throw new Error(workflowPayload.error ?? "Workflow indisponible.");
-        }
-
-        workflowPlan = workflowPayload.workflow;
-      }
-
-      setExchanges((current) => [
-        ...current,
-        {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          message: answer,
-          detailedAnalysis: payload.detailedAnalysis,
-          workflowPlan,
-          recommendation: payload.recommendation,
-          memoryProposal: payload.memoryProposal,
-          trajectoryProposal: payload.trajectoryProposal ?? undefined,
-          trajectoryUpdateProposal: payload.trajectoryUpdateProposal ?? undefined,
-        },
-      ]);
+      setWorkflow(payload.workflow);
+      setDetailedAnalysis(payload.detailedAnalysis ?? null);
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Assistant indisponible.",
-      );
+      setError(requestError instanceof Error ? requestError.message : "Assistant indisponible.");
     } finally {
-      setIsSending(false);
+      setIsPlanning(false);
     }
   }
 
-  // Executes the workflow returned by the new engine and replaces the card with
-  // server statuses. The server still skips sensitive actions in V1.
-  async function executeWorkflow(exchangeId: string, workflow: AssistantWorkflow) {
-    if (executingWorkflowId) {
+  // Executes only the confirmed workflow object. The server decides which
+  // actions are safe, skips sensitive steps, and returns the final statuses.
+  async function executeWorkflow() {
+    if (!workflow || isExecuting) {
       return;
     }
 
-    setExecutingWorkflowId(workflow.id);
+    setIsExecuting(true);
     setError(null);
-    setExchanges((current) =>
-      current.map((exchange) =>
-        exchange.id === exchangeId
-          ? { ...exchange, workflowPlan: { ...workflow, status: "running" } }
-          : exchange,
-      ),
-    );
+    setWorkflow({ ...workflow, status: "running" });
 
     try {
       const response = await fetch("/api/assistant/workflows/execute", {
@@ -447,7 +225,8 @@ export function AssistantCommandCenter({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workflow }),
       });
-      const payload = (await response.json()) as AssistantWorkflowExecutionResult & {
+      const payload = (await response.json()) as {
+        workflow?: AssistantWorkflow;
         error?: string;
       };
 
@@ -455,246 +234,23 @@ export function AssistantCommandCenter({
         throw new Error(payload.error ?? "Execution workflow indisponible.");
       }
 
-      setExchanges((current) =>
-        current.map((exchange) =>
-          exchange.id === exchangeId
-            ? { ...exchange, workflowPlan: payload.workflow }
-            : exchange,
-        ),
-      );
+      setWorkflow(payload.workflow);
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Execution workflow indisponible.",
-      );
-      setExchanges((current) =>
-        current.map((exchange) =>
-          exchange.id === exchangeId
-            ? { ...exchange, workflowPlan: { ...workflow, status: "failed" } }
-            : exchange,
-        ),
-      );
+      setError(requestError instanceof Error ? requestError.message : "Execution workflow indisponible.");
+      setWorkflow((current) => current ? { ...current, status: "failed" } : current);
     } finally {
-      setExecutingWorkflowId(null);
+      setIsExecuting(false);
     }
   }
 
-  function cancelWorkflow(exchangeId: string) {
-    setExchanges((current) =>
-      current.map((exchange) =>
-        exchange.id === exchangeId
-          ? {
-              ...exchange,
-              workflowCancelled: true,
-              workflowPlan: exchange.workflowPlan
-                ? { ...exchange.workflowPlan, status: "cancelled" }
-                : undefined,
-            }
-          : exchange,
-      ),
-    );
+  function cancelWorkflow() {
+    setWorkflow((current) => current ? { ...current, status: "cancelled" } : current);
   }
 
-  function modifyWorkflow(workflow: AssistantWorkflow) {
-    setDraft(workflow.user_intent);
-  }
-
-  function cancelMemoryProposal(exchangeId: string) {
-    setExchanges((current) =>
-      current.map((exchange) =>
-        exchange.id === exchangeId
-          ? { ...exchange, memoryCancelled: true }
-          : exchange,
-      ),
-    );
-  }
-
-  async function confirmMemoryProposal(
-    exchangeId: string,
-    proposal: ProjectMemoryProposal,
-  ) {
-    setConfirmingProposalId(exchangeId);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/project-memory", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "confirm_update",
-          proposal,
-        }),
-      });
-      const payload = (await response.json()) as {
-        entry?: unknown;
-        error?: string;
-      };
-
-      if (!response.ok || !payload.entry) {
-        throw new Error(payload.error ?? "Mise a jour memoire indisponible.");
-      }
-
-      setExchanges((current) =>
-        current.map((exchange) =>
-          exchange.id === exchangeId
-            ? {
-                ...exchange,
-                memoryConfirmed: true,
-                message: `${exchange.message}\n\nMemoire projet mise a jour.`,
-              }
-            : exchange,
-        ),
-      );
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Mise a jour memoire indisponible.",
-      );
-    } finally {
-      setConfirmingProposalId(null);
-    }
-  }
-
-  function cancelTrajectoryProposal(exchangeId: string) {
-    setExchanges((current) =>
-      current.map((exchange) =>
-        exchange.id === exchangeId
-          ? { ...exchange, trajectoryCancelled: true }
-          : exchange,
-      ),
-    );
-  }
-
-  async function confirmTrajectoryProposal(
-    exchangeId: string,
-    proposal: TrajectoryProposal,
-  ) {
-    setConfirmingTrajectoryProposalId(exchangeId);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/trajectoire", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "confirm_assistant_proposal",
-          proposal,
-        }),
-      });
-      const payload = (await response.json()) as {
-        result?: {
-          project?: { title?: string };
-          objective?: { title?: string };
-          actions?: unknown[];
-          reusedProject?: boolean;
-          reusedObjective?: boolean;
-          skippedActions?: string[];
-        };
-        error?: string;
-      };
-
-      if (!response.ok || !payload.result) {
-        throw new Error(payload.error ?? "Creation Trajectoire indisponible.");
-      }
-
-      const createdActions = payload.result.actions?.length ?? 0;
-      const skippedActions = payload.result.skippedActions?.length ?? 0;
-      const summary = [
-        payload.result.reusedProject
-          ? "Projet existant reutilise."
-          : "Projet cree.",
-        payload.result.reusedObjective
-          ? "Objectif existant reutilise."
-          : "Objectif cree.",
-        `${createdActions} action(s) ajoutee(s).`,
-        skippedActions ? `${skippedActions} doublon(s) ignore(s).` : null,
-      ]
-        .filter(Boolean)
-        .join(" ");
-
-      setExchanges((current) =>
-        current.map((exchange) =>
-          exchange.id === exchangeId
-            ? {
-                ...exchange,
-                trajectoryConfirmed: true,
-                trajectoryCreationSummary: summary,
-              }
-            : exchange,
-        ),
-      );
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Creation Trajectoire indisponible.",
-      );
-    } finally {
-      setConfirmingTrajectoryProposalId(null);
-    }
-  }
-
-  function cancelTrajectoryUpdate(exchangeId: string) {
-    setExchanges((current) =>
-      current.map((exchange) =>
-        exchange.id === exchangeId
-          ? { ...exchange, trajectoryUpdateCancelled: true }
-          : exchange,
-      ),
-    );
-  }
-
-  async function confirmTrajectoryUpdate(
-    exchangeId: string,
-    proposal: TrajectoryUpdateProposal,
-  ) {
-    setConfirmingTrajectoryUpdateId(exchangeId);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/trajectoire", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "confirm_assistant_update",
-          proposal,
-        }),
-      });
-      const payload = (await response.json()) as {
-        result?: { updated?: boolean };
-        error?: string;
-      };
-
-      if (!response.ok || !payload.result?.updated) {
-        throw new Error(payload.error ?? "Mise a jour Trajectoire indisponible.");
-      }
-
-      setExchanges((current) =>
-        current.map((exchange) =>
-          exchange.id === exchangeId
-            ? {
-                ...exchange,
-                trajectoryUpdateConfirmed: true,
-                trajectoryUpdateSummary:
-                  "Mise a jour Trajectoire appliquee et progression recalculee.",
-              }
-            : exchange,
-        ),
-      );
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Mise a jour Trajectoire indisponible.",
-      );
-    } finally {
-      setConfirmingTrajectoryUpdateId(null);
+  function modifyWorkflow() {
+    if (workflow) {
+      setCommand(workflow.user_intent);
+      setWorkflow(null);
     }
   }
 
@@ -705,213 +261,95 @@ export function AssistantCommandCenter({
           <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
-                Chambre de pilotage
+                Orchestrateur du cockpit
               </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {(Object.keys(contexts) as AssistantContext[]).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => {
-                      setActiveContext(mode);
-                      setDraft("");
-                    }}
-                    className={`rounded-md border px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                      activeContext === mode
-                        ? "border-[#39E6D0]/60 bg-[#39E6D0]/10 text-[#F8FAFC]"
-                        : "border-[#1D2A44] bg-[#08111A] text-[#A7B0C0] hover:text-[#F8FAFC]"
-                    }`}
-                  >
-                    {mode}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-4 max-w-3xl leading-7 text-[#A7B0C0]">
+              <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
+                Assistant de L&apos;Edifice
+              </h2>
+              <p className="mt-3 max-w-3xl leading-7 text-[#A7B0C0]">
                 {context.description}
               </p>
             </div>
             <SafetyModeBadge />
           </div>
 
-          <div className="rounded-lg border border-[#1D2A44] bg-[#03070B] p-4">
-            <div className="space-y-4">
-              <ChatMessage label="Systeme" tone="jade">
-                {context.systemMessage}
-              </ChatMessage>
-              {exchanges.length === 0 ? (
-                <>
-                  <ChatMessage label="Vous" tone="blue" align="right">
-                    {context.userExample}
-                  </ChatMessage>
-                  <ChatMessage label="Assistant de L'Edifice" tone="jade">
-                    {context.assistantExample}
-                  </ChatMessage>
-                  <div className="rounded-md border border-dashed border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
-                    Pose une question au copilote de chantier. L&apos;historique reste
-                    local dans cette interface.
-                  </div>
-                </>
-              ) : null}
-              {exchanges.map((exchange) => (
-                <ChatMessage
-                  key={exchange.id}
-                  label={exchange.role === "user" ? "Vous" : "Assistant de L'Edifice"}
-                  tone={exchange.role === "user" ? "blue" : "jade"}
-                  align={exchange.role === "user" ? "right" : "left"}
-                  recommendation={exchange.recommendation}
-                  detailedAnalysis={exchange.detailedAnalysis}
-                  workflowPlan={exchange.workflowPlan}
-                  workflowCancelled={exchange.workflowCancelled}
-                  memoryProposal={exchange.memoryProposal}
-                  memoryConfirmed={exchange.memoryConfirmed}
-                  memoryCancelled={exchange.memoryCancelled}
-                  trajectoryProposal={exchange.trajectoryProposal}
-                  trajectoryConfirmed={exchange.trajectoryConfirmed}
-                  trajectoryCancelled={exchange.trajectoryCancelled}
-                  trajectoryCreationSummary={exchange.trajectoryCreationSummary}
-                  trajectoryUpdateProposal={exchange.trajectoryUpdateProposal}
-                  trajectoryUpdateConfirmed={exchange.trajectoryUpdateConfirmed}
-                  trajectoryUpdateCancelled={exchange.trajectoryUpdateCancelled}
-                  trajectoryUpdateSummary={exchange.trajectoryUpdateSummary}
-                  confirmingProposalId={confirmingProposalId}
-                  confirmingTrajectoryProposalId={confirmingTrajectoryProposalId}
-                  confirmingTrajectoryUpdateId={confirmingTrajectoryUpdateId}
-                  exchangeId={exchange.id}
-                  executingWorkflowId={executingWorkflowId}
-                  onExecuteWorkflow={executeWorkflow}
-                  onModifyWorkflow={modifyWorkflow}
-                  onCancelWorkflow={cancelWorkflow}
-                  onConfirmMemoryProposal={confirmMemoryProposal}
-                  onCancelMemoryProposal={cancelMemoryProposal}
-                  onConfirmTrajectoryProposal={confirmTrajectoryProposal}
-                  onCancelTrajectoryProposal={cancelTrajectoryProposal}
-                  onConfirmTrajectoryUpdate={confirmTrajectoryUpdate}
-                  onCancelTrajectoryUpdate={cancelTrajectoryUpdate}
-                >
-                  {exchange.message}
-                </ChatMessage>
-              ))}
-            </div>
-
-            <form
-              onSubmit={handleAssistantSubmit}
-              className="mt-5 grid gap-3 border-t border-[#1D2A44] pt-4 sm:grid-cols-[1fr_auto]"
-            >
-              <input
-                aria-label="Message assistant"
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder={placeholder}
-                className="min-h-11 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 text-sm text-[#F8FAFC] outline-none placeholder:text-[#64748b]"
-              />
+          <div className="mb-4 flex flex-wrap gap-2">
+            {(Object.keys(contexts) as AssistantContext[]).map((mode) => (
               <button
-                type="submit"
-                disabled={!draft.trim() || isSending}
-                className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-5 py-2 text-sm font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:border-[#1D2A44] disabled:bg-[#08111A] disabled:text-[#64748b]"
-              >
-                {isSending ? "Lecture" : "Envoyer"}
-              </button>
-            </form>
-            {error ? (
-              <p className="mt-3 rounded-md border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 py-2 text-sm text-[#fecaca]">
-                {error}
-              </p>
-            ) : null}
-            <p className="mt-3 text-xs text-[#A7B0C0]">
-              Copilote en lecture seule. Aucune publication, suppression,
-              modification OAuth ou action sensible n&apos;est declenchee.
-            </p>
-          </div>
-        </SectionContainer>
-
-        <SectionContainer>
-          <h2 className="text-xl font-semibold text-[#F8FAFC]">
-            Suggestions rapides
-          </h2>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {context.suggestions.map((suggestion) => (
-              <button
-                key={suggestion}
+                key={mode}
                 type="button"
-                onClick={() => setDraft(suggestion)}
-                className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-left text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/60 hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-              >
-                {suggestion}
-              </button>
-            ))}
-          </div>
-        </SectionContainer>
-
-        <SectionContainer>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
-                Observatoire projet
-              </p>
-              <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
-                Prochaine pierre a poser
-              </h2>
-              <p className="mt-3 max-w-3xl leading-7 text-[#A7B0C0]">
-                {memory.nextRecommendedAction}
-              </p>
-            </div>
-            <StatusBadge status="En cours" />
-          </div>
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
-            {[
-              ["Modules suivis", memory.overview.totalModules],
-              ["Operationnels", memory.overview.operational],
-              ["Bloques", memory.overview.blocked],
-            ].map(([label, value]) => (
-              <div
-                key={label}
-                className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3"
-              >
-                <p className="text-sm text-[#A7B0C0]">{label}</p>
-                <p className="mt-2 text-2xl font-semibold text-[#F8FAFC]">
-                  {value}
-                </p>
-              </div>
-            ))}
-          </div>
-        </SectionContainer>
-
-        <SectionContainer>
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
-            Questions assistant
-          </p>
-          <div className="mt-4 grid gap-2 md:grid-cols-2">
-            {supportedQuestions.map((question) => (
-              <button
-                key={question}
-                type="button"
-                onClick={() => {
-                  setActiveQuestion(question);
-                  setDraft(question);
-                }}
-                className={`rounded-md border px-4 py-3 text-left text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                  activeQuestion === question
+                onClick={() => setActiveContext(mode)}
+                className={`rounded-md border px-4 py-2 text-sm font-semibold transition ${
+                  activeContext === mode
                     ? "border-[#39E6D0]/60 bg-[#39E6D0]/10 text-[#F8FAFC]"
                     : "border-[#1D2A44] bg-[#08111A] text-[#A7B0C0] hover:text-[#F8FAFC]"
                 }`}
               >
-                {question}
+                {mode}
               </button>
             ))}
           </div>
-          <div className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] px-4 py-3">
-            <h2 className="text-lg font-semibold text-[#F8FAFC]">
-              {activeQuestion}
-            </h2>
-            <p className="mt-3 leading-7 text-[#A7B0C0]">
-              {recommendation}
+
+          <form onSubmit={planWorkflow} className="grid gap-3">
+            <textarea
+              aria-label="Commande workflow"
+              value={command}
+              onChange={(event) => setCommand(event.target.value)}
+              rows={3}
+              className="min-h-24 resize-y rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm leading-6 text-[#F8FAFC] outline-none placeholder:text-[#64748B]"
+            />
+            <div className="flex flex-wrap gap-2">
+              {exampleCommands.map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  onClick={() => setCommand(example)}
+                  className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+            <button
+              type="submit"
+              disabled={!command.trim() || isPlanning}
+              className="w-fit rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-5 py-2 text-sm font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-50"
+            >
+              {isPlanning ? "Analyse..." : "Analyser et construire le workflow"}
+            </button>
+          </form>
+
+          {error ? (
+            <p className="mt-4 rounded-md border border-[#EF4444]/30 bg-[#EF4444]/10 px-3 py-2 text-sm text-[#FECACA]">
+              {error}
             </p>
-          </div>
-          <p className="mt-3 text-sm text-[#A7B0C0]">
-            Base de recommandation : {memory.overview.totalModules} statuts
-            Observatoire et {memory.projectMemoryEntries.length} entrees
-            project_memory lues cote serveur.
+          ) : null}
+        </SectionContainer>
+
+        {workflow ? (
+          <WorkflowCard
+            detailedAnalysis={detailedAnalysis}
+            isExecuting={isExecuting}
+            progress={isExecuting ? Math.max(progress, 30) : progress}
+            workflow={workflow}
+            onCancel={cancelWorkflow}
+            onExecute={() => void executeWorkflow()}
+            onModify={modifyWorkflow}
+          />
+        ) : null}
+
+        <SectionContainer>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
+            Etat de depart
           </p>
+          <p className="mt-3 leading-7 text-[#A7B0C0]">
+            {memory.nextRecommendedAction}
+          </p>
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            <Metric label="Modules suivis" value={memory.overview.totalModules} />
+            <Metric label="Operationnels" value={memory.overview.operational} />
+            <Metric label="Bloques" value={memory.overview.blocked} />
+          </div>
         </SectionContainer>
       </div>
 
@@ -921,49 +359,19 @@ export function AssistantCommandCenter({
           safeguards={memory.safeguards}
           nextRecommendedAction={memory.nextRecommendedAction}
         />
-
         <ProjectMemorySnapshotControl
           initialLastUpdatedAt={memorySnapshot?.lastUpdatedAt ?? null}
           initialState={memorySnapshot?.state ?? "needs_update"}
         />
-
         <SectionContainer>
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-xl font-semibold text-[#F8FAFC]">
-                Contexte actif
-              </h2>
-              <p className="mt-2 text-sm text-[#A7B0C0]">
-                Mode actif :{" "}
-                <span className="font-semibold text-[#F8FAFC]">
-                  {activeContext}
-                </span>
-              </p>
+              <h2 className="text-xl font-semibold text-[#F8FAFC]">Mode actif</h2>
+              <p className="mt-2 text-sm text-[#A7B0C0]">{activeContext}</p>
             </div>
-            <StatusBadge status="En cours" />
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {context.sources.map((source) => (
-              <span
-                key={source}
-                className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-xs font-semibold text-[#A7B0C0]"
-              >
-                {source}
-              </span>
-            ))}
+            <StatusBadge status="Operationnel" />
           </div>
         </SectionContainer>
-
-        <SectionContainer>
-          <h2 className="text-xl font-semibold text-[#F8FAFC]">Garde-fous</h2>
-          <div className="mt-4 grid gap-3 text-sm text-[#A7B0C0]">
-            <SafetyLine label="Actions sensibles" value="verrouillees" />
-            <SafetyLine label="Publication reelle" value="bloquee" />
-            <SafetyLine label="Validation humaine" value="obligatoire" />
-            <SafetyLine label="Secrets" value="cote serveur uniquement" />
-          </div>
-        </SectionContainer>
-
         <SectionContainer>
           <h2 className="text-xl font-semibold text-[#F8FAFC]">Raccourcis</h2>
           <div className="mt-4 grid gap-2">
@@ -971,718 +379,153 @@ export function AssistantCommandCenter({
               <Link
                 key={link.href}
                 href={link.href}
-                className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/50 hover:text-[#F8FAFC]"
               >
                 {link.label}
               </Link>
             ))}
           </div>
         </SectionContainer>
-
-        <LogPanel logs={signals} title="Signaux recents" />
       </aside>
     </div>
   );
 }
 
-function ChatMessage({
-  label,
-  tone,
-  align = "left",
-  children,
-  recommendation,
+// Canonical workflow card shared by all assistant commands.
+function WorkflowCard({
   detailedAnalysis,
-  workflowPlan,
-  workflowCancelled,
-  memoryProposal,
-  memoryConfirmed,
-  memoryCancelled,
-  trajectoryProposal,
-  trajectoryConfirmed,
-  trajectoryCancelled,
-  trajectoryCreationSummary,
-  trajectoryUpdateProposal,
-  trajectoryUpdateConfirmed,
-  trajectoryUpdateCancelled,
-  trajectoryUpdateSummary,
-  confirmingProposalId,
-  confirmingTrajectoryProposalId,
-  confirmingTrajectoryUpdateId,
-  exchangeId,
-  executingWorkflowId,
-  onExecuteWorkflow,
-  onModifyWorkflow,
-  onCancelWorkflow,
-  onConfirmMemoryProposal,
-  onCancelMemoryProposal,
-  onConfirmTrajectoryProposal,
-  onCancelTrajectoryProposal,
-  onConfirmTrajectoryUpdate,
-  onCancelTrajectoryUpdate,
-}: {
-  label: string;
-  tone: "jade" | "blue";
-  align?: "left" | "right";
-  children: React.ReactNode;
-  recommendation?: AssistantRecommendation;
-  detailedAnalysis?: string;
-  workflowPlan?: AssistantWorkflow;
-  workflowCancelled?: boolean;
-  memoryProposal?: ProjectMemoryProposal;
-  memoryConfirmed?: boolean;
-  memoryCancelled?: boolean;
-  trajectoryProposal?: TrajectoryProposal;
-  trajectoryConfirmed?: boolean;
-  trajectoryCancelled?: boolean;
-  trajectoryCreationSummary?: string;
-  trajectoryUpdateProposal?: TrajectoryUpdateProposal;
-  trajectoryUpdateConfirmed?: boolean;
-  trajectoryUpdateCancelled?: boolean;
-  trajectoryUpdateSummary?: string;
-  confirmingProposalId?: string | null;
-  confirmingTrajectoryProposalId?: string | null;
-  confirmingTrajectoryUpdateId?: string | null;
-  exchangeId?: string;
-  executingWorkflowId?: string | null;
-  onExecuteWorkflow?: (
-    exchangeId: string,
-    workflow: AssistantWorkflow,
-  ) => Promise<void>;
-  onModifyWorkflow?: (workflow: AssistantWorkflow) => void;
-  onCancelWorkflow?: (exchangeId: string) => void;
-  onConfirmMemoryProposal?: (
-    exchangeId: string,
-    proposal: ProjectMemoryProposal,
-  ) => Promise<void>;
-  onCancelMemoryProposal?: (exchangeId: string) => void;
-  onConfirmTrajectoryProposal?: (
-    exchangeId: string,
-    proposal: TrajectoryProposal,
-  ) => Promise<void>;
-  onCancelTrajectoryProposal?: (exchangeId: string) => void;
-  onConfirmTrajectoryUpdate?: (
-    exchangeId: string,
-    proposal: TrajectoryUpdateProposal,
-  ) => Promise<void>;
-  onCancelTrajectoryUpdate?: (exchangeId: string) => void;
-}) {
-  const color = tone === "jade" ? "text-[#39E6D0]" : "text-[#38BDF8]";
-  const [isEditingTrajectory, setIsEditingTrajectory] = useState(false);
-  const [trajectoryDraft, setTrajectoryDraft] = useState<TrajectoryProposal | null>(
-    trajectoryProposal ?? null,
-  );
-  const displayedTrajectoryProposal = trajectoryDraft ?? trajectoryProposal;
-  const [isEditingTrajectoryUpdate, setIsEditingTrajectoryUpdate] =
-    useState(false);
-  const [trajectoryUpdateDraft, setTrajectoryUpdateDraft] =
-    useState<TrajectoryUpdateProposal | null>(trajectoryUpdateProposal ?? null);
-  const displayedTrajectoryUpdateProposal =
-    trajectoryUpdateDraft ?? trajectoryUpdateProposal;
-  const trajectoryUpdateValues =
-    displayedTrajectoryUpdateProposal?.type === "objective_status"
-      ? ["non commence", "en cours", "bloque", "reporte", "termine"]
-      : ["a faire", "en cours", "fait"];
-
-  return (
-    <div
-      className={`max-w-[88%] whitespace-pre-line rounded-lg border border-[#1D2A44] bg-[#08111A] p-4 ${
-        align === "right" ? "ml-auto" : ""
-      }`}
-    >
-      <p className={`text-sm font-semibold ${color}`}>{label}</p>
-      <p className="mt-2 leading-7 text-[#A7B0C0]">{children}</p>
-      {recommendation ? (
-        <div className="mt-4 grid gap-2 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-sm">
-          <RecommendationLine
-            label="Action recommandee"
-            value={recommendation.action}
-          />
-          <RecommendationLine label="Raison" value={recommendation.reason} />
-          <RecommendationLine
-            label="Dependance"
-            value={recommendation.dependency ?? "aucune"}
-          />
-          <RecommendationLine
-            label="Faisable maintenant"
-            value={recommendation.feasibleNow ? "oui" : "non"}
-          />
-        </div>
-      ) : null}
-      {detailedAnalysis ? (
-        <details className="mt-4 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 text-sm">
-          <summary className="cursor-pointer font-semibold text-[#39E6D0]">
-            Développer l’analyse
-          </summary>
-          <div className="mt-3 whitespace-pre-line leading-7 text-[#A7B0C0]">
-            {detailedAnalysis}
-          </div>
-        </details>
-      ) : null}
-      {workflowPlan && exchangeId ? (
-        <WorkflowPanel
-          cancelled={Boolean(workflowCancelled)}
-          exchangeId={exchangeId}
-          executing={executingWorkflowId === workflowPlan.id}
-          workflow={workflowPlan}
-          onCancel={onCancelWorkflow}
-          onExecute={onExecuteWorkflow}
-          onModify={onModifyWorkflow}
-        />
-      ) : null}
-      {memoryProposal && !memoryConfirmed && !memoryCancelled ? (
-        <div className="mt-4 rounded-md border border-[#39E6D0]/30 bg-[#03070B] p-3 text-sm">
-          <p className="font-semibold text-[#F8FAFC]">
-            Mise à jour mémoire à confirmer
-          </p>
-          <div className="mt-3 grid gap-2 text-[#A7B0C0]">
-            <RecommendationLine label="Clé" value={memoryProposal.key} />
-            <RecommendationLine
-              label="Ancienne valeur"
-              value={memoryProposal.previousValue ?? "non renseignée"}
-            />
-            <RecommendationLine label="Nouvelle valeur" value={memoryProposal.value} />
-            <RecommendationLine
-              label="Impact"
-              value={memoryProposal.impact ?? "Statut cockpit mis a jour apres confirmation."}
-            />
-          </div>
-          <p className="mt-2 text-xs text-[#64748b]">
-            Confiance{" "}
-            {Math.round(memoryProposal.confidence * 100)}%
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-50"
-              disabled={!exchangeId || confirmingProposalId === exchangeId}
-              onClick={() =>
-                exchangeId
-                  ? onConfirmMemoryProposal?.(exchangeId, memoryProposal)
-                  : undefined
-              }
-              type="button"
-            >
-              {confirmingProposalId === exchangeId ? "Confirmation..." : "Confirmer"}
-            </button>
-            <button
-              className="rounded-md border border-[#64748b]/50 bg-[#64748b]/10 px-3 py-2 text-xs font-semibold text-[#cbd5e1] transition hover:text-[#F8FAFC]"
-              disabled={!exchangeId || confirmingProposalId === exchangeId}
-              onClick={() => (exchangeId ? onCancelMemoryProposal?.(exchangeId) : undefined)}
-              type="button"
-            >
-              Annuler
-            </button>
-          </div>
-        </div>
-      ) : null}
-      {memoryProposal && memoryConfirmed ? (
-        <p className="mt-4 rounded-md border border-[#39E6D0]/30 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
-          Mémoire projet mise à jour.
-        </p>
-      ) : null}
-      {memoryProposal && memoryCancelled ? (
-        <p className="mt-4 rounded-md border border-[#64748b]/30 bg-[#64748b]/10 px-3 py-2 text-sm font-semibold text-[#cbd5e1]">
-          Mise à jour annulée.
-        </p>
-      ) : null}
-      {displayedTrajectoryUpdateProposal &&
-      !trajectoryUpdateConfirmed &&
-      !trajectoryUpdateCancelled ? (
-        <div className="mt-4 rounded-md border border-[#38BDF8]/30 bg-[#03070B] p-3 text-sm">
-          <p className="font-semibold text-[#F8FAFC]">
-            Mise a jour Trajectoire proposee
-          </p>
-          {isEditingTrajectoryUpdate ? (
-            <div className="mt-3 grid gap-3 text-[#A7B0C0]">
-              <TrajectoryField
-                label="Projet"
-                value={displayedTrajectoryUpdateProposal.projectTitle}
-                onChange={(value) =>
-                  setTrajectoryUpdateDraft({
-                    ...displayedTrajectoryUpdateProposal,
-                    projectTitle: value,
-                  })
-                }
-              />
-              <TrajectoryField
-                label="Objectif"
-                value={displayedTrajectoryUpdateProposal.objectiveTitle}
-                onChange={(value) =>
-                  setTrajectoryUpdateDraft({
-                    ...displayedTrajectoryUpdateProposal,
-                    objectiveTitle: value,
-                  })
-                }
-              />
-              <label className="grid gap-1">
-                <span className="font-semibold text-[#F8FAFC]">
-                  Nouvelle valeur
-                </span>
-                <select
-                  value={displayedTrajectoryUpdateProposal.nextValue}
-                  onChange={(event) =>
-                    setTrajectoryUpdateDraft({
-                      ...displayedTrajectoryUpdateProposal,
-                      nextValue: event.target.value,
-                    })
-                  }
-                  className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#F8FAFC] outline-none"
-                >
-                  {trajectoryUpdateValues.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <TrajectoryTextarea
-                label="Impact"
-                value={displayedTrajectoryUpdateProposal.impact}
-                onChange={(value) =>
-                  setTrajectoryUpdateDraft({
-                    ...displayedTrajectoryUpdateProposal,
-                    impact: value,
-                  })
-                }
-              />
-            </div>
-          ) : (
-            <div className="mt-3 grid gap-2 text-[#A7B0C0]">
-              <RecommendationLine
-                label="Projet"
-                value={displayedTrajectoryUpdateProposal.projectTitle}
-              />
-              <RecommendationLine
-                label="Objectif"
-                value={displayedTrajectoryUpdateProposal.objectiveTitle}
-              />
-              <RecommendationLine
-                label="Action"
-                value={displayedTrajectoryUpdateProposal.actionTitle ?? "Objectif"}
-              />
-              <RecommendationLine
-                label="Ancienne valeur"
-                value={displayedTrajectoryUpdateProposal.previousValue}
-              />
-              <RecommendationLine
-                label="Nouvelle valeur"
-                value={displayedTrajectoryUpdateProposal.nextValue}
-              />
-              <RecommendationLine
-                label="Impact"
-                value={displayedTrajectoryUpdateProposal.impact}
-              />
-            </div>
-          )}
-          <p className="mt-2 text-xs text-[#64748b]">
-            Confiance{" "}
-            {Math.round(displayedTrajectoryUpdateProposal.confidence * 100)}%.
-            Aucune modification Trajectoire sans confirmation.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              className="rounded-md border border-[#38BDF8]/50 bg-[#38BDF8]/10 px-3 py-2 text-xs font-semibold text-[#7dd3fc] transition hover:text-[#F8FAFC] disabled:opacity-50"
-              disabled={
-                !exchangeId || confirmingTrajectoryUpdateId === exchangeId
-              }
-              onClick={() =>
-                exchangeId
-                  ? onConfirmTrajectoryUpdate?.(
-                      exchangeId,
-                      displayedTrajectoryUpdateProposal,
-                    )
-                  : undefined
-              }
-              type="button"
-            >
-              {confirmingTrajectoryUpdateId === exchangeId
-                ? "Confirmation..."
-                : "Confirmer"}
-            </button>
-            <button
-              className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC]"
-              disabled={confirmingTrajectoryUpdateId === exchangeId}
-              onClick={() => setIsEditingTrajectoryUpdate((current) => !current)}
-              type="button"
-            >
-              {isEditingTrajectoryUpdate ? "Fermer l'edition" : "Modifier"}
-            </button>
-            <button
-              className="rounded-md border border-[#64748b]/50 bg-[#64748b]/10 px-3 py-2 text-xs font-semibold text-[#cbd5e1] transition hover:text-[#F8FAFC]"
-              disabled={!exchangeId || confirmingTrajectoryUpdateId === exchangeId}
-              onClick={() =>
-                exchangeId
-                  ? onCancelTrajectoryUpdate?.(exchangeId)
-                  : undefined
-              }
-              type="button"
-            >
-              Annuler
-            </button>
-          </div>
-        </div>
-      ) : null}
-      {trajectoryUpdateProposal && trajectoryUpdateConfirmed ? (
-        <p className="mt-4 rounded-md border border-[#38BDF8]/30 bg-[#38BDF8]/10 px-3 py-2 text-sm font-semibold text-[#7dd3fc]">
-          {trajectoryUpdateSummary ?? "Mise a jour Trajectoire appliquee."}
-        </p>
-      ) : null}
-      {trajectoryUpdateProposal && trajectoryUpdateCancelled ? (
-        <p className="mt-4 rounded-md border border-[#64748b]/30 bg-[#64748b]/10 px-3 py-2 text-sm font-semibold text-[#cbd5e1]">
-          Mise a jour Trajectoire annulee.
-        </p>
-      ) : null}
-      {displayedTrajectoryProposal && !trajectoryConfirmed && !trajectoryCancelled ? (
-        <div className="mt-4 rounded-md border border-[#38BDF8]/30 bg-[#03070B] p-3 text-sm">
-          <p className="font-semibold text-[#F8FAFC]">
-            {displayedTrajectoryProposal.mode === "update"
-              ? "Mise a jour Trajectoire proposee"
-              : "Proposition Trajectoire preparee"}
-          </p>
-          {isEditingTrajectory ? (
-            <div className="mt-3 grid gap-3 text-[#A7B0C0]">
-              <TrajectoryField
-                label="Projet"
-                value={displayedTrajectoryProposal.project}
-                onChange={(value) =>
-                  setTrajectoryDraft({
-                    ...displayedTrajectoryProposal,
-                    project: value,
-                  })
-                }
-              />
-              <TrajectoryField
-                label="Objectif"
-                value={displayedTrajectoryProposal.objective}
-                onChange={(value) =>
-                  setTrajectoryDraft({
-                    ...displayedTrajectoryProposal,
-                    objective: value,
-                  })
-                }
-              />
-              <TrajectoryField
-                label="Deadline"
-                value={displayedTrajectoryProposal.deadline ?? ""}
-                onChange={(value) =>
-                  setTrajectoryDraft({
-                    ...displayedTrajectoryProposal,
-                    deadline: value || null,
-                  })
-                }
-              />
-              <TrajectoryTextarea
-                label="Plan d'action"
-                value={displayedTrajectoryProposal.planAction.join("\n")}
-                onChange={(value) =>
-                  setTrajectoryDraft({
-                    ...displayedTrajectoryProposal,
-                    planAction: splitLines(value),
-                  })
-                }
-              />
-              <TrajectoryTextarea
-                label="Actions"
-                value={displayedTrajectoryProposal.actions.join("\n")}
-                onChange={(value) =>
-                  setTrajectoryDraft({
-                    ...displayedTrajectoryProposal,
-                    actions: splitLines(value),
-                  })
-                }
-              />
-              <TrajectoryTextarea
-                label="Moyens"
-                value={displayedTrajectoryProposal.means.join("\n")}
-                onChange={(value) =>
-                  setTrajectoryDraft({
-                    ...displayedTrajectoryProposal,
-                    means: splitLines(value),
-                  })
-                }
-              />
-            </div>
-          ) : (
-            <div className="mt-3 grid gap-2 text-[#A7B0C0]">
-              <RecommendationLine
-                label="Projet"
-                value={displayedTrajectoryProposal.project}
-              />
-              <RecommendationLine
-                label="Objectif"
-                value={displayedTrajectoryProposal.objective}
-              />
-              <RecommendationLine
-                label="Deadline"
-                value={displayedTrajectoryProposal.deadline ?? "a confirmer"}
-              />
-              <RecommendationLine
-                label="Plan d'action"
-                value={displayedTrajectoryProposal.planAction.join(" ; ")}
-              />
-              <RecommendationLine
-                label="Actions"
-                value={displayedTrajectoryProposal.actions.join(" ; ")}
-              />
-              <RecommendationLine
-                label="Moyens"
-                value={displayedTrajectoryProposal.means.join(" ; ")}
-              />
-              {displayedTrajectoryProposal.rationale ? (
-                <RecommendationLine
-                  label="Decision"
-                  value={displayedTrajectoryProposal.rationale}
-                />
-              ) : null}
-              {displayedTrajectoryProposal.memoryContext?.length ? (
-                <RecommendationLine
-                  label="Memoire"
-                  value={displayedTrajectoryProposal.memoryContext.join(" ; ")}
-                />
-              ) : null}
-            </div>
-          )}
-          <p className="mt-2 text-xs text-[#64748b]">
-            Rien n&apos;est ecrit dans Trajectoire sans confirmation dediee.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              className="rounded-md border border-[#38BDF8]/50 bg-[#38BDF8]/10 px-3 py-2 text-xs font-semibold text-[#7dd3fc] transition hover:text-[#F8FAFC] disabled:opacity-50"
-              disabled={
-                !exchangeId || confirmingTrajectoryProposalId === exchangeId
-              }
-              onClick={() =>
-                exchangeId
-                  ? onConfirmTrajectoryProposal?.(
-                      exchangeId,
-                      displayedTrajectoryProposal,
-                    )
-                  : undefined
-              }
-              type="button"
-            >
-              {confirmingTrajectoryProposalId === exchangeId
-                ? "Creation..."
-                : "Creer dans Trajectoire"}
-            </button>
-            <button
-              className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC]"
-              disabled={confirmingTrajectoryProposalId === exchangeId}
-              onClick={() => setIsEditingTrajectory((current) => !current)}
-              type="button"
-            >
-              {isEditingTrajectory ? "Fermer l'edition" : "Modifier"}
-            </button>
-            <button
-              className="rounded-md border border-[#64748b]/50 bg-[#64748b]/10 px-3 py-2 text-xs font-semibold text-[#cbd5e1] transition hover:text-[#F8FAFC]"
-              disabled={!exchangeId || confirmingTrajectoryProposalId === exchangeId}
-              onClick={() =>
-                exchangeId
-                  ? onCancelTrajectoryProposal?.(exchangeId)
-                  : undefined
-              }
-              type="button"
-            >
-              Annuler
-            </button>
-          </div>
-        </div>
-      ) : null}
-      {trajectoryProposal && trajectoryConfirmed ? (
-        <p className="mt-4 rounded-md border border-[#38BDF8]/30 bg-[#38BDF8]/10 px-3 py-2 text-sm font-semibold text-[#7dd3fc]">
-          Projet Trajectoire confirme.{" "}
-          {trajectoryCreationSummary ?? "Creation terminee."}
-        </p>
-      ) : null}
-      {trajectoryProposal && trajectoryCancelled ? (
-        <p className="mt-4 rounded-md border border-[#64748b]/30 bg-[#64748b]/10 px-3 py-2 text-sm font-semibold text-[#cbd5e1]">
-          Proposition Trajectoire annulee.
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-// Renders the executable workflow returned by the server engine. It keeps the
-// main assistant answer short and moves diagnostics into the details drawer.
-function WorkflowPanel({
-  cancelled,
-  exchangeId,
-  executing,
-  workflow,
+  isExecuting,
   onCancel,
   onExecute,
   onModify,
+  progress,
+  workflow,
 }: {
-  cancelled: boolean;
-  exchangeId: string;
-  executing: boolean;
+  detailedAnalysis: string | null;
+  isExecuting: boolean;
+  onCancel: () => void;
+  onExecute: () => void;
+  onModify: () => void;
+  progress: number;
   workflow: AssistantWorkflow;
-  onCancel?: (exchangeId: string) => void;
-  onExecute?: (exchangeId: string, workflow: AssistantWorkflow) => Promise<void>;
-  onModify?: (workflow: AssistantWorkflow) => void;
 }) {
-  const completedActions = workflow.actions.filter((action) =>
-    ["success", "failed", "skipped"].includes(action.status),
-  ).length;
-  const progress = workflow.actions.length
-    ? Math.round((completedActions / workflow.actions.length) * 100)
-    : 0;
-  const displayedProgress = executing ? Math.max(progress, 35) : progress;
-  const canExecute = !cancelled && !executing && workflow.status === "planned";
+  const canExecute = workflow.status === "awaiting_confirmation";
 
   return (
-    <div className="mt-4 rounded-md border border-[#38BDF8]/30 bg-[#03070B] p-3 text-sm">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+    <SectionContainer className="bg-[#03070B]">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="font-semibold text-[#F8FAFC]">Workflow propose</p>
-          <p className="mt-2 leading-6 text-[#A7B0C0]">{workflow.summary}</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
+            Plan operationnel
+          </p>
+          <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
+            {workflow.normalized_intent}
+          </h2>
+          <p className="mt-3 leading-7 text-[#A7B0C0]">{workflow.summary}</p>
         </div>
-        <span className="rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-1 text-xs font-semibold text-[#CBD5E1]">
+        <span className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#CBD5E1]">
           {workflow.status}
         </span>
       </div>
 
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#08111A]">
-        <div
-          className="h-full bg-[#39E6D0] transition-all"
-          style={{ width: `${displayedProgress}%` }}
-        />
+      <div className="mt-5 grid gap-3 md:grid-cols-3">
+        <Metric label="Actions" value={workflow.actions.length} />
+        <Metric label="Temps" value={formatDuration(workflow.estimates.estimated_time_seconds)} />
+        <Metric label="Cout" value={formatCost(workflow.estimates.estimated_cost_eur)} />
       </div>
 
-      <div className="mt-3 grid gap-2">
+      <div className="mt-5 h-2 overflow-hidden rounded-full bg-[#08111A]">
+        <div className="h-full bg-[#39E6D0] transition-all" style={{ width: `${progress}%` }} />
+      </div>
+
+      <div className="mt-5 grid gap-2">
+        {workflow.stages.map((stage) => (
+          <div key={stage.key} className="grid gap-2 rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm md:grid-cols-[1fr_120px]">
+            <span className="font-semibold text-[#F8FAFC]">{stage.label}</span>
+            <span className="text-[#A7B0C0]">{stage.status}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 grid gap-2">
         {workflow.actions.map((action) => (
-          <div
-            key={action.id}
-            className="grid gap-2 rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 md:grid-cols-[1fr_110px_90px]"
-          >
+          <div key={action.id} className="grid gap-2 rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-3 text-sm md:grid-cols-[1fr_120px_100px]">
             <div>
               <p className="font-semibold text-[#F8FAFC]">
                 {action.draft_title ?? "Global"} - {action.label}
               </p>
               <p className="mt-1 text-xs text-[#64748B]">
-                {action.type} - {action.estimated_time_seconds}s - {formatWorkflowCost(action.estimated_cost?.estimatedCostEur)}
+                {action.type} - {action.estimated_time_seconds}s - {formatCost(action.estimated_cost?.estimatedCostEur)}
               </p>
-              {action.error ? (
-                <p className="mt-1 text-xs font-semibold text-[#FDBA74]">{action.error}</p>
-              ) : null}
-              {action.result ? (
-                <p className="mt-1 text-xs text-[#A7B0C0]">{action.result}</p>
-              ) : null}
+              {action.result ? <p className="mt-1 text-xs text-[#A7B0C0]">{action.result}</p> : null}
+              {action.error ? <p className="mt-1 text-xs font-semibold text-[#FDBA74]">{action.error}</p> : null}
             </div>
             <span className={action.is_sensitive ? "text-[#FDBA74]" : "text-[#86EFAC]"}>
-              {action.is_sensitive ? "sensible" : "V1"}
+              {action.is_sensitive ? "sensible" : action.placeholder ? "placeholder" : "V1"}
             </span>
             <span className="text-[#CBD5E1]">{action.status}</span>
           </div>
         ))}
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-5 flex flex-wrap gap-2">
         <button
-          className="rounded-md border border-[#38BDF8]/50 bg-[#38BDF8]/10 px-3 py-2 text-xs font-semibold text-[#7DD3FC] transition hover:text-[#F8FAFC] disabled:opacity-50"
-          disabled={!canExecute}
-          onClick={() => onExecute?.(exchangeId, workflow)}
           type="button"
+          disabled={!canExecute || isExecuting}
+          onClick={onExecute}
+          className="rounded-md border border-[#38BDF8]/50 bg-[#38BDF8]/10 px-4 py-2 text-sm font-semibold text-[#7DD3FC] transition hover:text-[#F8FAFC] disabled:opacity-50"
         >
-          {executing ? "Execution..." : "Executer le workflow"}
+          {isExecuting ? "Execution..." : "Executer le workflow"}
         </button>
         <button
-          className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-50"
-          disabled={executing || cancelled}
-          onClick={() => onModify?.(workflow)}
           type="button"
+          disabled={isExecuting}
+          onClick={onModify}
+          className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-50"
         >
           Modifier
         </button>
         <button
-          className="rounded-md border border-[#64748B]/50 bg-[#64748B]/10 px-3 py-2 text-xs font-semibold text-[#CBD5E1] transition hover:text-[#F8FAFC] disabled:opacity-50"
-          disabled={executing || cancelled}
-          onClick={() => onCancel?.(exchangeId)}
           type="button"
+          disabled={isExecuting}
+          onClick={onCancel}
+          className="rounded-md border border-[#64748B]/50 bg-[#64748B]/10 px-4 py-2 text-sm font-semibold text-[#CBD5E1] transition hover:text-[#F8FAFC] disabled:opacity-50"
         >
           Annuler
         </button>
       </div>
 
-      <details className="mt-3 rounded-md border border-[#1D2A44] bg-[#08111A] p-3">
+      <details className="mt-5 rounded-md border border-[#1D2A44] bg-[#08111A] p-3 text-sm">
         <summary className="cursor-pointer font-semibold text-[#39E6D0]">
           Developper l&apos;analyse
         </summary>
-        <div className="mt-3 grid gap-2 text-[#A7B0C0]">
-          <RecommendationLine label="Objectif" value={workflow.analysis.objective} />
-          <RecommendationLine label="Sources" value={workflow.analysis.sources.join(" ; ")} />
-          <RecommendationLine label="Risques" value={workflow.analysis.risks.join(" ; ")} />
-          <RecommendationLine label="Garde-fous" value={workflow.guardrails.join(" ; ")} />
+        <div className="mt-3 grid gap-3 text-[#A7B0C0]">
+          <InfoLine label="Objectif" value={workflow.analysis.objective} />
+          <InfoLine label="Ressources" value={workflow.resources.join(" ; ")} />
+          <InfoLine label="Dependances" value={workflow.dependencies.join(" ; ") || "aucune"} />
+          <InfoLine label="Risques" value={workflow.analysis.risks.join(" ; ")} />
+          <InfoLine label="Garde-fous" value={workflow.guardrails.join(" ; ")} />
+          {detailedAnalysis ? <InfoLine label="Trace" value={detailedAnalysis} /> : null}
         </div>
       </details>
+    </SectionContainer>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#64748B]">{label}</p>
+      <p className="mt-2 text-2xl font-semibold text-[#F8FAFC]">{value}</p>
     </div>
   );
 }
 
-function splitLines(value: string) {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-function TrajectoryField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
+function InfoLine({ label, value }: { label: string; value: string }) {
   return (
-    <label className="grid gap-1">
+    <div className="grid gap-1 md:grid-cols-[150px_1fr]">
       <span className="font-semibold text-[#F8FAFC]">{label}</span>
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#F8FAFC] outline-none"
-      />
-    </label>
-  );
-}
-
-function TrajectoryTextarea({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="grid gap-1">
-      <span className="font-semibold text-[#F8FAFC]">{label}</span>
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        rows={3}
-        className="resize-y rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm text-[#F8FAFC] outline-none"
-      />
-    </label>
-  );
-}
-
-function RecommendationLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid gap-1 sm:grid-cols-[150px_1fr]">
-      <span className="font-semibold text-[#F8FAFC]">{label}</span>
-      <span className="text-[#A7B0C0]">{value}</span>
-    </div>
-  );
-}
-
-function SafetyLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2">
-      <span>{label}</span>
-      <span className="font-semibold text-[#F8FAFC]">{value}</span>
+      <span className="whitespace-pre-line leading-6">{value}</span>
     </div>
   );
 }

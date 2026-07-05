@@ -98,17 +98,6 @@ export type ProjectMemoryCreateInput = {
   confidence?: number | null;
 };
 
-export type AssistantQuestion =
-  | "Que dois-je faire maintenant ?"
-  | "Quelle est la prochaine pierre ?"
-  | "Quelle est la prochaine pierre realiste ?"
-  | "Quels sont les blocages ?"
-  | "Ou en est le projet ?"
-  | "Qu'est-ce qui est en review ?"
-  | "Qu'est-ce qui est bloque par un reviewer ?"
-  | "Qu'est-ce qui depend de moi ?"
-  | "Qu'est-ce qui depend d'un service externe ?";
-
 export type AssistantActionablePriority = {
   action: string;
   reason: string;
@@ -200,7 +189,6 @@ export type ProjectContext = {
   siteSummary: string;
   observatoryItems: ObservatoryItem[];
   projectMemoryEntries: ProjectMemoryEntry[];
-  recommendations: Record<AssistantQuestion, string>;
   cockpitState: CockpitReadOnlyState;
   overview: {
     totalModules: number;

@@ -1,15 +1,9 @@
 import { NextResponse } from "next/server";
 import { buildProjectContext } from "@/lib/server/assistant/build-project-context";
-import { inferProjectMemoryUpdate } from "@/lib/server/project-memory";
 import {
   globalAssistant,
   type GlobalAssistantMode,
 } from "@/lib/server/assistant/global-assistant";
-import {
-  enrichTrajectoireAssistantProposal,
-  inferTrajectoireUpdateFromMessage,
-  readTrajectoire,
-} from "@/lib/server/trajectoire";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -28,6 +22,8 @@ function sanitizeMessage(value: unknown) {
   return message.length > 0 ? message.slice(0, 2000) : null;
 }
 
+// Single assistant entry point. It no longer returns a separate advisory format:
+// every response is backed by a canonical workflow and waits for confirmation.
 export async function POST(request: Request) {
   const user = await getCurrentUser();
 
@@ -35,10 +31,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
   }
 
-  console.info("[Global Assistant] request received");
-
   let payload: unknown;
-
   try {
     payload = await request.json();
   } catch {
@@ -61,44 +54,19 @@ export async function POST(request: Request) {
 
   try {
     const context = await buildProjectContext();
-    console.info("[Global Assistant] project context loaded");
-    const memoryProposal = inferProjectMemoryUpdate(
-      message,
-      context.projectMemoryEntries,
-    );
-    const trajectoire = await readTrajectoire(user.id);
     const response = await globalAssistant({
+      context,
       message,
       mode,
-      context,
-      trajectoire,
-    });
-    const trajectoryProposal = response.trajectoryProposal
-      ? await enrichTrajectoireAssistantProposal({
-          proposal: response.trajectoryProposal,
-          userId: user.id,
-        })
-      : null;
-    const trajectoryUpdateProposal = await inferTrajectoireUpdateFromMessage({
-      message,
       userId: user.id,
     });
-    const enrichedResponse = {
-      ...response,
-      trajectoryProposal,
-      trajectoryUpdateProposal,
-    };
 
-    if (memoryProposal) {
-      return NextResponse.json({
-        ...enrichedResponse,
-        memoryProposal,
-        requiresConfirmation: true,
-      });
-    }
+    return NextResponse.json(response);
+  } catch (error) {
+    console.error("[Global Assistant] workflow response failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
 
-    return NextResponse.json(enrichedResponse);
-  } catch {
     return NextResponse.json(
       { error: "Assistant global indisponible." },
       { status: 500 },

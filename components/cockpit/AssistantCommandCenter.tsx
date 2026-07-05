@@ -24,6 +24,8 @@ type AssistantExchange = {
   role: "user" | "assistant";
   message: string;
   detailedAnalysis?: string;
+  workflowPlan?: AssistantWorkflow;
+  workflowCancelled?: boolean;
   recommendation?: AssistantRecommendation;
   memoryProposal?: ProjectMemoryProposal;
   memoryConfirmed?: boolean;
@@ -85,6 +87,56 @@ type TrajectoryUpdateProposal = {
   nextValue: string;
   impact: string;
   confidence: number;
+};
+
+type AssistantWorkflowActionStatus =
+  | "pending"
+  | "running"
+  | "success"
+  | "failed"
+  | "skipped";
+
+type AssistantWorkflowAction = {
+  id: string;
+  type: string;
+  label: string;
+  draft_id: string | null;
+  draft_title: string | null;
+  status: AssistantWorkflowActionStatus;
+  estimated_time_seconds: number;
+  estimated_cost: {
+    estimatedCostEur: number | null;
+    provider: string;
+  } | null;
+  requires_confirmation: boolean;
+  is_sensitive: boolean;
+  placeholder: boolean;
+  route: string | null;
+  result?: string;
+  error?: string;
+};
+
+type AssistantWorkflow = {
+  id: string;
+  user_intent: string;
+  normalized_intent: string;
+  summary: string;
+  status: "planned" | "running" | "success" | "failed" | "cancelled";
+  created_at: string;
+  actions: AssistantWorkflowAction[];
+  guardrails: string[];
+  analysis: {
+    objective: string;
+    sources: string[];
+    risks: string[];
+    notes: string[];
+  };
+};
+
+type AssistantWorkflowExecutionResult = {
+  ok: boolean;
+  workflow: AssistantWorkflow;
+  failed_action: AssistantWorkflowAction | null;
 };
 
 const contexts: Record<
@@ -185,6 +237,41 @@ const quickLinks = [
   { href: "/interface/resources", label: "Ressources" },
 ];
 
+// Detects whether a project-mode message should also be converted into an
+// operational Shorts workflow. Non-matching chat remains unchanged.
+function shouldPlanWorkflow(message: string) {
+  const normalized = message
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+
+  return (
+    normalized.includes("short") ||
+    normalized.includes("brouillon") ||
+    normalized.includes("video") ||
+    normalized.includes("publication") ||
+    normalized.includes("programme") ||
+    normalized.includes("planning")
+  ) && (
+    normalized.includes("termine") ||
+    normalized.includes("prepare") ||
+    normalized.includes("programme") ||
+    normalized.includes("bloqu")
+  );
+}
+
+function formatWorkflowCost(value: number | null | undefined) {
+  if (typeof value !== "number") {
+    return "a estimer";
+  }
+
+  return new Intl.NumberFormat("fr-FR", {
+    currency: "EUR",
+    maximumFractionDigits: 4,
+    style: "currency",
+  }).format(value);
+}
+
 type AssistantCommandCenterProps = {
   memorySnapshot?: {
     lastUpdatedAt: string | null;
@@ -207,6 +294,7 @@ export function AssistantCommandCenter({
     useState<string | null>(null);
   const [confirmingTrajectoryUpdateId, setConfirmingTrajectoryUpdateId] =
     useState<string | null>(null);
+  const [executingWorkflowId, setExecutingWorkflowId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeQuestion, setActiveQuestion] = useState<AssistantQuestion>(
     "Que dois-je faire maintenant ?",
@@ -288,6 +376,28 @@ export function AssistantCommandCenter({
       }
 
       const answer = payload.answer;
+      let workflowPlan: AssistantWorkflow | undefined;
+
+      if (assistantMode === "project" && shouldPlanWorkflow(message)) {
+        const workflowResponse = await fetch("/api/assistant/workflows/plan", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ command: message }),
+        });
+        const workflowPayload = (await workflowResponse.json()) as {
+          ok?: boolean;
+          workflow?: AssistantWorkflow;
+          error?: string;
+        };
+
+        if (!workflowResponse.ok || !workflowPayload.ok || !workflowPayload.workflow) {
+          throw new Error(workflowPayload.error ?? "Workflow indisponible.");
+        }
+
+        workflowPlan = workflowPayload.workflow;
+      }
 
       setExchanges((current) => [
         ...current,
@@ -296,6 +406,7 @@ export function AssistantCommandCenter({
           role: "assistant",
           message: answer,
           detailedAnalysis: payload.detailedAnalysis,
+          workflowPlan,
           recommendation: payload.recommendation,
           memoryProposal: payload.memoryProposal,
           trajectoryProposal: payload.trajectoryProposal ?? undefined,
@@ -311,6 +422,82 @@ export function AssistantCommandCenter({
     } finally {
       setIsSending(false);
     }
+  }
+
+  // Executes the workflow returned by the new engine and replaces the card with
+  // server statuses. The server still skips sensitive actions in V1.
+  async function executeWorkflow(exchangeId: string, workflow: AssistantWorkflow) {
+    if (executingWorkflowId) {
+      return;
+    }
+
+    setExecutingWorkflowId(workflow.id);
+    setError(null);
+    setExchanges((current) =>
+      current.map((exchange) =>
+        exchange.id === exchangeId
+          ? { ...exchange, workflowPlan: { ...workflow, status: "running" } }
+          : exchange,
+      ),
+    );
+
+    try {
+      const response = await fetch("/api/assistant/workflows/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workflow }),
+      });
+      const payload = (await response.json()) as AssistantWorkflowExecutionResult & {
+        error?: string;
+      };
+
+      if (!response.ok || !payload.workflow) {
+        throw new Error(payload.error ?? "Execution workflow indisponible.");
+      }
+
+      setExchanges((current) =>
+        current.map((exchange) =>
+          exchange.id === exchangeId
+            ? { ...exchange, workflowPlan: payload.workflow }
+            : exchange,
+        ),
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Execution workflow indisponible.",
+      );
+      setExchanges((current) =>
+        current.map((exchange) =>
+          exchange.id === exchangeId
+            ? { ...exchange, workflowPlan: { ...workflow, status: "failed" } }
+            : exchange,
+        ),
+      );
+    } finally {
+      setExecutingWorkflowId(null);
+    }
+  }
+
+  function cancelWorkflow(exchangeId: string) {
+    setExchanges((current) =>
+      current.map((exchange) =>
+        exchange.id === exchangeId
+          ? {
+              ...exchange,
+              workflowCancelled: true,
+              workflowPlan: exchange.workflowPlan
+                ? { ...exchange.workflowPlan, status: "cancelled" }
+                : undefined,
+            }
+          : exchange,
+      ),
+    );
+  }
+
+  function modifyWorkflow(workflow: AssistantWorkflow) {
+    setDraft(workflow.user_intent);
   }
 
   function cancelMemoryProposal(exchangeId: string) {
@@ -573,6 +760,8 @@ export function AssistantCommandCenter({
                   align={exchange.role === "user" ? "right" : "left"}
                   recommendation={exchange.recommendation}
                   detailedAnalysis={exchange.detailedAnalysis}
+                  workflowPlan={exchange.workflowPlan}
+                  workflowCancelled={exchange.workflowCancelled}
                   memoryProposal={exchange.memoryProposal}
                   memoryConfirmed={exchange.memoryConfirmed}
                   memoryCancelled={exchange.memoryCancelled}
@@ -588,6 +777,10 @@ export function AssistantCommandCenter({
                   confirmingTrajectoryProposalId={confirmingTrajectoryProposalId}
                   confirmingTrajectoryUpdateId={confirmingTrajectoryUpdateId}
                   exchangeId={exchange.id}
+                  executingWorkflowId={executingWorkflowId}
+                  onExecuteWorkflow={executeWorkflow}
+                  onModifyWorkflow={modifyWorkflow}
+                  onCancelWorkflow={cancelWorkflow}
                   onConfirmMemoryProposal={confirmMemoryProposal}
                   onCancelMemoryProposal={cancelMemoryProposal}
                   onConfirmTrajectoryProposal={confirmTrajectoryProposal}
@@ -799,6 +992,8 @@ function ChatMessage({
   children,
   recommendation,
   detailedAnalysis,
+  workflowPlan,
+  workflowCancelled,
   memoryProposal,
   memoryConfirmed,
   memoryCancelled,
@@ -814,6 +1009,10 @@ function ChatMessage({
   confirmingTrajectoryProposalId,
   confirmingTrajectoryUpdateId,
   exchangeId,
+  executingWorkflowId,
+  onExecuteWorkflow,
+  onModifyWorkflow,
+  onCancelWorkflow,
   onConfirmMemoryProposal,
   onCancelMemoryProposal,
   onConfirmTrajectoryProposal,
@@ -827,6 +1026,8 @@ function ChatMessage({
   children: React.ReactNode;
   recommendation?: AssistantRecommendation;
   detailedAnalysis?: string;
+  workflowPlan?: AssistantWorkflow;
+  workflowCancelled?: boolean;
   memoryProposal?: ProjectMemoryProposal;
   memoryConfirmed?: boolean;
   memoryCancelled?: boolean;
@@ -842,6 +1043,13 @@ function ChatMessage({
   confirmingTrajectoryProposalId?: string | null;
   confirmingTrajectoryUpdateId?: string | null;
   exchangeId?: string;
+  executingWorkflowId?: string | null;
+  onExecuteWorkflow?: (
+    exchangeId: string,
+    workflow: AssistantWorkflow,
+  ) => Promise<void>;
+  onModifyWorkflow?: (workflow: AssistantWorkflow) => void;
+  onCancelWorkflow?: (exchangeId: string) => void;
   onConfirmMemoryProposal?: (
     exchangeId: string,
     proposal: ProjectMemoryProposal,
@@ -909,6 +1117,17 @@ function ChatMessage({
             {detailedAnalysis}
           </div>
         </details>
+      ) : null}
+      {workflowPlan && exchangeId ? (
+        <WorkflowPanel
+          cancelled={Boolean(workflowCancelled)}
+          exchangeId={exchangeId}
+          executing={executingWorkflowId === workflowPlan.id}
+          workflow={workflowPlan}
+          onCancel={onCancelWorkflow}
+          onExecute={onExecuteWorkflow}
+          onModify={onModifyWorkflow}
+        />
       ) : null}
       {memoryProposal && !memoryConfirmed && !memoryCancelled ? (
         <div className="mt-4 rounded-md border border-[#39E6D0]/30 bg-[#03070B] p-3 text-sm">
@@ -1279,6 +1498,123 @@ function ChatMessage({
           Proposition Trajectoire annulee.
         </p>
       ) : null}
+    </div>
+  );
+}
+
+// Renders the executable workflow returned by the server engine. It keeps the
+// main assistant answer short and moves diagnostics into the details drawer.
+function WorkflowPanel({
+  cancelled,
+  exchangeId,
+  executing,
+  workflow,
+  onCancel,
+  onExecute,
+  onModify,
+}: {
+  cancelled: boolean;
+  exchangeId: string;
+  executing: boolean;
+  workflow: AssistantWorkflow;
+  onCancel?: (exchangeId: string) => void;
+  onExecute?: (exchangeId: string, workflow: AssistantWorkflow) => Promise<void>;
+  onModify?: (workflow: AssistantWorkflow) => void;
+}) {
+  const completedActions = workflow.actions.filter((action) =>
+    ["success", "failed", "skipped"].includes(action.status),
+  ).length;
+  const progress = workflow.actions.length
+    ? Math.round((completedActions / workflow.actions.length) * 100)
+    : 0;
+  const displayedProgress = executing ? Math.max(progress, 35) : progress;
+  const canExecute = !cancelled && !executing && workflow.status === "planned";
+
+  return (
+    <div className="mt-4 rounded-md border border-[#38BDF8]/30 bg-[#03070B] p-3 text-sm">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="font-semibold text-[#F8FAFC]">Workflow propose</p>
+          <p className="mt-2 leading-6 text-[#A7B0C0]">{workflow.summary}</p>
+        </div>
+        <span className="rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-1 text-xs font-semibold text-[#CBD5E1]">
+          {workflow.status}
+        </span>
+      </div>
+
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#08111A]">
+        <div
+          className="h-full bg-[#39E6D0] transition-all"
+          style={{ width: `${displayedProgress}%` }}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-2">
+        {workflow.actions.map((action) => (
+          <div
+            key={action.id}
+            className="grid gap-2 rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 md:grid-cols-[1fr_110px_90px]"
+          >
+            <div>
+              <p className="font-semibold text-[#F8FAFC]">
+                {action.draft_title ?? "Global"} - {action.label}
+              </p>
+              <p className="mt-1 text-xs text-[#64748B]">
+                {action.type} - {action.estimated_time_seconds}s - {formatWorkflowCost(action.estimated_cost?.estimatedCostEur)}
+              </p>
+              {action.error ? (
+                <p className="mt-1 text-xs font-semibold text-[#FDBA74]">{action.error}</p>
+              ) : null}
+              {action.result ? (
+                <p className="mt-1 text-xs text-[#A7B0C0]">{action.result}</p>
+              ) : null}
+            </div>
+            <span className={action.is_sensitive ? "text-[#FDBA74]" : "text-[#86EFAC]"}>
+              {action.is_sensitive ? "sensible" : "V1"}
+            </span>
+            <span className="text-[#CBD5E1]">{action.status}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          className="rounded-md border border-[#38BDF8]/50 bg-[#38BDF8]/10 px-3 py-2 text-xs font-semibold text-[#7DD3FC] transition hover:text-[#F8FAFC] disabled:opacity-50"
+          disabled={!canExecute}
+          onClick={() => onExecute?.(exchangeId, workflow)}
+          type="button"
+        >
+          {executing ? "Execution..." : "Executer le workflow"}
+        </button>
+        <button
+          className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-xs font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-50"
+          disabled={executing || cancelled}
+          onClick={() => onModify?.(workflow)}
+          type="button"
+        >
+          Modifier
+        </button>
+        <button
+          className="rounded-md border border-[#64748B]/50 bg-[#64748B]/10 px-3 py-2 text-xs font-semibold text-[#CBD5E1] transition hover:text-[#F8FAFC] disabled:opacity-50"
+          disabled={executing || cancelled}
+          onClick={() => onCancel?.(exchangeId)}
+          type="button"
+        >
+          Annuler
+        </button>
+      </div>
+
+      <details className="mt-3 rounded-md border border-[#1D2A44] bg-[#08111A] p-3">
+        <summary className="cursor-pointer font-semibold text-[#39E6D0]">
+          Developper l&apos;analyse
+        </summary>
+        <div className="mt-3 grid gap-2 text-[#A7B0C0]">
+          <RecommendationLine label="Objectif" value={workflow.analysis.objective} />
+          <RecommendationLine label="Sources" value={workflow.analysis.sources.join(" ; ")} />
+          <RecommendationLine label="Risques" value={workflow.analysis.risks.join(" ; ")} />
+          <RecommendationLine label="Garde-fous" value={workflow.guardrails.join(" ; ")} />
+        </div>
+      </details>
     </div>
   );
 }

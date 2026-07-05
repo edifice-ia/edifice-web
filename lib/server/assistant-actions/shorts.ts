@@ -1,6 +1,13 @@
 import "server-only";
 
 import { readContentDrafts, type SavedContentDraft } from "@/lib/server/content-workshop";
+import {
+  estimateImageGenerationCost,
+  estimateSubtitleCost,
+  estimateVideoRenderCost,
+  estimateVoiceCost,
+  type CostEstimate,
+} from "@/lib/server/cost-rates";
 import { readMediaPipelineState, type MediaPipelineState } from "@/lib/server/media-pipeline";
 import { readShortsSchedulingState } from "@/lib/server/shorts-scheduling";
 import { readVideoRenderJobState, type VideoRenderJobState } from "@/lib/server/video-renderer";
@@ -47,6 +54,47 @@ export type ShortsAssistantAction = {
   allowedInV1: boolean;
   requiresExplicitConfirmation: boolean;
   placeholder: boolean;
+  estimatedSeconds: number;
+  costEstimate: CostEstimate | null;
+};
+
+export type ShortsAssistantWorkflowStep = {
+  id: string;
+  title: string;
+  status: "pending" | "blocked" | "ready" | "done";
+  actionKind: ShortsAssistantActionKind;
+  actionCount: number;
+  sensitive: boolean;
+  requiresExplicitConfirmation: boolean;
+  estimatedSeconds: number;
+};
+
+export type ShortsAssistantDashboard = {
+  currentState: string;
+  blockers: string[];
+  proposedPlan: string[];
+  availableActions: string[];
+};
+
+export type ShortsAssistantEstimates = {
+  actionsCount: number;
+  estimatedSeconds: number;
+  estimatedMinutesLabel: string;
+  openaiCostEur: number | null;
+  elevenLabsCostEur: number | null;
+  railwayCostEur: number | null;
+  totalCostEur: number | null;
+  notes: string[];
+};
+
+export type ShortsAssistantDetailedAnalysis = {
+  sourcesUsed: string[];
+  memoryUsed: string[];
+  draftsDetected: Array<{ id: string; title: string; status: string; nextStep: string }>;
+  reasoning: string[];
+  dependencies: string[];
+  risks: string[];
+  justification: string[];
 };
 
 export type ShortsAssistantDraftSummary = {
@@ -73,6 +121,8 @@ export type ShortsAssistantPlan = {
   command: string;
   generatedAt: string;
   guardrails: string[];
+  dashboard: ShortsAssistantDashboard;
+  estimates: ShortsAssistantEstimates;
   stats: {
     draftsFound: number;
     terminableDrafts: number;
@@ -82,8 +132,10 @@ export type ShortsAssistantPlan = {
   };
   drafts: ShortsAssistantDraftSummary[];
   actions: ShortsAssistantAction[];
+  workflowSteps: ShortsAssistantWorkflowStep[];
   scheduleProposals: ShortsAssistantScheduleProposal[];
   blockedDrafts: ShortsAssistantDraftSummary[];
+  detailedAnalysis: ShortsAssistantDetailedAnalysis;
   warnings: string[];
   execution: {
     mode: "plan_only";
@@ -97,6 +149,15 @@ export type ShortsAssistantExecutionPreview = {
   executed: false;
   message: string;
   blockedActions: string[];
+  progress: {
+    completedSteps: number;
+    totalSteps: number;
+    percent: number;
+    steps: Array<{
+      title: string;
+      status: "pending" | "blocked" | "ready" | "done";
+    }>;
+  };
   nextImplementationStep: string;
 };
 
@@ -118,6 +179,12 @@ const guardrails = [
   "L'orchestrateur produit un plan; il ne remplace pas les validations humaines.",
 ];
 
+// Architecture: this file is the Shorts orchestration brain. It reads the same
+// server state as the cockpit, transforms statuses into safe workflow steps,
+// estimates time/cost, and returns a plan. It must not mutate Supabase directly.
+
+// Normalizes natural language commands so intent detection can stay simple and
+// deterministic before any LLM-based planner is introduced.
 function normalizeCommand(command: string) {
   return command
     .toLowerCase()
@@ -125,6 +192,8 @@ function normalizeCommand(command: string) {
     .replace(/\p{Diacritic}/gu, "");
 }
 
+// Chooses the broad operational intent from a natural command. Keep this
+// conservative: unknown commands become a general plan instead of execution.
 function detectShortsIntent(command: string): ShortsAssistantIntent {
   const normalized = normalizeCommand(command);
 
@@ -151,6 +220,7 @@ function detectShortsIntent(command: string): ShortsAssistantIntent {
   return "general_plan";
 }
 
+// Converts the detected intent into the compact dashboard objective.
 function objectiveForIntent(intent: ShortsAssistantIntent) {
   if (intent === "blocked_report") {
     return "faire un rapport des brouillons bloques";
@@ -167,11 +237,95 @@ function objectiveForIntent(intent: ShortsAssistantIntent) {
   return "analyser le pipeline Shorts et proposer la prochaine action";
 }
 
+// Reads the expected number of visual scenes from draft score metadata. This
+// mirrors the current pipeline contract without reparsing prompts here.
 function requiredVisualCount(draft: SavedContentDraft) {
   const value = draft.score.requiredVisualSceneCount;
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+// Sums nullable cost estimates without hiding unknown values as zero.
+function sumCosts(values: Array<number | null | undefined>) {
+  let hasKnown = false;
+  let total = 0;
+
+  values.forEach((value) => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      hasKnown = true;
+      total += value;
+    }
+  });
+
+  return hasKnown ? Math.round(total * 1_000_000) / 1_000_000 : null;
+}
+
+// Estimates action cost from the current draft/media signals. These values are
+// intentionally approximate and use the existing cost-rate helpers.
+function estimateActionCost(kind: ShortsAssistantActionKind, bundle?: DraftBundle): CostEstimate | null {
+  if (!bundle) {
+    return null;
+  }
+
+  if (kind === "generate_visuals") {
+    const missingVisuals = Math.max(
+      1,
+      (bundle.workflow.raw.requiredVisualCount || requiredVisualCount(bundle.draft) || 1) -
+        bundle.workflow.raw.retainedVisualScenesCount,
+    );
+    return estimateImageGenerationCost(missingVisuals);
+  }
+
+  if (kind === "generate_voice") {
+    return estimateVoiceCost(bundle.draft.script.length);
+  }
+
+  if (kind === "generate_subtitles") {
+    return estimateSubtitleCost(bundle.media?.voice.durationEstimateSeconds ?? null);
+  }
+
+  if (kind === "start_video_render") {
+    return estimateVideoRenderCost(
+      bundle.media?.subtitles.durationSeconds ??
+      bundle.media?.voice.durationEstimateSeconds ??
+      null,
+    );
+  }
+
+  return null;
+}
+
+// Estimates user-visible duration for planning. It is deliberately pessimistic
+// enough to account for remote API latency while staying readable.
+function estimateActionSeconds(kind: ShortsAssistantActionKind, bundle?: DraftBundle) {
+  if (kind === "generate_visuals") {
+    const visualCount = bundle
+      ? Math.max(1, bundle.workflow.raw.requiredVisualCount - bundle.workflow.raw.retainedVisualScenesCount)
+      : 1;
+    return visualCount * 90;
+  }
+  if (kind === "generate_voice") {
+    return 45;
+  }
+  if (kind === "generate_subtitles") {
+    return 35;
+  }
+  if (kind === "prepare_video") {
+    return 20;
+  }
+  if (kind === "start_video_render") {
+    return 150;
+  }
+  if (kind === "propose_schedule" || kind === "save_schedule") {
+    return 60;
+  }
+  if (kind === "publish") {
+    return 0;
+  }
+  return 30;
+}
+
+// Creates a safe action descriptor. The descriptor is executable metadata for a
+// future runner, but V1 marks every action as a placeholder.
 function actionBase({
   draft,
   kind,
@@ -179,6 +333,7 @@ function actionBase({
   route,
   sensitive = false,
   blockedBy,
+  bundle,
 }: {
   draft?: SavedContentDraft;
   kind: ShortsAssistantActionKind;
@@ -186,6 +341,7 @@ function actionBase({
   route?: string;
   sensitive?: boolean;
   blockedBy?: string[];
+  bundle?: DraftBundle;
 }): ShortsAssistantAction {
   return {
     kind,
@@ -198,9 +354,13 @@ function actionBase({
     allowedInV1: false,
     requiresExplicitConfirmation: true,
     placeholder: true,
+    estimatedSeconds: estimateActionSeconds(kind, bundle),
+    costEstimate: estimateActionCost(kind, bundle),
   };
 }
 
+// Chooses the next useful action for one draft from canonical workflow state.
+// It never proposes a step already validated by getShortWorkflowState.
 function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
   const { draft, media, video, workflow } = bundle;
 
@@ -215,6 +375,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       label: "Valider le texte avant toute generation.",
       route: `/interface/post-creation/shorts/drafts`,
       sensitive: true,
+      bundle,
     });
   }
 
@@ -224,6 +385,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       kind: "generate_visuals",
       label: "Generer ou completer les visuels manquants.",
       route: `/interface/post-creation/shorts/visuals`,
+      bundle,
     });
   }
 
@@ -234,6 +396,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       label: "Valider les visuels retenus.",
       route: `/interface/post-creation/shorts/visuals`,
       sensitive: true,
+      bundle,
     });
   }
 
@@ -243,6 +406,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       kind: "generate_voice",
       label: workflow.voice === "error" ? "Relancer la generation de voix." : "Generer la voix-off.",
       route: `/interface/post-creation/shorts/voice`,
+      bundle,
     });
   }
 
@@ -253,6 +417,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       label: "Valider la voix-off avant les sous-titres.",
       route: `/interface/post-creation/shorts/voice`,
       sensitive: true,
+      bundle,
     });
   }
 
@@ -262,6 +427,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       kind: "generate_subtitles",
       label: workflow.subtitles === "error" ? "Relancer les sous-titres." : "Generer les sous-titres.",
       route: `/interface/post-creation/shorts/voice`,
+      bundle,
     });
   }
 
@@ -272,6 +438,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       label: "Valider les sous-titres avant le montage.",
       route: `/interface/post-creation/shorts/voice`,
       sensitive: true,
+      bundle,
     });
   }
 
@@ -281,6 +448,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       kind: "prepare_video",
       label: "Preparer le manifest video pour le renderer.",
       route: `/interface/post-creation/shorts/video`,
+      bundle,
     });
   }
 
@@ -290,6 +458,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       kind: "start_video_render",
       label: "Lancer ou relancer le rendu video Railway.",
       route: `/interface/post-creation/shorts/video`,
+      bundle,
     });
   }
 
@@ -300,6 +469,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       label: "Valider manuellement la video finale.",
       route: `/interface/post-creation/shorts/video`,
       sensitive: true,
+      bundle,
     });
   }
 
@@ -309,6 +479,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       kind: "propose_schedule",
       label: "Proposer un creneau de programmation.",
       route: `/interface/post-creation/shorts/programming`,
+      bundle,
     });
   }
 
@@ -320,12 +491,14 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       blockedBy: bundle.readErrors,
       route: `/interface/post-creation/shorts/drafts`,
       sensitive: false,
+      bundle,
     });
   }
 
   return null;
 }
 
+// Explains why a draft cannot be run end-to-end without human intervention.
 function blockedReasons(bundle: DraftBundle, action: ShortsAssistantAction | null) {
   const reasons = [...bundle.readErrors];
   const { workflow } = bundle;
@@ -346,6 +519,8 @@ function blockedReasons(bundle: DraftBundle, action: ShortsAssistantAction | nul
   return [...new Set(reasons)];
 }
 
+// Reads all state needed for one draft. Promise.allSettled keeps the plan useful
+// even when one diagnostic source fails.
 async function readDraftBundle(draft: SavedContentDraft, userId: string): Promise<DraftBundle> {
   const readErrors: string[] = [];
   const [mediaResult, videoResult] = await Promise.allSettled([
@@ -395,6 +570,7 @@ async function readDraftBundle(draft: SavedContentDraft, userId: string): Promis
   };
 }
 
+// Converts internal draft data to the payload consumed by the dashboard.
 function summarizeDraft(bundle: DraftBundle): ShortsAssistantDraftSummary {
   const action = draftAction(bundle);
   return {
@@ -407,6 +583,8 @@ function summarizeDraft(bundle: DraftBundle): ShortsAssistantDraftSummary {
   };
 }
 
+// Builds schedule suggestions from the existing scheduling engine. It only
+// proposes slots; saving them remains a sensitive follow-up action.
 async function buildScheduleProposals({
   command,
   userId,
@@ -458,6 +636,186 @@ async function buildScheduleProposals({
   return proposals.slice(0, daysCount);
 }
 
+// Groups actions into operational workflow steps so the UI can show progress
+// and eventually run one step at a time after explicit confirmation.
+function buildWorkflowSteps(actions: ShortsAssistantAction[]): ShortsAssistantWorkflowStep[] {
+  const order: ShortsAssistantActionKind[] = [
+    "validate_text",
+    "generate_visuals",
+    "validate_visuals",
+    "generate_voice",
+    "validate_voice",
+    "generate_subtitles",
+    "validate_subtitles",
+    "prepare_video",
+    "start_video_render",
+    "validate_video",
+    "propose_schedule",
+    "save_schedule",
+    "prepare_publication",
+    "publish",
+    "blocked_report",
+  ];
+  const titles: Record<ShortsAssistantActionKind, string> = {
+    blocked_report: "Rapport des blocages",
+    generate_subtitles: "Generer les sous-titres",
+    generate_visuals: "Generer les visuels",
+    generate_voice: "Generer les voix",
+    prepare_publication: "Preparer les publications",
+    prepare_video: "Preparer les videos",
+    propose_schedule: "Proposer le planning",
+    publish: "Publier",
+    save_schedule: "Valider le planning",
+    start_video_render: "Lancer les rendus video",
+    validate_subtitles: "Valider les sous-titres",
+    validate_text: "Valider les textes",
+    validate_video: "Valider les videos",
+    validate_visuals: "Valider les visuels",
+    validate_voice: "Valider les voix",
+  };
+
+  return order.flatMap((kind) => {
+    const matchingActions = actions.filter((action) => action.kind === kind);
+    if (matchingActions.length === 0) {
+      return [];
+    }
+
+    const sensitive = matchingActions.some((action) => action.sensitive);
+    return [{
+      id: kind,
+      title: titles[kind],
+      status: kind === "publish" ? "blocked" : "pending",
+      actionKind: kind,
+      actionCount: matchingActions.length,
+      sensitive,
+      requiresExplicitConfirmation: matchingActions.some((action) => action.requiresExplicitConfirmation),
+      estimatedSeconds: matchingActions.reduce((sum, action) => sum + action.estimatedSeconds, 0),
+    } satisfies ShortsAssistantWorkflowStep];
+  });
+}
+
+// Computes compact cost/time estimates for the dashboard header.
+function buildEstimates(actions: ShortsAssistantAction[]): ShortsAssistantEstimates {
+  const costEstimates = actions
+    .map((action) => action.costEstimate)
+    .filter((estimate): estimate is CostEstimate => Boolean(estimate));
+  const openaiCostEur = sumCosts(
+    costEstimates
+      .filter((estimate) => estimate.provider === "openai")
+      .map((estimate) => estimate.estimatedCostEur),
+  );
+  const elevenLabsCostEur = sumCosts(
+    costEstimates
+      .filter((estimate) => estimate.provider === "elevenlabs")
+      .map((estimate) => estimate.estimatedCostEur),
+  );
+  const railwayCostEur = sumCosts(
+    costEstimates
+      .filter((estimate) => estimate.provider === "railway")
+      .map((estimate) => estimate.estimatedCostEur),
+  );
+  const estimatedSeconds = actions.reduce((sum, action) => sum + action.estimatedSeconds, 0);
+  const estimatedMinutes = Math.max(1, Math.ceil(estimatedSeconds / 60));
+
+  return {
+    actionsCount: actions.length,
+    estimatedSeconds,
+    estimatedMinutesLabel: `${estimatedMinutes} min`,
+    openaiCostEur,
+    elevenLabsCostEur,
+    railwayCostEur,
+    totalCostEur: sumCosts([openaiCostEur, elevenLabsCostEur, railwayCostEur]),
+    notes: [
+      "Estimations approximatives basees sur les tarifs configurables existants.",
+      "Les validations humaines ne generent pas de cout IA.",
+    ],
+  };
+}
+
+// Builds the short, non-chat dashboard summary requested by Pilotage IA.
+function buildDashboard({
+  actions,
+  blockedDrafts,
+  objective,
+  scheduleProposals,
+  summaries,
+}: {
+  actions: ShortsAssistantAction[];
+  blockedDrafts: ShortsAssistantDraftSummary[];
+  objective: string;
+  scheduleProposals: ShortsAssistantScheduleProposal[];
+  summaries: ShortsAssistantDraftSummary[];
+}): ShortsAssistantDashboard {
+  const blockers = [
+    ...blockedDrafts.slice(0, 4).map((draft) => `${draft.title}: ${draft.blockedReasons.join(" ; ")}`),
+    ...actions
+      .filter((action) => action.kind === "publish")
+      .flatMap((action) => action.blockedBy ?? []),
+  ];
+
+  return {
+    currentState: `${objective}: ${summaries.length} brouillon(s), ${blockedDrafts.length} bloque(s), ${scheduleProposals.length} creneau(x) propose(s).`,
+    blockers: blockers.length ? blockers : ["Aucun blocage critique detecte."],
+    proposedPlan: actions
+      .filter((action) => action.kind !== "publish")
+      .slice(0, 6)
+      .map((action) => action.label),
+    availableActions: [...new Set(actions.map((action) => action.kind))],
+  };
+}
+
+// Collects detailed explainability for the collapsed "Developper l'analyse"
+// section without making the primary response verbose.
+function buildDetailedAnalysis({
+  actions,
+  bundles,
+  scheduleProposals,
+}: {
+  actions: ShortsAssistantAction[];
+  bundles: DraftBundle[];
+  scheduleProposals: ShortsAssistantScheduleProposal[];
+}): ShortsAssistantDetailedAnalysis {
+  return {
+    sourcesUsed: [
+      "content_drafts",
+      "content_draft_media_plans",
+      "content_draft_visual_scenes",
+      "content_assets",
+      "video_render_jobs",
+      "short_video_schedules",
+    ],
+    memoryUsed: ["Aucune memoire projet ecrite par cette V1."],
+    draftsDetected: bundles.map((bundle) => ({
+      id: bundle.draft.id,
+      title: bundle.draft.title,
+      status: bundle.draft.status,
+      nextStep: bundle.workflow.nextStep,
+    })),
+    reasoning: [
+      "Chaque brouillon est converti en ShortWorkflowState.",
+      "Les actions deja validees ne sont pas reproposees.",
+      "Les validations, programmations et publications sont marquees sensibles.",
+      "Les creneaux viennent du moteur de scheduling existant.",
+    ],
+    dependencies: [
+      "Supabase service role cote serveur.",
+      "ElevenLabs pour voix et alignement sous-titres.",
+      "Railway pour rendu video.",
+      "OAuth plateformes pour publication.",
+      `${scheduleProposals.length} proposition(s) de planning calculee(s).`,
+    ],
+    risks: [
+      ...actions.filter((action) => action.sensitive).map((action) => `${action.kind}: confirmation requise`),
+      "Execution groupee non branchee en V1.",
+    ],
+    justification: actions.map((action) =>
+      `${action.kind}: ${action.draftTitle ?? "global"} - ${action.label}`,
+    ),
+  };
+}
+
+// Public entry point used by the API route. It returns a full operational
+// dashboard and never executes the plan.
 export async function buildShortsAssistantPlan({
   command,
   userId,
@@ -487,6 +845,8 @@ export async function buildShortsAssistantPlan({
       requiresExplicitConfirmation: true,
       placeholder: true,
       route: "/interface/post-creation/shorts/programming",
+      estimatedSeconds: estimateActionSeconds("save_schedule"),
+      costEstimate: null,
     });
   }
 
@@ -500,6 +860,8 @@ export async function buildShortsAssistantPlan({
     requiresExplicitConfirmation: true,
     placeholder: true,
     blockedBy: ["Validation explicite obligatoire", "Branchement non implemente en V1"],
+    estimatedSeconds: 0,
+    costEstimate: null,
   });
 
   const blockedDrafts = summaries.filter((summary) => summary.blockedReasons.length > 0);
@@ -511,6 +873,20 @@ export async function buildShortsAssistantPlan({
   const readyVideos = summaries.filter(
     (summary) => summary.workflow.video === "validated" || summary.workflow.readyToPublish === "validated",
   );
+  const workflowSteps = buildWorkflowSteps(actions);
+  const estimates = buildEstimates(actions);
+  const dashboard = buildDashboard({
+    actions,
+    blockedDrafts,
+    objective: objectiveForIntent(intent),
+    scheduleProposals,
+    summaries,
+  });
+  const detailedAnalysis = buildDetailedAnalysis({
+    actions,
+    bundles,
+    scheduleProposals,
+  });
 
   return {
     objective: objectiveForIntent(intent),
@@ -518,6 +894,8 @@ export async function buildShortsAssistantPlan({
     command: normalizedCommand,
     generatedAt: new Date().toISOString(),
     guardrails,
+    dashboard,
+    estimates,
     stats: {
       draftsFound: summaries.length,
       terminableDrafts: terminableDrafts.length,
@@ -527,8 +905,10 @@ export async function buildShortsAssistantPlan({
     },
     drafts: summaries,
     actions,
+    workflowSteps,
     scheduleProposals,
     blockedDrafts,
+    detailedAnalysis,
     warnings: [
       "V1 plan-only: aucune mutation Supabase n'est declenchee depuis ce module.",
       "Les actions de validation, programmation et publication restent sensibles.",
@@ -544,6 +924,8 @@ export async function buildShortsAssistantPlan({
   };
 }
 
+// Execution preview deliberately simulates progress instead of mutating data.
+// A future runner should replace this only after per-step confirmation exists.
 export function previewShortsAssistantExecution(plan: ShortsAssistantPlan): ShortsAssistantExecutionPreview {
   return {
     ok: true,
@@ -551,6 +933,15 @@ export function previewShortsAssistantExecution(plan: ShortsAssistantPlan): Shor
     message:
       "Execution non declenchee: la V1 du Pilotage IA produit un plan et bloque les mutations groupees.",
     blockedActions: plan.execution.blockedActions,
+    progress: {
+      completedSteps: 0,
+      totalSteps: plan.workflowSteps.length,
+      percent: 0,
+      steps: plan.workflowSteps.map((step) => ({
+        title: step.title,
+        status: step.sensitive || step.status === "blocked" ? "blocked" : "pending",
+      })),
+    },
     nextImplementationStep:
       "Brancher chaque action autorisee avec une confirmation explicite, un journal d'audit et une reprise apres erreur.",
   };

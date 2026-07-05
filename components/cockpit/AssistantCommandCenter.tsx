@@ -70,9 +70,10 @@ type AssistantWorkflow = {
 
 type AssistantResponse = {
   ok?: boolean;
+  activeMode?: "conversation" | "workflow";
   answer?: string;
   detailedAnalysis?: string;
-  workflow?: AssistantWorkflow;
+  workflow?: AssistantWorkflow | null;
   error?: string;
 };
 
@@ -100,12 +101,12 @@ const contexts: Record<AssistantContext, { description: string; mode: "project" 
 };
 
 const exampleCommands = [
+  "Ou en est le cockpit ?",
+  "Resume la memoire projet",
   "Termine tous les brouillons commences",
   "Prepare 7 jours de publications",
   "Programme les videos pretes",
-  "Analyse le cockpit",
   "Organise le travail",
-  "Prepare les prochaines etapes",
 ];
 
 const quickLinks = [
@@ -133,14 +134,25 @@ function formatCost(value: number | null | undefined) {
   }).format(value);
 }
 
-// Main cockpit assistant. The UI no longer branches into legacy advisory cards:
-// every command is analyzed into a workflow, shown, confirmed, executed, tracked.
+type RunModePreference = "auto" | "conversation" | "workflow";
+
+const runModeLabels: Record<RunModePreference, string> = {
+  auto: "Auto",
+  conversation: "Conversation",
+  workflow: "Workflow",
+};
+
+// Main cockpit assistant. Conversation is the default mode; workflow cards are
+// shown only when the detector or the manual switch selects orchestration.
 export function AssistantCommandCenter({
   memorySnapshot,
   projectContext,
 }: AssistantCommandCenterProps) {
   const [activeContext, setActiveContext] = useState<AssistantContext>("Projet");
+  const [runModePreference, setRunModePreference] = useState<RunModePreference>("auto");
+  const [activeRunMode, setActiveRunMode] = useState<"conversation" | "workflow">("conversation");
   const [command, setCommand] = useState(exampleCommands[0]);
+  const [conversationAnswer, setConversationAnswer] = useState<string | null>(null);
   const [workflow, setWorkflow] = useState<AssistantWorkflow | null>(null);
   const [detailedAnalysis, setDetailedAnalysis] = useState<string | null>(null);
   const [isPlanning, setIsPlanning] = useState(false);
@@ -169,9 +181,9 @@ export function AssistantCommandCenter({
     ? Math.round((completedActions / workflow.actions.length) * 100)
     : 0;
 
-  // Sends the command to the canonical assistant route. The response always
-  // contains a workflow; there is no separate chat/advisor format anymore.
-  async function planWorkflow(event: React.FormEvent<HTMLFormElement>) {
+  // Sends the command to the assistant route. The server may return a direct
+  // conversation answer or an executable workflow depending on the active mode.
+  async function submitAssistantCommand(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextCommand = command.trim();
 
@@ -180,6 +192,7 @@ export function AssistantCommandCenter({
     }
 
     setIsPlanning(true);
+    setConversationAnswer(null);
     setWorkflow(null);
     setDetailedAnalysis(null);
     setError(null);
@@ -191,15 +204,18 @@ export function AssistantCommandCenter({
         body: JSON.stringify({
           message: nextCommand,
           mode: context.mode,
+          runMode: runModePreference,
         }),
       });
       const payload = (await response.json()) as AssistantResponse;
 
-      if (!response.ok || !payload.ok || !payload.workflow) {
+      if (!response.ok || !payload.ok) {
         throw new Error(payload.error ?? "Assistant indisponible.");
       }
 
-      setWorkflow(payload.workflow);
+      setActiveRunMode(payload.activeMode ?? (payload.workflow ? "workflow" : "conversation"));
+      setConversationAnswer(payload.activeMode === "conversation" ? payload.answer ?? null : null);
+      setWorkflow(payload.workflow ?? null);
       setDetailedAnalysis(payload.detailedAnalysis ?? null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Assistant indisponible.");
@@ -251,6 +267,7 @@ export function AssistantCommandCenter({
     if (workflow) {
       setCommand(workflow.user_intent);
       setWorkflow(null);
+      setConversationAnswer(null);
     }
   }
 
@@ -261,7 +278,7 @@ export function AssistantCommandCenter({
           <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
-                Orchestrateur du cockpit
+                Assistant du cockpit
               </p>
               <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
                 Assistant de L&apos;Edifice
@@ -290,7 +307,32 @@ export function AssistantCommandCenter({
             ))}
           </div>
 
-          <form onSubmit={planWorkflow} className="grid gap-3">
+          <div className="mb-4 flex flex-col gap-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-[#F8FAFC]">Mode actif</p>
+              <p className="mt-1 text-sm text-[#A7B0C0]">
+                {activeRunMode === "workflow" ? "Workflow : plan, confirmation, execution." : "Conversation : reponse, analyse, conseil."}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(Object.keys(runModeLabels) as RunModePreference[]).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setRunModePreference(mode)}
+                  className={`rounded-md border px-3 py-2 text-xs font-semibold transition ${
+                    runModePreference === mode
+                      ? "border-[#38BDF8]/60 bg-[#38BDF8]/10 text-[#F8FAFC]"
+                      : "border-[#1D2A44] bg-[#08111A] text-[#A7B0C0] hover:text-[#F8FAFC]"
+                  }`}
+                >
+                  {runModeLabels[mode]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <form onSubmit={submitAssistantCommand} className="grid gap-3">
             <textarea
               aria-label="Commande workflow"
               value={command}
@@ -315,7 +357,7 @@ export function AssistantCommandCenter({
               disabled={!command.trim() || isPlanning}
               className="w-fit rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-5 py-2 text-sm font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:opacity-50"
             >
-              {isPlanning ? "Analyse..." : "Analyser et construire le workflow"}
+              {isPlanning ? "Analyse..." : "Envoyer"}
             </button>
           </form>
 
@@ -325,6 +367,13 @@ export function AssistantCommandCenter({
             </p>
           ) : null}
         </SectionContainer>
+
+        {conversationAnswer ? (
+          <ConversationCard
+            answer={conversationAnswer}
+            detailedAnalysis={detailedAnalysis}
+          />
+        ) : null}
 
         {workflow ? (
           <WorkflowCard
@@ -367,7 +416,9 @@ export function AssistantCommandCenter({
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-semibold text-[#F8FAFC]">Mode actif</h2>
-              <p className="mt-2 text-sm text-[#A7B0C0]">{activeContext}</p>
+              <p className="mt-2 text-sm text-[#A7B0C0]">
+                {activeContext} - {activeRunMode}
+              </p>
             </div>
             <StatusBadge status="Operationnel" />
           </div>
@@ -388,6 +439,47 @@ export function AssistantCommandCenter({
         </SectionContainer>
       </aside>
     </div>
+  );
+}
+
+// Conversation card for the default assistant mode. It keeps explanations and
+// advice lightweight, with sources hidden behind the analysis drawer.
+function ConversationCard({
+  answer,
+  detailedAnalysis,
+}: {
+  answer: string;
+  detailedAnalysis: string | null;
+}) {
+  return (
+    <SectionContainer className="bg-[#03070B]">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#38BDF8]">
+            Conversation
+          </p>
+          <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
+            Reponse de l&apos;assistant
+          </h2>
+        </div>
+        <span className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#7DD3FC]">
+          conversation
+        </span>
+      </div>
+      <p className="mt-4 whitespace-pre-line leading-7 text-[#A7B0C0]">
+        {answer}
+      </p>
+      {detailedAnalysis ? (
+        <details className="mt-5 rounded-md border border-[#1D2A44] bg-[#08111A] p-3 text-sm">
+          <summary className="cursor-pointer font-semibold text-[#39E6D0]">
+            Developper l&apos;analyse
+          </summary>
+          <div className="mt-3 whitespace-pre-line leading-6 text-[#A7B0C0]">
+            {detailedAnalysis}
+          </div>
+        </details>
+      ) : null}
+    </SectionContainer>
   );
 }
 

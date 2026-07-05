@@ -2,10 +2,27 @@
 
 ## Objectif
 
-Le module Assistant de L'Edifice fonctionne maintenant comme un orchestrateur du
-Cockpit. Il ne produit plus un format de reponse "conseiller" separe du plan :
-chaque commande naturelle est convertie en workflow canonique, affichee pour
-confirmation, puis executee par le runner central.
+Le module Assistant de L'Edifice possede deux modes clairement separes.
+
+## Mode Conversation
+
+Mode par defaut. Il sert a :
+
+- repondre aux questions ;
+- expliquer ;
+- analyser ;
+- conseiller ;
+- resumer ;
+- chercher dans la memoire projet ;
+- consulter les modules du cockpit.
+
+Il ne construit pas de workflow sauf si l'utilisateur le demande explicitement
+ou si une intention d'action est detectee.
+
+## Mode Workflow
+
+Active uniquement par le detecteur d'intention ou par le basculement manuel de
+l'interface. Il transforme une demande d'action en workflow operationnel.
 
 Architecture imposee pour toutes les commandes :
 
@@ -27,14 +44,16 @@ Architecture imposee pour toutes les commandes :
   l'intention, lit les ressources, construit les actions, estime cout/temps,
   execute les actions autorisees et produit le rapport final.
 - `lib/server/assistant/global-assistant.ts` : facade de compatibilite pour
-  l'API globale. Elle delegue exclusivement au Workflow Engine.
+  l'API globale. Elle choisit Conversation ou Workflow, puis delegue au moteur
+  uniquement si un workflow est necessaire.
 - `lib/server/assistant/build-project-context.ts` : lecture d'etat cockpit
   read-only. Aucun format de reponse utilisateur n'y est construit.
 - `app/api/assistant/global/route.ts` : endpoint principal de l'assistant.
 - `app/api/assistant/workflows/plan/route.ts` : endpoint plan-only.
 - `app/api/assistant/workflows/execute/route.ts` : endpoint d'execution.
 - `components/cockpit/AssistantCommandCenter.tsx` : interface de commande,
-  plan, confirmation, progression et rapport.
+  indicateur de mode, bascule Conversation/Workflow, plan, confirmation,
+  progression et rapport.
 - `lib/server/assistant-actions/shorts.ts` : analyse metier Shorts reutilisee
   par le moteur pour calculer les actions liees aux brouillons.
 - `app/api/assistant/shorts-orchestrator/route.ts` : endpoint de compatibilite
@@ -55,6 +74,9 @@ Architecture imposee pour toutes les commandes :
 - analyser un projet
 - organiser le travail
 - preparer les prochaines etapes
+
+Les questions simples comme "Ou en est le cockpit ?" ou "Resume la memoire
+projet" restent en Mode Conversation.
 
 ## Objet workflow
 
@@ -129,6 +151,23 @@ Actions visibles mais sensibles ou placeholder :
 - Les secrets et tokens OAuth restent cote serveur.
 - `publish` est detecte comme intention, mais aucune action de publication
   reelle n'est incluse dans le runner V1.
+
+## Detection de mode
+
+Le detecteur active Workflow si la commande contient une intention d'action :
+
+- preparer ;
+- terminer ;
+- generer ;
+- programmer ;
+- publier ;
+- executer ;
+- organiser ;
+- reprendre ;
+- lancer ;
+- demander explicitement un workflow ou un plan executable.
+
+Sinon, Conversation reste le mode actif.
 
 ## Logs
 

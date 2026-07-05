@@ -3,6 +3,7 @@ import { buildProjectContext } from "@/lib/server/assistant/build-project-contex
 import {
   globalAssistant,
   type GlobalAssistantMode,
+  type GlobalAssistantRunMode,
 } from "@/lib/server/assistant/global-assistant";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -11,6 +12,10 @@ export const runtime = "nodejs";
 
 function isGlobalAssistantMode(value: unknown): value is GlobalAssistantMode {
   return value === "project" || value === "interior" || value === "balance";
+}
+
+function isGlobalAssistantRunMode(value: unknown): value is GlobalAssistantRunMode {
+  return value === "auto" || value === "conversation" || value === "workflow";
 }
 
 function sanitizeMessage(value: unknown) {
@@ -22,8 +27,8 @@ function sanitizeMessage(value: unknown) {
   return message.length > 0 ? message.slice(0, 2000) : null;
 }
 
-// Single assistant entry point. It no longer returns a separate advisory format:
-// every response is backed by a canonical workflow and waits for confirmation.
+// Single assistant entry point. It returns Conversation by default, or Workflow
+// only when the detector or the user explicitly requests orchestration.
 export async function POST(request: Request) {
   const user = await getCurrentUser();
 
@@ -41,9 +46,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const body = payload as { message?: unknown; mode?: unknown };
+  const body = payload as { message?: unknown; mode?: unknown; runMode?: unknown };
   const message = sanitizeMessage(body.message);
   const mode = isGlobalAssistantMode(body.mode) ? body.mode : "project";
+  const runMode = isGlobalAssistantRunMode(body.runMode) ? body.runMode : "auto";
 
   if (!message) {
     return NextResponse.json(
@@ -58,6 +64,7 @@ export async function POST(request: Request) {
       context,
       message,
       mode,
+      runMode,
       userId: user.id,
     });
 

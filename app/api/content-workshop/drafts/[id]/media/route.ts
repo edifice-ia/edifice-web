@@ -180,6 +180,9 @@ export async function POST(
       body: summarizeMediaBody(payload),
     });
 
+    // NOTE: Pilotage IA peut proposer ces actions dans un plan, mais cette
+    // route reste la frontiere d'execution: chaque mutation doit arriver avec
+    // une action explicite et l'utilisateur authentifie.
     if (action === "prepare_media") {
       const media = await prepareDraftMedia({
         draftId: id,
@@ -311,12 +314,6 @@ export async function POST(
         userId: user.id,
         includeSuggestions: true,
       });
-      await recordVoiceCostFromMedia({
-        action,
-        draftId: id,
-        media,
-        userId: user.id,
-      });
 
       return NextResponse.json({ media });
     }
@@ -332,7 +329,7 @@ export async function POST(
         userId: user.id,
         includeSuggestions: true,
       });
-      await recordSubtitleCostFromMedia({
+      await recordVoiceCostFromMedia({
         action,
         draftId: id,
         media,
@@ -380,6 +377,12 @@ export async function POST(
         draftId: id,
         userId: user.id,
         includeSuggestions: true,
+      });
+      await recordSubtitleCostFromMedia({
+        action,
+        draftId: id,
+        media,
+        userId: user.id,
       });
 
       return NextResponse.json({ media });

@@ -111,6 +111,9 @@ const systemPrompt = [
   "Tu reponds precisement a la question posee en utilisant le contexte projet.",
 ].join("\n");
 
+// NOTE: L'assistant global reste un copilote conversationnel en lecture seule.
+// Les plans operationnels Shorts vivent dans lib/server/assistant-actions/shorts
+// afin de garder les garde-fous d'orchestration proches du pipeline Shorts.
 function normalizeMessage(message: string) {
   return message
     .toLowerCase()

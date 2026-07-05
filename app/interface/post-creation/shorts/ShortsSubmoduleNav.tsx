@@ -26,13 +26,20 @@ const shortsSubmodules = [
     label: "Programmation",
     description: "Calendrier manuel",
   },
+  {
+    href: "/interface/post-creation/shorts/pilotage-ia",
+    label: "Pilotage IA",
+    description: "Plans assistes",
+  },
 ];
 
-export function ShortsSubmoduleNav({ active }: { active: "drafts" | "visuals" | "voice" | "video" | "programming" }) {
-  const activeHref = `/interface/post-creation/shorts/${active}`;
+export function ShortsSubmoduleNav({ active }: { active: "drafts" | "visuals" | "voice" | "video" | "programming" | "pilotage" }) {
+  const activeHref = active === "pilotage"
+    ? "/interface/post-creation/shorts/pilotage-ia"
+    : `/interface/post-creation/shorts/${active}`;
 
   return (
-    <nav className="mb-6 grid gap-3 md:grid-cols-5" aria-label="Navigation Shorts">
+    <nav className="mb-6 grid gap-3 md:grid-cols-6" aria-label="Navigation Shorts">
       {shortsSubmodules.map((item) => {
         const isActive = item.href === activeHref;
 

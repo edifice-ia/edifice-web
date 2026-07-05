@@ -30,6 +30,11 @@ export const cockpitNavigation: CockpitNavItem[] = [
         label: "Shorts",
       },
       {
+        id: "post-creation-shorts-pilotage",
+        href: "/interface/post-creation/shorts/pilotage-ia",
+        label: "Pilotage IA",
+      },
+      {
         id: "post-creation-pinterest",
         href: "/interface/post-creation/pinterest",
         label: "Pinterest",

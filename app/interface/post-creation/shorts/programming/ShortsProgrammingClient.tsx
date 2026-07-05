@@ -40,9 +40,19 @@ type ShortVideoSchedule = {
 };
 
 type SchedulingPayload = {
+  diagnostics?: VideoProgrammabilityDiagnostic[];
   schedules?: ShortVideoSchedule[];
   videos?: SchedulableShortVideo[];
   error?: string;
+};
+
+type VideoProgrammabilityDiagnostic = {
+  draftId: string;
+  draftStatus: string | null;
+  finalVideoUrlPresent: boolean;
+  reason: "programmable" | "video_finale_introuvable" | "statut_video_incoherent" | "rendu_video_incomplet";
+  renderStatus: string | null;
+  videoStatus: string | null;
 };
 
 type PublicationStatus =
@@ -283,6 +293,20 @@ function readableStatus(status: string, isPastDue = false) {
   return "A programmer";
 }
 
+function videoProgrammabilityReasonLabel(reason: VideoProgrammabilityDiagnostic["reason"]) {
+  if (reason === "video_finale_introuvable") {
+    return "video finale introuvable";
+  }
+  if (reason === "rendu_video_incomplet") {
+    return "rendu video incomplet";
+  }
+  if (reason === "statut_video_incoherent") {
+    return "statut video incoherent";
+  }
+
+  return "programmable";
+}
+
 function sanitizePublicationMessage(message: string | null | undefined) {
   if (!message?.trim()) {
     return null;
@@ -390,6 +414,7 @@ export function ShortsProgrammingClient() {
   const [daysCount, setDaysCount] = useState(7);
   const [selectedPlatforms, setSelectedPlatforms] = useState<ShortsSchedulePlatform[]>(["tiktok", "instagram", "youtube"]);
   const [videos, setVideos] = useState<SchedulableShortVideo[]>([]);
+  const [videoDiagnostics, setVideoDiagnostics] = useState<VideoProgrammabilityDiagnostic[]>([]);
   const [schedules, setSchedules] = useState<ShortVideoSchedule[]>([]);
   const [planningRows, setPlanningRows] = useState<PlanningRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -500,6 +525,7 @@ export function ShortsProgrammingClient() {
   const hiddenVideoCount = videos.filter((video) =>
     !selectedPlatforms.some((platform) => isDraftAvailableForPlatformChoice(video.draftId, platform)),
   ).length;
+  const excludedVideoDiagnostics = videoDiagnostics.filter((diagnostic) => diagnostic.reason !== "programmable");
   const effectiveStartDate = clampScheduleStartDate(startDate, normalizedTimezone);
   const periodEnd = addDaysToDateValue(effectiveStartDate, Math.max(0, daysCount - 1));
   const filteredPublicationItems = useMemo(() => {
@@ -595,6 +621,14 @@ export function ShortsProgrammingClient() {
 
       setVideos(payload.videos);
       setSchedules(payload.schedules);
+      setVideoDiagnostics(payload.diagnostics ?? []);
+      const exclusions = (payload.diagnostics ?? []).filter((diagnostic) => diagnostic.reason !== "programmable");
+      if (exclusions.length > 0) {
+        console.info("[Shorts Scheduling UI] video programmability exclusions", {
+          count: exclusions.length,
+          exclusions: exclusions.slice(0, 20),
+        });
+      }
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -809,7 +843,12 @@ export function ShortsProgrammingClient() {
 
     if (videos.length === 0) {
       setPlanningRows([]);
-      setError("Aucune video validee disponible. Valide une video avant de programmer.");
+      const firstReason = excludedVideoDiagnostics[0]?.reason;
+      setError(
+        firstReason
+          ? `Aucune video programmable: ${videoProgrammabilityReasonLabel(firstReason)}. Verifie la video finale dans Preparer la video.`
+          : "Aucune video programmable. Valide une video finale avant de programmer.",
+      );
       return;
     }
 
@@ -1171,7 +1210,13 @@ export function ShortsProgrammingClient() {
     }
 
     if (invalidRows.length > 0) {
-      setError("Certaines lignes ciblent une video non validee. Corrige le brouillon avant validation.");
+      const firstInvalid = invalidRows[0];
+      const diagnostic = videoDiagnostics.find((item) => item.draftId === firstInvalid?.draftId);
+      setError(
+        diagnostic
+          ? `Certaines lignes ciblent une video non programmable: ${videoProgrammabilityReasonLabel(diagnostic.reason)}.`
+          : "Certaines lignes ciblent une video finale introuvable. Corrige le brouillon avant validation.",
+      );
       return;
     }
 
@@ -1931,6 +1976,22 @@ export function ShortsProgrammingClient() {
               Aucune video validée n&apos;est programmable pour l&apos;instant. Termine un rendu, puis valide manuellement la video dans l&apos;onglet Preparer la video.
             </p>
           ) : null}
+          {videos.length === 0 && excludedVideoDiagnostics.length > 0 ? (
+            <div className="rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-4 py-3 text-xs text-[#FED7AA]">
+              <p className="text-sm font-semibold text-[#FDBA74]">Raisons detectees</p>
+              <ul className="mt-2 grid gap-1">
+                {excludedVideoDiagnostics.slice(0, 4).map((diagnostic) => (
+                  <li key={diagnostic.draftId} className="min-w-0 [overflow-wrap:anywhere]">
+                    {diagnostic.draftId}: {videoProgrammabilityReasonLabel(diagnostic.reason)}
+                    {" - "}draft_status={diagnostic.draftStatus ?? "inconnu"}
+                    {" - "}render_status={diagnostic.renderStatus ?? "absent"}
+                    {" - "}video_status={diagnostic.videoStatus ?? "absent"}
+                    {" - "}url={diagnostic.finalVideoUrlPresent ? "presente" : "absente"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {notice ? (
             <p className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-4 py-3 text-sm font-semibold text-[#39E6D0]">
               {notice}
@@ -2022,6 +2083,11 @@ export function ShortsProgrammingClient() {
           {hiddenVideoCount > 0 ? (
             <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
               {hiddenVideoCount} video(s) masquee(s) car deja programmee(s) sur {selectedPlatformAvailabilityLabel}.
+            </p>
+          ) : null}
+          {videos.length > 0 && excludedVideoDiagnostics.length > 0 ? (
+            <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">
+              {excludedVideoDiagnostics.length} brouillon(s) non programmable(s), premiere raison: {videoProgrammabilityReasonLabel(excludedVideoDiagnostics[0].reason)}.
             </p>
           ) : null}
 

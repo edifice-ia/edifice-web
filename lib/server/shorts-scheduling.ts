@@ -20,9 +20,11 @@ type ValidatedDraftRow = {
 
 type RenderJobRow = {
   draft_id: string;
+  output_path: string | null;
   output_url: string | null;
   metadata: Record<string, unknown>;
   completed_at: string | null;
+  status: string;
 };
 
 type ScheduleRow = {
@@ -57,6 +59,15 @@ export type SchedulableShortVideo = {
   outputUrl: string | null;
   renderedAt: string | null;
   validatedAt: string | null;
+};
+
+export type VideoProgrammabilityDiagnostic = {
+  draftId: string;
+  draftStatus: string | null;
+  finalVideoUrlPresent: boolean;
+  reason: "programmable" | "video_finale_introuvable" | "statut_video_incoherent" | "rendu_video_incomplet";
+  renderStatus: string | null;
+  videoStatus: string | null;
 };
 
 export type ShortVideoSchedule = {
@@ -311,6 +322,91 @@ async function ensureDraftAccess(draftIds: string[], userId: string) {
   return new Set((data ?? []).map((row) => row.id));
 }
 
+function metadataString(metadata: Record<string, unknown> | null | undefined, key: string) {
+  const value = metadata?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function isVideoProgrammable(draft: ValidatedDraftRow, job: RenderJobRow | undefined): {
+  diagnostic: VideoProgrammabilityDiagnostic;
+  video: SchedulableShortVideo | null;
+} {
+  const videoStatus = metadataString(job?.metadata, "video_validation_status");
+  const validatedAt = metadataString(job?.metadata, "video_validated_at");
+  const finalVideoUrlPresent = Boolean(job?.output_url);
+  const draftVideoValidated = ["video_validated", "ready_to_publish"].includes(draft.status ?? "");
+  const jobVideoValidated = videoStatus === "validated" && Boolean(validatedAt);
+  const hasCompletedRender = job?.status === "completed";
+  const hasFinalVideo = Boolean(job?.output_url || job?.output_path);
+
+  let reason: VideoProgrammabilityDiagnostic["reason"] = "programmable";
+  if (!job) {
+    reason = "video_finale_introuvable";
+  } else if (!hasCompletedRender) {
+    reason = "rendu_video_incomplet";
+  } else if (!hasFinalVideo) {
+    reason = "video_finale_introuvable";
+  } else if (!jobVideoValidated && !draftVideoValidated) {
+    reason = "statut_video_incoherent";
+  }
+
+  const diagnostic: VideoProgrammabilityDiagnostic = {
+    draftId: draft.id,
+    draftStatus: draft.status,
+    finalVideoUrlPresent,
+    reason,
+    renderStatus: job?.status ?? null,
+    videoStatus,
+  };
+
+  if (reason !== "programmable" || !job?.output_url) {
+    return { diagnostic, video: null };
+  }
+
+  return {
+    diagnostic,
+    video: {
+      draftId: draft.id,
+      title: draft.title ?? "Sans titre",
+      outputUrl: job.output_url,
+      renderedAt: job.completed_at,
+      validatedAt,
+    },
+  };
+}
+
+function renderJobPriority(job: RenderJobRow) {
+  if (
+    job.status === "completed" &&
+    job.output_url &&
+    metadataString(job.metadata, "video_validation_status") === "validated"
+  ) {
+    return 3;
+  }
+  if (job.status === "completed" && (job.output_url || job.output_path)) {
+    return 2;
+  }
+  return 1;
+}
+
+function videoProgrammabilityReasonMessage(draftId: string, state: { diagnostics?: VideoProgrammabilityDiagnostic[] }) {
+  const diagnostic = state.diagnostics?.find((item) => item.draftId === draftId);
+  if (!diagnostic) {
+    return `Video finale introuvable: ${draftId}.`;
+  }
+  if (diagnostic.reason === "video_finale_introuvable") {
+    return `Video finale introuvable: ${draftId}.`;
+  }
+  if (diagnostic.reason === "rendu_video_incomplet") {
+    return `Rendu video incomplet: ${draftId}.`;
+  }
+  if (diagnostic.reason === "statut_video_incoherent") {
+    return `Statut video incoherent: ${draftId}. La video finale existe peut-etre, mais elle n'est pas validee pour la programmation.`;
+  }
+
+  return `Video non programmable: ${draftId}.`;
+}
+
 export async function readShortsSchedulingState({ userId }: { userId: string }) {
   const supabase = getSchedulingClient();
   const { data: draftRows, error: draftError } = await supabase
@@ -325,17 +421,11 @@ export async function readShortsSchedulingState({ userId }: { userId: string }) 
   }
 
   const allDraftIds = (draftRows ?? []).map((draft) => draft.id);
-  const validatedDraftRows = (draftRows ?? []).filter((draft) =>
-    ["video_validated", "ready_to_publish"].includes(draft.status ?? ""),
-  );
-  const validatedDraftIds = validatedDraftRows.map((draft) => draft.id);
-  const { data: jobs, error: jobsError } = validatedDraftIds.length > 0
+  const { data: jobs, error: jobsError } = allDraftIds.length > 0
     ? await supabase
       .from("video_render_jobs")
-      .select("draft_id,output_url,metadata,completed_at")
-      .in("draft_id", validatedDraftIds)
-      .eq("status", "completed")
-      .not("output_url", "is", null)
+      .select("draft_id,status,output_path,output_url,metadata,completed_at")
+      .in("draft_id", allDraftIds)
       .order("completed_at", { ascending: false })
       .returns<RenderJobRow[]>()
     : { data: [], error: null };
@@ -346,32 +436,36 @@ export async function readShortsSchedulingState({ userId }: { userId: string }) 
 
   const latestValidatedJobByDraft = new Map<string, RenderJobRow>();
   (jobs ?? []).forEach((job) => {
-    if (
-      !latestValidatedJobByDraft.has(job.draft_id) &&
-      job.metadata?.video_validation_status === "validated"
-    ) {
+    const existing = latestValidatedJobByDraft.get(job.draft_id);
+    if (!existing || renderJobPriority(job) > renderJobPriority(existing)) {
       latestValidatedJobByDraft.set(job.draft_id, job);
     }
   });
 
-  const videos = validatedDraftRows
+  const videoDiagnostics: VideoProgrammabilityDiagnostic[] = [];
+  const videos = (draftRows ?? [])
     .map((draft): SchedulableShortVideo | null => {
-      const job = latestValidatedJobByDraft.get(draft.id);
-      if (!job) {
-        return null;
-      }
-
-      return {
-        draftId: draft.id,
-        title: draft.title ?? "Sans titre",
-        outputUrl: job.output_url,
-        renderedAt: job.completed_at,
-        validatedAt: typeof job.metadata.video_validated_at === "string"
-          ? job.metadata.video_validated_at
-          : null,
-      };
+      const result = isVideoProgrammable(draft, latestValidatedJobByDraft.get(draft.id));
+      videoDiagnostics.push(result.diagnostic);
+      return result.video;
     })
     .filter((video): video is SchedulableShortVideo => Boolean(video));
+
+  const excludedDiagnostics = videoDiagnostics.filter((diagnostic) => diagnostic.reason !== "programmable");
+  if (excludedDiagnostics.length > 0) {
+    console.info("[Shorts Scheduling] video programmability exclusions", {
+      count: excludedDiagnostics.length,
+      exclusions: excludedDiagnostics.slice(0, 20),
+    });
+  }
+  console.info("[Shorts Scheduling] programmable videos loaded", {
+    count: videos.length,
+    videos: videos.map((video) => ({
+      draftId: video.draftId,
+      finalVideoUrlPresent: Boolean(video.outputUrl),
+      validatedAt: video.validatedAt,
+    })),
+  });
 
   const { data: schedules, error: scheduleError } = await supabase
     .from("short_video_schedules")
@@ -388,6 +482,7 @@ export async function readShortsSchedulingState({ userId }: { userId: string }) 
   const draftById = new Map((draftRows ?? []).map((draft) => [draft.id, draft]));
 
   return {
+    diagnostics: videoDiagnostics,
     schedules: reconciledSchedules.map((schedule) => mapSchedule(schedule, draftById)),
     videos,
   };
@@ -433,7 +528,7 @@ export async function saveShortVideoSchedules({
       throw new Error(`Brouillon non autorise pour la programmation: ${entry.draftId}.`);
     }
     if (!validatedDraftIds.has(entry.draftId)) {
-      throw new Error(`Video non validee: ${entry.draftId}. Valide la video avant programmation.`);
+      throw new Error(videoProgrammabilityReasonMessage(entry.draftId, state));
     }
   });
 
@@ -576,7 +671,7 @@ export async function updateShortVideoSchedule({
     throw new Error(`Brouillon non autorise pour la programmation: ${normalized.draftId}.`);
   }
   if (!validatedDraftIds.has(normalized.draftId)) {
-    throw new Error(`Video non validee: ${normalized.draftId}. Valide la video avant programmation.`);
+    throw new Error(videoProgrammabilityReasonMessage(normalized.draftId, state));
   }
 
   await ensureNoScheduleCollision({

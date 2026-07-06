@@ -444,6 +444,30 @@ function formatVisualScore(value: number | null | undefined) {
     : "score non disponible";
 }
 
+// Builds the context payload sent with visual generation from Pilotage IA. The
+// media API still owns generation; these fields make the request auditable.
+function buildVisualGenerationPayload({
+  media,
+  mode,
+  target,
+}: {
+  media: DrawerMediaState | null;
+  mode: ProductionMode;
+  target: ValidationTarget;
+}) {
+  const prompts = (media?.visualScenes ?? [])
+    .map((scene) => scene.visualPromptText)
+    .filter((prompt) => prompt.trim().length > 0);
+  const missingPrompts = media?.visualDecision?.missing_visual_needs ?? [];
+
+  return {
+    draft_id: target.draft.id,
+    expected_visual_count: Math.max(prompts.length, missingPrompts.length, target.draft.timeline.length ? 1 : 0),
+    mode,
+    visual_prompts: prompts.length ? prompts : missingPrompts,
+  };
+}
+
 // Builds the global progress bar from the real draft timelines already returned
 // by the server plan. No business state is inferred outside those statuses.
 function buildPipelineProgress(plan: ShortsPlan | null) {
@@ -1035,6 +1059,7 @@ export function ShortsPilotageClient() {
       {validationTarget ? (
         <ValidationDrawer
           isValidating={isValidating}
+          mode={productionMode}
           target={validationTarget}
           onClose={() => setValidationTarget(null)}
           onValidate={() => void validateCurrentTarget()}
@@ -1232,11 +1257,13 @@ function DraftTimeline({
 
 function ValidationDrawer({
   isValidating,
+  mode,
   onClose,
   onValidate,
   target,
 }: {
   isValidating: boolean;
+  mode: ProductionMode;
   onClose: () => void;
   onValidate: () => void;
   target: ValidationTarget;
@@ -1320,12 +1347,24 @@ function ValidationDrawer({
     setDrawerError(null);
 
     try {
+      const requestPayload = { action, ...extra };
+      console.info("[Pilotage IA Visual Drawer] API call", {
+        draft_id: target.draft.id,
+        endpoint: `/api/content-workshop/drafts/${target.draft.id}/media`,
+        payload: requestPayload,
+      });
       const response = await fetch(`/api/content-workshop/drafts/${target.draft.id}/media`, {
-        body: JSON.stringify({ action, ...extra }),
+        body: JSON.stringify(requestPayload),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       });
       const payload = await response.json() as { media?: DrawerMediaState; error?: string };
+      console.info("[Pilotage IA Visual Drawer] API response", {
+        draft_id: target.draft.id,
+        endpoint: `/api/content-workshop/drafts/${target.draft.id}/media`,
+        ok: response.ok,
+        response: payload,
+      });
 
       if (!response.ok) {
         throw new Error(payload.error ?? "Action indisponible.");
@@ -1402,11 +1441,12 @@ function ValidationDrawer({
           ) : null}
           {target.step.id === "visuals" ? (
             <VisualValidationBody
+              activeAction={activeAction}
               draftVisuals={draftVisuals}
               media={media}
               selectedVisual={selectedVisual}
               suggestedAssets={suggestedAssets}
-              onGenerate={() => void runMediaAction("request_visual_generation")}
+              onGenerate={() => void runMediaAction("request_visual_generation", buildVisualGenerationPayload({ media, mode, target }))}
               onNext={() => setSelectedIndex((value) => Math.min(Math.max(0, draftVisuals.length - 1), value + 1))}
               onPrevious={() => setSelectedIndex((value) => Math.max(0, value - 1))}
               onRefreshLibrary={() => void runMediaAction("refresh_suggestions")}
@@ -1493,6 +1533,7 @@ function GenerationProgress({ label, percent }: { label: string; percent: number
 }
 
 function VisualValidationBody({
+  activeAction,
   draftVisuals,
   media,
   onGenerate,
@@ -1504,6 +1545,7 @@ function VisualValidationBody({
   selectedVisual,
   suggestedAssets,
 }: {
+  activeAction: string | null;
   draftVisuals: DrawerDraftVisual[];
   media: DrawerMediaState | null;
   onGenerate: () => void;
@@ -1515,6 +1557,9 @@ function VisualValidationBody({
   selectedVisual: DrawerDraftVisual | null;
   suggestedAssets: DrawerVisualAsset[];
 }) {
+  const isGeneratingVisuals = activeAction === "request_visual_generation";
+  const isUsingLibrary = activeAction === "prepare_media";
+
   if (draftVisuals.length > 0 && selectedVisual) {
     return (
       <div className="grid gap-4">
@@ -1564,8 +1609,22 @@ function VisualValidationBody({
           ))}
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={onUseLibrary} className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">Utiliser ces visuels</button>
-          <button type="button" onClick={onGenerate} className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-2 text-sm font-semibold text-[#7DD3FC]">Continuer</button>
+          <button
+            type="button"
+            disabled={Boolean(activeAction)}
+            onClick={onUseLibrary}
+            className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isUsingLibrary ? "Selection..." : "Utiliser ces visuels"}
+          </button>
+          <button
+            type="button"
+            disabled={Boolean(activeAction)}
+            onClick={onGenerate}
+            className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-2 text-sm font-semibold text-[#7DD3FC] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isGeneratingVisuals ? "Generation..." : "Generer de nouveaux visuels"}
+          </button>
         </div>
       </div>
     );
@@ -1577,7 +1636,14 @@ function VisualValidationBody({
       <p className="text-sm text-[#A7B0C0]">{media?.visualDecision?.reason ?? "Voulez-vous les generer maintenant ?"}</p>
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={onRefreshLibrary} className="rounded-md border border-[#1D2A44] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">Rechercher dans la bibliotheque</button>
-        <button type="button" onClick={onGenerate} className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-2 text-sm font-semibold text-[#7DD3FC]">Generer les visuels</button>
+        <button
+          type="button"
+          disabled={Boolean(activeAction)}
+          onClick={onGenerate}
+          className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-2 text-sm font-semibold text-[#7DD3FC] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isGeneratingVisuals ? "Generation..." : "Generer les visuels maintenant"}
+        </button>
       </div>
     </div>
   );

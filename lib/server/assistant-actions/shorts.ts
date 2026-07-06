@@ -23,7 +23,7 @@ import {
 } from "@/lib/server/media-pipeline";
 import { readShortsSchedulingState } from "@/lib/server/shorts-scheduling";
 import {
-  shouldAutoValidateStep,
+  evaluateShortsStepDecision,
   type ShortsAutoValidationDecision,
 } from "@/lib/server/shorts-auto-validation";
 import { generateDraftSubtitles, validateDraftSubtitles } from "@/lib/server/subtitle-pipeline";
@@ -477,7 +477,7 @@ function actionBase({
 }): ShortsAssistantAction {
   const autoValidationStep = autoValidationStepForAction(kind);
   const autoValidation = autoValidationStep && draft && bundle
-    ? shouldAutoValidateStep({
+    ? evaluateShortsStepDecision({
         draft,
         media: bundle.media,
         mode,
@@ -719,35 +719,35 @@ function buildDraftTimeline(bundle: DraftBundle, mode: ShortsProductionMode): Sh
   const voiceCost = estimateActionCost("generate_voice", bundle);
   const subtitleCost = estimateActionCost("generate_subtitles", bundle);
   const renderCost = estimateActionCost("start_video_render", bundle);
-  const visualAutoValidation = shouldAutoValidateStep({
+  const visualAutoValidation = evaluateShortsStepDecision({
     draft: bundle.draft,
     media: bundle.media,
     mode,
     step: "visuals",
     video: bundle.video,
   });
-  const voiceAutoValidation = shouldAutoValidateStep({
+  const voiceAutoValidation = evaluateShortsStepDecision({
     draft: bundle.draft,
     media: bundle.media,
     mode,
     step: "voice",
     video: bundle.video,
   });
-  const subtitlesAutoValidation = shouldAutoValidateStep({
+  const subtitlesAutoValidation = evaluateShortsStepDecision({
     draft: bundle.draft,
     media: bundle.media,
     mode,
     step: "subtitles",
     video: bundle.video,
   });
-  const videoAutoValidation = shouldAutoValidateStep({
+  const videoAutoValidation = evaluateShortsStepDecision({
     draft: bundle.draft,
     media: bundle.media,
     mode,
     step: "video",
     video: bundle.video,
   });
-  const planningAutoValidation = shouldAutoValidateStep({
+  const planningAutoValidation = evaluateShortsStepDecision({
     draft: bundle.draft,
     media: bundle.media,
     mode,
@@ -1123,8 +1123,10 @@ function buildDetailedAnalysis({
       `${scheduleProposals.length} proposition(s) de planning calculee(s).`,
     ],
     risks: [
-      ...actions.filter((action) => action.sensitive).map((action) => `${action.kind}: confirmation requise`),
-      "Execution groupee non branchee en V1.",
+      ...actions
+        .filter((action) => action.requiresExplicitConfirmation || action.placeholder)
+        .map((action) => `${action.kind}: ${action.autoValidation?.blockedReason ?? "confirmation explicite requise"}`),
+      "Publication reelle et programmation definitive restent protegees.",
     ],
     justification: actions.map((action) =>
       `${action.kind}: ${action.draftTitle ?? "global"} - ${action.label}`,
@@ -1398,7 +1400,7 @@ export async function executeShortsProductionPipeline({
 
   if (productionMode === "manual") {
     return {
-      ...previewShortsAssistantExecution(plan),
+      ...previewShortsAssistantExecution(plan, logs),
       logs,
       message: "Mode Manuel actif: aucune execution groupee lancee.",
       plan,
@@ -1426,8 +1428,10 @@ export async function executeShortsProductionPipeline({
         console.info("[Shorts Auto Validation] action completed", {
           action_type: action.kind,
           auto_validated: autoValidation?.autoValidated ?? false,
+          decision: autoValidation?.reason ?? "Action executee par le pipeline.",
           draft_id: action.draftId ?? null,
           mode: productionMode,
+          next_state: autoValidation?.nextAction ?? action.kind,
           quality_signals: autoValidation?.qualitySignals ?? null,
           result: "success",
           step: autoValidationStepForAction(action.kind) ?? action.kind,
@@ -1449,9 +1453,12 @@ export async function executeShortsProductionPipeline({
         console.error("[Shorts Auto Validation] action failed", {
           action_type: action.kind,
           auto_validated: action.autoValidation?.autoValidated ?? false,
+          blocked_reason: action.autoValidation?.blockedReason ?? message,
+          decision: action.autoValidation?.reason ?? message,
           draft_id: action.draftId ?? null,
           error: message,
           mode: productionMode,
+          next_state: action.autoValidation?.nextAction ?? "stop",
           quality_signals: action.autoValidation?.qualitySignals ?? null,
           result: "failed",
           step: autoValidationStepForAction(action.kind) ?? action.kind,
@@ -1470,7 +1477,7 @@ export async function executeShortsProductionPipeline({
         });
         plan = await buildShortsAssistantPlan({ command, mode: productionMode, userId });
         return {
-          ...previewShortsAssistantExecution(plan),
+          ...previewShortsAssistantExecution(plan, logs),
           executed: logs.some((log) => log.result === "success"),
           logs,
           message: `Pipeline arrete sur erreur: ${message}`,
@@ -1487,7 +1494,7 @@ export async function executeShortsProductionPipeline({
     .map((action) => action.label);
 
   return {
-    ...previewShortsAssistantExecution(plan),
+    ...previewShortsAssistantExecution(plan, logs),
     executed: logs.some((log) => log.result === "success"),
     blockedActions: stoppedFor,
     logs,
@@ -1500,23 +1507,54 @@ export async function executeShortsProductionPipeline({
 
 // Builds a progress payload without mutating data. The production runner reuses
 // it after each execution pass to keep the response shape stable.
-export function previewShortsAssistantExecution(plan: ShortsAssistantPlan): ShortsAssistantExecutionPreview {
+function buildExecutionProgress(plan: ShortsAssistantPlan, logs: ShortsProductionRunLog[] = []) {
+  const successfulActions = new Set(
+    logs
+      .filter((log) => log.result === "success")
+      .map((log) => log.action),
+  );
+  const failedActions = new Set(
+    logs
+      .filter((log) => log.result === "failed")
+      .map((log) => log.action),
+  );
+  const steps = plan.workflowSteps.map((step) => ({
+    title: step.title,
+    status: failedActions.has(step.actionKind) || step.requiresExplicitConfirmation || step.status === "blocked"
+      ? "blocked" as const
+      : successfulActions.has(step.actionKind) || step.status === "done"
+        ? "done" as const
+        : step.status === "ready"
+          ? "ready" as const
+          : "pending" as const,
+  }));
+  const completedSteps = steps.filter((step) => step.status === "done").length;
+  const totalSteps = Math.max(steps.length, 1);
+
+  return {
+    completedSteps,
+    totalSteps: steps.length,
+    percent: Math.round((completedSteps / totalSteps) * 100),
+    steps,
+  };
+}
+
+export function previewShortsAssistantExecution(
+  plan: ShortsAssistantPlan,
+  logs: ShortsProductionRunLog[] = [],
+): ShortsAssistantExecutionPreview {
+  const progress = buildExecutionProgress(plan, logs);
+
   return {
     ok: true,
     executed: false,
     message:
       "Execution non declenchee: relis le plan et choisis un mode de production.",
     blockedActions: plan.execution.blockedActions,
-    progress: {
-      completedSteps: 0,
-      totalSteps: plan.workflowSteps.length,
-      percent: 0,
-      steps: plan.workflowSteps.map((step) => ({
-        title: step.title,
-        status: step.requiresExplicitConfirmation || step.status === "blocked" ? "blocked" : "pending",
-      })),
-    },
+    progress,
     nextImplementationStep:
-      "Brancher chaque action autorisee avec une confirmation explicite, un journal d'audit et une reprise apres erreur.",
+      progress.percent === 100
+        ? "Pipeline termine pour les actions autorisees."
+        : "Le pipeline reprendra automatiquement apres le prochain resultat disponible ou une validation humaine necessaire.",
   };
 }

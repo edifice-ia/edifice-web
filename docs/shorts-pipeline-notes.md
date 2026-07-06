@@ -29,8 +29,9 @@ remote generation succeeded without durable state.
 
 Pilotage IA delegates generation and validation to the same Atelier Shorts
 services. The only centralized decision layer is
-`lib/server/shorts-auto-validation.ts`, which answers whether a generated result
-may be auto-validated for the selected mode.
+`lib/server/shorts-auto-validation.ts`, where `evaluateShortsStepDecision`
+answers whether a generated result may run, auto-validate, or stop for human
+validation in the selected mode.
 
 Current criteria:
 

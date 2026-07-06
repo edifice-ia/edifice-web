@@ -11,15 +11,20 @@ export type ShortsAutoValidationStep =
   | "voice"
   | "subtitles"
   | "video"
-  | "planning";
+  | "planning"
+  | "publication";
 
 export type ShortsQualitySignals = Record<string, string | number | boolean | null>;
 
 export type ShortsAutoValidationDecision = {
   autoValidated: boolean;
   blockedReason: string | null;
+  canAutoValidate: boolean;
+  canRun: boolean;
   qualitySignals: ShortsQualitySignals;
   reason: string;
+  requiresHumanValidation: boolean;
+  nextAction: string;
 };
 
 export const DEFAULT_VISUAL_AUTO_VALIDATION_SCORE_THRESHOLD = 75;
@@ -59,9 +64,36 @@ function coherentDuration(first: number | null | undefined, second: number | nul
   return Math.abs(first - second) <= tolerance;
 }
 
-// Central rule used by Pilotage IA to decide whether a generated result can be
-// validated automatically. It never authorizes scheduling or publication.
-export function shouldAutoValidateStep({
+function stepDecision({
+  autoValidated,
+  blockedReason,
+  canRun,
+  nextAction,
+  qualitySignals,
+  reason,
+}: {
+  autoValidated: boolean;
+  blockedReason: string | null;
+  canRun: boolean;
+  nextAction: string;
+  qualitySignals: ShortsQualitySignals;
+  reason: string;
+}): ShortsAutoValidationDecision {
+  return {
+    autoValidated,
+    blockedReason,
+    canAutoValidate: autoValidated,
+    canRun,
+    qualitySignals,
+    reason,
+    requiresHumanValidation: !autoValidated,
+    nextAction,
+  };
+}
+
+// Canonical Pilotage IA decision point. It decides whether an Atelier Shorts
+// step can run, auto-validate, or must stop for a human decision.
+export function evaluateShortsStepDecision({
   draft,
   media,
   mode,
@@ -77,21 +109,36 @@ export function shouldAutoValidateStep({
   visualScoreThreshold?: number;
 }): ShortsAutoValidationDecision {
   if (mode === "manual") {
-    return {
+    return stepDecision({
       autoValidated: false,
       blockedReason: "Mode Manuel actif.",
+      canRun: false,
+      nextAction: "ouvrir_validation_humaine",
       qualitySignals: { mode },
       reason: "Validation humaine requise : mode Manuel.",
-    };
+    });
   }
 
   if (step === "planning") {
-    return {
+    return stepDecision({
       autoValidated: false,
       blockedReason: "Programmation definitive protegee.",
+      canRun: true,
+      nextAction: "proposer_planning",
       qualitySignals: { mode },
-      reason: "Validation humaine requise : la programmation definitive reste sensible.",
-    };
+      reason: "Planning proposable automatiquement ; validation humaine requise pour enregistrer definitivement.",
+    });
+  }
+
+  if (step === "publication") {
+    return stepDecision({
+      autoValidated: false,
+      blockedReason: "Publication reelle protegee.",
+      canRun: false,
+      nextAction: "demander_confirmation_publication",
+      qualitySignals: { mode },
+      reason: "Validation humaine requise : publication reelle protegee.",
+    });
   }
 
   if (step === "visuals") {
@@ -99,12 +146,14 @@ export function shouldAutoValidateStep({
     const readyScenes = (media?.visualScenes ?? []).filter((scene) =>
       Boolean(scene.imageUrl) && isReadyVisualScene(scene.generationStatus),
     );
+    const selectedAssets = media?.selectedAssets ?? [];
     const scores = readyScenes.map((scene) => scene.scoreTotal);
     const scoredScenes = scores.filter((score): score is number =>
       typeof score === "number" && Number.isFinite(score),
     );
     const minimumScore = scoredScenes.length ? Math.min(...scoredScenes) : null;
     const enoughScenes = requiredCount > 0 && readyScenes.length >= requiredCount;
+    const enoughSelectedAssets = requiredCount > 0 && selectedAssets.length >= requiredCount;
     const allScoresAvailable = readyScenes.length > 0 && scoredScenes.length === readyScenes.length;
     const scoresAccepted = allScoresAvailable && minimumScore !== null && minimumScore >= visualScoreThreshold;
     const retainedSceneIndexes = readyScenes
@@ -114,36 +163,44 @@ export function shouldAutoValidateStep({
       ready_scenes: readyScenes.length,
       required_scenes: requiredCount,
       minimum_score: minimumScore,
+      selected_assets: selectedAssets.length,
       score_threshold: visualScoreThreshold,
       scores_available: allScoresAvailable,
     };
 
-    if (enoughScenes && scoresAccepted) {
-      return {
+    if ((enoughScenes && scoresAccepted) || enoughSelectedAssets) {
+      return stepDecision({
         autoValidated: true,
         blockedReason: null,
+        canRun: true,
+        nextAction: "validate_visuals",
         qualitySignals: {
           ...qualitySignals,
+          selected_assets_accepted: enoughSelectedAssets,
           retained_scene_indexes: retainedSceneIndexes.join(","),
         },
-        reason: "Auto-valide selon criteres qualite : visuels complets et score suffisant.",
-      };
+        reason: enoughSelectedAssets
+          ? "Auto-valide selon criteres qualite : selection visuelle deja liee au brouillon."
+          : "Auto-valide selon criteres qualite : visuels complets et score suffisant.",
+      });
     }
 
-    return {
+    return stepDecision({
       autoValidated: false,
-      blockedReason: !enoughScenes
+      blockedReason: !enoughScenes && !enoughSelectedAssets
         ? "visuels manquants"
         : !allScoresAvailable
           ? "score IA absent"
           : "score trop faible",
+      canRun: readyScenes.length > 0 || selectedAssets.length > 0,
+      nextAction: "ouvrir_validation_visuels",
       qualitySignals,
-      reason: !enoughScenes
+      reason: !enoughScenes && !enoughSelectedAssets
         ? "Validation humaine requise : visuels manquants."
         : !allScoresAvailable
           ? "Validation humaine requise : score IA absent."
           : "Validation humaine requise : score trop faible.",
-    };
+    });
   }
 
   if (step === "voice") {
@@ -156,22 +213,26 @@ export function shouldAutoValidateStep({
     };
 
     if (hasAudio && durationSeconds > 0) {
-      return {
+      return stepDecision({
         autoValidated: true,
         blockedReason: null,
+        canRun: true,
+        nextAction: "validate_voice",
         qualitySignals,
         reason: "Auto-valide selon criteres qualite : audio present et duree lisible.",
-      };
+      });
     }
 
-    return {
+    return stepDecision({
       autoValidated: false,
       blockedReason: hasAudio ? "duree absente" : "fichier audio manquant",
+      canRun: hasAudio,
+      nextAction: "ouvrir_validation_voix",
       qualitySignals,
       reason: hasAudio
         ? "Validation humaine requise : duree audio absente."
         : "Validation humaine requise : fichier audio manquant.",
-    };
+    });
   }
 
   if (step === "subtitles") {
@@ -190,22 +251,26 @@ export function shouldAutoValidateStep({
     };
 
     if (segmentsCount > 0 && durationIsCoherent) {
-      return {
+      return stepDecision({
         autoValidated: true,
         blockedReason: null,
+        canRun: true,
+        nextAction: "validate_subtitles",
         qualitySignals,
         reason: "Auto-valide selon criteres qualite : segments presents et duree coherente.",
-      };
+      });
     }
 
-    return {
+    return stepDecision({
       autoValidated: false,
       blockedReason: segmentsCount <= 0 ? "segments absents" : "duree incoherente",
+      canRun: segmentsCount > 0,
+      nextAction: "ouvrir_validation_sous_titres",
       qualitySignals,
       reason: segmentsCount <= 0
         ? "Validation humaine requise : aucun segment de sous-titres."
         : "Validation humaine requise : duree des sous-titres incoherente.",
-    };
+    });
   }
 
   const qualitySignals = {
@@ -215,20 +280,30 @@ export function shouldAutoValidateStep({
   };
 
   if (video?.status === "completed" && Boolean(video.outputUrl) && (video.durationSeconds ?? 0) > 0) {
-    return {
+    return stepDecision({
       autoValidated: true,
       blockedReason: null,
+      canRun: true,
+      nextAction: "validate_video",
       qualitySignals,
       reason: "Auto-valide selon criteres qualite : MP4 present et duree coherente.",
-    };
+    });
   }
 
-  return {
+  return stepDecision({
     autoValidated: false,
     blockedReason: !video?.outputUrl ? "fichier MP4 manquant" : "duree video absente",
+    canRun: Boolean(video?.outputUrl),
+    nextAction: "ouvrir_validation_video",
     qualitySignals,
     reason: !video?.outputUrl
       ? "Validation humaine requise : fichier MP4 manquant."
       : "Validation humaine requise : duree video absente.",
-  };
+  });
+}
+
+// Compatibility alias for older callers. New Pilotage IA code should use
+// evaluateShortsStepDecision so canRun/nextAction stay visible.
+export function shouldAutoValidateStep(args: Parameters<typeof evaluateShortsStepDecision>[0]) {
+  return evaluateShortsStepDecision(args);
 }

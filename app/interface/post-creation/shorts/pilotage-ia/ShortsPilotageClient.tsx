@@ -46,8 +46,12 @@ type PlanAction = {
 type AutoValidationDecision = {
   autoValidated: boolean;
   blockedReason: string | null;
+  canAutoValidate: boolean;
+  canRun: boolean;
   qualitySignals: Record<string, string | number | boolean | null>;
   reason: string;
+  requiresHumanValidation: boolean;
+  nextAction: string;
 };
 
 type TimelineStep = {
@@ -1000,6 +1004,32 @@ export function ShortsPilotageClient() {
               </div>
             ))}
           </div>
+          {executionPreview.logs?.length ? (
+            <div className="mt-4 grid gap-2">
+              {executionPreview.logs.map((log, index) => (
+                <div
+                  key={`${log.action}-${log.draftId ?? "global"}-${index}`}
+                  className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-semibold text-[#F8FAFC]">{log.draftTitle ?? "Global"}</span>
+                    <span className={log.result === "success" ? "text-[#86EFAC]" : "text-[#FDBA74]"}>
+                      {log.autoValidated ? "auto-valide" : log.result}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[#A7B0C0]">{log.message}</p>
+                  {log.blockedReason ? (
+                    <p className="mt-1 text-[#FDBA74]">Validation humaine requise : {log.blockedReason}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {executionPreview.blockedActions.length ? (
+            <p className="mt-3 text-sm text-[#FDBA74]">
+              Prochain arret : {executionPreview.blockedActions.slice(0, 3).join(" ; ")}
+            </p>
+          ) : null}
           <p className="mt-3 text-sm font-semibold text-[#7DD3FC]">
             {executionPreview.nextImplementationStep}
           </p>
@@ -1192,10 +1222,10 @@ function DraftTimeline({
                 onClick={() => onInspect(step)}
                 className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-1.5 text-xs font-semibold text-[#7DD3FC] transition hover:text-[#F8FAFC]"
               >
-                {step.canValidate ? "Examiner" : "Voir"}
+                {step.canValidate && !step.autoValidation?.autoValidated ? "Examiner" : "Voir"}
               </button>
             ) : null}
-            {step.canValidate ? (
+            {step.canValidate && !step.autoValidation?.autoValidated ? (
               <button
                 type="button"
                 onClick={() => onInspect(step)}

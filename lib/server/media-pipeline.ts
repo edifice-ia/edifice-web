@@ -4654,10 +4654,14 @@ export async function validateDraftVisuals({
   const draft = await readDraft(draftId, userId);
   const scenes = await readVisualScenes(draft);
   const retainedScenes = scenes.filter((scene) => scene.locked || scene.generationStatus === "retained");
+  const selectedAssets = await readSelectedAssets(draft);
   const requiredSceneCount = scenes.length || requiredVisualSceneCountForDraft(draft);
+  const validatedVisualCount = retainedScenes.length >= requiredSceneCount
+    ? retainedScenes.length
+    : selectedAssets.length;
 
-  if (retainedScenes.length !== requiredSceneCount) {
-    throw new MediaPipelineError(`${retainedScenes.length}/${requiredSceneCount} visuels retenus.`, {
+  if (validatedVisualCount < requiredSceneCount) {
+    throw new MediaPipelineError(`${validatedVisualCount}/${requiredSceneCount} visuels retenus ou selectionnes.`, {
       draftId,
       validation: "visual_scenes.retained_count",
     });
@@ -4689,8 +4693,8 @@ export async function validateDraftVisuals({
     draftId,
     mediaPipelineStatus: "voix_en_attente",
     visualDecision: defaultVisualDecision(),
-    assetsFound: retainedScenes.length,
-    assetsSelected: retainedScenes.length,
+    assetsFound: validatedVisualCount,
+    assetsSelected: validatedVisualCount,
     generationRequested: false,
     generationReason: "visuals_validated",
   });

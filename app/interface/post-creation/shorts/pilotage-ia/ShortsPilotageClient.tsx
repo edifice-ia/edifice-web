@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 type ActionKind =
@@ -178,6 +178,72 @@ type PipelineStage = {
 type ValidationTarget = {
   draft: DraftSummary;
   step: TimelineStep;
+};
+
+type DrawerVisualAsset = {
+  id: string;
+  fileName?: string;
+  publicUrl: string;
+  score?: number;
+  scoreReason?: string;
+  metadata?: Record<string, unknown>;
+};
+
+type DrawerVisualScene = {
+  id: string;
+  assetId: string | null;
+  visualPromptIndex: number;
+  visualPromptText: string;
+  generationSource: string;
+  generationStatus: string;
+  imageUrl: string | null;
+  scoreTotal: number | null;
+  scoreSource?: string;
+};
+
+type DrawerVoiceState = {
+  audioUrl: string | null;
+  durationEstimateSeconds?: number;
+  errorMessage: string | null;
+  generatedAt: string | null;
+  selectedVoiceLabel?: string;
+  status: string;
+};
+
+type DrawerSubtitleState = {
+  durationSeconds?: number;
+  errorMessage: string | null;
+  generatedAt: string | null;
+  jsonUrl?: string | null;
+  previewSegments?: Array<{ end: number; start: number; text: string }>;
+  segmentsCount?: number;
+  srtUrl?: string | null;
+  status: string;
+  vttUrl?: string | null;
+};
+
+type DrawerMediaState = {
+  assetsFound?: number;
+  selectedAssets?: DrawerVisualAsset[];
+  suggestedAssets?: DrawerVisualAsset[];
+  subtitles?: DrawerSubtitleState;
+  visualDecision?: {
+    confidence?: number;
+    missing_visual_needs?: string[];
+    mode?: string;
+    reason?: string;
+  } | null;
+  visualScenes?: DrawerVisualScene[];
+  voice?: DrawerVoiceState;
+};
+
+type DrawerVideoState = {
+  completedAt: string | null;
+  durationSeconds: number | null;
+  errorMessage: string | null;
+  outputUrl: string | null;
+  status: string;
+  videoValidated: boolean;
 };
 
 const examples = [
@@ -1118,6 +1184,111 @@ function ValidationDrawer({
     target.step.id === "voice" ||
     target.step.id === "subtitles" ||
     target.step.id === "video";
+  const [media, setMedia] = useState<DrawerMediaState | null>(null);
+  const [video, setVideo] = useState<DrawerVideoState | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeAction, setActiveAction] = useState<string | null>(null);
+  const [drawerError, setDrawerError] = useState<string | null>(null);
+  const visualScenes = media?.visualScenes ?? [];
+  const generatedVisuals = visualScenes.filter((scene) => Boolean(scene.imageUrl));
+  const suggestedAssets = media?.suggestedAssets ?? [];
+  const selectedScene = generatedVisuals[selectedIndex] ?? generatedVisuals[0] ?? null;
+  const currentProgress = activeAction
+    ? Math.min(92, 24 + ((selectedIndex + 1) * 12))
+    : target.step.state === "done"
+      ? 100
+      : 62;
+
+  const loadDrawerState = useCallback(async () => {
+    setIsLoading(true);
+    setDrawerError(null);
+
+    try {
+      const mediaResponse = await fetch(`/api/content-workshop/drafts/${target.draft.id}/media?suggestions=1`);
+      const mediaPayload = await mediaResponse.json() as { media?: DrawerMediaState; error?: string };
+
+      if (!mediaResponse.ok) {
+        throw new Error(mediaPayload.error ?? "Chargement du resultat indisponible.");
+      }
+
+      setMedia(mediaPayload.media ?? null);
+
+      if (target.step.id === "video") {
+        const videoResponse = await fetch(`/api/content-workshop/drafts/${target.draft.id}/video-render`);
+        const videoPayload = await videoResponse.json() as { videoRender?: DrawerVideoState; error?: string };
+
+        if (!videoResponse.ok) {
+          throw new Error(videoPayload.error ?? "Chargement video indisponible.");
+        }
+
+        setVideo(videoPayload.videoRender ?? null);
+      }
+    } catch (error) {
+      setDrawerError(error instanceof Error ? error.message : "Chargement indisponible.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [target.draft.id, target.step.id]);
+
+  async function runMediaAction(action: string, extra: Record<string, unknown> = {}) {
+    setActiveAction(action);
+    setDrawerError(null);
+
+    try {
+      const response = await fetch(`/api/content-workshop/drafts/${target.draft.id}/media`, {
+        body: JSON.stringify({ action, ...extra }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const payload = await response.json() as { media?: DrawerMediaState; error?: string };
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Action indisponible.");
+      }
+
+      setMedia(payload.media ?? null);
+      setSelectedIndex(0);
+      await loadDrawerState();
+    } catch (error) {
+      setDrawerError(error instanceof Error ? error.message : "Action indisponible.");
+    } finally {
+      setActiveAction(null);
+    }
+  }
+
+  async function runVideoAction(action: "start" | "validate") {
+    setActiveAction(action);
+    setDrawerError(null);
+
+    try {
+      const response = await fetch(`/api/content-workshop/drafts/${target.draft.id}/video-render`, {
+        body: JSON.stringify({ action }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const payload = await response.json() as { videoRender?: DrawerVideoState; error?: string };
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Action video indisponible.");
+      }
+
+      setVideo(payload.videoRender ?? null);
+      await loadDrawerState();
+    } catch (error) {
+      setDrawerError(error instanceof Error ? error.message : "Action video indisponible.");
+    } finally {
+      setActiveAction(null);
+    }
+  }
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadDrawerState();
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, [loadDrawerState]);
 
   return (
     <div className="fixed inset-0 z-50 bg-[#020617]/70 backdrop-blur-sm">
@@ -1140,34 +1311,59 @@ function ValidationDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
-          <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
-            <p className="font-semibold text-[#F8FAFC]">Resultat produit</p>
-            <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">{target.step.detail}</p>
-          </div>
-          <div className="mt-4 grid gap-3">
-            {Array.from({ length: target.step.id === "visuals" ? 3 : 1 }).map((_, index) => (
-              <div key={index} className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
-                <p className="text-sm font-semibold text-[#F8FAFC]">
-                  {target.step.id === "visuals" ? `Image ${index + 1}` : target.step.label}
-                </p>
-                <p className="mt-2 text-sm text-[#64748B]">
-                  Apercu disponible dans le module source. Cette fenetre permet de valider sans quitter Pilotage IA.
-                </p>
-              </div>
-            ))}
-          </div>
+          {isLoading ? <GenerationProgress label="Chargement du resultat..." percent={42} /> : null}
+          {activeAction ? <GenerationProgress label={generationLabel(activeAction, selectedIndex, Math.max(generatedVisuals.length, 1))} percent={currentProgress} /> : null}
+          {drawerError ? (
+            <p className="rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm text-[#FDBA74]">{drawerError}</p>
+          ) : null}
+          {target.step.id === "visuals" ? (
+            <VisualValidationBody
+              generatedVisuals={generatedVisuals}
+              media={media}
+              selectedScene={selectedScene}
+              suggestedAssets={suggestedAssets}
+              onGenerate={() => void runMediaAction("request_visual_generation")}
+              onNext={() => setSelectedIndex((value) => Math.min(generatedVisuals.length - 1, value + 1))}
+              onPrevious={() => setSelectedIndex((value) => Math.max(0, value - 1))}
+              onRefreshLibrary={() => void runMediaAction("refresh_suggestions")}
+              onRegenerate={() => void runMediaAction("regenerate_scene", { sceneIndex: selectedScene?.visualPromptIndex ?? 1 })}
+              onUseLibrary={() => void runMediaAction("prepare_media")}
+            />
+          ) : null}
+          {target.step.id === "voice" ? (
+            <VoiceValidationBody voice={media?.voice ?? null} onGenerate={() => void runMediaAction("generate_voice")} />
+          ) : null}
+          {target.step.id === "subtitles" ? (
+            <SubtitlesValidationBody subtitles={media?.subtitles ?? null} onGenerate={() => void runMediaAction("generate_subtitles")} />
+          ) : null}
+          {target.step.id === "video" ? (
+            <VideoValidationBody video={video} onGenerate={() => void runVideoAction("start")} />
+          ) : null}
+          {target.step.id === "planning" || target.step.id === "publication" ? (
+            <ProtectedValidationBody detail={target.step.detail} />
+          ) : null}
         </div>
 
         <div className="border-t border-[#1D2A44] p-5">
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
+              onClick={() => target.step.id === "visuals" && selectedScene
+                ? void runMediaAction("regenerate_scene", { sceneIndex: selectedScene.visualPromptIndex })
+                : target.step.id === "voice"
+                  ? void runMediaAction("regenerate_voice")
+                  : target.step.id === "subtitles"
+                    ? void runMediaAction("regenerate_subtitles")
+                    : target.step.id === "video"
+                      ? void runVideoAction("start")
+                      : undefined}
               className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
             >
               Regenerer
             </button>
             <button
               type="button"
+              disabled
               className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
             >
               Modifier le prompt
@@ -1188,6 +1384,182 @@ function ValidationDrawer({
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function generationLabel(action: string, index: number, total: number) {
+  if (action.includes("visual")) return `Generation image ${Math.min(index + 1, total)} / ${total}`;
+  if (action.includes("voice")) return "Creation des voix...";
+  if (action.includes("subtitle")) return "Synchronisation des sous-titres...";
+  if (action === "start") return "Preparation de la video...";
+  return "Creation des prompts...";
+}
+
+function GenerationProgress({ label, percent }: { label: string; percent: number }) {
+  return (
+    <div className="mb-4 rounded-md border border-[#38BDF8]/35 bg-[#38BDF8]/10 p-4">
+      <p className="font-semibold text-[#F8FAFC]">{label}</p>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#03070B]">
+        <div className="h-full rounded-full bg-[#38BDF8] transition-all duration-700" style={{ width: `${percent}%` }} />
+      </div>
+      <p className="mt-2 text-xs text-[#7DD3FC]">Temps restant estime : moins de 1 min</p>
+    </div>
+  );
+}
+
+function VisualValidationBody({
+  generatedVisuals,
+  media,
+  onGenerate,
+  onNext,
+  onPrevious,
+  onRefreshLibrary,
+  onRegenerate,
+  onUseLibrary,
+  selectedScene,
+  suggestedAssets,
+}: {
+  generatedVisuals: DrawerVisualScene[];
+  media: DrawerMediaState | null;
+  onGenerate: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+  onRefreshLibrary: () => void;
+  onRegenerate: () => void;
+  onUseLibrary: () => void;
+  selectedScene: DrawerVisualScene | null;
+  suggestedAssets: DrawerVisualAsset[];
+}) {
+  if (generatedVisuals.length > 0 && selectedScene) {
+    return (
+      <div className="grid gap-4">
+        <div className="overflow-hidden rounded-md border border-[#1D2A44] bg-[#08111A]">
+          {selectedScene.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img alt={selectedScene.visualPromptText} className="aspect-video w-full object-cover" src={selectedScene.imageUrl} />
+          ) : null}
+          <div className="grid gap-2 p-4 text-sm text-[#A7B0C0]">
+            <p className="font-semibold text-[#F8FAFC]">Scene {selectedScene.visualPromptIndex}</p>
+            <p>{selectedScene.visualPromptText}</p>
+            <p>Score IA : {selectedScene.scoreTotal ?? "non calcule"}</p>
+            <p>Source : {selectedScene.generationSource} - {selectedScene.generationStatus}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={onPrevious} className="rounded-md border border-[#1D2A44] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">Precedent</button>
+          <button type="button" onClick={onNext} className="rounded-md border border-[#1D2A44] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">Suivant</button>
+          <button type="button" onClick={onRegenerate} className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-2 text-sm font-semibold text-[#7DD3FC]">Regenerer cette image</button>
+          {selectedScene.imageUrl ? (
+            <a className="rounded-md border border-[#1D2A44] px-3 py-2 text-sm font-semibold text-[#A7B0C0]" href={selectedScene.imageUrl} rel="noreferrer" target="_blank">
+              Plein ecran
+            </a>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (suggestedAssets.length > 0) {
+    return (
+      <div className="grid gap-4">
+        <div className="rounded-md border border-[#39E6D0]/30 bg-[#39E6D0]/10 p-4 text-sm text-[#A7B0C0]">
+          J&apos;ai trouve {suggestedAssets.length} visuels compatibles dans votre bibliotheque.
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {suggestedAssets.slice(0, 6).map((asset) => (
+            <div key={asset.id} className="overflow-hidden rounded-md border border-[#1D2A44] bg-[#08111A]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img alt={asset.fileName ?? "Visuel bibliotheque"} className="aspect-video w-full object-cover" src={asset.publicUrl} />
+              <p className="p-3 text-xs text-[#A7B0C0]">Score : {asset.score ?? "non calcule"}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={onUseLibrary} className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">Utiliser ces visuels</button>
+          <button type="button" onClick={onGenerate} className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-2 text-sm font-semibold text-[#7DD3FC]">Continuer</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+      <p className="font-semibold text-[#F8FAFC]">Aucun visuel disponible.</p>
+      <p className="text-sm text-[#A7B0C0]">{media?.visualDecision?.reason ?? "Voulez-vous les generer maintenant ?"}</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={onRefreshLibrary} className="rounded-md border border-[#1D2A44] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">Rechercher dans la bibliotheque</button>
+        <button type="button" onClick={onGenerate} className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-2 text-sm font-semibold text-[#7DD3FC]">Generer les visuels</button>
+      </div>
+    </div>
+  );
+}
+
+function VoiceValidationBody({ onGenerate, voice }: { onGenerate: () => void; voice: DrawerVoiceState | null }) {
+  if (voice?.audioUrl) {
+    return (
+      <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+        <p className="font-semibold text-[#F8FAFC]">Voix generee</p>
+        <p className="mt-1 text-sm text-[#A7B0C0]">{voice.selectedVoiceLabel ?? "Voix selectionnee"} - {voice.status}</p>
+        <audio className="mt-4 w-full" controls src={voice.audioUrl} />
+      </div>
+    );
+  }
+
+  return <EmptyGenerationCard label="Aucune voix disponible." onGenerate={onGenerate} />;
+}
+
+function SubtitlesValidationBody({ onGenerate, subtitles }: { onGenerate: () => void; subtitles: DrawerSubtitleState | null }) {
+  if (subtitles?.segmentsCount || subtitles?.previewSegments?.length) {
+    return (
+      <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+        <p className="font-semibold text-[#F8FAFC]">Sous-titres generes</p>
+        <p className="mt-1 text-sm text-[#A7B0C0]">{subtitles.segmentsCount ?? subtitles.previewSegments?.length ?? 0} segment(s) - {subtitles.status}</p>
+        <div className="mt-4 grid gap-2">
+          {(subtitles.previewSegments ?? []).slice(0, 8).map((segment, index) => (
+            <p key={`${segment.start}-${index}`} className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm text-[#A7B0C0]">
+              {segment.text}
+            </p>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return <EmptyGenerationCard label="Aucun sous-titre disponible." onGenerate={onGenerate} />;
+}
+
+function VideoValidationBody({ onGenerate, video }: { onGenerate: () => void; video: DrawerVideoState | null }) {
+  if (video?.outputUrl) {
+    return (
+      <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+        <p className="font-semibold text-[#F8FAFC]">Video generee</p>
+        <p className="mt-1 text-sm text-[#A7B0C0]">{video.status} - {video.videoValidated ? "validee" : "a valider"}</p>
+        <video className="mt-4 aspect-video w-full rounded-md bg-black" controls src={video.outputUrl} />
+      </div>
+    );
+  }
+
+  return <EmptyGenerationCard label="Aucune video finale disponible." onGenerate={onGenerate} />;
+}
+
+function ProtectedValidationBody({ detail }: { detail: string }) {
+  return (
+    <div className="rounded-md border border-[#F59E0B]/35 bg-[#F59E0B]/10 p-4">
+      <p className="font-semibold text-[#F8FAFC]">Validation protegee</p>
+      <p className="mt-2 text-sm text-[#FDE68A]">{detail}</p>
+    </div>
+  );
+}
+
+function EmptyGenerationCard({ label, onGenerate }: { label: string; onGenerate: () => void }) {
+  return (
+    <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+      <p className="font-semibold text-[#F8FAFC]">{label}</p>
+      <p className="mt-2 text-sm text-[#A7B0C0]">Voulez-vous lancer la generation maintenant ?</p>
+      <button type="button" onClick={onGenerate} className="mt-4 rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-2 text-sm font-semibold text-[#7DD3FC]">
+        Generer maintenant
+      </button>
     </div>
   );
 }

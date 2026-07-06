@@ -25,6 +25,7 @@ type ProductionMode = "assisted" | "automatic" | "manual";
 type PlanAction = {
   kind: ActionKind;
   label: string;
+  autoValidation: AutoValidationDecision | null;
   draftId?: string;
   draftTitle?: string;
   blockedBy?: string[];
@@ -42,9 +43,17 @@ type PlanAction = {
   } | null;
 };
 
+type AutoValidationDecision = {
+  autoValidated: boolean;
+  blockedReason: string | null;
+  qualitySignals: Record<string, string | number | boolean | null>;
+  reason: string;
+};
+
 type TimelineStep = {
   id: "visuals" | "voice" | "subtitles" | "video" | "planning" | "publication";
   label: string;
+  autoValidation: AutoValidationDecision | null;
   state: "done" | "running" | "waiting_validation" | "pending" | "blocked";
   detail: string;
   durationLabel: string;
@@ -151,8 +160,12 @@ type ExecutionPreview = {
   blockedActions: string[];
   logs?: Array<{
     action: ActionKind;
+    autoValidated?: boolean;
+    blockedReason?: string | null;
     draftId?: string;
     draftTitle?: string;
+    mode?: ProductionMode;
+    qualitySignals?: Record<string, string | number | boolean | null>;
     result: "success" | "failed" | "skipped" | "stopped";
     message: string;
   }>;
@@ -375,6 +388,16 @@ function stageMark(state: PipelineStage["state"]) {
   if (state === "active") return "•";
   if (state === "blocked") return "x";
   return "o";
+}
+
+function validationModeLabel(decision: AutoValidationDecision | null, fallback: string) {
+  if (!decision) {
+    return fallback;
+  }
+
+  return decision.autoValidated
+    ? "Auto-valide selon criteres qualite"
+    : `Validation humaine requise : ${decision.blockedReason ?? "controle qualite"}`;
 }
 
 function compactCost(plan: ShortsPlan) {
@@ -823,8 +846,8 @@ export function ShortsPilotageClient() {
                   <span className="font-semibold text-[#64748B]">Etape {index + 1}/{plan.workflowSteps.length}</span>
                   <span className="font-semibold text-[#F8FAFC]">{step.title}</span>
                   <span>{step.actionCount} action(s)</span>
-                  <span className={step.sensitive ? "text-[#FDBA74]" : "text-[#86EFAC]"}>
-                    {step.sensitive ? "validation" : "preparable"}
+                  <span className={step.requiresExplicitConfirmation ? "text-[#FDBA74]" : "text-[#86EFAC]"}>
+                    {step.requiresExplicitConfirmation ? "controle humain" : "automatisable"}
                   </span>
                 </div>
               ))}
@@ -845,8 +868,12 @@ export function ShortsPilotageClient() {
                           <span className="text-[#64748B]"> - </span>
                           {action.label}
                           {action.sensitive ? (
-                            <span className="ml-2 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-2 py-0.5 text-xs font-semibold text-[#FDBA74]">
-                              confirmation
+                            <span className={`ml-2 rounded-md border px-2 py-0.5 text-xs font-semibold ${
+                              action.requiresExplicitConfirmation
+                                ? "border-[#F97316]/35 bg-[#F97316]/10 text-[#FDBA74]"
+                                : "border-[#22C55E]/35 bg-[#22C55E]/10 text-[#86EFAC]"
+                            }`}>
+                              {validationModeLabel(action.autoValidation, action.requiresExplicitConfirmation ? "confirmation" : "auto-validation")}
                             </span>
                           ) : null}
                           {action.route ? (
@@ -1142,6 +1169,13 @@ function DraftTimeline({
         >
           <div>
             <p className="font-semibold text-[#F8FAFC]">✓ {step.label}</p>
+            {step.autoValidation ? (
+              <p className={`mt-1 text-xs font-semibold ${
+                step.autoValidation.autoValidated ? "text-[#86EFAC]" : "text-[#FDBA74]"
+              }`}>
+                {validationModeLabel(step.autoValidation, "Validation")}
+              </p>
+            ) : null}
             <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#64748B]">{step.detail}</p>
           </div>
           <span className={`h-fit rounded-md border px-2 py-1 text-xs font-semibold ${timelineTone(step.state)}`}>

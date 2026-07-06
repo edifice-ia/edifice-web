@@ -8,8 +8,8 @@ It is intentionally compact: source code remains the authority for exact fields.
 Pilotage IA exposes three production modes:
 
 - **Assisted** is the default mode. It runs safe generation steps automatically
-  and stops when human judgement adds value: visual choice, voice choice, final
-  video validation, definitive scheduling and real publication.
+  and auto-validates generated results only when quality signals are accepted.
+  Otherwise it stops with a human validation reason.
 - **Automatic** chains generation and internal validations without interruption,
   but still cannot save a final schedule or publish without explicit human
   authorization.
@@ -25,16 +25,42 @@ The runner always re-reads Supabase after each execution pass before selecting
 the next action. This keeps page reloads coherent and avoids assuming that a
 remote generation succeeded without durable state.
 
+## Controlled auto-validation
+
+Pilotage IA delegates generation and validation to the same Atelier Shorts
+services. The only centralized decision layer is
+`lib/server/shorts-auto-validation.ts`, which answers whether a generated result
+may be auto-validated for the selected mode.
+
+Current criteria:
+
+- Visuals: every required scene must have an image, a ready/retained status and
+  a score greater than or equal to
+  `SHORTS_VISUAL_AUTO_VALIDATION_SCORE_THRESHOLD` or `75` by default.
+- Voice: an audio file must be present and the duration estimate must be
+  positive.
+- Subtitles: at least one segment must exist and subtitle duration must be
+  positive and coherent with audio duration when available.
+- Video: the render job must be completed with an MP4 URL and a positive
+  duration.
+- Planning: proposals may be prepared, but definitive schedule saving is never
+  auto-validated in this version.
+
+Every auto-validation decision logs the draft id, step, mode, quality signals,
+result and refusal reason when blocked. Manual mode always returns human
+validation required.
+
 ## Pipeline
 
 1. Text is approved on `content_drafts.status`.
 2. Visuals are selected and validated from canonical library assets.
-3. Voice is generated, then manually validated.
-4. Subtitles are generated from the validated audio asset, then manually validated.
+3. Voice is generated, then validated manually or auto-validated by criteria.
+4. Subtitles are generated from the validated audio asset, then validated
+   manually or auto-validated by criteria.
 5. Video preparation writes a manifest asset under `content-assets/lignes-interieures/video-preparation/{draft_id}/`.
 6. Vercel creates or reuses a `video_render_jobs` row and dispatches Railway.
 7. Railway renders FFmpeg output, uploads the MP4, and updates `video_render_jobs`.
-8. The video is manually validated.
+8. The video is validated manually or auto-validated by technical criteria.
 9. Scheduling creates `short_video_schedules` rows per platform.
 10. Publication uses platform-specific `short_video_publications` rows.
 

@@ -14,9 +14,18 @@ import {
   recordVisualCost,
   recordVoiceCostFromMedia,
 } from "@/lib/server/cost-tracking";
-import { readMediaPipelineState, type MediaPipelineState } from "@/lib/server/media-pipeline";
-import { requestDraftVisualGeneration, validateDraftVisuals } from "@/lib/server/media-pipeline";
+import {
+  readMediaPipelineState,
+  requestDraftVisualGeneration,
+  updateDraftVisualSceneStatus,
+  validateDraftVisuals,
+  type MediaPipelineState,
+} from "@/lib/server/media-pipeline";
 import { readShortsSchedulingState } from "@/lib/server/shorts-scheduling";
+import {
+  shouldAutoValidateStep,
+  type ShortsAutoValidationDecision,
+} from "@/lib/server/shorts-auto-validation";
 import { generateDraftSubtitles, validateDraftSubtitles } from "@/lib/server/subtitle-pipeline";
 import {
   createOrReuseVideoRenderJob,
@@ -65,6 +74,7 @@ export type ShortsAssistantActionKind =
 export type ShortsAssistantAction = {
   kind: ShortsAssistantActionKind;
   label: string;
+  autoValidation: ShortsAutoValidationDecision | null;
   draftId?: string;
   draftTitle?: string;
   blockedBy?: string[];
@@ -80,6 +90,7 @@ export type ShortsAssistantAction = {
 export type ShortsProductionTimelineStep = {
   id: "visuals" | "voice" | "subtitles" | "video" | "planning" | "publication";
   label: string;
+  autoValidation: ShortsAutoValidationDecision | null;
   state: "done" | "running" | "waiting_validation" | "pending" | "blocked";
   detail: string;
   durationLabel: string;
@@ -196,8 +207,12 @@ export type ShortsAssistantExecutionPreview = {
 
 type ShortsProductionRunLog = {
   action: ShortsAssistantActionKind;
+  autoValidated?: boolean;
+  blockedReason?: string | null;
   draftId?: string;
   draftTitle?: string;
+  mode?: ShortsProductionMode;
+  qualitySignals?: Record<string, string | number | boolean | null>;
   result: "success" | "failed" | "skipped" | "stopped";
   message: string;
 };
@@ -376,9 +391,26 @@ function formatDurationLabel(seconds: number) {
   return `${minutes} min`;
 }
 
-// Decides whether an action should stop the pipeline for explicit review in the
-// selected mode. Generation never needs confirmation before it starts.
-function confirmationNeededForAction(kind: ShortsAssistantActionKind, mode: ShortsProductionMode) {
+function autoValidationStepForAction(kind: ShortsAssistantActionKind) {
+  if (kind === "validate_visuals") return "visuals";
+  if (kind === "validate_voice") return "voice";
+  if (kind === "validate_subtitles") return "subtitles";
+  if (kind === "validate_video") return "video";
+  return null;
+}
+
+// Decides whether an action should stop the pipeline for explicit review. The
+// central auto-validation rule owns quality checks; this helper only preserves
+// sensitive guardrails and the Manual mode.
+function confirmationNeededForAction({
+  autoValidation,
+  kind,
+  mode,
+}: {
+  autoValidation: ShortsAutoValidationDecision | null;
+  kind: ShortsAssistantActionKind;
+  mode: ShortsProductionMode;
+}) {
   if (mode === "manual") {
     return true;
   }
@@ -387,10 +419,8 @@ function confirmationNeededForAction(kind: ShortsAssistantActionKind, mode: Shor
     return true;
   }
 
-  if (mode === "assisted") {
-    return kind === "validate_visuals" ||
-      kind === "validate_voice" ||
-      kind === "validate_video";
+  if (autoValidationStepForAction(kind)) {
+    return !autoValidation?.autoValidated;
   }
 
   return false;
@@ -405,11 +435,14 @@ function isExecutableInMode(kind: ShortsAssistantActionKind, mode: ShortsProduct
 
   const assistedActions = new Set<ShortsAssistantActionKind>([
     "generate_visuals",
+    "validate_visuals",
     "generate_voice",
+    "validate_voice",
     "generate_subtitles",
     "validate_subtitles",
     "prepare_video",
     "start_video_render",
+    "validate_video",
     "propose_schedule",
   ]);
 
@@ -442,12 +475,27 @@ function actionBase({
   blockedBy?: string[];
   bundle?: DraftBundle;
 }): ShortsAssistantAction {
-  const requiresExplicitConfirmation = confirmationNeededForAction(kind, mode);
+  const autoValidationStep = autoValidationStepForAction(kind);
+  const autoValidation = autoValidationStep && draft && bundle
+    ? shouldAutoValidateStep({
+        draft,
+        media: bundle.media,
+        mode,
+        step: autoValidationStep,
+        video: bundle.video,
+      })
+    : null;
+  const requiresExplicitConfirmation = confirmationNeededForAction({
+    autoValidation,
+    kind,
+    mode,
+  });
   const allowedInV1 = isExecutableInMode(kind, mode);
 
   return {
     kind,
     label,
+    autoValidation,
     draftId: draft?.id,
     draftTitle: draft?.title,
     blockedBy,
@@ -625,8 +673,10 @@ function blockedReasons(bundle: DraftBundle, action: ShortsAssistantAction | nul
   if (action?.kind === "validate_text") {
     reasons.push("Validation texte humaine requise.");
   }
-  if (action?.sensitive) {
-    reasons.push("Action sensible: confirmation humaine obligatoire.");
+  if (action?.sensitive && action.requiresExplicitConfirmation) {
+    reasons.push(action.autoValidation?.blockedReason
+      ? `Validation humaine requise: ${action.autoValidation.blockedReason}.`
+      : "Action sensible: confirmation humaine obligatoire.");
   }
 
   return [...new Set(reasons)];
@@ -658,13 +708,52 @@ function timelineState({
 
 // Builds the per-draft production timeline used by the UI. It keeps the
 // operator focused on generated assets and useful validation points.
-function buildDraftTimeline(bundle: DraftBundle): ShortsProductionTimelineStep[] {
+function timelineDetail(defaultDetail: string, decision: ShortsAutoValidationDecision | null) {
+  return decision ? decision.reason : defaultDetail;
+}
+
+function buildDraftTimeline(bundle: DraftBundle, mode: ShortsProductionMode): ShortsProductionTimelineStep[] {
   const { workflow } = bundle;
   const routeBase = "/interface/post-creation/shorts";
   const visualCost = estimateActionCost("generate_visuals", bundle);
   const voiceCost = estimateActionCost("generate_voice", bundle);
   const subtitleCost = estimateActionCost("generate_subtitles", bundle);
   const renderCost = estimateActionCost("start_video_render", bundle);
+  const visualAutoValidation = shouldAutoValidateStep({
+    draft: bundle.draft,
+    media: bundle.media,
+    mode,
+    step: "visuals",
+    video: bundle.video,
+  });
+  const voiceAutoValidation = shouldAutoValidateStep({
+    draft: bundle.draft,
+    media: bundle.media,
+    mode,
+    step: "voice",
+    video: bundle.video,
+  });
+  const subtitlesAutoValidation = shouldAutoValidateStep({
+    draft: bundle.draft,
+    media: bundle.media,
+    mode,
+    step: "subtitles",
+    video: bundle.video,
+  });
+  const videoAutoValidation = shouldAutoValidateStep({
+    draft: bundle.draft,
+    media: bundle.media,
+    mode,
+    step: "video",
+    video: bundle.video,
+  });
+  const planningAutoValidation = shouldAutoValidateStep({
+    draft: bundle.draft,
+    media: bundle.media,
+    mode,
+    step: "planning",
+    video: bundle.video,
+  });
   const videoState = bundle.video?.status === "processing" || bundle.video?.status === "queued"
     ? "running"
     : timelineState({ status: workflow.video, validatesHumanChoice: true });
@@ -673,8 +762,9 @@ function buildDraftTimeline(bundle: DraftBundle): ShortsProductionTimelineStep[]
     {
       id: "visuals",
       label: "Generation des visuels",
+      autoValidation: workflow.visuals === "ready" ? visualAutoValidation : null,
       state: timelineState({ status: workflow.visuals, validatesHumanChoice: true }),
-      detail: workflow.reasons.visuals,
+      detail: workflow.visuals === "ready" ? timelineDetail(workflow.reasons.visuals, visualAutoValidation) : workflow.reasons.visuals,
       durationLabel: formatDurationLabel(estimateActionSeconds("generate_visuals", bundle)),
       costEstimate: visualCost,
       route: `${routeBase}/visuals`,
@@ -684,8 +774,9 @@ function buildDraftTimeline(bundle: DraftBundle): ShortsProductionTimelineStep[]
     {
       id: "voice",
       label: "Generation des voix",
+      autoValidation: workflow.voice === "ready" ? voiceAutoValidation : null,
       state: timelineState({ status: workflow.voice, validatesHumanChoice: true }),
-      detail: workflow.reasons.voice,
+      detail: workflow.voice === "ready" ? timelineDetail(workflow.reasons.voice, voiceAutoValidation) : workflow.reasons.voice,
       durationLabel: formatDurationLabel(estimateActionSeconds("generate_voice", bundle)),
       costEstimate: voiceCost,
       route: `${routeBase}/voice`,
@@ -695,8 +786,9 @@ function buildDraftTimeline(bundle: DraftBundle): ShortsProductionTimelineStep[]
     {
       id: "subtitles",
       label: "Generation des sous-titres",
+      autoValidation: workflow.subtitles === "ready" ? subtitlesAutoValidation : null,
       state: timelineState({ status: workflow.subtitles }),
-      detail: workflow.reasons.subtitles,
+      detail: workflow.subtitles === "ready" ? timelineDetail(workflow.reasons.subtitles, subtitlesAutoValidation) : workflow.reasons.subtitles,
       durationLabel: formatDurationLabel(estimateActionSeconds("generate_subtitles", bundle)),
       costEstimate: subtitleCost,
       route: `${routeBase}/voice`,
@@ -706,8 +798,9 @@ function buildDraftTimeline(bundle: DraftBundle): ShortsProductionTimelineStep[]
     {
       id: "video",
       label: "Generation video",
+      autoValidation: bundle.video?.status === "completed" && !bundle.video.videoValidated ? videoAutoValidation : null,
       state: videoState,
-      detail: workflow.reasons.video,
+      detail: bundle.video?.status === "completed" && !bundle.video.videoValidated ? timelineDetail(workflow.reasons.video, videoAutoValidation) : workflow.reasons.video,
       durationLabel: formatDurationLabel(estimateActionSeconds("start_video_render", bundle)),
       costEstimate: renderCost,
       route: `${routeBase}/video`,
@@ -717,8 +810,11 @@ function buildDraftTimeline(bundle: DraftBundle): ShortsProductionTimelineStep[]
     {
       id: "planning",
       label: "Planning",
+      autoValidation: workflow.video === "validated" || bundle.video?.videoValidated ? planningAutoValidation : null,
       state: workflow.video === "validated" || bundle.video?.videoValidated ? "waiting_validation" : "pending",
-      detail: "Preparation automatique de creneaux; enregistrement seulement apres validation.",
+      detail: workflow.video === "validated" || bundle.video?.videoValidated
+        ? planningAutoValidation.reason
+        : "Preparation automatique de creneaux; enregistrement seulement apres validation.",
       durationLabel: formatDurationLabel(estimateActionSeconds("propose_schedule", bundle)),
       costEstimate: null,
       route: `${routeBase}/programming`,
@@ -728,6 +824,7 @@ function buildDraftTimeline(bundle: DraftBundle): ShortsProductionTimelineStep[]
     {
       id: "publication",
       label: "Publication",
+      autoValidation: null,
       state: workflow.readyToPublish === "validated" ? "waiting_validation" : "pending",
       detail: "Publication reelle toujours bloquee par autorisation humaine explicite.",
       durationLabel: "0 min",
@@ -798,7 +895,7 @@ function summarizeDraft(bundle: DraftBundle, mode: ShortsProductionMode): Shorts
     title: bundle.draft.title,
     status: bundle.draft.status,
     workflow: bundle.workflow,
-    timeline: buildDraftTimeline(bundle),
+    timeline: buildDraftTimeline(bundle, mode),
     blockedReasons: blockedReasons(bundle, action),
     nextAction: action,
   };
@@ -1064,6 +1161,7 @@ export async function buildShortsAssistantPlan({
     actions.push({
       kind: "save_schedule",
       label: "Enregistrer les creneaux proposes apres validation explicite.",
+      autoValidation: null,
       sensitive: true,
       allowedInV1: false,
       requiresExplicitConfirmation: true,
@@ -1079,6 +1177,7 @@ export async function buildShortsAssistantPlan({
   actions.push({
     kind: "publish",
     label: "Publication reelle: interdite en automatique dans cette V1.",
+    autoValidation: null,
     sensitive: true,
     allowedInV1: false,
     requiresExplicitConfirmation: true,
@@ -1171,41 +1270,65 @@ async function executeShortsAction({
   if (action.kind === "generate_visuals") {
     await requestDraftVisualGeneration({ draftId, userId });
     await recordVisualCost({ action: "shorts_production_generate_visuals", draftId, userId });
-    return "Visuels generes ou demandes.";
+    return { autoValidation: null, message: "Visuels generes ou demandes." };
   }
 
   if (action.kind === "validate_visuals") {
+    if (!action.autoValidation?.autoValidated) {
+      throw new Error(action.autoValidation?.reason ?? "Validation visuelle automatique refusee.");
+    }
+
+    const retainedSceneIndexes = String(action.autoValidation.qualitySignals.retained_scene_indexes ?? "")
+      .split(",")
+      .map((value) => Number(value.trim()))
+      .filter((value) => Number.isFinite(value) && value > 0);
+
+    for (const sceneIndex of retainedSceneIndexes) {
+      await updateDraftVisualSceneStatus({
+        draftId,
+        sceneIndex,
+        status: "retained",
+        userId,
+      });
+    }
+
     await validateDraftVisuals({ draftId, userId });
-    return "Visuels valides automatiquement.";
+    return { autoValidation: action.autoValidation, message: "Visuels auto-valides selon criteres qualite." };
   }
 
   if (action.kind === "generate_voice") {
     await generateDraftVoice({ draftId, userId });
     const media = await readMediaPipelineState({ draftId, includeSuggestions: true, userId });
     await recordVoiceCostFromMedia({ action: "shorts_production_generate_voice", draftId, media, userId });
-    return "Voix generee.";
+    return { autoValidation: null, message: "Voix generee." };
   }
 
   if (action.kind === "validate_voice") {
+    if (!action.autoValidation?.autoValidated) {
+      throw new Error(action.autoValidation?.reason ?? "Validation voix automatique refusee.");
+    }
     await validateDraftVoice({ draftId, userId });
-    return "Voix validee automatiquement.";
+    return { autoValidation: action.autoValidation, message: "Voix auto-validee selon criteres qualite." };
   }
 
   if (action.kind === "generate_subtitles") {
     await generateDraftSubtitles({ draftId, userId });
     const media = await readMediaPipelineState({ draftId, includeSuggestions: true, userId });
     await recordSubtitleCostFromMedia({ action: "shorts_production_generate_subtitles", draftId, media, userId });
-    return "Sous-titres generes.";
+    return { autoValidation: null, message: "Sous-titres generes." };
   }
 
   if (action.kind === "validate_subtitles") {
+    if (!action.autoValidation?.autoValidated) {
+      throw new Error(action.autoValidation?.reason ?? "Validation sous-titres automatique refusee.");
+    }
     await validateDraftSubtitles({ draftId, userId });
-    return "Sous-titres valides automatiquement.";
+    return { autoValidation: action.autoValidation, message: "Sous-titres auto-valides selon criteres qualite." };
   }
 
   if (action.kind === "prepare_video") {
     await prepareDraftVideo({ draftId, userId });
-    return "Manifest video prepare.";
+    return { autoValidation: null, message: "Manifest video prepare." };
   }
 
   if (action.kind === "start_video_render") {
@@ -1230,16 +1353,19 @@ async function executeShortsAction({
       await recordVideoRenderCost({ draftId, userId, videoRender });
     }
 
-    return reusedActiveJob ? "Rendu video deja en cours." : "Rendu video lance.";
+    return { autoValidation: null, message: reusedActiveJob ? "Rendu video deja en cours." : "Rendu video lance." };
   }
 
   if (action.kind === "validate_video") {
+    if (!action.autoValidation?.autoValidated) {
+      throw new Error(action.autoValidation?.reason ?? "Validation video automatique refusee.");
+    }
     await validateCompletedVideoRenderJob({ draftId, userId });
-    return "Video finale validee automatiquement.";
+    return { autoValidation: action.autoValidation, message: "Video auto-validee selon criteres qualite." };
   }
 
   if (action.kind === "propose_schedule") {
-    return "Planning prepare sans programmation definitive.";
+    return { autoValidation: null, message: "Planning prepare sans programmation definitive." };
   }
 
   throw new Error(`Action non executable automatiquement: ${action.kind}.`);
@@ -1295,20 +1421,50 @@ export async function executeShortsProductionPipeline({
 
     for (const action of executableActions) {
       try {
-        const message = await executeShortsAction({ action, userId });
+        const result = await executeShortsAction({ action, userId });
+        const autoValidation = result.autoValidation ?? action.autoValidation;
+        console.info("[Shorts Auto Validation] action completed", {
+          action_type: action.kind,
+          auto_validated: autoValidation?.autoValidated ?? false,
+          draft_id: action.draftId ?? null,
+          mode: productionMode,
+          quality_signals: autoValidation?.qualitySignals ?? null,
+          result: "success",
+          step: autoValidationStepForAction(action.kind) ?? action.kind,
+          workflow_id: "shorts_production_pipeline",
+        });
         logs.push({
           action: action.kind,
+          autoValidated: autoValidation?.autoValidated,
+          blockedReason: autoValidation?.blockedReason ?? null,
           draftId: action.draftId,
           draftTitle: action.draftTitle,
+          mode: productionMode,
+          qualitySignals: autoValidation?.qualitySignals,
           result: "success",
-          message,
+          message: result.message,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        console.error("[Shorts Auto Validation] action failed", {
+          action_type: action.kind,
+          auto_validated: action.autoValidation?.autoValidated ?? false,
+          draft_id: action.draftId ?? null,
+          error: message,
+          mode: productionMode,
+          quality_signals: action.autoValidation?.qualitySignals ?? null,
+          result: "failed",
+          step: autoValidationStepForAction(action.kind) ?? action.kind,
+          workflow_id: "shorts_production_pipeline",
+        });
         logs.push({
           action: action.kind,
+          autoValidated: action.autoValidation?.autoValidated,
+          blockedReason: action.autoValidation?.blockedReason ?? message,
           draftId: action.draftId,
           draftTitle: action.draftTitle,
+          mode: productionMode,
+          qualitySignals: action.autoValidation?.qualitySignals,
           result: "failed",
           message,
         });
@@ -1357,7 +1513,7 @@ export function previewShortsAssistantExecution(plan: ShortsAssistantPlan): Shor
       percent: 0,
       steps: plan.workflowSteps.map((step) => ({
         title: step.title,
-        status: step.sensitive || step.status === "blocked" ? "blocked" : "pending",
+        status: step.requiresExplicitConfirmation || step.status === "blocked" ? "blocked" : "pending",
       })),
     },
     nextImplementationStep:

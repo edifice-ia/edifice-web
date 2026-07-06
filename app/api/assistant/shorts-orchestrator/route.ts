@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import {
   buildShortsAssistantPlan,
-  previewShortsAssistantExecution,
+  executeShortsProductionPipeline,
+  type ShortsProductionMode,
   type ShortsAssistantPlan,
 } from "@/lib/server/assistant-actions/shorts";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
@@ -16,6 +17,12 @@ function sanitizeCommand(value: unknown) {
 
   const command = value.trim();
   return command.length > 0 ? command.slice(0, 1000) : null;
+}
+
+// Keeps API mode parsing conservative: unknown values fall back to Assisted,
+// which is the default semi-automatic mode.
+function sanitizeMode(value: unknown): ShortsProductionMode {
+  return value === "automatic" || value === "manual" ? value : "assisted";
 }
 
 async function authorizeShortsOrchestratorAccess() {
@@ -49,15 +56,17 @@ export async function POST(request: Request) {
       const plan = payload.plan && typeof payload.plan === "object"
         ? payload.plan as ShortsAssistantPlan
         : null;
+      const mode = sanitizeMode(payload.mode ?? plan?.mode);
 
       if (!plan) {
         return NextResponse.json({ error: "Plan analyse requis avant execution." }, { status: 400 });
       }
 
-      // V1 guardrail: this route exposes the future execution entry point, but
-      // intentionally returns a dry response until per-action confirmations and
-      // audit logs are implemented.
-      return NextResponse.json(previewShortsAssistantExecution(plan));
+      return NextResponse.json(await executeShortsProductionPipeline({
+        command: plan.command,
+        mode,
+        userId: user.id,
+      }));
     }
 
     const command = sanitizeCommand(payload.command);
@@ -67,6 +76,7 @@ export async function POST(request: Request) {
 
     const plan = await buildShortsAssistantPlan({
       command,
+      mode: sanitizeMode(payload.mode),
       userId: user.id,
     });
 

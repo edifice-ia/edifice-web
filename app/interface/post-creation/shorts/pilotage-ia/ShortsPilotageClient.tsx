@@ -20,6 +20,8 @@ type ActionKind =
   | "publish"
   | "blocked_report";
 
+type ProductionMode = "assisted" | "automatic" | "manual";
+
 type PlanAction = {
   kind: ActionKind;
   label: string;
@@ -38,6 +40,18 @@ type PlanAction = {
     estimatedCostEur: number | null;
     note: string;
   } | null;
+};
+
+type TimelineStep = {
+  id: "visuals" | "voice" | "subtitles" | "video" | "planning" | "publication";
+  label: string;
+  state: "done" | "running" | "waiting_validation" | "pending" | "blocked";
+  detail: string;
+  durationLabel: string;
+  costEstimate: PlanAction["costEstimate"];
+  route: string;
+  canOpen: boolean;
+  canValidate: boolean;
 };
 
 type WorkflowStep = {
@@ -65,6 +79,7 @@ type DraftSummary = {
     readyToPublish: string;
     nextStep: string;
   };
+  timeline: TimelineStep[];
   nextAction: PlanAction | null;
 };
 
@@ -80,6 +95,7 @@ type ScheduleProposal = {
 type ShortsPlan = {
   objective: string;
   intent: string;
+  mode: ProductionMode;
   command: string;
   generatedAt: string;
   guardrails: string[];
@@ -122,7 +138,7 @@ type ShortsPlan = {
   };
   warnings: string[];
   execution: {
-    mode: "plan_only";
+    mode: "assisted" | "automatic" | "manual" | "plan_only";
     summary: string;
     blockedActions: string[];
   };
@@ -130,9 +146,17 @@ type ShortsPlan = {
 
 type ExecutionPreview = {
   ok: true;
-  executed: false;
+  executed: boolean;
   message: string;
   blockedActions: string[];
+  logs?: Array<{
+    action: ActionKind;
+    draftId?: string;
+    draftTitle?: string;
+    result: "success" | "failed" | "skipped" | "stopped";
+    message: string;
+  }>;
+  plan?: ShortsPlan;
   progress: {
     completedSteps: number;
     totalSteps: number;
@@ -158,6 +182,21 @@ const platformLabels = {
   youtube: "YouTube Shorts",
 };
 
+const productionModeLabels: Record<ProductionMode, { label: string; description: string }> = {
+  assisted: {
+    label: "Assiste",
+    description: "Genere automatiquement et s'arrete aux validations utiles.",
+  },
+  automatic: {
+    label: "Automatique",
+    description: "Enchaine les generations et validations internes, sans publication reelle.",
+  },
+  manual: {
+    label: "Manuel",
+    description: "Garde le fonctionnement actuel: chaque etape est ouverte et lancee individuellement.",
+  },
+};
+
 // Formats schedule proposals with the same Paris timezone as the scheduling
 // module, so the operator sees the real planning slots.
 function formatDateTime(value: string) {
@@ -171,7 +210,7 @@ function formatDateTime(value: string) {
 // Formats nullable estimated costs without pretending unknown values are free.
 function formatCost(value: number | null) {
   if (value === null) {
-    return "a estimer";
+    return "0 EUR estime";
   }
 
   return new Intl.NumberFormat("fr-FR", {
@@ -181,24 +220,42 @@ function formatCost(value: number | null) {
   }).format(value);
 }
 
-// Maps pipeline statuses to compact dashboard chips.
-function statusTone(status: string) {
-  if (status === "validated" || status === "ready") {
+// Converts timeline states into labels an operator can scan quickly.
+function formatTimelineState(state: TimelineStep["state"]) {
+  const labels: Record<TimelineStep["state"], string> = {
+    blocked: "Bloque",
+    done: "Termine",
+    pending: "A faire",
+    running: "En cours",
+    waiting_validation: "En attente de validation",
+  };
+
+  return labels[state];
+}
+
+// Applies consistent visual emphasis to done, running, validation and blocked
+// steps in the per-draft production timeline.
+function timelineTone(state: TimelineStep["state"]) {
+  if (state === "done") {
     return "border-[#22C55E]/35 bg-[#22C55E]/10 text-[#86EFAC]";
   }
-  if (status === "error") {
-    return "border-[#F97316]/35 bg-[#F97316]/10 text-[#FDBA74]";
-  }
-  if (status === "generating" || status === "in_progress") {
+  if (state === "running") {
     return "border-[#39E6D0]/35 bg-[#39E6D0]/10 text-[#39E6D0]";
+  }
+  if (state === "waiting_validation") {
+    return "border-[#F59E0B]/35 bg-[#F59E0B]/10 text-[#FCD34D]";
+  }
+  if (state === "blocked") {
+    return "border-[#F97316]/35 bg-[#F97316]/10 text-[#FDBA74]";
   }
   return "border-[#64748B]/35 bg-[#64748B]/10 text-[#CBD5E1]";
 }
 
-// Main client component for Pilotage IA. It only calls analyze/preview endpoints:
-// no write, scheduling or publication is triggered from this component in V1.
+// Main client component for Pilotage IA. It can start safe generation runs, but
+// scheduling, publication and destructive actions stay behind dedicated screens.
 export function ShortsPilotageClient() {
   const [command, setCommand] = useState(examples[0]);
+  const [productionMode, setProductionMode] = useState<ProductionMode>("assisted");
   const [plan, setPlan] = useState<ShortsPlan | null>(null);
   const [executionPreview, setExecutionPreview] = useState<ExecutionPreview | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -232,6 +289,7 @@ export function ShortsPilotageClient() {
         body: JSON.stringify({
           action: "analyze",
           command: nextCommand,
+          mode: productionMode,
         }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -264,6 +322,7 @@ export function ShortsPilotageClient() {
       const response = await fetch("/api/assistant/shorts-orchestrator", {
         body: JSON.stringify({
           action: "execute",
+          mode: productionMode,
           plan,
         }),
         headers: { "Content-Type": "application/json" },
@@ -276,6 +335,9 @@ export function ShortsPilotageClient() {
       }
 
       setExecutionPreview(payload);
+      if (payload.plan) {
+        setPlan(payload.plan);
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Execution indisponible.");
     } finally {
@@ -296,6 +358,24 @@ export function ShortsPilotageClient() {
               className="min-h-24 resize-y rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-3 text-sm leading-6 text-[#F8FAFC] outline-none transition focus:border-[#39E6D0]/60"
             />
           </label>
+
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(productionModeLabels) as ProductionMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setProductionMode(mode)}
+                className={`rounded-md border px-3 py-2 text-xs font-semibold transition ${
+                  productionMode === mode
+                    ? "border-[#39E6D0]/55 bg-[#39E6D0]/10 text-[#F8FAFC]"
+                    : "border-[#1D2A44] bg-[#08111A] text-[#A7B0C0] hover:text-[#F8FAFC]"
+                }`}
+                title={productionModeLabels[mode].description}
+              >
+                Mode {productionModeLabels[mode].label}
+              </button>
+            ))}
+          </div>
 
           <div className="flex flex-wrap gap-2">
             {examples.map((example) => (
@@ -324,7 +404,7 @@ export function ShortsPilotageClient() {
               onClick={() => void executePlan()}
               className="rounded-md border border-[#38BDF8]/50 bg-[#38BDF8]/10 px-4 py-2 text-sm font-semibold text-[#7DD3FC] transition hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isExecuting ? "Verification..." : "Executer le plan"}
+              {isExecuting ? "Execution..." : "Lancer le pipeline"}
             </button>
           </div>
         </form>
@@ -503,13 +583,7 @@ export function ShortsPilotageClient() {
                       </span>
                     ) : null}
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
-                    {(["text", "visuals", "voice", "subtitles", "video", "readyToPublish"] as const).map((step) => (
-                      <span key={step} className={`rounded-md border px-2 py-1 ${statusTone(draft.workflow[step])}`}>
-                        {step}: {draft.workflow[step]}
-                      </span>
-                    ))}
-                  </div>
+                  <DraftTimeline steps={draft.timeline} />
                   {draft.blockedReasons.length ? (
                     <p className="mt-3 text-sm text-[#FDBA74]">
                       {draft.blockedReasons.join(" ; ")}
@@ -526,6 +600,17 @@ export function ShortsPilotageClient() {
         <section className="rounded-md border border-[#38BDF8]/35 bg-[#38BDF8]/10 p-4">
           <h3 className="font-semibold text-[#F8FAFC]">Execution V1</h3>
           <p className="mt-2 text-sm text-[#A7B0C0]">{executionPreview.message}</p>
+          {executionPreview.logs?.length ? (
+            <div className="mt-3 grid gap-2">
+              {executionPreview.logs.map((log, index) => (
+                <div key={`${log.action}-${log.draftId ?? "global"}-${index}`} className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm text-[#A7B0C0]">
+                  <span className="font-semibold text-[#F8FAFC]">{log.draftTitle ?? "Global"}</span>
+                  <span className="text-[#64748B]"> - </span>
+                  {log.message}
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#03070B]">
             <div
               className="h-full bg-[#39E6D0]"
@@ -597,6 +682,51 @@ function AnalysisList({ items, title }: { items: string[]; title: string }) {
           <li>Aucun element.</li>
         )}
       </ul>
+    </div>
+  );
+}
+
+// Displays the production timeline for one draft. Validation buttons only point
+// to the dedicated module; they never confirm sensitive actions inline.
+function DraftTimeline({ steps }: { steps: TimelineStep[] }) {
+  return (
+    <div className="mt-3 grid gap-2">
+      {steps.map((step) => (
+        <div
+          key={step.id}
+          className="grid gap-3 rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-3 text-sm md:grid-cols-[minmax(0,1fr)_150px_110px_130px]"
+        >
+          <div>
+            <p className="font-semibold text-[#F8FAFC]">✓ {step.label}</p>
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#64748B]">{step.detail}</p>
+          </div>
+          <span className={`h-fit rounded-md border px-2 py-1 text-xs font-semibold ${timelineTone(step.state)}`}>
+            {formatTimelineState(step.state)}
+          </span>
+          <div className="text-xs leading-5 text-[#A7B0C0]">
+            <p>{step.durationLabel}</p>
+            <p>{formatCost(step.costEstimate?.estimatedCostEur ?? null)}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {step.canOpen ? (
+              <Link
+                className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-1.5 text-xs font-semibold text-[#7DD3FC] transition hover:text-[#F8FAFC]"
+                href={step.route}
+              >
+                Ouvrir
+              </Link>
+            ) : null}
+            {step.canValidate ? (
+              <Link
+                className="rounded-md border border-[#F59E0B]/45 bg-[#F59E0B]/10 px-3 py-1.5 text-xs font-semibold text-[#FCD34D] transition hover:text-[#F8FAFC]"
+                href={step.route}
+              >
+                Valider
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -3,6 +3,28 @@
 This note documents the current operational contract for the Shorts workshop.
 It is intentionally compact: source code remains the authority for exact fields.
 
+## Production modes
+
+Pilotage IA exposes three production modes:
+
+- **Assisted** is the default mode. It runs safe generation steps automatically
+  and stops when human judgement adds value: visual choice, voice choice, final
+  video validation, definitive scheduling and real publication.
+- **Automatic** chains generation and internal validations without interruption,
+  but still cannot save a final schedule or publish without explicit human
+  authorization.
+- **Manual** keeps the previous workshop behavior: each step is opened and
+  launched individually from its dedicated screen.
+
+The runner can execute visual generation, voice generation, subtitle generation,
+video manifest preparation, Railway render job dispatch and schedule proposal
+calculation. It must not execute real publication, definitive schedule saving,
+deletion, critical configuration changes or secret changes.
+
+The runner always re-reads Supabase after each execution pass before selecting
+the next action. This keeps page reloads coherent and avoids assuming that a
+remote generation succeeded without durable state.
+
 ## Pipeline
 
 1. Text is approved on `content_drafts.status`.

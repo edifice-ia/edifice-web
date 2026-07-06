@@ -8,9 +8,26 @@ import {
   estimateVoiceCost,
   type CostEstimate,
 } from "@/lib/server/cost-rates";
+import {
+  recordSubtitleCostFromMedia,
+  recordVideoRenderCost,
+  recordVisualCost,
+  recordVoiceCostFromMedia,
+} from "@/lib/server/cost-tracking";
 import { readMediaPipelineState, type MediaPipelineState } from "@/lib/server/media-pipeline";
+import { requestDraftVisualGeneration, validateDraftVisuals } from "@/lib/server/media-pipeline";
 import { readShortsSchedulingState } from "@/lib/server/shorts-scheduling";
-import { readVideoRenderJobState, type VideoRenderJobState } from "@/lib/server/video-renderer";
+import { generateDraftSubtitles, validateDraftSubtitles } from "@/lib/server/subtitle-pipeline";
+import {
+  createOrReuseVideoRenderJob,
+  dispatchVideoRenderJob,
+  markVideoRenderJobFailed,
+  readVideoRenderJobState,
+  validateCompletedVideoRenderJob,
+  type VideoRenderJobState,
+} from "@/lib/server/video-renderer";
+import { prepareDraftVideo } from "@/lib/server/video-preparation";
+import { generateDraftVoice, validateDraftVoice } from "@/lib/server/voice-pipeline";
 import {
   buildShortsScheduleCandidates,
   DEFAULT_SHORTS_SCHEDULE_TIMEZONE,
@@ -25,6 +42,8 @@ export type ShortsAssistantIntent =
   | "schedule_ready_videos"
   | "blocked_report"
   | "general_plan";
+
+export type ShortsProductionMode = "assisted" | "automatic" | "manual";
 
 export type ShortsAssistantActionKind =
   | "validate_text"
@@ -56,6 +75,18 @@ export type ShortsAssistantAction = {
   placeholder: boolean;
   estimatedSeconds: number;
   costEstimate: CostEstimate | null;
+};
+
+export type ShortsProductionTimelineStep = {
+  id: "visuals" | "voice" | "subtitles" | "video" | "planning" | "publication";
+  label: string;
+  state: "done" | "running" | "waiting_validation" | "pending" | "blocked";
+  detail: string;
+  durationLabel: string;
+  costEstimate: CostEstimate | null;
+  route: string;
+  canOpen: boolean;
+  canValidate: boolean;
 };
 
 export type ShortsAssistantWorkflowStep = {
@@ -102,6 +133,7 @@ export type ShortsAssistantDraftSummary = {
   title: string;
   status: string;
   workflow: ShortWorkflowState;
+  timeline: ShortsProductionTimelineStep[];
   blockedReasons: string[];
   nextAction: ShortsAssistantAction | null;
 };
@@ -118,6 +150,7 @@ export type ShortsAssistantScheduleProposal = {
 export type ShortsAssistantPlan = {
   objective: string;
   intent: ShortsAssistantIntent;
+  mode: ShortsProductionMode;
   command: string;
   generatedAt: string;
   guardrails: string[];
@@ -138,7 +171,7 @@ export type ShortsAssistantPlan = {
   detailedAnalysis: ShortsAssistantDetailedAnalysis;
   warnings: string[];
   execution: {
-    mode: "plan_only";
+    mode: "assisted" | "automatic" | "manual" | "plan_only";
     summary: string;
     blockedActions: string[];
   };
@@ -146,7 +179,7 @@ export type ShortsAssistantPlan = {
 
 export type ShortsAssistantExecutionPreview = {
   ok: true;
-  executed: false;
+  executed: boolean;
   message: string;
   blockedActions: string[];
   progress: {
@@ -159,6 +192,14 @@ export type ShortsAssistantExecutionPreview = {
     }>;
   };
   nextImplementationStep: string;
+};
+
+type ShortsProductionRunLog = {
+  action: ShortsAssistantActionKind;
+  draftId?: string;
+  draftTitle?: string;
+  result: "success" | "failed" | "skipped" | "stopped";
+  message: string;
 };
 
 type DraftBundle = {
@@ -174,9 +215,9 @@ const publicationStatuses = new Set(["published", "rejected"]);
 const guardrails = [
   "Aucune publication reelle sans validation explicite.",
   "Aucune programmation definitive sans validation explicite.",
-  "Les generations sont seulement listees dans cette V1.",
+  "Les generations IA peuvent etre lancees sans confirmation prealable en mode Assiste ou Automatique.",
   "Aucun secret, token OAuth ou configuration serveur n'est modifie.",
-  "L'orchestrateur produit un plan; il ne remplace pas les validations humaines.",
+  "Les confirmations servent a valider un resultat produit, pas a autoriser une generation.",
 ];
 
 // Architecture: this file is the Shorts orchestration brain. It reads the same
@@ -218,6 +259,12 @@ function detectShortsIntent(command: string): ShortsAssistantIntent {
   }
 
   return "general_plan";
+}
+
+// Normalizes user-selected production mode. Assisted remains the safe default
+// because it automates generation but stops at useful human review points.
+function normalizeProductionMode(value: unknown): ShortsProductionMode {
+  return value === "automatic" || value === "manual" ? value : "assisted";
 }
 
 // Converts the detected intent into the compact dashboard objective.
@@ -324,12 +371,63 @@ function estimateActionSeconds(kind: ShortsAssistantActionKind, bundle?: DraftBu
   return 30;
 }
 
-// Creates a safe action descriptor. The descriptor is executable metadata for a
-// future runner, but V1 marks every action as a placeholder.
+function formatDurationLabel(seconds: number) {
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  return `${minutes} min`;
+}
+
+// Decides whether an action should stop the pipeline for explicit review in the
+// selected mode. Generation never needs confirmation before it starts.
+function confirmationNeededForAction(kind: ShortsAssistantActionKind, mode: ShortsProductionMode) {
+  if (mode === "manual") {
+    return true;
+  }
+
+  if (kind === "save_schedule" || kind === "publish" || kind === "prepare_publication") {
+    return true;
+  }
+
+  if (mode === "assisted") {
+    return kind === "validate_visuals" ||
+      kind === "validate_voice" ||
+      kind === "validate_video";
+  }
+
+  return false;
+}
+
+// Whitelists actions the grouped runner may execute. Schedule saving,
+// publication and destructive work are intentionally excluded in every mode.
+function isExecutableInMode(kind: ShortsAssistantActionKind, mode: ShortsProductionMode) {
+  if (mode === "manual") {
+    return false;
+  }
+
+  const assistedActions = new Set<ShortsAssistantActionKind>([
+    "generate_visuals",
+    "generate_voice",
+    "generate_subtitles",
+    "validate_subtitles",
+    "prepare_video",
+    "start_video_render",
+    "propose_schedule",
+  ]);
+
+  if (mode === "assisted") {
+    return assistedActions.has(kind);
+  }
+
+  return !["validate_text", "save_schedule", "prepare_publication", "publish", "blocked_report"].includes(kind);
+}
+
+// Creates a safe action descriptor. In assisted/automatic modes, generation
+// actions are executable; validations only require confirmation when they add
+// real human value for the selected mode.
 function actionBase({
   draft,
   kind,
   label,
+  mode,
   route,
   sensitive = false,
   blockedBy,
@@ -338,11 +436,15 @@ function actionBase({
   draft?: SavedContentDraft;
   kind: ShortsAssistantActionKind;
   label: string;
+  mode: ShortsProductionMode;
   route?: string;
   sensitive?: boolean;
   blockedBy?: string[];
   bundle?: DraftBundle;
 }): ShortsAssistantAction {
+  const requiresExplicitConfirmation = confirmationNeededForAction(kind, mode);
+  const allowedInV1 = isExecutableInMode(kind, mode);
+
   return {
     kind,
     label,
@@ -351,9 +453,9 @@ function actionBase({
     blockedBy,
     route,
     sensitive,
-    allowedInV1: false,
-    requiresExplicitConfirmation: true,
-    placeholder: true,
+    allowedInV1,
+    requiresExplicitConfirmation,
+    placeholder: !allowedInV1,
     estimatedSeconds: estimateActionSeconds(kind, bundle),
     costEstimate: estimateActionCost(kind, bundle),
   };
@@ -361,7 +463,7 @@ function actionBase({
 
 // Chooses the next useful action for one draft from canonical workflow state.
 // It never proposes a step already validated by getShortWorkflowState.
-function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
+function draftAction(bundle: DraftBundle, mode: ShortsProductionMode): ShortsAssistantAction | null {
   const { draft, media, video, workflow } = bundle;
 
   if (publicationStatuses.has(draft.status)) {
@@ -373,6 +475,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       draft,
       kind: "validate_text",
       label: "Valider le texte avant toute generation.",
+      mode,
       route: `/interface/post-creation/shorts/drafts`,
       sensitive: true,
       bundle,
@@ -384,6 +487,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       draft,
       kind: "generate_visuals",
       label: "Generer ou completer les visuels manquants.",
+      mode,
       route: `/interface/post-creation/shorts/visuals`,
       bundle,
     });
@@ -394,6 +498,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       draft,
       kind: "validate_visuals",
       label: "Valider les visuels retenus.",
+      mode,
       route: `/interface/post-creation/shorts/visuals`,
       sensitive: true,
       bundle,
@@ -405,6 +510,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       draft,
       kind: "generate_voice",
       label: workflow.voice === "error" ? "Relancer la generation de voix." : "Generer la voix-off.",
+      mode,
       route: `/interface/post-creation/shorts/voice`,
       bundle,
     });
@@ -415,6 +521,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       draft,
       kind: "validate_voice",
       label: "Valider la voix-off avant les sous-titres.",
+      mode,
       route: `/interface/post-creation/shorts/voice`,
       sensitive: true,
       bundle,
@@ -426,6 +533,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       draft,
       kind: "generate_subtitles",
       label: workflow.subtitles === "error" ? "Relancer les sous-titres." : "Generer les sous-titres.",
+      mode,
       route: `/interface/post-creation/shorts/voice`,
       bundle,
     });
@@ -436,8 +544,8 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       draft,
       kind: "validate_subtitles",
       label: "Valider les sous-titres avant le montage.",
+      mode,
       route: `/interface/post-creation/shorts/voice`,
-      sensitive: true,
       bundle,
     });
   }
@@ -447,6 +555,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       draft,
       kind: "prepare_video",
       label: "Preparer le manifest video pour le renderer.",
+      mode,
       route: `/interface/post-creation/shorts/video`,
       bundle,
     });
@@ -457,6 +566,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       draft,
       kind: "start_video_render",
       label: "Lancer ou relancer le rendu video Railway.",
+      mode,
       route: `/interface/post-creation/shorts/video`,
       bundle,
     });
@@ -467,6 +577,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       draft,
       kind: "validate_video",
       label: "Valider manuellement la video finale.",
+      mode,
       route: `/interface/post-creation/shorts/video`,
       sensitive: true,
       bundle,
@@ -478,6 +589,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       draft,
       kind: "propose_schedule",
       label: "Proposer un creneau de programmation.",
+      mode,
       route: `/interface/post-creation/shorts/programming`,
       bundle,
     });
@@ -488,6 +600,7 @@ function draftAction(bundle: DraftBundle): ShortsAssistantAction | null {
       draft,
       kind: "blocked_report",
       label: "Relire le media pipeline: etat indisponible.",
+      mode,
       blockedBy: bundle.readErrors,
       route: `/interface/post-creation/shorts/drafts`,
       sensitive: false,
@@ -517,6 +630,113 @@ function blockedReasons(bundle: DraftBundle, action: ShortsAssistantAction | nul
   }
 
   return [...new Set(reasons)];
+}
+
+// Converts raw workflow status into the simplified timeline state used by the
+// production dashboard.
+function timelineState({
+  status,
+  validatesHumanChoice = false,
+}: {
+  status: ShortWorkflowState[keyof Pick<ShortWorkflowState, "visuals" | "voice" | "subtitles" | "video" | "readyToPublish">];
+  validatesHumanChoice?: boolean;
+}): ShortsProductionTimelineStep["state"] {
+  if (status === "validated") {
+    return "done";
+  }
+  if (status === "generating" || status === "in_progress") {
+    return "running";
+  }
+  if (status === "ready") {
+    return validatesHumanChoice ? "waiting_validation" : "done";
+  }
+  if (status === "error") {
+    return "blocked";
+  }
+  return "pending";
+}
+
+// Builds the per-draft production timeline used by the UI. It keeps the
+// operator focused on generated assets and useful validation points.
+function buildDraftTimeline(bundle: DraftBundle): ShortsProductionTimelineStep[] {
+  const { workflow } = bundle;
+  const routeBase = "/interface/post-creation/shorts";
+  const visualCost = estimateActionCost("generate_visuals", bundle);
+  const voiceCost = estimateActionCost("generate_voice", bundle);
+  const subtitleCost = estimateActionCost("generate_subtitles", bundle);
+  const renderCost = estimateActionCost("start_video_render", bundle);
+  const videoState = bundle.video?.status === "processing" || bundle.video?.status === "queued"
+    ? "running"
+    : timelineState({ status: workflow.video, validatesHumanChoice: true });
+
+  return [
+    {
+      id: "visuals",
+      label: "Generation des visuels",
+      state: timelineState({ status: workflow.visuals, validatesHumanChoice: true }),
+      detail: workflow.reasons.visuals,
+      durationLabel: formatDurationLabel(estimateActionSeconds("generate_visuals", bundle)),
+      costEstimate: visualCost,
+      route: `${routeBase}/visuals`,
+      canOpen: true,
+      canValidate: workflow.visuals === "ready",
+    },
+    {
+      id: "voice",
+      label: "Generation des voix",
+      state: timelineState({ status: workflow.voice, validatesHumanChoice: true }),
+      detail: workflow.reasons.voice,
+      durationLabel: formatDurationLabel(estimateActionSeconds("generate_voice", bundle)),
+      costEstimate: voiceCost,
+      route: `${routeBase}/voice`,
+      canOpen: true,
+      canValidate: workflow.voice === "ready",
+    },
+    {
+      id: "subtitles",
+      label: "Generation des sous-titres",
+      state: timelineState({ status: workflow.subtitles }),
+      detail: workflow.reasons.subtitles,
+      durationLabel: formatDurationLabel(estimateActionSeconds("generate_subtitles", bundle)),
+      costEstimate: subtitleCost,
+      route: `${routeBase}/voice`,
+      canOpen: true,
+      canValidate: false,
+    },
+    {
+      id: "video",
+      label: "Generation video",
+      state: videoState,
+      detail: workflow.reasons.video,
+      durationLabel: formatDurationLabel(estimateActionSeconds("start_video_render", bundle)),
+      costEstimate: renderCost,
+      route: `${routeBase}/video`,
+      canOpen: true,
+      canValidate: Boolean(bundle.video?.status === "completed" && !bundle.video.videoValidated),
+    },
+    {
+      id: "planning",
+      label: "Planning",
+      state: workflow.video === "validated" || bundle.video?.videoValidated ? "waiting_validation" : "pending",
+      detail: "Preparation automatique de creneaux; enregistrement seulement apres validation.",
+      durationLabel: formatDurationLabel(estimateActionSeconds("propose_schedule", bundle)),
+      costEstimate: null,
+      route: `${routeBase}/programming`,
+      canOpen: true,
+      canValidate: workflow.video === "validated" || Boolean(bundle.video?.videoValidated),
+    },
+    {
+      id: "publication",
+      label: "Publication",
+      state: workflow.readyToPublish === "validated" ? "waiting_validation" : "pending",
+      detail: "Publication reelle toujours bloquee par autorisation humaine explicite.",
+      durationLabel: "0 min",
+      costEstimate: null,
+      route: `${routeBase}/programming`,
+      canOpen: true,
+      canValidate: workflow.readyToPublish === "validated",
+    },
+  ];
 }
 
 // Reads all state needed for one draft. Promise.allSettled keeps the plan useful
@@ -571,13 +791,14 @@ async function readDraftBundle(draft: SavedContentDraft, userId: string): Promis
 }
 
 // Converts internal draft data to the payload consumed by the dashboard.
-function summarizeDraft(bundle: DraftBundle): ShortsAssistantDraftSummary {
-  const action = draftAction(bundle);
+function summarizeDraft(bundle: DraftBundle, mode: ShortsProductionMode): ShortsAssistantDraftSummary {
+  const action = draftAction(bundle, mode);
   return {
     id: bundle.draft.id,
     title: bundle.draft.title,
     status: bundle.draft.status,
     workflow: bundle.workflow,
+    timeline: buildDraftTimeline(bundle),
     blockedReasons: blockedReasons(bundle, action),
     nextAction: action,
   };
@@ -818,16 +1039,19 @@ function buildDetailedAnalysis({
 // dashboard and never executes the plan.
 export async function buildShortsAssistantPlan({
   command,
+  mode = "assisted",
   userId,
 }: {
   command: string;
+  mode?: ShortsProductionMode;
   userId: string;
 }): Promise<ShortsAssistantPlan> {
   const normalizedCommand = command.trim().slice(0, 1000);
+  const productionMode = normalizeProductionMode(mode);
   const intent = detectShortsIntent(normalizedCommand);
   const drafts = await readContentDrafts({ status: "all", userId });
   const bundles = await Promise.all(drafts.map((draft) => readDraftBundle(draft, userId)));
-  const summaries = bundles.map(summarizeDraft);
+  const summaries = bundles.map((bundle) => summarizeDraft(bundle, productionMode));
   const actions = summaries
     .map((summary) => summary.nextAction)
     .filter((action): action is ShortsAssistantAction => Boolean(action));
@@ -891,6 +1115,7 @@ export async function buildShortsAssistantPlan({
   return {
     objective: objectiveForIntent(intent),
     intent,
+    mode: productionMode,
     command: normalizedCommand,
     generatedAt: new Date().toISOString(),
     guardrails,
@@ -910,28 +1135,221 @@ export async function buildShortsAssistantPlan({
     blockedDrafts,
     detailedAnalysis,
     warnings: [
-      "V1 plan-only: aucune mutation Supabase n'est declenchee depuis ce module.",
-      "Les actions de validation, programmation et publication restent sensibles.",
-      "Les actions de generation sont listees mais pas encore branchees a l'execution groupee.",
+      productionMode === "manual"
+        ? "Mode Manuel: aucune execution groupee n'est lancee depuis Pilotage IA."
+        : "Les generations IA autorisees peuvent etre lancees sans confirmation prealable.",
+      "La programmation definitive et la publication reelle restent bloquees par validation humaine.",
+      "Le runner relit Supabase apres chaque passe pour reprendre le pipeline proprement.",
     ],
     execution: {
-      mode: "plan_only",
-      summary: "Le plan peut etre relu, mais l'execution groupee est un placeholder securise.",
+      mode: productionMode,
+      summary: productionMode === "manual"
+        ? "Chaque etape reste lancee individuellement dans ses modules dedies."
+        : "Le pipeline peut executer automatiquement les generations autorisees puis s'arreter aux validations utiles.",
       blockedActions: actions
-        .filter((action) => action.sensitive || action.placeholder)
+        .filter((action) => action.requiresExplicitConfirmation || action.placeholder)
         .map((action) => action.label),
     },
   };
 }
 
-// Execution preview deliberately simulates progress instead of mutating data.
-// A future runner should replace this only after per-step confirmation exists.
+// Executes a single whitelisted Shorts action. Callers must filter the action
+// with isExecutableInMode before invoking this function.
+async function executeShortsAction({
+  action,
+  userId,
+}: {
+  action: ShortsAssistantAction;
+  userId: string;
+}) {
+  if (!action.draftId && action.kind !== "propose_schedule") {
+    throw new Error("Action brouillon requise.");
+  }
+
+  const draftId = action.draftId as string;
+
+  if (action.kind === "generate_visuals") {
+    await requestDraftVisualGeneration({ draftId, userId });
+    await recordVisualCost({ action: "shorts_production_generate_visuals", draftId, userId });
+    return "Visuels generes ou demandes.";
+  }
+
+  if (action.kind === "validate_visuals") {
+    await validateDraftVisuals({ draftId, userId });
+    return "Visuels valides automatiquement.";
+  }
+
+  if (action.kind === "generate_voice") {
+    await generateDraftVoice({ draftId, userId });
+    const media = await readMediaPipelineState({ draftId, includeSuggestions: true, userId });
+    await recordVoiceCostFromMedia({ action: "shorts_production_generate_voice", draftId, media, userId });
+    return "Voix generee.";
+  }
+
+  if (action.kind === "validate_voice") {
+    await validateDraftVoice({ draftId, userId });
+    return "Voix validee automatiquement.";
+  }
+
+  if (action.kind === "generate_subtitles") {
+    await generateDraftSubtitles({ draftId, userId });
+    const media = await readMediaPipelineState({ draftId, includeSuggestions: true, userId });
+    await recordSubtitleCostFromMedia({ action: "shorts_production_generate_subtitles", draftId, media, userId });
+    return "Sous-titres generes.";
+  }
+
+  if (action.kind === "validate_subtitles") {
+    await validateDraftSubtitles({ draftId, userId });
+    return "Sous-titres valides automatiquement.";
+  }
+
+  if (action.kind === "prepare_video") {
+    await prepareDraftVideo({ draftId, userId });
+    return "Manifest video prepare.";
+  }
+
+  if (action.kind === "start_video_render") {
+    const { job, reusedActiveJob } = await createOrReuseVideoRenderJob({
+      draftId,
+      mode: "start",
+      userId,
+    });
+
+    if (job.status === "queued") {
+      try {
+        await dispatchVideoRenderJob(job.id);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Renderer Railway indisponible.";
+        await markVideoRenderJobFailed(job.id, message);
+        throw new Error(message);
+      }
+    }
+
+    const videoRender = await readVideoRenderJobState({ draftId, userId });
+    if (videoRender?.status === "completed") {
+      await recordVideoRenderCost({ draftId, userId, videoRender });
+    }
+
+    return reusedActiveJob ? "Rendu video deja en cours." : "Rendu video lance.";
+  }
+
+  if (action.kind === "validate_video") {
+    await validateCompletedVideoRenderJob({ draftId, userId });
+    return "Video finale validee automatiquement.";
+  }
+
+  if (action.kind === "propose_schedule") {
+    return "Planning prepare sans programmation definitive.";
+  }
+
+  throw new Error(`Action non executable automatiquement: ${action.kind}.`);
+}
+
+// Detects repeated execution passes so the runner does not loop forever when a
+// remote provider leaves durable state unchanged.
+function executableActionSignature(actions: ShortsAssistantAction[]) {
+  return actions
+    .map((action) => `${action.kind}:${action.draftId ?? "global"}`)
+    .sort()
+    .join("|");
+}
+
+// Runs the semi-automatic Shorts production loop. It never saves schedules,
+// never publishes, and stops as soon as the selected mode requires validation.
+export async function executeShortsProductionPipeline({
+  command,
+  mode,
+  userId,
+}: {
+  command: string;
+  mode: ShortsProductionMode;
+  userId: string;
+}): Promise<ShortsAssistantExecutionPreview & { logs: ShortsProductionRunLog[]; plan: ShortsAssistantPlan }> {
+  const productionMode = normalizeProductionMode(mode);
+  const logs: ShortsProductionRunLog[] = [];
+  const seenPasses = new Set<string>();
+  let plan = await buildShortsAssistantPlan({ command, mode: productionMode, userId });
+
+  if (productionMode === "manual") {
+    return {
+      ...previewShortsAssistantExecution(plan),
+      logs,
+      message: "Mode Manuel actif: aucune execution groupee lancee.",
+      plan,
+    };
+  }
+
+  for (let pass = 0; pass < 8; pass += 1) {
+    const executableActions = plan.actions.filter((action) =>
+      action.allowedInV1 &&
+      !action.placeholder &&
+      !action.requiresExplicitConfirmation &&
+      isExecutableInMode(action.kind, productionMode),
+    );
+    const signature = executableActionSignature(executableActions);
+
+    if (executableActions.length === 0 || seenPasses.has(signature)) {
+      break;
+    }
+    seenPasses.add(signature);
+
+    for (const action of executableActions) {
+      try {
+        const message = await executeShortsAction({ action, userId });
+        logs.push({
+          action: action.kind,
+          draftId: action.draftId,
+          draftTitle: action.draftTitle,
+          result: "success",
+          message,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logs.push({
+          action: action.kind,
+          draftId: action.draftId,
+          draftTitle: action.draftTitle,
+          result: "failed",
+          message,
+        });
+        plan = await buildShortsAssistantPlan({ command, mode: productionMode, userId });
+        return {
+          ...previewShortsAssistantExecution(plan),
+          executed: logs.some((log) => log.result === "success"),
+          logs,
+          message: `Pipeline arrete sur erreur: ${message}`,
+          plan,
+        };
+      }
+    }
+
+    plan = await buildShortsAssistantPlan({ command, mode: productionMode, userId });
+  }
+
+  const stoppedFor = plan.actions
+    .filter((action) => action.requiresExplicitConfirmation || action.placeholder)
+    .map((action) => action.label);
+
+  return {
+    ...previewShortsAssistantExecution(plan),
+    executed: logs.some((log) => log.result === "success"),
+    blockedActions: stoppedFor,
+    logs,
+    message: logs.length
+      ? "Pipeline execute jusqu'au prochain point de validation utile."
+      : "Aucune generation automatique disponible pour le mode actuel.",
+    plan,
+  };
+}
+
+// Builds a progress payload without mutating data. The production runner reuses
+// it after each execution pass to keep the response shape stable.
 export function previewShortsAssistantExecution(plan: ShortsAssistantPlan): ShortsAssistantExecutionPreview {
   return {
     ok: true,
     executed: false,
     message:
-      "Execution non declenchee: la V1 du Pilotage IA produit un plan et bloque les mutations groupees.",
+      "Execution non declenchee: relis le plan et choisis un mode de production.",
     blockedActions: plan.execution.blockedActions,
     progress: {
       completedSteps: 0,

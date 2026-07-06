@@ -22,6 +22,14 @@ export type GlobalAssistantInput = {
 };
 
 type AssistantRunMode = Exclude<GlobalAssistantRunMode, "auto">;
+type ConversationDecision = {
+  action_prioritaire: string;
+  pourquoi_maintenant: string;
+  temps_estime: string;
+  cout_estime: string;
+  risque: string;
+  pret_a_executer: boolean;
+};
 
 function normalizeMessage(message: string) {
   return message
@@ -91,16 +99,31 @@ function answerConversation(input: GlobalAssistantInput) {
   }
 
   if (normalized.includes("module") || normalized.includes("cockpit") || normalized.includes("etat")) {
+    const healthyModules = context.operationalModules
+      .slice(0, 3)
+      .map((item) => `${item.name}: ${item.summary}`);
+    const blockers = [...context.blockedModules, ...context.externalReviewModules]
+      .slice(0, 4)
+      .map((item) => `${item.name}: ${item.nextAction}`);
+    const attention = [...context.reviewModules, ...context.migratingModules]
+      .slice(0, 4)
+      .map((item) => `${item.name}: ${item.status}`);
+
     return [
       "Etat du cockpit :",
       context.siteSummary,
       "",
-      "Modules a surveiller :",
-      formatList(
-        [...context.blockedModules, ...context.reviewModules, ...context.externalReviewModules]
-          .map((item) => `${item.name}: ${item.status} - ${item.nextAction}`),
-        "Aucun module critique detecte.",
-      ),
+      "Ce qui va bien :",
+      formatList(healthyModules, "Aucun module operationnel notable dans la lecture actuelle."),
+      "",
+      "Ce qui bloque :",
+      formatList(blockers, "Aucun blocage critique detecte."),
+      "",
+      "Ce qui merite attention :",
+      formatList(attention, "Aucun point de surveillance prioritaire."),
+      "",
+      "Meilleure prochaine action :",
+      context.nextPriorityAction,
     ].join("\n");
   }
 
@@ -149,6 +172,19 @@ function answerConversation(input: GlobalAssistantInput) {
   ].join("\n");
 }
 
+// Generates a decision block for Conversation mode. It stays read-only and does
+// not imply that execution is available.
+function buildConversationDecision(context: ProjectContext): ConversationDecision {
+  return {
+    action_prioritaire: context.nextPriorityAction,
+    pourquoi_maintenant: "C'est l'action qui reduit le plus directement le prochain blocage visible du cockpit.",
+    temps_estime: "1 min",
+    cout_estime: "0 EUR estime",
+    risque: context.detectedRisks[0] ?? "Aucun risque bloquant detecte.",
+    pret_a_executer: false,
+  };
+}
+
 function conversationSources(context: ProjectContext) {
   return [
     "Sources consultees :",
@@ -170,6 +206,7 @@ export async function globalAssistant(input: GlobalAssistantInput) {
       ok: true,
       activeMode: "conversation",
       answer: answerConversation(input),
+      decision: buildConversationDecision(input.context),
       detailedAnalysis: conversationSources(input.context),
       workflow: null,
       context: {

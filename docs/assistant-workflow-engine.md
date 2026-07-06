@@ -85,12 +85,14 @@ Chaque workflow contient :
 - `id`
 - `user_intent`
 - `normalized_intent`
+- `intent_label`
 - `summary`
 - `status`
 - `current_stage`
 - `stages`
 - `actions`
 - `estimates`
+- `decision`
 - `dependencies`
 - `resources`
 - `guardrails`
@@ -100,6 +102,7 @@ Chaque action contient :
 
 - `id`
 - `type`
+- `human_label`
 - `label`
 - `draft_id`
 - `draft_title`
@@ -168,6 +171,65 @@ Le detecteur active Workflow si la commande contient une intention d'action :
 - demander explicitement un workflow ou un plan executable.
 
 Sinon, Conversation reste le mode actif.
+
+## Labels humains
+
+Les cles internes restent disponibles dans `Developper l'analyse`, mais les
+cartes principales affichent des libelles lisibles :
+
+- `analyze_cockpit` -> `Analyser le cockpit`
+- `detect_available_resources` -> `Detecter les ressources disponibles`
+- `verify_dependencies` -> `Verifier les dependances`
+- `final_report` -> `Produire le rapport final`
+- `generate_voice` -> `Generer la voix`
+- `generate_visuals` -> `Generer les visuels`
+- `generate_subtitles` -> `Generer les sous-titres`
+- `prepare_video` -> `Preparer la video`
+- `propose_schedule` -> `Proposer un planning`
+
+## Decision recommandee
+
+Chaque reponse importante expose :
+
+- action prioritaire ;
+- pourquoi maintenant ;
+- temps estime ;
+- cout estime ;
+- risque ;
+- pret a executer.
+
+En Conversation, cette decision reste une recommandation read-only. En Workflow,
+elle resume la premiere action executable et les risques visibles.
+
+## Estimations
+
+Le workflow expose :
+
+- cout LLM estime ;
+- cout voix estime ;
+- cout image estime ;
+- total estime.
+
+Si aucune action payante n'est detectee, le total affiche `0 EUR estime`.
+
+Le temps est simplifie pour l'operateur :
+
+- `1 min` pour une lecture ou analyse courte ;
+- `3 min` pour une petite action distante ;
+- `5-10 min` pour plusieurs generations ou preparations.
+
+## Memoire de decision
+
+La table `assistant_decision_memory` permet de memoriser :
+
+- decision recommandee ;
+- action choisie ;
+- date ;
+- source ;
+- statut.
+
+La fonction `saveAssistantDecisionMemory` refuse toute ecriture sans
+`confirmed=true`. Aucune decision n'est enregistree automatiquement par la V1.
 
 ## Logs
 

@@ -20,6 +20,7 @@ type WorkflowActionStatus = "pending" | "running" | "success" | "failed" | "skip
 type WorkflowAction = {
   id: string;
   type: string;
+  human_label: string;
   label: string;
   draft_id: string | null;
   draft_title: string | null;
@@ -47,6 +48,7 @@ type AssistantWorkflow = {
   id: string;
   user_intent: string;
   normalized_intent: string;
+  intent_label: string;
   summary: string;
   status: "planned" | "awaiting_confirmation" | "running" | "success" | "failed" | "cancelled";
   created_at: string;
@@ -55,8 +57,16 @@ type AssistantWorkflow = {
   actions: WorkflowAction[];
   estimates: {
     estimated_time_seconds: number;
+    estimated_time_label: string;
     estimated_cost_eur: number | null;
+    cost_breakdown: {
+      image_eur: number;
+      llm_eur: number;
+      total_eur: number;
+      voice_eur: number;
+    };
   };
+  decision: DecisionRecommendation;
   dependencies: string[];
   resources: string[];
   guardrails: string[];
@@ -68,10 +78,20 @@ type AssistantWorkflow = {
   };
 };
 
+type DecisionRecommendation = {
+  action_prioritaire: string;
+  pourquoi_maintenant: string;
+  temps_estime: string;
+  cout_estime: string;
+  risque: string;
+  pret_a_executer: boolean;
+};
+
 type AssistantResponse = {
   ok?: boolean;
   activeMode?: "conversation" | "workflow";
   answer?: string;
+  decision?: DecisionRecommendation;
   detailedAnalysis?: string;
   workflow?: AssistantWorkflow | null;
   error?: string;
@@ -124,14 +144,55 @@ function formatDuration(seconds: number) {
 
 function formatCost(value: number | null | undefined) {
   if (typeof value !== "number") {
-    return "a estimer";
+    return "0 EUR estime";
   }
 
-  return new Intl.NumberFormat("fr-FR", {
+  const formatted = new Intl.NumberFormat("fr-FR", {
     currency: "EUR",
     maximumFractionDigits: 4,
     style: "currency",
   }).format(value);
+
+  return `${formatted} estime`;
+}
+
+// Converts workflow status keys into labels suitable for the cockpit UI. The
+// raw status stays available in the technical details when needed.
+function formatWorkflowStatus(status: AssistantWorkflow["status"]) {
+  const labels: Record<AssistantWorkflow["status"], string> = {
+    awaiting_confirmation: "En attente de confirmation",
+    cancelled: "Annule",
+    failed: "Erreur",
+    planned: "Planifie",
+    running: "En execution",
+    success: "Termine",
+  };
+
+  return labels[status];
+}
+
+// Converts action status keys into readable operational states.
+function formatActionStatus(status: WorkflowActionStatus) {
+  const labels: Record<WorkflowActionStatus, string> = {
+    failed: "Erreur",
+    pending: "A faire",
+    running: "En cours",
+    skipped: "Ignore",
+    success: "Fait",
+  };
+
+  return labels[status];
+}
+
+// Converts canonical workflow stage status keys into project-manager wording.
+function formatStageStatus(status: WorkflowStage["status"]) {
+  const labels: Record<WorkflowStage["status"], string> = {
+    done: "Fait",
+    pending: "A faire",
+    running: "En cours",
+  };
+
+  return labels[status];
 }
 
 type RunModePreference = "auto" | "conversation" | "workflow";
@@ -153,6 +214,7 @@ export function AssistantCommandCenter({
   const [activeRunMode, setActiveRunMode] = useState<"conversation" | "workflow">("conversation");
   const [command, setCommand] = useState(exampleCommands[0]);
   const [conversationAnswer, setConversationAnswer] = useState<string | null>(null);
+  const [conversationDecision, setConversationDecision] = useState<DecisionRecommendation | null>(null);
   const [workflow, setWorkflow] = useState<AssistantWorkflow | null>(null);
   const [detailedAnalysis, setDetailedAnalysis] = useState<string | null>(null);
   const [isPlanning, setIsPlanning] = useState(false);
@@ -193,6 +255,7 @@ export function AssistantCommandCenter({
 
     setIsPlanning(true);
     setConversationAnswer(null);
+    setConversationDecision(null);
     setWorkflow(null);
     setDetailedAnalysis(null);
     setError(null);
@@ -215,6 +278,7 @@ export function AssistantCommandCenter({
 
       setActiveRunMode(payload.activeMode ?? (payload.workflow ? "workflow" : "conversation"));
       setConversationAnswer(payload.activeMode === "conversation" ? payload.answer ?? null : null);
+      setConversationDecision(payload.activeMode === "conversation" ? payload.decision ?? null : null);
       setWorkflow(payload.workflow ?? null);
       setDetailedAnalysis(payload.detailedAnalysis ?? null);
     } catch (requestError) {
@@ -268,6 +332,7 @@ export function AssistantCommandCenter({
       setCommand(workflow.user_intent);
       setWorkflow(null);
       setConversationAnswer(null);
+      setConversationDecision(null);
     }
   }
 
@@ -371,6 +436,7 @@ export function AssistantCommandCenter({
         {conversationAnswer ? (
           <ConversationCard
             answer={conversationAnswer}
+            decision={conversationDecision}
             detailedAnalysis={detailedAnalysis}
           />
         ) : null}
@@ -446,9 +512,11 @@ export function AssistantCommandCenter({
 // advice lightweight, with sources hidden behind the analysis drawer.
 function ConversationCard({
   answer,
+  decision,
   detailedAnalysis,
 }: {
   answer: string;
+  decision: DecisionRecommendation | null;
   detailedAnalysis: string | null;
 }) {
   return (
@@ -469,6 +537,7 @@ function ConversationCard({
       <p className="mt-4 whitespace-pre-line leading-7 text-[#A7B0C0]">
         {answer}
       </p>
+      {decision ? <DecisionCard decision={decision} /> : null}
       {detailedAnalysis ? (
         <details className="mt-5 rounded-md border border-[#1D2A44] bg-[#08111A] p-3 text-sm">
           <summary className="cursor-pointer font-semibold text-[#39E6D0]">
@@ -511,20 +580,29 @@ function WorkflowCard({
             Plan operationnel
           </p>
           <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">
-            {workflow.normalized_intent}
+            {workflow.intent_label}
           </h2>
           <p className="mt-3 leading-7 text-[#A7B0C0]">{workflow.summary}</p>
         </div>
         <span className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#CBD5E1]">
-          {workflow.status}
+          {formatWorkflowStatus(workflow.status)}
         </span>
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-3">
         <Metric label="Actions" value={workflow.actions.length} />
-        <Metric label="Temps" value={formatDuration(workflow.estimates.estimated_time_seconds)} />
+        <Metric label="Temps" value={workflow.estimates.estimated_time_label || formatDuration(workflow.estimates.estimated_time_seconds)} />
         <Metric label="Cout" value={formatCost(workflow.estimates.estimated_cost_eur)} />
       </div>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-4">
+        <Metric label="LLM" value={formatCost(workflow.estimates.cost_breakdown.llm_eur)} />
+        <Metric label="Voix" value={formatCost(workflow.estimates.cost_breakdown.voice_eur)} />
+        <Metric label="Image" value={formatCost(workflow.estimates.cost_breakdown.image_eur)} />
+        <Metric label="Total" value={formatCost(workflow.estimates.cost_breakdown.total_eur)} />
+      </div>
+
+      <DecisionCard decision={workflow.decision} />
 
       <div className="mt-5 h-2 overflow-hidden rounded-full bg-[#08111A]">
         <div className="h-full bg-[#39E6D0] transition-all" style={{ width: `${progress}%` }} />
@@ -534,7 +612,7 @@ function WorkflowCard({
         {workflow.stages.map((stage) => (
           <div key={stage.key} className="grid gap-2 rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm md:grid-cols-[1fr_120px]">
             <span className="font-semibold text-[#F8FAFC]">{stage.label}</span>
-            <span className="text-[#A7B0C0]">{stage.status}</span>
+            <span className="text-[#A7B0C0]">{formatStageStatus(stage.status)}</span>
           </div>
         ))}
       </div>
@@ -544,10 +622,10 @@ function WorkflowCard({
           <div key={action.id} className="grid gap-2 rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-3 text-sm md:grid-cols-[1fr_120px_100px]">
             <div>
               <p className="font-semibold text-[#F8FAFC]">
-                {action.draft_title ?? "Global"} - {action.label}
+                {action.draft_title ?? "Global"} - {action.human_label}
               </p>
               <p className="mt-1 text-xs text-[#64748B]">
-                {action.type} - {action.estimated_time_seconds}s - {formatCost(action.estimated_cost?.estimatedCostEur)}
+                {action.label} - {action.estimated_time_seconds}s - {formatCost(action.estimated_cost?.estimatedCostEur)}
               </p>
               {action.result ? <p className="mt-1 text-xs text-[#A7B0C0]">{action.result}</p> : null}
               {action.error ? <p className="mt-1 text-xs font-semibold text-[#FDBA74]">{action.error}</p> : null}
@@ -555,7 +633,7 @@ function WorkflowCard({
             <span className={action.is_sensitive ? "text-[#FDBA74]" : "text-[#86EFAC]"}>
               {action.is_sensitive ? "sensible" : action.placeholder ? "placeholder" : "V1"}
             </span>
-            <span className="text-[#CBD5E1]">{action.status}</span>
+            <span className="text-[#CBD5E1]">{formatActionStatus(action.status)}</span>
           </div>
         ))}
       </div>
@@ -593,6 +671,7 @@ function WorkflowCard({
         </summary>
         <div className="mt-3 grid gap-3 text-[#A7B0C0]">
           <InfoLine label="Objectif" value={workflow.analysis.objective} />
+          <InfoLine label="Intention technique" value={workflow.normalized_intent} />
           <InfoLine label="Ressources" value={workflow.resources.join(" ; ")} />
           <InfoLine label="Dependances" value={workflow.dependencies.join(" ; ") || "aucune"} />
           <InfoLine label="Risques" value={workflow.analysis.risks.join(" ; ")} />
@@ -601,6 +680,23 @@ function WorkflowCard({
         </div>
       </details>
     </SectionContainer>
+  );
+}
+
+// Renders the decision section requested for both Conversation and Workflow.
+function DecisionCard({ decision }: { decision: DecisionRecommendation }) {
+  return (
+    <div className="mt-5 rounded-md border border-[#39E6D0]/30 bg-[#39E6D0]/10 p-3 text-sm">
+      <p className="font-semibold text-[#F8FAFC]">Decision recommandee</p>
+      <div className="mt-3 grid gap-2 text-[#A7B0C0]">
+        <InfoLine label="Action prioritaire" value={decision.action_prioritaire} />
+        <InfoLine label="Pourquoi maintenant" value={decision.pourquoi_maintenant} />
+        <InfoLine label="Temps estime" value={decision.temps_estime} />
+        <InfoLine label="Cout estime" value={decision.cout_estime} />
+        <InfoLine label="Risque" value={decision.risque} />
+        <InfoLine label="Pret a executer" value={decision.pret_a_executer ? "oui" : "non"} />
+      </div>
+    </div>
   );
 }
 

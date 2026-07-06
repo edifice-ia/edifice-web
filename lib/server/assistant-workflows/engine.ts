@@ -84,6 +84,7 @@ export type AssistantWorkflowStage =
 export type AssistantWorkflowAction = {
   id: string;
   type: AssistantWorkflowActionType;
+  human_label: string;
   label: string;
   draft_id: string | null;
   draft_title: string | null;
@@ -102,6 +103,7 @@ export type AssistantWorkflow = {
   id: string;
   user_intent: string;
   normalized_intent: AssistantWorkflowIntent;
+  intent_label: string;
   summary: string;
   status: "planned" | "awaiting_confirmation" | "running" | "success" | "failed" | "cancelled";
   created_at: string;
@@ -114,8 +116,16 @@ export type AssistantWorkflow = {
   actions: AssistantWorkflowAction[];
   estimates: {
     estimated_time_seconds: number;
+    estimated_time_label: string;
     estimated_cost_eur: number | null;
+    cost_breakdown: {
+      image_eur: number;
+      llm_eur: number;
+      total_eur: number;
+      voice_eur: number;
+    };
   };
+  decision: AssistantDecisionRecommendation;
   dependencies: string[];
   resources: string[];
   guardrails: string[];
@@ -125,6 +135,15 @@ export type AssistantWorkflow = {
     risks: string[];
     notes: string[];
   };
+};
+
+export type AssistantDecisionRecommendation = {
+  action_prioritaire: string;
+  pourquoi_maintenant: string;
+  temps_estime: string;
+  cout_estime: string;
+  risque: string;
+  pret_a_executer: boolean;
 };
 
 export type AssistantWorkflowExecutionResult = {
@@ -152,6 +171,47 @@ const workflowStageLabels: Record<AssistantWorkflowStage, string> = {
   execution: "Execution",
   progress_tracking: "Suivi en temps reel",
   final_report: "Rapport final",
+};
+
+const actionHumanLabels: Record<AssistantWorkflowActionType, string> = {
+  analyze_cockpit: "Analyser le cockpit",
+  analyze_project: "Analyser le projet",
+  detect_available_resources: "Detecter les ressources disponibles",
+  final_report: "Produire le rapport final",
+  generate_subtitles: "Generer les sous-titres",
+  generate_visuals: "Generer les visuels",
+  generate_voice: "Generer la voix",
+  organize_work: "Organiser le travail",
+  prepare_next_steps: "Preparer les prochaines etapes",
+  prepare_publication: "Preparer la publication",
+  prepare_video: "Preparer la video",
+  propose_schedule: "Proposer un planning",
+  publish: "Publier",
+  save_schedule: "Enregistrer le planning",
+  start_video_render: "Lancer le rendu video",
+  validate_draft_text: "Valider le texte",
+  validate_subtitles: "Valider les sous-titres",
+  validate_video: "Valider la video",
+  validate_visuals: "Valider les visuels",
+  validate_voice: "Valider la voix",
+  verify_dependencies: "Verifier les dependances",
+};
+
+const intentHumanLabels: Record<AssistantWorkflowIntent, string> = {
+  analyze_cockpit: "Analyser le cockpit",
+  analyze_project: "Analyser le projet",
+  finish_started_drafts: "Terminer les brouillons",
+  general_orchestration: "Preparer un plan d'action",
+  generate_subtitles: "Generer les sous-titres",
+  generate_voices: "Generer les voix",
+  organize_work: "Organiser le travail",
+  prepare_media: "Preparer les medias",
+  prepare_next_steps: "Preparer les prochaines etapes",
+  prepare_videos: "Preparer les videos",
+  prepare_week: "Preparer une semaine",
+  publish: "Publier",
+  resume_draft: "Reprendre un brouillon",
+  schedule_ready_videos: "Programmer les videos pretes",
 };
 
 const safeExecutableActions = new Set<AssistantWorkflowActionType>([
@@ -187,6 +247,16 @@ const workflowGuardrails = [
   "Le runner s'arrete a la premiere erreur technique.",
   "Les secrets et tokens OAuth restent cote serveur.",
 ];
+
+// Maps internal action identifiers to human cockpit labels. The technical key
+// remains available in the details drawer, but the main UI uses this label.
+export function humanizeAssistantActionType(type: AssistantWorkflowActionType) {
+  return actionHumanLabels[type];
+}
+
+function humanizeIntent(intent: AssistantWorkflowIntent) {
+  return intentHumanLabels[intent];
+}
 
 // Normalizes natural language once for every assistant command. All modules use
 // this decision point instead of keeping separate prompt-era intent detectors.
@@ -240,19 +310,55 @@ function makeStages(current: AssistantWorkflowStage): AssistantWorkflow["stages"
   }));
 }
 
-function sumKnownCosts(actions: AssistantWorkflowAction[]) {
-  let hasKnownCost = false;
-  let total = 0;
+function addCost(value: number, addition: number | null | undefined) {
+  return value + (typeof addition === "number" && Number.isFinite(addition) ? addition : 0);
+}
+
+// Calculates an approximate but always displayable cost breakdown. Unknown or
+// non-paid actions become 0 EUR instead of leaking "a estimer" into the UI.
+function estimateWorkflowCostBreakdown(actions: AssistantWorkflowAction[]) {
+  let image = 0;
+  let llm = 0;
+  let voice = 0;
 
   actions.forEach((action) => {
-    const cost = action.estimated_cost?.estimatedCostEur;
-    if (typeof cost === "number" && Number.isFinite(cost)) {
-      hasKnownCost = true;
-      total += cost;
+    const estimate = action.estimated_cost;
+    if (!estimate) {
+      return;
+    }
+
+    if (estimate.category === "image_generation" || estimate.category === "image_analysis") {
+      image = addCost(image, estimate.estimatedCostEur);
+      return;
+    }
+    if (estimate.category === "voice_generation" || estimate.category === "subtitle_generation") {
+      voice = addCost(voice, estimate.estimatedCostEur);
+      return;
+    }
+    if (estimate.provider === "openai") {
+      llm = addCost(llm, estimate.estimatedCostEur);
     }
   });
 
-  return hasKnownCost ? Math.round(total * 1_000_000) / 1_000_000 : null;
+  const rounded = (value: number) => Math.round(value * 1_000_000) / 1_000_000;
+  const total = rounded(image + llm + voice);
+  return {
+    image_eur: rounded(image),
+    llm_eur: rounded(llm),
+    total_eur: total,
+    voice_eur: rounded(voice),
+  };
+}
+
+// Converts raw seconds into an operator-friendly estimate.
+function estimateWorkflowTimeLabel(actions: AssistantWorkflowAction[]) {
+  const paidOrRemoteActions = actions.filter((action) =>
+    ["generate_visuals", "generate_voice", "generate_subtitles", "prepare_video"].includes(action.type),
+  ).length;
+
+  if (paidOrRemoteActions === 0 && actions.length <= 4) return "1 min";
+  if (paidOrRemoteActions <= 1 && actions.length <= 5) return "3 min";
+  return "5-10 min";
 }
 
 function actionId(workflowId: string, index: number, type: AssistantWorkflowActionType, draftId?: string | null) {
@@ -282,6 +388,7 @@ function baseAction({
   return {
     id,
     type,
+    human_label: humanizeAssistantActionType(type),
     label,
     draft_id: draftId,
     draft_title: draftTitle,
@@ -440,7 +547,37 @@ function summarizeWorkflow({
   const sensitiveCount = actions.filter((action) => action.is_sensitive).length;
   const state = shortsPlan?.dashboard.currentState ?? context.siteSummary;
 
-  return `${intent}: ${state} ${actions.length} action(s), ${executableCount} executable(s) en V1, ${sensitiveCount} sensible(s).`;
+  return `${humanizeIntent(intent)} : ${state} ${actions.length} action(s), ${executableCount} executable(s) en V1, ${sensitiveCount} sensible(s).`;
+}
+
+// Generates the decision block shown under every important assistant response.
+// It turns raw workflow state into project-manager language.
+function buildWorkflowDecision({
+  actions,
+  context,
+  costBreakdown,
+  timeLabel,
+}: {
+  actions: AssistantWorkflowAction[];
+  context: ProjectContext;
+  costBreakdown: AssistantWorkflow["estimates"]["cost_breakdown"];
+  timeLabel: string;
+}): AssistantDecisionRecommendation {
+  const nextExecutable = actions.find((action) => !action.is_sensitive && !action.placeholder);
+  const firstSensitive = actions.find((action) => action.is_sensitive);
+  const action = nextExecutable?.label ?? firstSensitive?.label ?? context.nextPriorityAction;
+  const risk = context.detectedRisks[0] ?? "Aucun risque bloquant detecte.";
+
+  return {
+    action_prioritaire: action,
+    pourquoi_maintenant: nextExecutable
+      ? "C'est l'action la plus directement executable sans contourner les garde-fous."
+      : "Une validation humaine ou une dependance doit etre levee avant execution.",
+    temps_estime: timeLabel,
+    cout_estime: `${costBreakdown.total_eur.toLocaleString("fr-FR", { maximumFractionDigits: 4 })} EUR estime`,
+    risque: risk,
+    pret_a_executer: Boolean(nextExecutable),
+  };
 }
 
 // Creates the single canonical assistant workflow. Every command follows the
@@ -467,10 +604,13 @@ export async function planAssistantWorkflow({
     ? createShortsActions({ shortsPlan, workflowId })
     : createProjectActions({ context: projectContext, intent: normalizedIntent, workflowId });
   const actions = [...frameworkActions, ...domainActions];
+  const costBreakdown = estimateWorkflowCostBreakdown(actions);
+  const timeLabel = estimateWorkflowTimeLabel(actions);
   const workflow: AssistantWorkflow = {
     id: workflowId,
     user_intent: userIntent,
     normalized_intent: normalizedIntent,
+    intent_label: humanizeIntent(normalizedIntent),
     summary: "",
     status: "awaiting_confirmation",
     created_at: new Date().toISOString(),
@@ -479,8 +619,16 @@ export async function planAssistantWorkflow({
     actions,
     estimates: {
       estimated_time_seconds: actions.reduce((sum, action) => sum + action.estimated_time_seconds, 0),
-      estimated_cost_eur: sumKnownCosts(actions),
+      estimated_time_label: timeLabel,
+      estimated_cost_eur: costBreakdown.total_eur,
+      cost_breakdown: costBreakdown,
     },
+    decision: buildWorkflowDecision({
+      actions,
+      context: projectContext,
+      costBreakdown,
+      timeLabel,
+    }),
     dependencies: dependenciesFromContext(projectContext),
     resources: resourcesFromContext(projectContext),
     guardrails: workflowGuardrails,
@@ -709,6 +857,9 @@ export function buildAssistantWorkflowResponse(workflow: AssistantWorkflow) {
       "",
       "Garde-fous:",
       workflow.guardrails.map((guardrail) => `- ${guardrail}`).join("\n"),
+      "",
+      "Details techniques:",
+      workflow.actions.map((action) => `- ${action.type}: ${action.status}`).join("\n"),
     ].join("\n"),
     workflow,
     context: {

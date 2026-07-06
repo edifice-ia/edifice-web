@@ -248,16 +248,6 @@ type DrawerVideoState = {
   videoValidated: boolean;
 };
 
-type DrawerDraftVisual = {
-  id: string;
-  imageUrl: string;
-  prompt: string;
-  sceneIndex: number;
-  score: number | null;
-  source: string;
-  status: string;
-};
-
 const examples = [
   "Termine les brouillons commences",
   "Prepare 7 jours de publications",
@@ -395,77 +385,10 @@ function formatActionKind(kind: ActionKind) {
   return actionKindLabels[kind];
 }
 
-// Reads visuals already attached to the draft before considering library
-// suggestions. This avoids showing generic library assets when the draft has
-// ready scenes or selected assets.
-function buildDraftVisuals(media: DrawerMediaState | null): DrawerDraftVisual[] {
-  const scenes = (media?.visualScenes ?? [])
-    .filter((scene) => Boolean(scene.imageUrl))
-    .map((scene) => ({
-      id: scene.id,
-      imageUrl: scene.imageUrl as string,
-      prompt: scene.visualPromptText,
-      sceneIndex: scene.visualPromptIndex,
-      score: scene.scoreTotal,
-      source: scene.generationSource,
-      status: scene.generationStatus,
-    }));
-
-  if (scenes.length > 0) {
-    return scenes.sort((a, b) => a.sceneIndex - b.sceneIndex);
-  }
-
-  return (media?.selectedAssets ?? [])
-    .filter((asset) => Boolean(asset.publicUrl))
-    .map((asset, index) => ({
-      id: asset.id,
-      imageUrl: asset.publicUrl,
-      prompt: typeof asset.metadata?.prompt === "string" ? asset.metadata.prompt : asset.fileName ?? "Prompt non disponible",
-      sceneIndex: asset.usageOrder ?? index + 1,
-      score: typeof asset.score === "number" ? asset.score : null,
-      source: asset.assetSource ?? "selected_asset",
-      status: "selectionne",
-    }))
-    .sort((a, b) => a.sceneIndex - b.sceneIndex);
-}
-
-// Keeps the library fallback focused: only scored compatible assets are shown,
-// ordered by compatibility and capped to avoid raw 80-result dumps.
-function buildLibraryFallback(media: DrawerMediaState | null) {
-  return (media?.suggestedAssets ?? [])
-    .filter((asset) => typeof asset.score === "number" && asset.score > 0)
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, 20);
-}
-
 function formatVisualScore(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value)
     ? value.toFixed(value > 10 ? 0 : 1)
     : "score non disponible";
-}
-
-// Builds the context payload sent with visual generation from Pilotage IA. The
-// media API still owns generation; these fields make the request auditable.
-function buildVisualGenerationPayload({
-  media,
-  mode,
-  target,
-}: {
-  media: DrawerMediaState | null;
-  mode: ProductionMode;
-  target: ValidationTarget;
-}) {
-  const prompts = (media?.visualScenes ?? [])
-    .map((scene) => scene.visualPromptText)
-    .filter((prompt) => prompt.trim().length > 0);
-  const missingPrompts = media?.visualDecision?.missing_visual_needs ?? [];
-
-  return {
-    draft_id: target.draft.id,
-    expected_visual_count: Math.max(prompts.length, missingPrompts.length, target.draft.timeline.length ? 1 : 0),
-    mode,
-    visual_prompts: prompts.length ? prompts : missingPrompts,
-  };
 }
 
 // Builds the global progress bar from the real draft timelines already returned
@@ -1059,7 +982,6 @@ export function ShortsPilotageClient() {
       {validationTarget ? (
         <ValidationDrawer
           isValidating={isValidating}
-          mode={productionMode}
           target={validationTarget}
           onClose={() => setValidationTarget(null)}
           onValidate={() => void validateCurrentTarget()}
@@ -1257,13 +1179,11 @@ function DraftTimeline({
 
 function ValidationDrawer({
   isValidating,
-  mode,
   onClose,
   onValidate,
   target,
 }: {
   isValidating: boolean;
-  mode: ProductionMode;
   onClose: () => void;
   onValidate: () => void;
   target: ValidationTarget;
@@ -1278,9 +1198,11 @@ function ValidationDrawer({
   const [isLoading, setIsLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [drawerError, setDrawerError] = useState<string | null>(null);
-  const draftVisuals = buildDraftVisuals(media);
-  const suggestedAssets = draftVisuals.length > 0 ? [] : buildLibraryFallback(media);
-  const selectedVisual = draftVisuals[selectedIndex] ?? draftVisuals[0] ?? null;
+  const visualScenes = media?.visualScenes?.filter((scene) => Boolean(scene.imageUrl)) ?? [];
+  const selectedAssets = visualScenes.length > 0 ? [] : (media?.selectedAssets?.filter((asset) => Boolean(asset.publicUrl)) ?? []);
+  const suggestedAssets = visualScenes.length > 0 || selectedAssets.length > 0 ? [] : (media?.suggestedAssets ?? []).slice(0, 20);
+  const selectedVisualScene = visualScenes[selectedIndex] ?? visualScenes[0] ?? null;
+  const selectedAsset = selectedAssets[selectedIndex] ?? selectedAssets[0] ?? null;
   const currentProgress = activeAction
     ? Math.min(92, 24 + ((selectedIndex + 1) * 12))
     : target.step.state === "done"
@@ -1300,9 +1222,11 @@ function ValidationDrawer({
       }
 
       let nextMedia = mediaPayload.media ?? null;
-      const linkedVisuals = buildDraftVisuals(nextMedia);
+      const linkedVisualsCount =
+        (nextMedia?.visualScenes?.filter((scene) => Boolean(scene.imageUrl)).length ?? 0) +
+        (nextMedia?.selectedAssets?.filter((asset) => Boolean(asset.publicUrl)).length ?? 0);
 
-      if (target.step.id === "visuals" && linkedVisuals.length === 0) {
+      if (target.step.id === "visuals" && linkedVisualsCount === 0) {
         const suggestionsResponse = await fetch(`/api/content-workshop/drafts/${target.draft.id}/media?suggestions=1`);
         const suggestionsPayload = await suggestionsResponse.json() as { media?: DrawerMediaState; error?: string };
 
@@ -1317,11 +1241,8 @@ function ValidationDrawer({
       console.info("[Pilotage IA Visual Drawer] loaded", {
         draft_id: target.draft.id,
         library_results: nextMedia?.suggestedAssets?.length ?? 0,
-        linked_visuals: buildDraftVisuals(nextMedia).length,
-        method: buildDraftVisuals(nextMedia).length > 0 ? "draft_visuals" : "library_fallback",
-        scores_used: buildDraftVisuals(nextMedia).length > 0
-          ? buildDraftVisuals(nextMedia).map((visual) => visual.score)
-          : buildLibraryFallback(nextMedia).map((asset) => asset.score ?? null),
+        linked_visuals: linkedVisualsCount,
+        method: linkedVisualsCount > 0 ? "atelier_media_state" : "atelier_library_suggestions",
         visual_status: target.draft.workflow.visuals,
       });
 
@@ -1435,22 +1356,24 @@ function ValidationDrawer({
 
         <div className="flex-1 overflow-y-auto p-5">
           {isLoading ? <GenerationProgress label="Chargement du resultat..." percent={42} /> : null}
-          {activeAction ? <GenerationProgress label={generationLabel(activeAction, selectedIndex, Math.max(draftVisuals.length, 1))} percent={currentProgress} /> : null}
+          {activeAction ? <GenerationProgress label={generationLabel(activeAction, selectedIndex, Math.max(visualScenes.length + selectedAssets.length, 1))} percent={currentProgress} /> : null}
           {drawerError ? (
             <p className="rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-3 py-2 text-sm text-[#FDBA74]">{drawerError}</p>
           ) : null}
           {target.step.id === "visuals" ? (
             <VisualValidationBody
               activeAction={activeAction}
-              draftVisuals={draftVisuals}
               media={media}
-              selectedVisual={selectedVisual}
+              selectedAsset={selectedAsset}
+              selectedVisualScene={selectedVisualScene}
+              selectedAssets={selectedAssets}
               suggestedAssets={suggestedAssets}
-              onGenerate={() => void runMediaAction("request_visual_generation", buildVisualGenerationPayload({ media, mode, target }))}
-              onNext={() => setSelectedIndex((value) => Math.min(Math.max(0, draftVisuals.length - 1), value + 1))}
+              visualScenes={visualScenes}
+              onGenerate={() => void runMediaAction("request_visual_generation")}
+              onNext={() => setSelectedIndex((value) => Math.min(Math.max(0, visualScenes.length + selectedAssets.length - 1), value + 1))}
               onPrevious={() => setSelectedIndex((value) => Math.max(0, value - 1))}
               onRefreshLibrary={() => void runMediaAction("refresh_suggestions")}
-              onRegenerate={() => void runMediaAction("regenerate_scene", { sceneIndex: selectedVisual?.sceneIndex ?? 1 })}
+              onRegenerate={() => void runMediaAction("regenerate_scene", { sceneIndex: selectedVisualScene?.visualPromptIndex ?? selectedAsset?.usageOrder ?? 1 })}
               onUseLibrary={() => void runMediaAction("prepare_media")}
             />
           ) : null}
@@ -1472,8 +1395,8 @@ function ValidationDrawer({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => target.step.id === "visuals" && selectedVisual
-                ? void runMediaAction("regenerate_scene", { sceneIndex: selectedVisual.sceneIndex })
+              onClick={() => target.step.id === "visuals" && (selectedVisualScene || selectedAsset)
+                ? void runMediaAction("regenerate_scene", { sceneIndex: selectedVisualScene?.visualPromptIndex ?? selectedAsset?.usageOrder ?? 1 })
                 : target.step.id === "voice"
                   ? void runMediaAction("regenerate_voice")
                   : target.step.id === "subtitles"
@@ -1534,7 +1457,6 @@ function GenerationProgress({ label, percent }: { label: string; percent: number
 
 function VisualValidationBody({
   activeAction,
-  draftVisuals,
   media,
   onGenerate,
   onNext,
@@ -1542,11 +1464,13 @@ function VisualValidationBody({
   onRefreshLibrary,
   onRegenerate,
   onUseLibrary,
-  selectedVisual,
+  selectedAsset,
+  selectedAssets,
+  selectedVisualScene,
   suggestedAssets,
+  visualScenes,
 }: {
   activeAction: string | null;
-  draftVisuals: DrawerDraftVisual[];
   media: DrawerMediaState | null;
   onGenerate: () => void;
   onNext: () => void;
@@ -1554,37 +1478,52 @@ function VisualValidationBody({
   onRefreshLibrary: () => void;
   onRegenerate: () => void;
   onUseLibrary: () => void;
-  selectedVisual: DrawerDraftVisual | null;
+  selectedAsset: DrawerVisualAsset | null;
+  selectedAssets: DrawerVisualAsset[];
+  selectedVisualScene: DrawerVisualScene | null;
   suggestedAssets: DrawerVisualAsset[];
+  visualScenes: DrawerVisualScene[];
 }) {
   const isGeneratingVisuals = activeAction === "request_visual_generation";
   const isUsingLibrary = activeAction === "prepare_media";
+  const hasDraftVisuals = visualScenes.length > 0 || selectedAssets.length > 0;
 
-  if (draftVisuals.length > 0 && selectedVisual) {
+  if (hasDraftVisuals) {
+    const scene = selectedVisualScene;
+    const asset = scene ? null : selectedAsset;
+    const imageUrl = scene?.imageUrl ?? asset?.publicUrl ?? null;
+    const prompt = scene?.visualPromptText ??
+      (typeof asset?.metadata?.prompt === "string" ? asset.metadata.prompt : asset?.fileName) ??
+      "Prompt non disponible";
+    const sceneIndex = scene?.visualPromptIndex ?? asset?.usageOrder ?? 1;
+    const score = scene?.scoreTotal ?? asset?.score ?? null;
+    const status = scene?.generationStatus ?? "selectionne";
+    const source = scene?.generationSource ?? asset?.assetSource ?? "atelier";
+
     return (
       <div className="grid gap-4">
         <p className="rounded-md border border-[#39E6D0]/30 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
           Visuels deja prets - validation disponible.
         </p>
         <div className="overflow-hidden rounded-md border border-[#1D2A44] bg-[#08111A]">
-          {selectedVisual.imageUrl ? (
+          {imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img alt={selectedVisual.prompt} className="aspect-video w-full object-cover" src={selectedVisual.imageUrl} />
+            <img alt={prompt} className="aspect-video w-full object-cover" src={imageUrl} />
           ) : null}
           <div className="grid gap-2 p-4 text-sm text-[#A7B0C0]">
-            <p className="font-semibold text-[#F8FAFC]">Visuel {selectedVisual.sceneIndex} / scene {selectedVisual.sceneIndex}</p>
-            <p>{selectedVisual.prompt}</p>
-            <p>Score IA : {formatVisualScore(selectedVisual.score)}</p>
-            <p>Statut : {selectedVisual.status}</p>
-            <p>Source : {selectedVisual.source}</p>
+            <p className="font-semibold text-[#F8FAFC]">Visuel {sceneIndex} / scene {sceneIndex}</p>
+            <p>{prompt}</p>
+            <p>Score IA : {formatVisualScore(score)}</p>
+            <p>Statut : {status}</p>
+            <p>Source : {source}</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={onPrevious} className="rounded-md border border-[#1D2A44] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">Precedent</button>
           <button type="button" onClick={onNext} className="rounded-md border border-[#1D2A44] px-3 py-2 text-sm font-semibold text-[#A7B0C0]">Suivant</button>
           <button type="button" onClick={onRegenerate} className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-2 text-sm font-semibold text-[#7DD3FC]">Regenerer cette image</button>
-          {selectedVisual.imageUrl ? (
-            <a className="rounded-md border border-[#1D2A44] px-3 py-2 text-sm font-semibold text-[#A7B0C0]" href={selectedVisual.imageUrl} rel="noreferrer" target="_blank">
+          {imageUrl ? (
+            <a className="rounded-md border border-[#1D2A44] px-3 py-2 text-sm font-semibold text-[#A7B0C0]" href={imageUrl} rel="noreferrer" target="_blank">
               Plein ecran
             </a>
           ) : null}

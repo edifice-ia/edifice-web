@@ -203,22 +203,10 @@ export async function POST(
     }
 
     if (action === "request_visual_generation") {
-      console.info("[Media Pipeline API] request_visual_generation payload", {
-        draftId: id,
-        expectedVisualCount: payload.expected_visual_count,
-        mode: payload.mode,
-        visualPromptsCount: Array.isArray(payload.visual_prompts) ? payload.visual_prompts.length : 0,
-      });
       const media = await requestDraftVisualGeneration({
         draftId: id,
         generationQuality: payload.generationQuality,
         userId: user.id,
-      });
-      console.info("[Media Pipeline API] request_visual_generation response", {
-        draftId: id,
-        mediaPipelineStatus: media.mediaPipelineStatus,
-        selectedAssets: media.selectedAssets.length,
-        visualScenes: media.visualScenes.length,
       });
       await recordVisualCost({
         action,

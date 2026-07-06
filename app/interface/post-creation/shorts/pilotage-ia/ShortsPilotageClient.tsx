@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 type ActionKind =
@@ -169,6 +169,17 @@ type ExecutionPreview = {
   nextImplementationStep: string;
 };
 
+type PipelineStage = {
+  id: string;
+  label: string;
+  state: "done" | "active" | "waiting" | "pending" | "blocked";
+};
+
+type ValidationTarget = {
+  draft: DraftSummary;
+  step: TimelineStep;
+};
+
 const examples = [
   "Termine les brouillons commences",
   "Prepare 7 jours de publications",
@@ -195,6 +206,45 @@ const productionModeLabels: Record<ProductionMode, { label: string; description:
     label: "Manuel",
     description: "Garde le fonctionnement actuel: chaque etape est ouverte et lancee individuellement.",
   },
+};
+
+const workingMessages = [
+  "Analyse des brouillons...",
+  "Preparation des prompts...",
+  "Comparaison des scores...",
+  "Selection des meilleurs visuels...",
+  "Creation des voix...",
+  "Synchronisation des sous-titres...",
+  "Preparation de la video...",
+  "Organisation du planning...",
+];
+
+const stageLabels: Record<TimelineStep["id"] | "analysis", string> = {
+  analysis: "Analyse",
+  planning: "Planning",
+  publication: "Publication",
+  subtitles: "Sous-titres",
+  video: "Video",
+  visuals: "Generation des visuels",
+  voice: "Generation des voix",
+};
+
+const actionKindLabels: Record<ActionKind, string> = {
+  blocked_report: "Comprendre les blocages",
+  generate_subtitles: "Generer les sous-titres",
+  generate_visuals: "Generer les visuels",
+  generate_voice: "Generer les voix",
+  prepare_publication: "Preparer la publication",
+  prepare_video: "Preparer la video",
+  propose_schedule: "Preparer le planning",
+  publish: "Publier",
+  save_schedule: "Programmer",
+  start_video_render: "Generer la video",
+  validate_subtitles: "Valider les sous-titres",
+  validate_text: "Valider le texte",
+  validate_video: "Valider la video",
+  validate_visuals: "Valider les visuels",
+  validate_voice: "Valider la voix",
 };
 
 // Formats schedule proposals with the same Paris timezone as the scheduling
@@ -251,6 +301,95 @@ function timelineTone(state: TimelineStep["state"]) {
   return "border-[#64748B]/35 bg-[#64748B]/10 text-[#CBD5E1]";
 }
 
+function stageMark(state: PipelineStage["state"]) {
+  if (state === "done") return "✓";
+  if (state === "waiting") return "!";
+  if (state === "active") return "•";
+  if (state === "blocked") return "x";
+  return "o";
+}
+
+function compactCost(plan: ShortsPlan) {
+  return plan.estimates.totalCostEur === null ? "0 EUR estime" : formatCost(plan.estimates.totalCostEur);
+}
+
+function formatActionKind(kind: ActionKind) {
+  return actionKindLabels[kind];
+}
+
+// Builds the global progress bar from the real draft timelines already returned
+// by the server plan. No business state is inferred outside those statuses.
+function buildPipelineProgress(plan: ShortsPlan | null) {
+  if (!plan) {
+    return {
+      activeDraft: null as DraftSummary | null,
+      activeStep: null as TimelineStep | null,
+      percent: 0,
+      stages: [{ id: "analysis", label: stageLabels.analysis, state: "pending" as const }],
+    };
+  }
+
+  const stages: PipelineStage[] = [{
+    id: "analysis",
+    label: stageLabels.analysis,
+    state: "done",
+  }];
+  const stageIds: TimelineStep["id"][] = ["visuals", "voice", "subtitles", "video", "planning", "publication"];
+  let activeDraft: DraftSummary | null = null;
+  let activeStep: TimelineStep | null = null;
+
+  stageIds.forEach((id) => {
+    const steps = plan.drafts.map((draft) => draft.timeline.find((step) => step.id === id)).filter((step): step is TimelineStep => Boolean(step));
+    const state: PipelineStage["state"] = steps.some((step) => step.state === "blocked")
+      ? "blocked"
+      : steps.some((step) => step.state === "waiting_validation")
+        ? "waiting"
+        : steps.some((step) => step.state === "running")
+          ? "active"
+          : steps.length > 0 && steps.every((step) => step.state === "done")
+            ? "done"
+            : "pending";
+
+    if (!activeStep && state !== "done" && state !== "pending") {
+      const draft = plan.drafts.find((item) => item.timeline.some((step) => step.id === id && step.state !== "done" && step.state !== "pending"));
+      activeDraft = draft ?? null;
+      activeStep = draft?.timeline.find((step) => step.id === id) ?? null;
+    }
+
+    stages.push({
+      id,
+      label: stageLabels[id],
+      state,
+    });
+  });
+
+  if (!activeStep) {
+    const draft = plan.drafts.find((item) => item.timeline.some((step) => step.state === "pending"));
+    activeDraft = draft ?? null;
+    activeStep = draft?.timeline.find((step) => step.state === "pending") ?? null;
+  }
+
+  const score = stages.reduce((sum, stage) => {
+    if (stage.state === "done") return sum + 1;
+    if (stage.state === "waiting" || stage.state === "active") return sum + 0.6;
+    return sum;
+  }, 0);
+
+  return {
+    activeDraft,
+    activeStep,
+    percent: Math.round((score / stages.length) * 100),
+    stages,
+  };
+}
+
+// Chooses a visible progress hint while a request is in flight. The server still
+// owns execution; this only keeps the cockpit from looking frozen.
+function simulatedProgress(isBusy: boolean, currentValue: number) {
+  if (!isBusy) return currentValue;
+  return Math.min(94, currentValue);
+}
+
 // Main client component for Pilotage IA. It can start safe generation runs, but
 // scheduling, publication and destructive actions stay behind dedicated screens.
 export function ShortsPilotageClient() {
@@ -260,7 +399,40 @@ export function ShortsPilotageClient() {
   const [executionPreview, setExecutionPreview] = useState<ExecutionPreview | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [simulatedPercent, setSimulatedPercent] = useState(0);
+  const [messageIndex, setMessageIndex] = useState(0);
+  const [validationTarget, setValidationTarget] = useState<ValidationTarget | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isBusy = isAnalyzing || isExecuting || isValidating;
+  const pipelineProgress = useMemo(() => buildPipelineProgress(plan), [plan]);
+  const displayedPercent = isBusy
+    ? simulatedProgress(isBusy, Math.max(pipelineProgress.percent, simulatedPercent))
+    : pipelineProgress.percent;
+  const activeDraft = pipelineProgress.activeDraft;
+  const activeStep = pipelineProgress.activeStep;
+  const notifications = useMemo(() => {
+    const waiting = plan?.drafts.flatMap((draft) =>
+      draft.timeline
+        .filter((step) => step.state === "waiting_validation")
+        .map((step) => ({ draft, step })),
+    ) ?? [];
+
+    return waiting.slice(0, 3);
+  }, [plan]);
+
+  useEffect(() => {
+    if (!isBusy) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setSimulatedPercent((value) => Math.min(94, Math.max(value + 3, pipelineProgress.percent + 8)));
+      setMessageIndex((value) => (value + 1) % workingMessages.length);
+    }, 1400);
+
+    return () => window.clearInterval(interval);
+  }, [isBusy, pipelineProgress.percent]);
 
   // Groups proposed actions by kind to keep the operational plan scannable.
   const groupedActions = useMemo(() => {
@@ -345,8 +517,100 @@ export function ShortsPilotageClient() {
     }
   }
 
+  // Validates the generated result from the drawer using existing endpoints.
+  // It never publishes, never saves a schedule, and resumes the pipeline after
+  // a successful validation by calling the already guarded execution endpoint.
+  async function validateCurrentTarget() {
+    if (!validationTarget || isValidating) {
+      return;
+    }
+
+    const { draft, step } = validationTarget;
+    const mediaActions: Partial<Record<TimelineStep["id"], string>> = {
+      subtitles: "validate_subtitles",
+      visuals: "validate_visuals",
+      voice: "validate_voice",
+    };
+    const mediaAction = mediaActions[step.id];
+
+    if (!mediaAction && step.id !== "video") {
+      setError("Cette validation reste protegee par son module dedie.");
+      return;
+    }
+
+    setIsValidating(true);
+    setError(null);
+
+    try {
+      const response = step.id === "video"
+        ? await fetch(`/api/content-workshop/drafts/${draft.id}/video-render`, {
+            body: JSON.stringify({ action: "validate" }),
+            headers: { "Content-Type": "application/json" },
+            method: "POST",
+          })
+        : await fetch(`/api/content-workshop/drafts/${draft.id}/media`, {
+            body: JSON.stringify({ action: mediaAction }),
+            headers: { "Content-Type": "application/json" },
+            method: "POST",
+          });
+      const payload = await response.json() as { error?: string };
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Validation indisponible.");
+      }
+
+      setValidationTarget(null);
+      await executePlan();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Validation indisponible.");
+    } finally {
+      setIsValidating(false);
+    }
+  }
+
   return (
     <div className="grid gap-6">
+      <section className="rounded-md border border-[#1D2A44] bg-[#03070B] p-4 shadow-[0_18px_60px_rgba(0,0,0,0.25)]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <GlobalProgress percent={displayedPercent} stages={pipelineProgress.stages} />
+          <WorkInProgressCard
+            draftTitle={activeDraft?.title ?? plan?.objective ?? "Aucun objectif lance"}
+            isBusy={isBusy}
+            message={workingMessages[messageIndex]}
+            percent={displayedPercent}
+            stepLabel={activeStep?.label ?? (isAnalyzing ? "Analyse" : "En attente")}
+            timeLabel={activeStep?.durationLabel ?? plan?.estimates.estimatedMinutesLabel ?? "1 min"}
+          />
+        </div>
+      </section>
+
+      {notifications.length ? (
+        <section className="grid gap-2">
+          {notifications.map(({ draft, step }) => (
+            <div key={`${draft.id}-${step.id}`} className="flex flex-col gap-3 rounded-md border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-4 py-3 text-sm text-[#FDE68A] sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                {step.label} prete pour <span className="font-semibold text-[#F8FAFC]">{draft.title}</span>. Validation en attente.
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setValidationTarget({ draft, step })}
+                  className="rounded-md border border-[#F59E0B]/45 bg-[#03070B] px-3 py-1.5 text-xs font-semibold text-[#FDE68A] transition hover:text-[#F8FAFC]"
+                >
+                  Examiner
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-[#64748B]/40 bg-[#03070B] px-3 py-1.5 text-xs font-semibold text-[#CBD5E1] transition hover:text-[#F8FAFC]"
+                >
+                  Valider plus tard
+                </button>
+              </div>
+            </div>
+          ))}
+        </section>
+      ) : null}
+
       <section className="rounded-md border border-[#1D2A44] bg-[#03070B] p-4">
         <form className="grid gap-4" onSubmit={analyzePlan}>
           <label className="grid gap-2">
@@ -468,18 +732,12 @@ export function ShortsPilotageClient() {
             </div>
 
             <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-4">
-              <h3 className="font-semibold text-[#F8FAFC]">Temps et cout</h3>
+              <h3 className="font-semibold text-[#F8FAFC]">Resume d&apos;execution</h3>
               <div className="mt-3 grid gap-2 text-sm">
                 <EstimateLine label="Temps estime" value={plan.estimates.estimatedMinutesLabel} />
                 <EstimateLine label="Actions" value={String(plan.estimates.actionsCount)} />
-                <EstimateLine label="OpenAI" value={formatCost(plan.estimates.openaiCostEur)} />
-                <EstimateLine label="ElevenLabs" value={formatCost(plan.estimates.elevenLabsCostEur)} />
-                <EstimateLine label="Railway" value={formatCost(plan.estimates.railwayCostEur)} />
-                <EstimateLine label="Total" value={formatCost(plan.estimates.totalCostEur)} strong />
+                <EstimateLine label="Cout total estime" value={compactCost(plan)} strong />
               </div>
-              <p className="mt-3 text-xs leading-5 text-[#64748B]">
-                {plan.estimates.notes.join(" ")}
-              </p>
             </div>
           </div>
 
@@ -505,18 +763,13 @@ export function ShortsPilotageClient() {
               <div className="mt-3 grid gap-3">
                 {groupedActions.length ? groupedActions.map(([kind, actions]) => (
                   <div key={kind} className="rounded-md border border-[#1D2A44] bg-[#08111A] p-3">
-                    <p className="text-sm font-semibold text-[#39E6D0]">{kind}</p>
+                    <p className="text-sm font-semibold text-[#39E6D0]">{formatActionKind(kind)}</p>
                     <ol className="mt-2 grid gap-2">
                       {actions.map((action, index) => (
                         <li key={`${kind}-${action.draftId ?? "global"}-${index}`} className="text-sm leading-6 text-[#A7B0C0]">
                           <span className="font-semibold text-[#F8FAFC]">{action.draftTitle ?? "Global"}</span>
                           <span className="text-[#64748B]"> - </span>
                           {action.label}
-                          {action.costEstimate ? (
-                            <span className="ml-2 text-xs text-[#64748B]">
-                              {action.costEstimate.provider} {formatCost(action.costEstimate.estimatedCostEur)}
-                            </span>
-                          ) : null}
                           {action.sensitive ? (
                             <span className="ml-2 rounded-md border border-[#F97316]/35 bg-[#F97316]/10 px-2 py-0.5 text-xs font-semibold text-[#FDBA74]">
                               confirmation
@@ -524,7 +777,7 @@ export function ShortsPilotageClient() {
                           ) : null}
                           {action.route ? (
                             <Link className="ml-2 text-xs font-semibold text-[#7DD3FC] hover:text-[#F8FAFC]" href={action.route}>
-                              ouvrir
+                              Voir
                             </Link>
                           ) : null}
                         </li>
@@ -548,6 +801,36 @@ export function ShortsPilotageClient() {
               </ul>
             </div>
           </div>
+
+          <details className="rounded-md border border-[#1D2A44] bg-[#03070B] p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-[#39E6D0]">
+              Informations techniques
+            </summary>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="grid gap-2 text-sm">
+                <EstimateLine label="OpenAI" value={formatCost(plan.estimates.openaiCostEur)} />
+                <EstimateLine label="ElevenLabs" value={formatCost(plan.estimates.elevenLabsCostEur)} />
+                <EstimateLine label="Railway" value={formatCost(plan.estimates.railwayCostEur)} />
+                <EstimateLine label="Total" value={formatCost(plan.estimates.totalCostEur)} strong />
+                <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-xs leading-5 text-[#64748B]">
+                  {plan.estimates.notes.join(" ")}
+                </p>
+              </div>
+              <div className="grid gap-2 text-sm text-[#A7B0C0]">
+                {(executionPreview?.logs ?? []).length ? executionPreview?.logs?.map((log, index) => (
+                  <div key={`${log.action}-${log.draftId ?? "global"}-${index}`} className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2">
+                    <span className="font-semibold text-[#F8FAFC]">{formatActionKind(log.action)}</span>
+                    <span className="text-[#64748B]"> - </span>
+                    {log.message}
+                  </div>
+                )) : (
+                  <div className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2">
+                    Aucun log d&apos;execution pour le moment.
+                  </div>
+                )}
+              </div>
+            </div>
+          </details>
 
           {plan.scheduleProposals.length ? (
             <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-4">
@@ -583,7 +866,7 @@ export function ShortsPilotageClient() {
                       </span>
                     ) : null}
                   </div>
-                  <DraftTimeline steps={draft.timeline} />
+                  <DraftTimeline draft={draft} steps={draft.timeline} onInspect={(step) => setValidationTarget({ draft, step })} />
                   {draft.blockedReasons.length ? (
                     <p className="mt-3 text-sm text-[#FDBA74]">
                       {draft.blockedReasons.join(" ; ")}
@@ -598,22 +881,11 @@ export function ShortsPilotageClient() {
 
       {executionPreview ? (
         <section className="rounded-md border border-[#38BDF8]/35 bg-[#38BDF8]/10 p-4">
-          <h3 className="font-semibold text-[#F8FAFC]">Execution V1</h3>
+          <h3 className="font-semibold text-[#F8FAFC]">Derniere action</h3>
           <p className="mt-2 text-sm text-[#A7B0C0]">{executionPreview.message}</p>
-          {executionPreview.logs?.length ? (
-            <div className="mt-3 grid gap-2">
-              {executionPreview.logs.map((log, index) => (
-                <div key={`${log.action}-${log.draftId ?? "global"}-${index}`} className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm text-[#A7B0C0]">
-                  <span className="font-semibold text-[#F8FAFC]">{log.draftTitle ?? "Global"}</span>
-                  <span className="text-[#64748B]"> - </span>
-                  {log.message}
-                </div>
-              ))}
-            </div>
-          ) : null}
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#03070B]">
             <div
-              className="h-full bg-[#39E6D0]"
+              className="h-full bg-[#39E6D0] transition-all duration-700"
               style={{ width: `${executionPreview.progress.percent}%` }}
             />
           </div>
@@ -632,6 +904,97 @@ export function ShortsPilotageClient() {
           </p>
         </section>
       ) : null}
+
+      {validationTarget ? (
+        <ValidationDrawer
+          isValidating={isValidating}
+          target={validationTarget}
+          onClose={() => setValidationTarget(null)}
+          onValidate={() => void validateCurrentTarget()}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function GlobalProgress({ percent, stages }: { percent: number; stages: PipelineStage[] }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">Pipeline Shorts</p>
+          <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">Progression globale</h2>
+        </div>
+        <span className="rounded-md border border-[#39E6D0]/35 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0]">
+          {percent} %
+        </span>
+      </div>
+      <div className="mt-4 h-3 overflow-hidden rounded-full bg-[#08111A]">
+        <div
+          className="h-full rounded-full bg-[#39E6D0] transition-all duration-700 ease-out"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {stages.map((stage) => (
+          <div
+            key={stage.id}
+            className={`rounded-md border px-3 py-2 text-sm transition ${
+              stage.state === "done"
+                ? "border-[#22C55E]/35 bg-[#22C55E]/10 text-[#86EFAC]"
+                : stage.state === "active"
+                  ? "border-[#39E6D0]/45 bg-[#39E6D0]/10 text-[#39E6D0]"
+                  : stage.state === "waiting"
+                    ? "border-[#F59E0B]/35 bg-[#F59E0B]/10 text-[#FDE68A]"
+                    : stage.state === "blocked"
+                      ? "border-[#F97316]/35 bg-[#F97316]/10 text-[#FDBA74]"
+                      : "border-[#1D2A44] bg-[#08111A] text-[#A7B0C0]"
+            }`}
+          >
+            <span className={stage.state === "active" ? "mr-2 inline-block animate-pulse" : "mr-2"}>
+              {stageMark(stage.state)}
+            </span>
+            {stage.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WorkInProgressCard({
+  draftTitle,
+  isBusy,
+  message,
+  percent,
+  stepLabel,
+  timeLabel,
+}: {
+  draftTitle: string;
+  isBusy: boolean;
+  message: string;
+  percent: number;
+  stepLabel: string;
+  timeLabel: string;
+}) {
+  return (
+    <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+      <p className="text-sm font-semibold text-[#F8FAFC]">Atelier IA</p>
+      <p className="mt-3 text-sm text-[#A7B0C0]">Je travaille actuellement sur :</p>
+      <p className="mt-1 font-semibold text-[#F8FAFC]">{draftTitle}</p>
+      <div className="mt-4 grid gap-2 text-sm">
+        <EstimateLine label="Etape" value={stepLabel} />
+        <EstimateLine label="Temps restant" value={isBusy ? "moins de 1 min" : timeLabel} />
+      </div>
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#03070B]">
+        <div
+          className="h-full rounded-full bg-[#38BDF8] transition-all duration-700"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <p className={`mt-3 text-sm ${isBusy ? "text-[#7DD3FC]" : "text-[#64748B]"}`}>
+        {isBusy ? message : "Pret a reprendre le pipeline."}
+      </p>
     </div>
   );
 }
@@ -686,9 +1049,16 @@ function AnalysisList({ items, title }: { items: string[]; title: string }) {
   );
 }
 
-// Displays the production timeline for one draft. Validation buttons only point
-// to the dedicated module; they never confirm sensitive actions inline.
-function DraftTimeline({ steps }: { steps: TimelineStep[] }) {
+// Displays the production timeline for one draft. Validation happens in the
+// Pilotage IA drawer so the operator does not leave the cockpit.
+function DraftTimeline({
+  onInspect,
+  steps,
+}: {
+  draft: DraftSummary;
+  onInspect: (step: TimelineStep) => void;
+  steps: TimelineStep[];
+}) {
   return (
     <div className="mt-3 grid gap-2">
       {steps.map((step) => (
@@ -709,24 +1079,115 @@ function DraftTimeline({ steps }: { steps: TimelineStep[] }) {
           </div>
           <div className="flex flex-wrap gap-2">
             {step.canOpen ? (
-              <Link
+              <button
+                type="button"
+                onClick={() => onInspect(step)}
                 className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-1.5 text-xs font-semibold text-[#7DD3FC] transition hover:text-[#F8FAFC]"
-                href={step.route}
               >
-                Ouvrir
-              </Link>
+                {step.canValidate ? "Examiner" : "Voir"}
+              </button>
             ) : null}
             {step.canValidate ? (
-              <Link
+              <button
+                type="button"
+                onClick={() => onInspect(step)}
                 className="rounded-md border border-[#F59E0B]/45 bg-[#F59E0B]/10 px-3 py-1.5 text-xs font-semibold text-[#FCD34D] transition hover:text-[#F8FAFC]"
-                href={step.route}
               >
                 Valider
-              </Link>
+              </button>
             ) : null}
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ValidationDrawer({
+  isValidating,
+  onClose,
+  onValidate,
+  target,
+}: {
+  isValidating: boolean;
+  onClose: () => void;
+  onValidate: () => void;
+  target: ValidationTarget;
+}) {
+  const canValidateInline = target.step.id === "visuals" ||
+    target.step.id === "voice" ||
+    target.step.id === "subtitles" ||
+    target.step.id === "video";
+
+  return (
+    <div className="fixed inset-0 z-50 bg-[#020617]/70 backdrop-blur-sm">
+      <div className="ml-auto flex h-full w-full max-w-xl flex-col border-l border-[#1D2A44] bg-[#03070B] shadow-2xl">
+        <div className="border-b border-[#1D2A44] p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#39E6D0]">Validation</p>
+              <h2 className="mt-2 text-xl font-semibold text-[#F8FAFC]">{target.step.label}</h2>
+              <p className="mt-2 text-sm text-[#A7B0C0]">{target.draft.title}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+            <p className="font-semibold text-[#F8FAFC]">Resultat produit</p>
+            <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">{target.step.detail}</p>
+          </div>
+          <div className="mt-4 grid gap-3">
+            {Array.from({ length: target.step.id === "visuals" ? 3 : 1 }).map((_, index) => (
+              <div key={index} className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+                <p className="text-sm font-semibold text-[#F8FAFC]">
+                  {target.step.id === "visuals" ? `Image ${index + 1}` : target.step.label}
+                </p>
+                <p className="mt-2 text-sm text-[#64748B]">
+                  Apercu disponible dans le module source. Cette fenetre permet de valider sans quitter Pilotage IA.
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="border-t border-[#1D2A44] p-5">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
+            >
+              Regenerer
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
+            >
+              Modifier le prompt
+            </button>
+            <button
+              type="button"
+              disabled={!canValidateInline || isValidating}
+              onClick={onValidate}
+              className="rounded-md border border-[#39E6D0]/55 bg-[#39E6D0]/10 px-4 py-2 text-sm font-semibold text-[#39E6D0] transition hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isValidating ? "Validation..." : canValidateInline ? "Valider et reprendre" : "Validation protegee"}
+            </button>
+          </div>
+          {!canValidateInline ? (
+            <p className="mt-3 text-xs leading-5 text-[#FDBA74]">
+              Cette etape reste volontairement protegee par les garde-fous existants.
+            </p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

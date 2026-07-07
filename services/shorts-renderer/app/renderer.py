@@ -24,15 +24,15 @@ TRANSITION_SECONDS = 0.3
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
 VISUAL_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
-DEFAULT_SUBTITLE_FONT_SIZE = 11
-DEFAULT_SUBTITLE_STROKE_WIDTH = 2
-DEFAULT_SUBTITLE_BOTTOM_MARGIN = 110
+DEFAULT_SUBTITLE_FONT_SIZE = 72
+DEFAULT_SUBTITLE_STROKE_WIDTH = 5
+DEFAULT_SUBTITLE_BOTTOM_MARGIN = 320
 SUBTITLE_VERTICAL_SHIFT_WEB_STANDARD = 40
-MIN_SUBTITLE_BOTTOM_MARGIN = 48
-DEFAULT_SUBTITLE_MAX_WIDTH_RATIO = 0.78
+MIN_SUBTITLE_BOTTOM_MARGIN = 220
+DEFAULT_SUBTITLE_MAX_WIDTH_RATIO = 0.88
 DEFAULT_SUBTITLE_MAX_LINES = 2
-DEFAULT_SUBTITLE_FONT_SCALE = 0.85
-DEFAULT_SUBTITLE_SHADOW = 0
+DEFAULT_SUBTITLE_FONT_SCALE = 1.0
+DEFAULT_SUBTITLE_SHADOW = 2
 DEFAULT_KARAOKE_TIMING_OFFSET_MS = 250
 DEFAULT_KARAOKE_ACTIVE_COLOR = "&H0000D7FF"
 DEFAULT_KARAOKE_INACTIVE_COLOR = "&H00FFFFFF"
@@ -141,8 +141,7 @@ class SubtitleStyle:
 
     @property
     def scaled_font_size(self) -> int:
-        ass_base_size = self.font_size / 3 if self.font_size > 30 else self.font_size
-        return max(10, int(round(ass_base_size * self.font_scale)))
+        return max(10, int(round(self.font_size * self.font_scale)))
 
     @property
     def side_margin(self) -> int:
@@ -523,14 +522,14 @@ def ass_color_env(value: str | None, default: str) -> str:
 
 def subtitle_style(mode: str, manifest: dict[str, Any], profile: RenderProfile = DEFAULT_RENDER_PROFILE) -> SubtitleStyle:
     style = manifest.get("subtitle_style") if isinstance(manifest.get("subtitle_style"), dict) else {}
-    base_bottom_margin = int(style.get("bottom_margin", DEFAULT_SUBTITLE_BOTTOM_MARGIN))
+    base_bottom_margin = int(style.get("bottom_margin", style.get("subtitleBottomMargin", DEFAULT_SUBTITLE_BOTTOM_MARGIN)))
     return SubtitleStyle(
         mode=mode,
         width=profile.width,
-        font_size=int(style.get("font_size", DEFAULT_SUBTITLE_FONT_SIZE)),
-        stroke_width=int(style.get("stroke_width", DEFAULT_SUBTITLE_STROKE_WIDTH)),
-        bottom_margin=max(MIN_SUBTITLE_BOTTOM_MARGIN, base_bottom_margin - subtitle_vertical_shift(profile)),
-        max_width_ratio=min(0.95, max(0.5, float(style.get("max_width_ratio", DEFAULT_SUBTITLE_MAX_WIDTH_RATIO)))),
+        font_size=int(style.get("font_size", style.get("subtitleFontSize", DEFAULT_SUBTITLE_FONT_SIZE))),
+        stroke_width=int(style.get("stroke_width", style.get("subtitleStrokeWidth", DEFAULT_SUBTITLE_STROKE_WIDTH))),
+        bottom_margin=max(MIN_SUBTITLE_BOTTOM_MARGIN, base_bottom_margin),
+        max_width_ratio=min(0.95, max(0.5, float(style.get("max_width_ratio", style.get("subtitleMaxWidth", DEFAULT_SUBTITLE_MAX_WIDTH_RATIO))))),
         max_lines=max(1, min(3, int(style.get("max_lines", DEFAULT_SUBTITLE_MAX_LINES)))),
         font_scale=min(1.5, max(0.5, float(style.get("font_scale", DEFAULT_SUBTITLE_FONT_SCALE)))),
         shadow=max(0, int(style.get("shadow", DEFAULT_SUBTITLE_SHADOW))),

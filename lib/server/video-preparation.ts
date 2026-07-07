@@ -7,6 +7,14 @@ import { normalizeSubtitleMode, subtitleModeToLocalMode } from "@/lib/subtitles"
 
 const VIDEO_PREPARATION_BUCKET = "content-assets";
 const VIDEO_PREPARATION_PATH = "lignes-interieures/video-preparation";
+const SHORTS_SUBTITLE_STYLE = {
+  subtitleFontSize: 72,
+  subtitleBottomMargin: 320,
+  subtitleStrokeWidth: 5,
+  subtitleMaxWidth: 0.88,
+  fontScale: 1,
+  shadow: 2,
+};
 const STALE_DRAFT_VISUAL_MESSAGE =
   "Les visuels validés de ce brouillon ne sont plus disponibles pour le montage. Sélectionne ou valide de nouveaux visuels.";
 
@@ -630,6 +638,18 @@ export async function prepareDraftVideo({
     script: draft.script ?? "",
     subtitle_mode: subtitleMode,
     local_subtitle_mode: localSubtitleMode,
+    subtitle_style: {
+      bottom_margin: SHORTS_SUBTITLE_STYLE.subtitleBottomMargin,
+      font_scale: SHORTS_SUBTITLE_STYLE.fontScale,
+      font_size: SHORTS_SUBTITLE_STYLE.subtitleFontSize,
+      max_width_ratio: SHORTS_SUBTITLE_STYLE.subtitleMaxWidth,
+      shadow: SHORTS_SUBTITLE_STYLE.shadow,
+      stroke_width: SHORTS_SUBTITLE_STYLE.subtitleStrokeWidth,
+      subtitleBottomMargin: SHORTS_SUBTITLE_STYLE.subtitleBottomMargin,
+      subtitleFontSize: SHORTS_SUBTITLE_STYLE.subtitleFontSize,
+      subtitleMaxWidth: SHORTS_SUBTITLE_STYLE.subtitleMaxWidth,
+      subtitleStrokeWidth: SHORTS_SUBTITLE_STYLE.subtitleStrokeWidth,
+    },
     validation: {
       text: "validated",
       visuals: "validated",

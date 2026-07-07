@@ -142,6 +142,28 @@ def test_visual_segment_png_input_is_looped_with_explicit_duration(tmp_path: Pat
     assert captured["kwargs"] == {"label": "Segment visuel 001.png"}
 
 
+def test_karaoke_ass_uses_shorts_safe_subtitle_style(tmp_path: Path):
+    ass_path = tmp_path / "karaoke.ass"
+    renderer.write_karaoke_ass(
+        [
+            {"text": "Bonjour", "start": 0.0, "end": 0.4},
+            {"text": "monde", "start": 0.4, "end": 0.8},
+        ],
+        ass_path,
+        {"subtitle_style": {}},
+        renderer.RENDER_PROFILES["web_high"],
+    )
+
+    content = ass_path.read_text(encoding="utf-8")
+
+    assert "PlayResX: 1080" in content
+    assert "PlayResY: 1920" in content
+    assert "Style: Default,Arial,72" in content
+    assert ",1,5,2,2," in content
+    assert ",65,65,320,1" in content
+    assert "Dialogue:" in content
+
+
 if __name__ == "__main__":
     test_normalize_storage_ref_strips_bucket_prefix_and_slash()
     test_normalize_storage_ref_extracts_public_supabase_url()
@@ -150,4 +172,5 @@ if __name__ == "__main__":
     test_ffmpeg_error_message_keeps_useful_tail_only()
     test_ffmpeg_resource_limit_message_is_short_for_sigkill()
     test_visual_segment_png_input_is_looped_with_explicit_duration(ROOT / ".tmp-test")
+    test_karaoke_ass_uses_shorts_safe_subtitle_style(ROOT / ".tmp-test")
     print("storage refs ok")

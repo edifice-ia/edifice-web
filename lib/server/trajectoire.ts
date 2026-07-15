@@ -30,6 +30,7 @@ export const trajectoireObjectiveStatuses = [
 
 export const trajectoireActionStatuses = ["a faire", "en cours", "fait"] as const;
 export const trajectoirePriorities = ["basse", "moyenne", "haute"] as const;
+export const trajectoireEffortLevels = ["low", "medium", "high"] as const;
 
 export type TrajectoireProjectCategory =
   typeof trajectoireProjectCategories[number];
@@ -37,6 +38,7 @@ export type TrajectoireProjectStatus = typeof trajectoireProjectStatuses[number]
 export type TrajectoireObjectiveStatus =
   typeof trajectoireObjectiveStatuses[number];
 export type TrajectoireActionStatus = typeof trajectoireActionStatuses[number];
+export type TrajectoireEffortLevel = typeof trajectoireEffortLevels[number];
 export type TrajectoirePriority = typeof trajectoirePriorities[number];
 
 export type TrajectoireAction = {
@@ -44,6 +46,7 @@ export type TrajectoireAction = {
   objectiveId: string;
   title: string;
   status: TrajectoireActionStatus;
+  effortLevel: TrajectoireEffortLevel;
   dueDate: string | null;
   createdAt: string;
   updatedAt: string;
@@ -152,6 +155,7 @@ type ActionRow = {
   objective_id: string;
   title: string | null;
   status: string | null;
+  effort_level: string | null;
   due_date: string | null;
   created_at: string;
   updated_at: string;
@@ -210,6 +214,7 @@ type ActionInput = {
   objectiveId: string;
   title: string;
   status: TrajectoireActionStatus;
+  effortLevel: TrajectoireEffortLevel;
   dueDate: string | null;
 };
 
@@ -362,6 +367,7 @@ function mapAction(row: ActionRow): TrajectoireAction {
     objectiveId: row.objective_id,
     title: row.title ?? "Action sans titre",
     status: enumValue(row.status, trajectoireActionStatuses, "a faire"),
+    effortLevel: enumValue(row.effort_level, trajectoireEffortLevels, "medium"),
     dueDate: row.due_date,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -441,6 +447,7 @@ export function sanitizeActionInput(payload: unknown): ActionInput {
     objectiveId: requiredText(record.objectiveId, "L'objectif lie"),
     title: requiredText(record.title, "Le titre de l'action"),
     status: enumValue(record.status, trajectoireActionStatuses, "a faire"),
+    effortLevel: enumValue(record.effortLevel, trajectoireEffortLevels, "medium"),
     dueDate: nullableDate(record.dueDate),
   };
 }
@@ -556,7 +563,7 @@ export async function readTrajectoire(userId: string) {
   if (objectiveIds.length) {
     const { data: actions, error: actionsError } = await supabase
       .from("trajectoire_actions")
-      .select("id,objective_id,title,status,due_date,created_at,updated_at")
+      .select("id,objective_id,title,status,effort_level,due_date,created_at,updated_at")
       .eq("user_id", userId)
       .in("objective_id", objectiveIds)
       .order("created_at", { ascending: false });
@@ -668,9 +675,10 @@ export async function createTrajectoireAction({
       objective_id: input.objectiveId,
       title: input.title,
       status: input.status,
+      effort_level: input.effortLevel,
       due_date: input.dueDate,
     })
-    .select("id,objective_id,title,status,due_date,created_at,updated_at")
+    .select("id,objective_id,title,status,effort_level,due_date,created_at,updated_at")
     .single();
 
   if (error) {
@@ -814,6 +822,7 @@ export async function createTrajectoireFromAssistantProposal({
         objectiveId: objective.id,
         title: actionTitle,
         status: "a faire",
+        effortLevel: "medium",
         dueDate: proposal.deadline,
       },
       userId,
@@ -1002,6 +1011,91 @@ function buildShortsMilestones(signals: Awaited<ReturnType<typeof maybeReadShort
     { done: costsTracked, label: "Suivi des couts alimente", source: "cost_events" },
     { done: false, label: "Publication reelle multi-plateforme", source: "placeholder publication" },
     { done: false, label: "Analytics de performances", source: "non implemente" },
+  ];
+}
+
+type VitalsOAuthSignalRow = {
+  provider: string;
+};
+
+type VitalsDailyStatsSignalRow = {
+  date: string;
+};
+
+type VitalsDailyBriefSignalRow = {
+  date: string;
+  recovery_level: string | null;
+  recommended_focus: unknown;
+  accepted: boolean | null;
+};
+
+// Mirrors maybeReadShortsSignals: reads read-only signals from the tables
+// relevant to the Personnel/Vitals module. Errors are swallowed the same way
+// (tables not yet applied to the database do not crash the sync).
+async function maybeReadVitalsSignals(userId: string) {
+  const supabase = getTrajectoireClient();
+  const signals = {
+    garminTokenPresent: false,
+    dailyStats: [] as VitalsDailyStatsSignalRow[],
+    dailyBriefs: [] as VitalsDailyBriefSignalRow[],
+  };
+
+  const oauthTokens = await supabase
+    .from("oauth_tokens")
+    .select("provider")
+    .eq("provider", "garmin")
+    .eq("user_id", userId)
+    .limit(1)
+    .returns<VitalsOAuthSignalRow[]>();
+  if (!oauthTokens.error) {
+    signals.garminTokenPresent = (oauthTokens.data ?? []).length > 0;
+  }
+
+  const dailyStats = await supabase
+    .from("personal_garmin_daily_stats")
+    .select("date")
+    .eq("user_id", userId)
+    .order("date", { ascending: false })
+    .limit(7)
+    .returns<VitalsDailyStatsSignalRow[]>();
+  if (!dailyStats.error) {
+    signals.dailyStats = dailyStats.data ?? [];
+  }
+
+  const dailyBriefs = await supabase
+    .from("personal_daily_briefs")
+    .select("date,recovery_level,recommended_focus,accepted")
+    .eq("user_id", userId)
+    .order("date", { ascending: false })
+    .limit(7)
+    .returns<VitalsDailyBriefSignalRow[]>();
+  if (!dailyBriefs.error) {
+    signals.dailyBriefs = dailyBriefs.data ?? [];
+  }
+
+  return signals;
+}
+
+// Mirrors buildShortsMilestones: turns raw Vitals signals into the same
+// {done, label, source} shape used for every Trajectoire sync milestone.
+function buildVitalsMilestones(signals: Awaited<ReturnType<typeof maybeReadVitalsSignals>>) {
+  const latestBrief = signals.dailyBriefs[0] ?? null;
+  const statsSynced = signals.dailyStats.length > 0;
+  const briefGenerated = Boolean(latestBrief);
+  const focusProposed = Boolean(
+    latestBrief &&
+      Array.isArray(latestBrief.recommended_focus) &&
+      latestBrief.recommended_focus.length > 0,
+  );
+  const briefReviewed = Boolean(latestBrief && latestBrief.accepted !== null);
+
+  return [
+    { done: signals.garminTokenPresent, label: "Connecteur Garmin connecte", source: "oauth_tokens.provider" },
+    { done: statsSynced, label: "Statistiques Garmin synchronisees", source: "personal_garmin_daily_stats" },
+    { done: briefGenerated, label: "Brief quotidien genere", source: "personal_daily_briefs.recovery_level" },
+    { done: focusProposed, label: "Focus recommande propose", source: "personal_daily_briefs.recommended_focus" },
+    { done: briefReviewed, label: "Brief revu par l'utilisateur", source: "personal_daily_briefs.accepted" },
+    { done: false, label: "Priorisation Vitals connectee a Trajectoire", source: "non implemente" },
   ];
 }
 
@@ -1415,6 +1509,7 @@ export async function syncTrajectoireFromProjectMemory({
         await createTrajectoireAction({
           input: {
             dueDate: null,
+            effortLevel: "medium",
             objectiveId: refreshedObjective.id,
             status,
             title: milestone.label,
@@ -1532,6 +1627,7 @@ export async function updateTrajectoireAction({
       objective_id: input.objectiveId,
       title: input.title,
       status: input.status,
+      effort_level: input.effortLevel,
       due_date: input.dueDate,
     })
     .eq("id", id)

@@ -39,12 +39,17 @@ export function getOAuthStatus(provider: OAuthProviderConfig) {
 }
 
 export function isTokenExchangeEnabled(provider: OAuthProviderConfig) {
-  return provider.key === "youtube" || provider.key === "pinterest";
+  return (
+    provider.key === "youtube" ||
+    provider.key === "pinterest" ||
+    provider.key === "garmin"
+  );
 }
 
 export function buildOAuthStartUrl(
   provider: OAuthProviderConfig,
   oauthState = "placeholder-state-not-for-production",
+  pkce?: { codeChallenge: string },
 ) {
   if (!provider.authUrl) {
     return null;
@@ -72,6 +77,11 @@ export function buildOAuthStartUrl(
   if (provider.key === "youtube") {
     url.searchParams.set("access_type", "offline");
     url.searchParams.set("prompt", "consent");
+  }
+
+  if (provider.key === "garmin" && pkce) {
+    url.searchParams.set("code_challenge", pkce.codeChallenge);
+    url.searchParams.set("code_challenge_method", "S256");
   }
 
   return url.toString();

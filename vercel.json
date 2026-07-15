@@ -3,6 +3,14 @@
     {
       "path": "/api/internal/cron/process-scheduled-publications",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/internal/cron/personal-daily-brief",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/internal/cron/personal-daily-brief",
+      "schedule": "0 7 * * *"
     }
   ]
 }

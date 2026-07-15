@@ -5,7 +5,8 @@ export type OAuthProviderKey =
   | "pinterest"
   | "tiktok"
   | "meta"
-  | "instagram";
+  | "instagram"
+  | "garmin";
 
 export type OAuthProviderConfig = {
   key: OAuthProviderKey;
@@ -108,6 +109,30 @@ export const oauthProviders: OAuthProviderConfig[] = [
     actionLabel: "Preparer Instagram",
     secondaryLabel: "Tester la configuration",
     note: "Callback dedie prevu pour une future separation Instagram.",
+    placeholder: true,
+  },
+  {
+    key: "garmin",
+    name: "Garmin Connect",
+    env: {
+      client: "GARMIN_CLIENT_ID",
+      secret: "GARMIN_CLIENT_SECRET",
+      redirect: "GARMIN_REDIRECT_URI",
+      stateSecret: "OAUTH_STATE_SECRET",
+    },
+    // NOTE (DEC-006): endpoint non confirme. Garmin Developer Program est en
+    // cours de validation ; a verifier contre la documentation officielle
+    // avant toute activation reelle.
+    authUrl: "https://connect.garmin.com/oauth2Confirm",
+    // NOTE (DEC-006): noms de scopes non confirmes par la documentation
+    // officielle Garmin Developer Program (candidature en cours). Couvrent les
+    // domaines demandes pour le module Personnel (sommeil, frequence
+    // cardiaque, Body Battery, stress) ; a verifier/ajuster a reception de
+    // l'approbation avant toute activation reelle.
+    scopes: ["SLEEP_READ", "HEART_RATE_READ", "BODY_BATTERY_READ", "STRESS_READ"],
+    actionLabel: "Connecter Garmin",
+    secondaryLabel: "Tester la configuration",
+    note: "Acces Garmin Developer Program en cours de validation (DEC-006). Aucune activation reelle avant confirmation manuelle.",
     placeholder: true,
   },
 ];

@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-export type OAuthTokenProvider = "youtube" | "tiktok" | "meta" | "pinterest";
+export type OAuthTokenProvider = "youtube" | "tiktok" | "meta" | "pinterest" | "garmin";
 
 export type OAuthTokenPayload = {
   access_token?: string;
@@ -59,6 +59,7 @@ const allowedOAuthTokenProviders = new Set<OAuthTokenProvider>([
   "tiktok",
   "meta",
   "pinterest",
+  "garmin",
 ]);
 
 type SupabaseOAuthError = {

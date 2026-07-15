@@ -3,6 +3,11 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
+import {
+  getPersonalConnectors,
+  type PersonalConnector,
+  type PersonalConnectorCapability,
+} from "@/lib/personal/connectors";
 
 type PersonalTab =
   | "summary"
@@ -28,12 +33,12 @@ type PersonalCardDefinition = {
 };
 
 const personalTabs: PersonalTabDefinition[] = [
-  { id: "summary", label: "R\u00e9sum\u00e9" },
-  { id: "energy", label: "\u00c9nergie" },
+  { id: "summary", label: "Résumé" },
+  { id: "energy", label: "Énergie" },
   { id: "sleep", label: "Sommeil" },
   { id: "sport", label: "Sport" },
   { id: "goals", label: "Objectifs" },
-  { id: "tasks", label: "T\u00e2ches" },
+  { id: "tasks", label: "Tâches" },
   { id: "routines", label: "Routines" },
   { id: "journal", label: "Journal" },
   { id: "notes", label: "Notes" },
@@ -44,129 +49,119 @@ const personalTabs: PersonalTabDefinition[] = [
 const summaryCards: PersonalCardDefinition[] = [
   {
     title: "Vision du jour",
-    source: "Ce bloc sera aliment\u00e9 par journal / objectifs selon le cas.",
+    source: "Ce bloc sera alimenté par journal / objectifs selon le cas.",
   },
   {
-    title: "\u00c9nergie",
-    source: "Ce bloc sera aliment\u00e9 par Garmin / journal selon le cas.",
+    title: "Énergie",
+    source: "Ce bloc sera alimenté par Garmin / journal selon le cas.",
   },
   {
     title: "Sommeil",
-    source: "Ce bloc sera aliment\u00e9 par Garmin / journal selon le cas.",
+    source: "Ce bloc sera alimenté par Garmin / journal selon le cas.",
   },
   {
     title: "Objectifs actifs",
-    source: "Ce bloc sera aliment\u00e9 par objectifs selon le cas.",
+    source: "Ce bloc sera alimenté par objectifs selon le cas.",
   },
   {
-    title: "T\u00e2ches prioritaires",
-    source: "Ce bloc sera aliment\u00e9 par objectifs / calendrier selon le cas.",
+    title: "Tâches prioritaires",
+    source: "Ce bloc sera alimenté par objectifs / calendrier selon le cas.",
   },
   {
     title: "Journal du jour",
-    source: "Ce bloc sera aliment\u00e9 par journal selon le cas.",
+    source: "Ce bloc sera alimenté par journal selon le cas.",
   },
 ];
 
-const tabCards: Record<Exclude<PersonalTab, "summary">, PersonalCardDefinition[]> = {
+const tabCards: Record<Exclude<PersonalTab, "summary" | "sources">, PersonalCardDefinition[]> = {
   calendar: [
     {
       title: "Agenda du jour",
-      source: "Ce bloc sera aliment\u00e9 par calendrier selon le cas.",
+      source: "Ce bloc sera alimenté par calendrier selon le cas.",
     },
     {
-      title: "Rep\u00e8res \u00e0 venir",
-      source: "Ce bloc sera aliment\u00e9 par calendrier / objectifs selon le cas.",
+      title: "Repères à venir",
+      source: "Ce bloc sera alimenté par calendrier / objectifs selon le cas.",
     },
   ],
   energy: [
     {
       title: "Niveau ressenti",
-      source: "Ce bloc sera aliment\u00e9 par Garmin / journal selon le cas.",
+      source: "Ce bloc sera alimenté par Garmin / journal selon le cas.",
     },
     {
-      title: "Signaux \u00e0 surveiller",
-      source: "Ce bloc sera aliment\u00e9 par journal / routines selon le cas.",
+      title: "Signaux à surveiller",
+      source: "Ce bloc sera alimenté par journal / routines selon le cas.",
     },
   ],
   goals: [
     {
       title: "Objectifs actifs",
-      source: "Ce bloc sera aliment\u00e9 par objectifs selon le cas.",
+      source: "Ce bloc sera alimenté par objectifs selon le cas.",
     },
     {
-      title: "D\u00e9cisions li\u00e9es",
-      source: "Ce bloc sera aliment\u00e9 par journal / objectifs selon le cas.",
+      title: "Décisions liées",
+      source: "Ce bloc sera alimenté par journal / objectifs selon le cas.",
     },
   ],
   journal: [
     {
-      title: "Entr\u00e9e du jour",
-      source: "Ce bloc sera aliment\u00e9 par journal selon le cas.",
+      title: "Entrée du jour",
+      source: "Ce bloc sera alimenté par journal selon le cas.",
     },
     {
-      title: "D\u00e9cisions du quotidien",
-      source: "Ce bloc sera aliment\u00e9 par journal / objectifs selon le cas.",
+      title: "Décisions du quotidien",
+      source: "Ce bloc sera alimenté par journal / objectifs selon le cas.",
     },
   ],
   notes: [
     {
       title: "Notes rapides",
-      source: "Ce bloc sera aliment\u00e9 par notes selon le cas.",
+      source: "Ce bloc sera alimenté par notes selon le cas.",
     },
     {
-      title: "Rep\u00e8res personnels",
-      source: "Ce bloc sera aliment\u00e9 par notes / journal selon le cas.",
+      title: "Repères personnels",
+      source: "Ce bloc sera alimenté par notes / journal selon le cas.",
     },
   ],
   routines: [
     {
       title: "Routines du jour",
-      source: "Ce bloc sera aliment\u00e9 par routines selon le cas.",
+      source: "Ce bloc sera alimenté par routines selon le cas.",
     },
     {
-      title: "Routines \u00e0 stabiliser",
-      source: "Ce bloc sera aliment\u00e9 par routines / journal selon le cas.",
+      title: "Routines à stabiliser",
+      source: "Ce bloc sera alimenté par routines / journal selon le cas.",
     },
   ],
   sleep: [
     {
-      title: "Sommeil r\u00e9cent",
-      source: "Ce bloc sera aliment\u00e9 par Garmin / journal selon le cas.",
+      title: "Sommeil récent",
+      source: "Ce bloc sera alimenté par Garmin / journal selon le cas.",
     },
     {
-      title: "Qualit\u00e9 de r\u00e9cup\u00e9ration",
-      source: "Ce bloc sera aliment\u00e9 par Garmin selon le cas.",
-    },
-  ],
-  sources: [
-    {
-      title: "Connexions pr\u00e9vues",
-      source: "Ce bloc sera aliment\u00e9 par Garmin / calendrier / journal / objectifs selon le cas.",
-    },
-    {
-      title: "Statut des sources",
-      source: "Ce bloc sera aliment\u00e9 par les sources connect\u00e9es selon le cas.",
+      title: "Qualité de récupération",
+      source: "Ce bloc sera alimenté par Garmin selon le cas.",
     },
   ],
   sport: [
     {
-      title: "Activit\u00e9s sportives",
-      source: "Ce bloc sera aliment\u00e9 par Garmin selon le cas.",
+      title: "Activités sportives",
+      source: "Ce bloc sera alimenté par Garmin selon le cas.",
     },
     {
-      title: "R\u00e9cup\u00e9ration",
-      source: "Ce bloc sera aliment\u00e9 par Garmin / journal selon le cas.",
+      title: "Récupération",
+      source: "Ce bloc sera alimenté par Garmin / journal selon le cas.",
     },
   ],
   tasks: [
     {
-      title: "T\u00e2ches prioritaires",
-      source: "Ce bloc sera aliment\u00e9 par objectifs / calendrier selon le cas.",
+      title: "Tâches prioritaires",
+      source: "Ce bloc sera alimenté par objectifs / calendrier selon le cas.",
     },
     {
-      title: "Actions \u00e0 clarifier",
-      source: "Ce bloc sera aliment\u00e9 par journal / objectifs selon le cas.",
+      title: "Actions à clarifier",
+      source: "Ce bloc sera alimenté par journal / objectifs selon le cas.",
     },
   ],
 };
@@ -174,23 +169,23 @@ const tabCards: Record<Exclude<PersonalTab, "summary">, PersonalCardDefinition[]
 const tabCopy: Record<PersonalTab, { description: string; title: string }> = {
   calendar: {
     title: "Calendrier",
-    description: "Rendez-vous, blocs de temps et rep\u00e8res utiles au quotidien.",
+    description: "Rendez-vous, blocs de temps et repères utiles au quotidien.",
   },
   energy: {
-    title: "\u00c9nergie",
-    description: "Lecture calme de l'\u00e9nergie disponible et des signaux personnels.",
+    title: "Énergie",
+    description: "Lecture calme de l'énergie disponible et des signaux personnels.",
   },
   goals: {
     title: "Objectifs",
-    description: "Objectifs actifs, intentions et points de d\u00e9cision personnels.",
+    description: "Objectifs actifs, intentions et points de décision personnels.",
   },
   journal: {
     title: "Journal",
-    description: "Espace d'\u00e9criture, de recul et de suivi des d\u00e9cisions du jour.",
+    description: "Espace d'écriture, de recul et de suivi des décisions du jour.",
   },
   notes: {
     title: "Notes",
-    description: "Id\u00e9es rapides, rep\u00e8res personnels et fragments \u00e0 reprendre.",
+    description: "Idées rapides, repères personnels et fragments à reprendre.",
   },
   routines: {
     title: "Routines",
@@ -198,51 +193,73 @@ const tabCopy: Record<PersonalTab, { description: string; title: string }> = {
   },
   sleep: {
     title: "Sommeil",
-    description: "Suivi de la r\u00e9cup\u00e9ration sans interpr\u00e9tation automatique pour l'instant.",
+    description: "Suivi de la récupération sans interprétation automatique pour l'instant.",
   },
   sources: {
     title: "Sources",
-    description: "Vue de pr\u00e9paration des futures connexions, sans appel API externe.",
+    description: "Vue de préparation des futures connexions, sans appel API externe.",
   },
   sport: {
     title: "Sport",
-    description: "Activit\u00e9s, r\u00e9cup\u00e9ration et signaux physiques quand les sources seront pr\u00eates.",
+    description: "Activités, récupération et signaux physiques quand les sources seront prêtes.",
   },
   summary: {
-    title: "R\u00e9sum\u00e9",
+    title: "Résumé",
     description: "Vue courte pour garder l'essentiel visible sans longue page verticale.",
   },
   tasks: {
-    title: "T\u00e2ches",
-    description: "Actions prioritaires, \u00e0 clarifier ou \u00e0 relier aux objectifs.",
+    title: "Tâches",
+    description: "Actions prioritaires, à clarifier ou à relier aux objectifs.",
   },
 };
 
-function sourceForActiveTab(tab: PersonalTab) {
-  if (tab === "sources") {
-    return "Ce bloc sera aliment\u00e9 par Garmin / calendrier / journal / objectifs selon le cas.";
-  }
+const capabilityLabels: Record<PersonalConnectorCapability, string> = {
+  activities: "Activités",
+  body_battery: "Body Battery",
+  calendar_events: "Événements calendrier",
+  heart_rate: "Fréquence cardiaque",
+  notes: "Notes",
+  recovery: "Récupération",
+  sleep: "Sommeil",
+  stress: "Stress",
+  tasks: "Tâches",
+  transactions: "Transactions",
+  vo2max: "VO2 max",
+};
 
+function sourceForActiveTab(tab: PersonalTab) {
   if (tab === "calendar") {
-    return "Ce bloc sera aliment\u00e9 par calendrier selon le cas.";
+    return "Ce bloc sera alimenté par calendrier selon le cas.";
   }
 
   if (tab === "goals" || tab === "tasks") {
-    return "Ce bloc sera aliment\u00e9 par objectifs selon le cas.";
+    return "Ce bloc sera alimenté par objectifs selon le cas.";
   }
 
   if (tab === "journal" || tab === "notes" || tab === "routines") {
-    return "Ce bloc sera aliment\u00e9 par journal / objectifs selon le cas.";
+    return "Ce bloc sera alimenté par journal / objectifs selon le cas.";
   }
 
-  return "Ce bloc sera aliment\u00e9 par Garmin / journal selon le cas.";
+  return "Ce bloc sera alimenté par Garmin / journal selon le cas.";
+}
+
+function connectorStatusClass(connector: PersonalConnector) {
+  if (connector.status === "Préparé") {
+    return "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]";
+  }
+
+  if (connector.status === "À connecter") {
+    return "border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#fbbf24]";
+  }
+
+  return "border-[#64748b]/40 bg-[#64748b]/10 text-[#cbd5e1]";
 }
 
 export function PersonalEmptyState({ source }: { source: string }) {
   return (
     <div className="rounded-md border border-dashed border-[#1D2A44] bg-[#03070B] p-4">
       <p className="text-sm font-semibold text-[#F8FAFC]">
-        Aucune donn&eacute;e connect&eacute;e pour le moment.
+        Aucune donnée connectée pour le moment.
       </p>
       <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">{source}</p>
     </div>
@@ -277,7 +294,7 @@ export function PersonalSection({
     <SectionContainer>
       <div className="mb-5 min-w-0">
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
-          Espace int&eacute;rieur
+          Espace intérieur
         </p>
         <h2 className="mt-2 text-2xl font-semibold text-[#F8FAFC]">{title}</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#A7B0C0]">
@@ -295,6 +312,79 @@ export function PersonalSummaryGrid() {
       {summaryCards.map((card) => (
         <PersonalModuleCard key={card.title} title={card.title}>
           <PersonalEmptyState source={card.source} />
+        </PersonalModuleCard>
+      ))}
+    </div>
+  );
+}
+
+export function PersonalSourcesGrid() {
+  const connectors = getPersonalConnectors();
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      {connectors.map((connector) => (
+        <PersonalModuleCard key={connector.id} title={connector.label}>
+          <div className="grid gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <p className="text-sm leading-6 text-[#A7B0C0]">
+                {connector.description}
+              </p>
+              <span
+                className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-semibold ${connectorStatusClass(
+                  connector,
+                )}`}
+              >
+                {connector.status}
+              </span>
+            </div>
+
+            <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#A7B0C0]">
+                Données prévues
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {connector.capabilities.map((capability) => (
+                  <span
+                    className="rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-1 text-xs font-semibold text-[#F8FAFC]"
+                    key={capability}
+                  >
+                    {capabilityLabels[capability]}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#A7B0C0]">
+                {"Variables d'environnement requises"}
+              </p>
+              {connector.requiredEnvVars.length ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {connector.requiredEnvVars.map((envVar) => (
+                    <code
+                      className="rounded-md border border-[#1D2A44] bg-[#08111A] px-2 py-1 text-xs text-[#F8FAFC]"
+                      key={envVar}
+                    >
+                      {envVar}
+                    </code>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-[#A7B0C0]">
+                  Aucune variable requise pour le moment.
+                </p>
+              )}
+            </div>
+
+            <button
+              className="w-fit rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#64748b]"
+              disabled
+              type="button"
+            >
+              Connexion bientôt disponible
+            </button>
+          </div>
         </PersonalModuleCard>
       ))}
     </div>
@@ -357,7 +447,15 @@ export function PersonalDashboardClient() {
         <PersonalSection description={activeCopy.description} title={activeCopy.title}>
           <PersonalSummaryGrid />
         </PersonalSection>
-      ) : (
+      ) : null}
+
+      {activeTab === "sources" ? (
+        <PersonalSection description={activeCopy.description} title={activeCopy.title}>
+          <PersonalSourcesGrid />
+        </PersonalSection>
+      ) : null}
+
+      {activeTab !== "summary" && activeTab !== "sources" ? (
         <PersonalSection description={activeCopy.description} title={activeCopy.title}>
           <div className="grid gap-4 lg:grid-cols-2">
             {tabCards[activeTab].map((card) => (
@@ -370,7 +468,7 @@ export function PersonalDashboardClient() {
             <PersonalEmptyState source={sourceForActiveTab(activeTab)} />
           </div>
         </PersonalSection>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
 import { PersonalDashboardClient } from "./PersonalDashboardClient";
 
 export const metadata: Metadata = {
-  title: "Espace int\u00e9rieur - L'\u00c9difice",
+  title: "Espace intérieur - L'Édifice",
 };
 
 export default function PersonnelPage() {
@@ -11,8 +11,8 @@ export default function PersonnelPage() {
     <div>
       <CockpitHeader
         eyebrow="Personnel"
-        title="Espace int\u00e9rieur"
-        description="OS personnel pour suivre \u00e9nergie, objectifs, routines, notes et d\u00e9cisions du quotidien."
+        title="Espace intérieur"
+        description="OS personnel pour suivre énergie, objectifs, routines, notes et décisions du quotidien."
         status="Experimental"
       />
       <PersonalDashboardClient />

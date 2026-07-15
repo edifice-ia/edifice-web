@@ -5,6 +5,8 @@ import {
   verifyYouTubeOAuthState,
   YOUTUBE_STATE_COOKIE,
 } from "@/lib/server/oauth/youtube-state";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const YOUTUBE_RETURN_PATH = "/interface/reglages/connexions";
@@ -52,12 +54,20 @@ function redirectToYouTubeReturn(request: NextRequest, connected: boolean) {
 }
 
 export async function GET(request: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user || !canAccessPrivateCockpit(user)) {
+    console.warn("[YouTube OAuth Callback] acces refuse", {
+      failureStep: "access_check",
+    });
+    return redirectToYouTubeReturn(request, false);
+  }
+
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
   const cookieState = request.cookies.get(YOUTUBE_STATE_COOKIE)?.value ?? null;
   const stateValid =
     Boolean(state && cookieState && state === cookieState) &&
-    verifyYouTubeOAuthState(state);
+    verifyYouTubeOAuthState(state, user.id);
 
   console.info("[OAuth Callback] provider=youtube");
   console.info("[YouTube OAuth Callback] code present yes/no", {

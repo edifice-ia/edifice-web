@@ -23,7 +23,7 @@ function safeEqual(a: string, b: string) {
   return timingSafeEqual(aBuffer, bBuffer);
 }
 
-export function createYouTubeOAuthState() {
+export function createYouTubeOAuthState(userId: string) {
   const secret = getStateSecret();
 
   if (!secret) {
@@ -32,13 +32,14 @@ export function createYouTubeOAuthState() {
 
   const nonce = randomBytes(32).toString("base64url");
   const issuedAt = Math.floor(Date.now() / 1000).toString();
-  const payload = `${nonce}.${issuedAt}`;
+  const encodedUserId = Buffer.from(userId).toString("base64url");
+  const payload = `${nonce}.${issuedAt}.${encodedUserId}`;
   const signature = signStatePayload(payload, secret);
 
   return `${payload}.${signature}`;
 }
 
-export function verifyYouTubeOAuthState(receivedState: string | null) {
+export function verifyYouTubeOAuthState(receivedState: string | null, userId: string) {
   const secret = getStateSecret();
 
   if (!secret || !receivedState) {
@@ -47,14 +48,14 @@ export function verifyYouTubeOAuthState(receivedState: string | null) {
 
   const parts = receivedState.split(".");
 
-  if (parts.length !== 3) {
+  if (parts.length !== 4) {
     return false;
   }
 
-  const [nonce, issuedAt, signature] = parts;
+  const [nonce, issuedAt, encodedUserId, signature] = parts;
   const issuedAtSeconds = Number(issuedAt);
 
-  if (!nonce || !Number.isFinite(issuedAtSeconds)) {
+  if (!nonce || !encodedUserId || !Number.isFinite(issuedAtSeconds)) {
     return false;
   }
 
@@ -64,7 +65,14 @@ export function verifyYouTubeOAuthState(receivedState: string | null) {
     return false;
   }
 
-  const expectedSignature = signStatePayload(`${nonce}.${issuedAt}`, secret);
+  const payload = `${nonce}.${issuedAt}.${encodedUserId}`;
+  const expectedSignature = signStatePayload(payload, secret);
 
-  return safeEqual(signature, expectedSignature);
+  if (!safeEqual(signature, expectedSignature)) {
+    return false;
+  }
+
+  const stateUserId = Buffer.from(encodedUserId, "base64url").toString();
+
+  return stateUserId === userId;
 }

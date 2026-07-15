@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
   buildMetaErrorRedirect,
@@ -8,8 +9,15 @@ import {
   getMetaRedirectUri,
   META_AUTH_URL,
 } from "@/lib/oauth/meta";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user || !canAccessPrivateCockpit(user)) {
+    return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+  }
+
   const missing = getMissingMetaEnv();
 
   console.info("[META START] env check", {
@@ -22,7 +30,7 @@ export async function GET(request: NextRequest) {
     return Response.redirect(buildMetaErrorRedirect(request, "missing_env"));
   }
 
-  const state = createMetaState();
+  const state = createMetaState(user.id);
 
   console.info("[META START] state generated", {
     generated: Boolean(state),

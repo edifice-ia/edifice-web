@@ -72,7 +72,7 @@ export function getMissingMetaEnv() {
   });
 }
 
-export function createMetaState() {
+export function createMetaState(userId: string) {
   const secret = process.env.OAUTH_STATE_SECRET;
 
   if (!secret) {
@@ -81,22 +81,23 @@ export function createMetaState() {
 
   const nonce = randomBytes(16).toString("hex");
   const timestamp = Date.now().toString();
-  const payload = `${nonce}.${timestamp}`;
+  const encodedUserId = Buffer.from(userId).toString("hex");
+  const payload = `${nonce}.${timestamp}.${encodedUserId}`;
   const signature = createHmac("sha256", secret).update(payload).digest("hex");
 
   return `${payload}.${signature}`;
 }
 
-export function verifyMetaState(state: string) {
+export function verifyMetaState(state: string, userId: string) {
   const secret = process.env.OAUTH_STATE_SECRET;
 
   if (!secret) {
     return false;
   }
 
-  const [nonce, timestamp, signature] = state.split(".");
+  const [nonce, timestamp, encodedUserId, signature] = state.split(".");
 
-  if (!nonce || !timestamp || !signature) {
+  if (!nonce || !timestamp || !encodedUserId || !signature) {
     return false;
   }
 
@@ -106,14 +107,66 @@ export function verifyMetaState(state: string) {
     return false;
   }
 
-  const payload = `${nonce}.${timestamp}`;
+  const payload = `${nonce}.${timestamp}.${encodedUserId}`;
   const expected = createHmac("sha256", secret).update(payload).digest("hex");
 
+  let signatureValid: boolean;
+
   try {
-    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    signatureValid = timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
   } catch {
+    signatureValid = false;
+  }
+
+  if (!signatureValid) {
     return false;
   }
+
+  const stateUserId = Buffer.from(encodedUserId, "hex").toString();
+
+  return stateUserId === userId;
+}
+
+type MetaPermissionsResponse = {
+  data?: Array<{
+    permission?: string;
+    status?: string;
+  }>;
+  error?: {
+    message?: string;
+    type?: string;
+    code?: number;
+  };
+};
+
+export async function hasRequiredMetaPermissions(accessToken: string) {
+  const permissionsUrl = new URL(META_PERMISSIONS_URL);
+  permissionsUrl.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(permissionsUrl, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+  const payload = (await response.json()) as MetaPermissionsResponse;
+
+  if (!response.ok) {
+    console.error("[meta-oauth] permissions check rejected", {
+      status: response.status,
+      metaErrorCode: payload.error?.code,
+      metaErrorType: payload.error?.type,
+    });
+    return false;
+  }
+
+  const granted = new Set(
+    payload.data
+      ?.filter((item) => item.status === "granted")
+      .map((item) => item.permission),
+  );
+  return getActiveMetaScopes().every((scope) => granted.has(scope));
 }
 
 export function buildMetaErrorRedirect(

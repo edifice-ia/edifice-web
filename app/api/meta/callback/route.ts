@@ -1,17 +1,19 @@
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
   buildMetaErrorRedirect,
   buildMetaSuccessRedirect,
-  getActiveMetaScopes,
   getMissingMetaEnv,
   getMetaRedirectUri,
-  META_PERMISSIONS_URL,
+  hasRequiredMetaPermissions,
   META_REQUIRED_ENV,
   META_TOKEN_URL,
   verifyMetaState,
 } from "@/lib/oauth/meta";
 import { saveOAuthToken } from "@/lib/server/oauth/token-store";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 type MetaTokenResponse = {
   access_token?: string;
@@ -26,49 +28,12 @@ type MetaTokenResponse = {
   };
 };
 
-type MetaPermissionsResponse = {
-  data?: Array<{
-    permission?: string;
-    status?: string;
-  }>;
-  error?: {
-    message?: string;
-    type?: string;
-    code?: number;
-  };
-};
-
-async function hasRequiredPermissions(accessToken: string) {
-  const permissionsUrl = new URL(META_PERMISSIONS_URL);
-  permissionsUrl.searchParams.set("access_token", accessToken);
-
-  const response = await fetch(permissionsUrl, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-    },
-    cache: "no-store",
-  });
-  const payload = (await response.json()) as MetaPermissionsResponse;
-
-  if (!response.ok) {
-    console.error("[meta-oauth] permissions check rejected", {
-      status: response.status,
-      metaErrorCode: payload.error?.code,
-      metaErrorType: payload.error?.type,
-    });
-    return false;
+export async function GET(request: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user || !canAccessPrivateCockpit(user)) {
+    return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
   }
 
-  const granted = new Set(
-    payload.data
-      ?.filter((item) => item.status === "granted")
-      .map((item) => item.permission),
-  );
-  return getActiveMetaScopes().every((scope) => granted.has(scope));
-}
-
-export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
   const error = request.nextUrl.searchParams.get("error");
@@ -127,7 +92,7 @@ export async function GET(request: NextRequest) {
   const expectedState = cookieStore.get("meta_oauth_state")?.value;
   cookieStore.delete("meta_oauth_state");
 
-  if (!state || !expectedState || state !== expectedState || !verifyMetaState(state)) {
+  if (!state || !expectedState || state !== expectedState || !verifyMetaState(state, user.id)) {
     console.warn("[META CALLBACK] invalid state", {
       hasState: Boolean(state),
       hasCookieState: Boolean(expectedState),
@@ -198,7 +163,7 @@ export async function GET(request: NextRequest) {
     expiresInPresent: typeof tokenPayload.expires_in === "number",
   });
 
-  const permissionsOk = await hasRequiredPermissions(tokenPayload.access_token);
+  const permissionsOk = await hasRequiredMetaPermissions(tokenPayload.access_token);
 
   if (!permissionsOk) {
     console.warn("[META CALLBACK] required permissions are missing");

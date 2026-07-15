@@ -6,6 +6,8 @@ import {
   TIKTOK_STATE_COOKIE,
   verifyTikTokOAuthState,
 } from "@/lib/server/oauth/tiktok-state";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 
@@ -25,7 +27,7 @@ type TikTokTokenResponse = {
 function redirectToInterface(
   request: NextRequest,
   connected: "0" | "1",
-  error?: "oauth",
+  error?: "oauth" | "access_denied",
 ) {
   const redirectTarget = buildAbsoluteOAuthReturnUrl(
     request,
@@ -56,6 +58,14 @@ function redirectToInterface(
 }
 
 export async function GET(request: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user || !canAccessPrivateCockpit(user)) {
+    console.warn("[TikTok OAuth Callback] acces refuse", {
+      failureStep: "access_check",
+    });
+    return redirectToInterface(request, "0", "access_denied");
+  }
+
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
   const error = request.nextUrl.searchParams.get("error");
@@ -63,7 +73,7 @@ export async function GET(request: NextRequest) {
   const cookieState = request.cookies.get(TIKTOK_STATE_COOKIE)?.value ?? null;
   const stateValid =
     Boolean(state && cookieState && state === cookieState) &&
-    verifyTikTokOAuthState(state);
+    verifyTikTokOAuthState(state, user.id);
 
   console.info("[OAuth Callback] provider=tiktok");
   console.info("[TikTok OAuth Callback] callback recu");

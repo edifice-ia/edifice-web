@@ -11,6 +11,8 @@ import {
   getOAuthConfigState,
   isTokenExchangeEnabled,
 } from "@/lib/oauth/server";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export async function GET(
   request: NextRequest,
@@ -41,8 +43,19 @@ export async function GET(
     );
   }
 
+  let youtubeUser: Awaited<ReturnType<typeof getCurrentUser>> = null;
+
+  if (provider.key === "youtube") {
+    youtubeUser = await getCurrentUser();
+    if (!youtubeUser || !canAccessPrivateCockpit(youtubeUser)) {
+      return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+    }
+  }
+
   const youtubeState =
-    provider.key === "youtube" ? createYouTubeOAuthState() : undefined;
+    provider.key === "youtube" && youtubeUser
+      ? createYouTubeOAuthState(youtubeUser.id)
+      : undefined;
   const authorizationUrl = buildOAuthStartUrl(
     provider,
     youtubeState ?? undefined,

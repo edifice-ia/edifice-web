@@ -1,7 +1,10 @@
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { verifyMetaState } from "@/lib/oauth/meta";
+import { hasRequiredMetaPermissions, verifyMetaState } from "@/lib/oauth/meta";
 import { saveOAuthToken } from "@/lib/server/oauth/token-store";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const META_TOKEN_URL = "https://graph.facebook.com/v23.0/oauth/access_token";
 const META_RETURN_PATH = "/interface/reglages/connexions";
@@ -42,6 +45,11 @@ function redirectToMetaReturn(request: NextRequest, connected: boolean) {
 }
 
 export async function GET(request: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user || !canAccessPrivateCockpit(user)) {
+    return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+  }
+
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
   const cookieStore = await cookies();
@@ -49,7 +57,7 @@ export async function GET(request: NextRequest) {
   cookieStore.delete("meta_oauth_state");
   const stateValid =
     Boolean(state && expectedState && state === expectedState) &&
-    verifyMetaState(state ?? "");
+    verifyMetaState(state ?? "", user.id);
 
   console.info("[OAuth Callback] provider=meta");
   console.info("[Meta OAuth Callback] code present yes/no", {
@@ -119,6 +127,16 @@ export async function GET(request: NextRequest) {
         metaErrorCode: tokenPayload.error?.code,
         metaErrorType: tokenPayload.error?.type,
       });
+      console.info("[Meta OAuth Callback] token stored yes/no", {
+        stored: false,
+      });
+      return redirectToMetaReturn(request, false);
+    }
+
+    const permissionsOk = await hasRequiredMetaPermissions(tokenPayload.access_token);
+
+    if (!permissionsOk) {
+      console.warn("[Meta OAuth Callback] required permissions are missing");
       console.info("[Meta OAuth Callback] token stored yes/no", {
         stored: false,
       });

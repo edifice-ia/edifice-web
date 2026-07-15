@@ -1,6 +1,9 @@
 import { stat, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { NextResponse } from "next/server";
 import { getOAuthToken } from "@/lib/server/oauth/token-store";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -217,6 +220,12 @@ function sanitizeTikTokError(payload?: TikTokUploadInitPayload) {
 }
 
 export async function POST() {
+  const user = await getCurrentUser();
+
+  if (!user || !canAccessPrivateCockpit(user)) {
+    return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+  }
+
   console.info("[TikTok Sandbox Upload] request received");
 
   try {

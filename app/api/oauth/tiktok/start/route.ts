@@ -4,6 +4,8 @@ import {
   TIKTOK_STATE_COOKIE,
   TIKTOK_STATE_MAX_AGE_SECONDS,
 } from "@/lib/server/oauth/tiktok-state";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const TIKTOK_AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/";
 const TIKTOK_SCOPES = ["user.info.basic", "video.upload"];
@@ -20,6 +22,11 @@ function hasEnvValue(name: string) {
 }
 
 export async function GET() {
+  const user = await getCurrentUser();
+  if (!user || !canAccessPrivateCockpit(user)) {
+    return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+  }
+
   const missing = REQUIRED_ENV.filter((name) => !hasEnvValue(name));
   const clientKey = process.env.TIKTOK_CLIENT_KEY?.trim();
   const redirectUri = process.env.TIKTOK_REDIRECT_URI?.trim();
@@ -44,7 +51,7 @@ export async function GET() {
     );
   }
 
-  const state = createTikTokOAuthState();
+  const state = createTikTokOAuthState(user.id);
 
   console.info("[TikTok OAuth Start] state genere", {
     generated: Boolean(state),

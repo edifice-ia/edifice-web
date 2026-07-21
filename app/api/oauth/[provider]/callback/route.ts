@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { buildAbsoluteOAuthReturnUrl } from "@/lib/server/oauth/oauth-redirects";
 import { getOAuthProvider } from "@/lib/oauth/providers";
 import { isTokenExchangeEnabled } from "@/lib/oauth/server";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export async function GET(
   request: NextRequest,
@@ -36,6 +38,13 @@ export async function GET(
   };
 
   if (isDebug) {
+    if (provider.key !== "youtube") {
+      const diagnosticUser = await getCurrentUser();
+      if (!diagnosticUser || !canAccessPrivateCockpit(diagnosticUser)) {
+        return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+      }
+    }
+
     return Response.json(payload);
   }
 

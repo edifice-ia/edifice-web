@@ -65,6 +65,13 @@ export async function GET(
   const tokenExchangeEnabled = isTokenExchangeEnabled(provider);
 
   if (isTest || isDebug) {
+    if (provider.key !== "youtube") {
+      const diagnosticUser = await getCurrentUser();
+      if (!diagnosticUser || !canAccessPrivateCockpit(diagnosticUser)) {
+        return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+      }
+    }
+
     return Response.json({
       ok: true,
       provider: provider.key,

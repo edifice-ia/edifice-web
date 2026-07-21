@@ -1,4 +1,7 @@
+import { NextResponse } from "next/server";
 import { getOAuthToken } from "@/lib/server/oauth/token-store";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 type MetaGraphError = {
   message?: string;
@@ -110,6 +113,12 @@ function buildProfileResponse(options: {
 }
 
 export async function GET() {
+  const user = await getCurrentUser();
+
+  if (!user || !canAccessPrivateCockpit(user)) {
+    return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+  }
+
   const graphVersion = getGraphVersion();
   const metaToken = await getOAuthToken("meta");
   const metaTokenFound = Boolean(metaToken?.accessToken);

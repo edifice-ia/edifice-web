@@ -1,5 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { NextResponse } from "next/server";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const PINTEREST_ROOT = path.win32.normalize(String.raw`D:\Edifice_IA\projets\Pinterest`);
 const SNAPSHOT_PATH = path.join(
@@ -105,6 +108,12 @@ async function resolveImagePathById(id: string) {
 }
 
 export async function GET(request: Request) {
+  const user = await getCurrentUser();
+
+  if (!user || !canAccessPrivateCockpit(user)) {
+    return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+  }
+
   const url = new URL(request.url);
   const imageId = url.searchParams.get("id");
   const rawPath = url.searchParams.get("path");

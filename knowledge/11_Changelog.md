@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-07-11
+Dernière mise à jour : 2026-07-22
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-07-22](#2026-07-22)
 - [2026-07-11](#2026-07-11)
 - [2026-07-08](#2026-07-08)
 - [2026-07-07](#2026-07-07)
@@ -27,6 +28,20 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-07-22
+
+Type : documentation, sécurité  
+Résumé : documentation de `lib/server/publication-performance.ts` (jamais ajouté à `/knowledge` malgré un usage réel en production) et correction d'une sonde cassée dans `lib/server/observatory/read-model.ts` : `publicationTableCandidates` listait cinq noms de tables inexistants (`publications`, `publication_queue`, `scheduled_publications`, `publisher_jobs`, `content_publications`) au lieu du vrai nom `short_video_publications`, ce qui affichait en permanence un statut Publisher/Scheduler faussement "À migrer".  
+Fichiers liés :
+
+- `/knowledge/06_Modules.md`
+- `lib/server/observatory/read-model.ts`
+- `lib/server/publication-performance.ts`
+
+Impact : le statut Publisher/Scheduler de l'Observatoire reflète maintenant la présence réelle de `short_video_publications` ; le module de performance de publication (YouTube/Instagram réels, TikTok placeholder assumé) est désormais traçable dans `/knowledge` au lieu d'être du code fonctionnel non documenté.
+
+Action de suivi : voir aussi l'audit Observatoire (transparence des items déclaratifs de l'Observatoire, Journal récent codé en dur) traité dans le même lot.
 
 ## 2026-07-11
 

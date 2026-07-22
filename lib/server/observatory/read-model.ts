@@ -27,13 +27,7 @@ type PublicationTableProbe = {
   error?: string;
 };
 
-const publicationTableCandidates = [
-  "publications",
-  "publication_queue",
-  "scheduled_publications",
-  "publisher_jobs",
-  "content_publications",
-];
+const publicationTableCandidates = ["short_video_publications"];
 
 function hasEnvValue(name: string) {
   return typeof process.env[name] === "string" && process.env[name]!.trim().length > 0;

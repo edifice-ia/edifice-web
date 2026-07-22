@@ -4,7 +4,6 @@ import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { ConstructionJournal } from "@/components/cockpit/ConstructionJournal";
-import { LogPanel } from "@/components/cockpit/LogPanel";
 import { ProjectMemoryPanel } from "@/components/cockpit/ProjectMemoryPanel";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { StatusBadge } from "@/components/cockpit/StatusBadge";
@@ -493,8 +492,16 @@ export function MonitoringDashboardClient({
           <div className="grid gap-4 xl:grid-cols-2">
             {infrastructureItems.map((item) => (
               <InfoCard key={item.id} title={item.name}>
-                <div className="mb-3">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
                   <StatusBadge status={item.status} />
+                  {!item.source ? (
+                    <span
+                      className="rounded-md border border-[#f59e0b]/40 bg-[#f59e0b]/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#fbbf24]"
+                      title="Statut renseigne manuellement, aucune sonde live ne le verifie pour le moment."
+                    >
+                      Declaratif, non verifie
+                    </span>
+                  ) : null}
                 </div>
                 <p>{item.summary}</p>
                 <p className="mt-2 text-[#F8FAFC]">Action : {item.nextAction}</p>
@@ -522,6 +529,12 @@ export function MonitoringDashboardClient({
               </div>
             </InfoCard>
             <InfoCard title="Erreurs et rendus recents">
+              <span
+                className="mb-3 inline-flex rounded-md border border-[#f59e0b]/40 bg-[#f59e0b]/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#fbbf24]"
+                title="Liste codee en dur (page.tsx), aucune sonde live de rendu ou d'erreur ne l'alimente pour le moment."
+              >
+                Declaratif, non verifie
+              </span>
               {technicalLogs.length ? (
                 <div className="grid gap-2">
                   {technicalLogs.map((log) => (
@@ -550,9 +563,6 @@ export function MonitoringDashboardClient({
               nextRecommendedAction={projectMemory.nextRecommendedAction}
             />
             <ConstructionJournal initialEntries={projectMemory.projectMemoryEntries} />
-          </div>
-          <div className="mt-6">
-            <LogPanel logs={logs} title="Journal recent" />
           </div>
         </div>
       ) : null}

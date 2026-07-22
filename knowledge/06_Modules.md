@@ -97,6 +97,14 @@ Regroupe signaux, alertes, coûts et état système. Fichiers clés :
 - `app/interface/monitoring`
 - `app/api/observatory`
 
+`observatoryItems` (`lib/cockpit/observatory.ts`) définit trois items d'area `Agents` (`agent-assistant`, `agent-generation`, `agent-montage`) qui ne sont rendus nulle part dans l'app : `app/interface/monitoring` n'affiche que l'area `Infrastructure`, et le seul composant qui rendrait aussi `Agents` (`components/cockpit/ProjectObservatory.tsx`) n'est monté sur aucune route — code mort. À traiter séparément (décision de conception UI, pas une correction de transparence) avant de considérer ces trois items comme réellement visibles quelque part.
+
+### Performance de publication
+
+`lib/server/publication-performance.ts` synchronise les métriques de publication réelles pour YouTube (Data API) et Instagram (Graph API), et écrit des instantanés dans `publication_performance_snapshots`. Un moteur de recommandations à seuils (`buildRecommendations`, déclenché à partir d'un nombre minimal d'instantanés) propose des actions ; la décision de l'utilisateur (accepter/ignorer) est persistée dans `publication_performance_recommendation_actions`, jamais appliquée automatiquement.
+
+TikTok reste honnêtement en lecture placeholder pour cette v1 : aucune métrique TikTok n'est synchronisée, le module le signale explicitement dans son état renvoyé plutôt que d'afficher un faux zéro.
+
 ### Coûts
 
 Le suivi de coût est porté par `cost_events`, `lib/server/cost-tracking.ts` et les scripts de vérification.

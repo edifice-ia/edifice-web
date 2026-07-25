@@ -22,6 +22,25 @@ export async function getYouTubeOAuthStatusPayload() {
   });
 }
 
+export async function getCalendarOAuthStatusPayload() {
+  const provider = getOAuthProvider("calendar");
+
+  if (!provider) {
+    throw new Error("Google Calendar OAuth provider is not configured.");
+  }
+
+  const token = await getOAuthTokenStatus("calendar");
+
+  return buildOAuthStatusFromProvider(provider, {
+    mode: "production",
+    callbackPath: "/api/oauth/calendar/callback",
+    tokenPresent: token.present,
+    tokenStorageEnabled: token.storageEnabled,
+    expiresAt: token.expiresAt,
+    updatedAt: token.updatedAt,
+  });
+}
+
 export async function getTikTokOAuthStatusPayload() {
   const provider = getOAuthProvider("tiktok");
 

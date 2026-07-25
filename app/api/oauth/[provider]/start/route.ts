@@ -7,12 +7,20 @@ import {
   YOUTUBE_STATE_MAX_AGE_SECONDS,
 } from "@/lib/server/oauth/youtube-state";
 import {
+  createCalendarOAuthState,
+  CALENDAR_STATE_COOKIE,
+  CALENDAR_STATE_MAX_AGE_SECONDS,
+} from "@/lib/server/oauth/calendar-state";
+import { resolveCalendarRedirectUri } from "@/lib/server/oauth/calendar-redirect";
+import {
   buildOAuthStartUrl,
   getOAuthConfigState,
   isTokenExchangeEnabled,
 } from "@/lib/oauth/server";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
+
+const SIGNED_STATE_PROVIDERS = new Set(["youtube", "calendar"]);
 
 export async function GET(
   request: NextRequest,
@@ -43,29 +51,35 @@ export async function GET(
     );
   }
 
-  let youtubeUser: Awaited<ReturnType<typeof getCurrentUser>> = null;
+  const requiresSignedState = SIGNED_STATE_PROVIDERS.has(provider.key);
+  let signedStateUser: Awaited<ReturnType<typeof getCurrentUser>> = null;
 
-  if (provider.key === "youtube") {
-    youtubeUser = await getCurrentUser();
-    if (!youtubeUser || !canAccessPrivateCockpit(youtubeUser)) {
+  if (requiresSignedState) {
+    signedStateUser = await getCurrentUser();
+    if (!signedStateUser || !canAccessPrivateCockpit(signedStateUser)) {
       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
     }
   }
 
-  const youtubeState =
-    provider.key === "youtube" && youtubeUser
-      ? createYouTubeOAuthState(youtubeUser.id)
+  const signedState =
+    requiresSignedState && signedStateUser
+      ? provider.key === "youtube"
+        ? createYouTubeOAuthState(signedStateUser.id)
+        : createCalendarOAuthState(signedStateUser.id)
       : undefined;
   const authorizationUrl = buildOAuthStartUrl(
     provider,
-    youtubeState ?? undefined,
+    signedState ?? undefined,
+    provider.key === "calendar"
+      ? { redirectUriOverride: resolveCalendarRedirectUri(request) }
+      : undefined,
   );
   const isTest = request.nextUrl.searchParams.get("mode") === "test";
   const isDebug = request.nextUrl.searchParams.get("debug") === "1";
   const tokenExchangeEnabled = isTokenExchangeEnabled(provider);
 
   if (isTest || isDebug) {
-    if (provider.key !== "youtube") {
+    if (!requiresSignedState) {
       const diagnosticUser = await getCurrentUser();
       if (!diagnosticUser || !canAccessPrivateCockpit(diagnosticUser)) {
         return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
@@ -86,8 +100,8 @@ export async function GET(
     });
   }
 
-  if (provider.key === "youtube") {
-    if (!authorizationUrl || !youtubeState) {
+  if (requiresSignedState) {
+    if (!authorizationUrl || !signedState) {
       return Response.json(
         {
           ok: false,
@@ -98,13 +112,20 @@ export async function GET(
       );
     }
 
+    const stateCookieName =
+      provider.key === "youtube" ? YOUTUBE_STATE_COOKIE : CALENDAR_STATE_COOKIE;
+    const stateMaxAge =
+      provider.key === "youtube"
+        ? YOUTUBE_STATE_MAX_AGE_SECONDS
+        : CALENDAR_STATE_MAX_AGE_SECONDS;
+
     const response = NextResponse.redirect(authorizationUrl);
-    response.cookies.set(YOUTUBE_STATE_COOKIE, youtubeState, {
+    response.cookies.set(stateCookieName, signedState, {
       httpOnly: true,
       secure: request.nextUrl.protocol === "https:",
       sameSite: "lax",
-      maxAge: YOUTUBE_STATE_MAX_AGE_SECONDS,
-      path: "/api/oauth/youtube",
+      maxAge: stateMaxAge,
+      path: `/api/oauth/${provider.key}`,
     });
 
     return response;

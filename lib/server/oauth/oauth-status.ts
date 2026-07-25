@@ -5,7 +5,7 @@ export type OAuthStatusMode = "sandbox" | "production" | "review" | "disabled";
 type OAuthStatusEnvKeys = {
   clientId: string;
   clientSecret: string;
-  redirectUri: string;
+  redirectUri?: string;
   stateSecret?: string;
 };
 
@@ -44,11 +44,15 @@ function warningForMissing(present: boolean, label: string) {
 export function buildProviderOAuthStatus(options: OAuthStatusOptions) {
   const clientIdPresent = hasEnvValue(options.env.clientId);
   const clientSecretPresent = hasEnvValue(options.env.clientSecret);
-  const redirectUriPresent = hasEnvValue(options.env.redirectUri);
+  const redirectUriPresent = options.env.redirectUri
+    ? hasEnvValue(options.env.redirectUri)
+    : true;
   const stateSecretPresent = options.env.stateSecret
     ? hasEnvValue(options.env.stateSecret)
     : true;
-  const redirectUri = getEnvValue(options.env.redirectUri);
+  const redirectUri = options.env.redirectUri
+    ? getEnvValue(options.env.redirectUri)
+    : "dynamique (resolu selon le domaine de la requete)";
   const env = {
     CLIENT_ID: clientIdPresent,
     CLIENT_SECRET: clientSecretPresent,
@@ -58,7 +62,7 @@ export function buildProviderOAuthStatus(options: OAuthStatusOptions) {
   const legacyDomainDetected =
     hasLegacyDomain(options.env.clientId) ||
     hasLegacyDomain(options.env.clientSecret) ||
-    hasLegacyDomain(options.env.redirectUri) ||
+    (options.env.redirectUri ? hasLegacyDomain(options.env.redirectUri) : false) ||
     (options.env.stateSecret ? hasLegacyDomain(options.env.stateSecret) : false);
   const warnings = [
     ...warningForMissing(clientIdPresent, "CLIENT_ID"),
@@ -71,7 +75,7 @@ export function buildProviderOAuthStatus(options: OAuthStatusOptions) {
     ...(hasLegacyDomain(options.env.clientSecret)
       ? [`Ancien domaine Vercel detecte dans ${options.env.clientSecret}`]
       : []),
-    ...(hasLegacyDomain(options.env.redirectUri)
+    ...(options.env.redirectUri && hasLegacyDomain(options.env.redirectUri)
       ? [`Ancien domaine Vercel detecte dans ${options.env.redirectUri}`]
       : []),
     ...(options.env.stateSecret && hasLegacyDomain(options.env.stateSecret)

@@ -41,6 +41,7 @@ export function getOAuthStatus(provider: OAuthProviderConfig) {
 export function isTokenExchangeEnabled(provider: OAuthProviderConfig) {
   return (
     provider.key === "youtube" ||
+    provider.key === "calendar" ||
     provider.key === "pinterest" ||
     provider.key === "garmin"
   );
@@ -49,14 +50,16 @@ export function isTokenExchangeEnabled(provider: OAuthProviderConfig) {
 export function buildOAuthStartUrl(
   provider: OAuthProviderConfig,
   oauthState = "placeholder-state-not-for-production",
-  pkce?: { codeChallenge: string },
+  options?: { redirectUriOverride?: string; pkce?: { codeChallenge: string } },
 ) {
   if (!provider.authUrl) {
     return null;
   }
 
   const clientId = process.env[provider.env.client];
-  const redirectUri = process.env[provider.env.redirect];
+  const redirectUri =
+    options?.redirectUriOverride ??
+    (provider.env.redirect ? process.env[provider.env.redirect] : undefined);
 
   if (!clientId || !redirectUri) {
     return null;
@@ -74,13 +77,13 @@ export function buildOAuthStartUrl(
     url.searchParams.delete("client_id");
   }
 
-  if (provider.key === "youtube") {
+  if (provider.key === "youtube" || provider.key === "calendar") {
     url.searchParams.set("access_type", "offline");
     url.searchParams.set("prompt", "consent");
   }
 
-  if (provider.key === "garmin" && pkce) {
-    url.searchParams.set("code_challenge", pkce.codeChallenge);
+  if (provider.key === "garmin" && options?.pkce) {
+    url.searchParams.set("code_challenge", options.pkce.codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");
   }
 

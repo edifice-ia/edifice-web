@@ -2,6 +2,7 @@ import { PINTEREST_EXPECTED_SCOPES } from "@/lib/oauth/pinterest";
 
 export type OAuthProviderKey =
   | "youtube"
+  | "calendar"
   | "pinterest"
   | "tiktok"
   | "meta"
@@ -14,7 +15,7 @@ export type OAuthProviderConfig = {
   env: {
     client: string;
     secret: string;
-    redirect: string;
+    redirect?: string;
     stateSecret?: string;
   };
   authUrl?: string;
@@ -43,6 +44,25 @@ export const oauthProviders: OAuthProviderConfig[] = [
     actionLabel: "Connecter YouTube",
     secondaryLabel: "Tester la configuration",
     note: "Publication reelle controlee apres validation humaine.",
+  },
+  {
+    key: "calendar",
+    name: "Google Calendar",
+    env: {
+      client: "GOOGLE_CLIENT_ID",
+      secret: "GOOGLE_CLIENT_SECRET",
+      // Pas de redirect_uri statique : meme client OAuth "Edifice IA" que
+      // YouTube, mais deux domaines enregistres cote Google Cloud
+      // (edifice-web.vercel.app et www.edificeia.com). L'URI de redirection
+      // est resolue dynamiquement selon le domaine de la requete entrante,
+      // voir lib/server/oauth/calendar-redirect.ts.
+      stateSecret: "OAUTH_STATE_SECRET",
+    },
+    authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
+    actionLabel: "Connecter Google Calendar",
+    secondaryLabel: "Tester la configuration",
+    note: "Acces en lecture seule uniquement (moindre privilege), aucune ecriture sur l'agenda.",
   },
   {
     key: "pinterest",

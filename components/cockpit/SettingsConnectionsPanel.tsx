@@ -60,6 +60,7 @@ export async function SettingsConnectionsPanel({
         {visibleProviders.map((provider) => {
           const isMeta = provider.key === "meta";
           const isYouTube = provider.key === "youtube";
+          const isCalendar = provider.key === "calendar";
           const isTikTok = provider.key === "tiktok";
           const isPinterest = provider.key === "pinterest";
           const callbackPath = isPinterest
@@ -89,11 +90,13 @@ export async function SettingsConnectionsPanel({
                   ? "/api/oauth/meta/status"
                   : isYouTube
                     ? "/api/oauth/youtube/status"
-                    : isTikTok
-                      ? "/api/oauth/tiktok/status"
-                      : isPinterest
-                        ? "/api/auth/pinterest/test"
-                        : `/api/oauth/${provider.key}/start?mode=test`
+                    : isCalendar
+                      ? "/api/oauth/calendar/status"
+                      : isTikTok
+                        ? "/api/oauth/tiktok/status"
+                        : isPinterest
+                          ? "/api/auth/pinterest/test"
+                          : `/api/oauth/${provider.key}/start?mode=test`
               }
               callbackPath={
                 isMeta
@@ -118,9 +121,11 @@ export async function SettingsConnectionsPanel({
                         ? "/api/oauth/meta/status"
                         : isYouTube
                           ? "/api/oauth/youtube/status"
-                          : isTikTok
-                            ? "/api/oauth/tiktok/status"
-                            : `/api/oauth/${provider.key}/start?mode=test`
+                          : isCalendar
+                            ? "/api/oauth/calendar/status"
+                            : isTikTok
+                              ? "/api/oauth/tiktok/status"
+                              : `/api/oauth/${provider.key}/start?mode=test`
                     }
                     disabled={provider.placeholder}
                     showInstagramGraphTest={isMeta}

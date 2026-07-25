@@ -9,6 +9,7 @@ import {
 import { projectResources } from "@/lib/resources/project-resources";
 import { readProjectMemoryEntries } from "@/lib/server/project-memory";
 import {
+  getCalendarOAuthStatusPayload,
   getMetaOAuthStatusPayload,
   getPinterestOAuthStatusPayload,
   getTikTokOAuthStatusPayload,
@@ -136,6 +137,7 @@ async function readContentDraftState() {
 async function readOAuthState(): Promise<CockpitOAuthState[]> {
   const readers = [
     ["youtube", getYouTubeOAuthStatusPayload],
+    ["calendar", getCalendarOAuthStatusPayload],
     ["tiktok", getTikTokOAuthStatusPayload],
     ["meta", getMetaOAuthStatusPayload],
     ["pinterest", getPinterestOAuthStatusPayload],

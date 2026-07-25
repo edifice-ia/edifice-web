@@ -9,11 +9,7 @@ export const googleCalendarConnector: PersonalConnector = {
   status: "Préparé",
   category: "calendar",
   capabilities: ["calendar_events"],
-  requiredEnvVars: [
-    "GOOGLE_CLIENT_ID",
-    "GOOGLE_CLIENT_SECRET",
-    "GOOGLE_REDIRECT_URI",
-  ],
+  requiredEnvVars: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
   syncStrategy: "oauth",
   lastSyncAt: null,
   connectUrl: null,

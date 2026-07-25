@@ -31,8 +31,8 @@ export const oauthProviders: OAuthProviderConfig[] = [
     key: "youtube",
     name: "YouTube",
     env: {
-      client: "YOUTUBE_CLIENT_ID",
-      secret: "YOUTUBE_CLIENT_SECRET",
+      client: "GOOGLE_CLIENT_ID",
+      secret: "GOOGLE_CLIENT_SECRET",
       redirect: "YOUTUBE_REDIRECT_URI",
       stateSecret: "OAUTH_STATE_SECRET",
     },

@@ -174,8 +174,8 @@ export async function ensureYouTubeAccessToken(
     };
   }
 
-  const clientId = process.env.YOUTUBE_CLIENT_ID?.trim();
-  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET?.trim();
+  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
 
   if (!clientId || !clientSecret) {
     return {

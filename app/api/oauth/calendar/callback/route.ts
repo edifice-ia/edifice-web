@@ -2,12 +2,17 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { exchangeGoogleAuthorizationCode } from "@/lib/server/oauth/google-token-exchange";
 import { buildAbsoluteOAuthReturnUrl } from "@/lib/server/oauth/oauth-redirects";
-import { resolveCalendarRedirectUri } from "@/lib/server/oauth/calendar-redirect";
+import {
+  resolveCalendarRedirectUri,
+  resolveCalendarWebhookAddress,
+} from "@/lib/server/oauth/calendar-redirect";
 import { saveOAuthToken } from "@/lib/server/oauth/token-store";
 import {
   CALENDAR_STATE_COOKIE,
   verifyCalendarOAuthState,
 } from "@/lib/server/oauth/calendar-state";
+import { registerCalendarWatchChannel } from "@/lib/server/calendar/calendar-watch";
+import { upsertCalendarSyncState } from "@/lib/server/calendar/calendar-sync-state-store";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
@@ -135,6 +140,45 @@ export async function GET(request: NextRequest) {
     console.info("[Calendar OAuth Callback] token stored yes/no", {
       stored: true,
     });
+
+    // Demarre la synchro temps reel immediatement : un echec ici ne doit pas
+    // faire echouer la connexion OAuth elle-meme (le token est deja
+    // enregistre). Isole dans son propre try/catch : sans ca, une exception
+    // ici (ex. table personal_calendar_sync_state absente) remontait au
+    // catch englobant le token exchange et faisait rediriger avec
+    // connected=false alors meme que le token OAuth avait deja ete
+    // sauvegarde avec succes juste au-dessus — bug reel identifie le
+    // 2026-07-26, corrige ici.
+    try {
+      const watchAddress = resolveCalendarWebhookAddress(request.nextUrl.origin);
+      const watchRegistration = await registerCalendarWatchChannel({
+        accessToken: tokenPayload.access_token,
+        address: watchAddress,
+      });
+
+      if (watchRegistration.ok) {
+        await upsertCalendarSyncState({
+          userId: user.id,
+          channelId: watchRegistration.channelId,
+          resourceId: watchRegistration.resourceId,
+          channelToken: watchRegistration.channelToken,
+          expiresAt: watchRegistration.expiresAt,
+        });
+        console.info("[Calendar OAuth Callback] canal de notifications enregistre", {
+          channelId: watchRegistration.channelId,
+          expiresAt: watchRegistration.expiresAt,
+        });
+      } else {
+        console.error("[Calendar OAuth Callback] echec d'enregistrement du canal de notifications", {
+          error: watchRegistration.error,
+        });
+      }
+    } catch (watchError) {
+      console.error("[Calendar OAuth Callback] exception lors de l'enregistrement du canal", {
+        message:
+          watchError instanceof Error ? watchError.message : "Erreur inconnue.",
+      });
+    }
 
     return redirectToCalendarReturn(request, true);
   } catch (error) {

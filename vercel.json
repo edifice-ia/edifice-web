@@ -11,6 +11,14 @@
     {
       "path": "/api/internal/cron/personal-daily-brief",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/internal/cron/calendar-channel-renewal",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/internal/cron/calendar-channel-renewal",
+      "schedule": "0 4 * * *"
     }
   ]
 }

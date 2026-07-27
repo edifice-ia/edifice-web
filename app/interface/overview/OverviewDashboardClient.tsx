@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import { StatusBadge } from "@/components/cockpit/StatusBadge";
-import type { CockpitStatus } from "@/types/cockpit";
+import type { CockpitCalendarTodayState, CockpitStatus } from "@/types/cockpit";
 
 type DashboardData = {
   greetingName: string;
@@ -19,6 +19,7 @@ type DashboardData = {
     nextAction: string;
     criticalBlocker: string | null;
   };
+  calendarToday: CockpitCalendarTodayState;
   trajectory: {
     globalProgress: number;
     activeProjects: string[];
@@ -172,6 +173,85 @@ function ProgressBar({ value }: { value: number }) {
         className="h-full rounded-full bg-gradient-to-r from-[#38BDF8] via-[#39E6D0] to-[#A7F3D0]"
         style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
       />
+    </div>
+  );
+}
+
+function formatEventTime(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+// Vue compacte des rendez-vous du jour, pas un calendrier complet (cf.
+// Documentation strategique, module Cockpit, item 4 "Calendrier du jour").
+// Lecture seule stricte : aucune ecriture, aucune action possible depuis
+// cette carte.
+function CalendarTodayCard({ calendarToday }: { calendarToday: CockpitCalendarTodayState }) {
+  if (!calendarToday.connected) {
+    return (
+      <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+        <h3 className="font-semibold text-[#F8FAFC]">Calendrier du jour</h3>
+        <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+          Connecte Google Calendar pour voir tes événements du jour ici.
+        </p>
+        <Link
+          className="mt-3 inline-flex text-sm font-semibold text-[#39E6D0] hover:underline"
+          href="/interface/settings/connections"
+        >
+          Connecter Google Calendar
+        </Link>
+      </div>
+    );
+  }
+
+  if (calendarToday.readError) {
+    return (
+      <div className="rounded-md border border-[#f87171]/40 bg-[#f87171]/10 p-4">
+        <h3 className="font-semibold text-[#F8FAFC]">Calendrier du jour</h3>
+        <p className="mt-2 text-sm text-[#fecaca]">{calendarToday.readError}</p>
+      </div>
+    );
+  }
+
+  if (calendarToday.events.length === 0) {
+    return (
+      <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+        <h3 className="font-semibold text-[#F8FAFC]">Calendrier du jour</h3>
+        <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+          Aucun événement aujourd&apos;hui.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
+      <h3 className="font-semibold text-[#F8FAFC]">Calendrier du jour</h3>
+      <div className="mt-3 grid gap-2">
+        {calendarToday.events.map((event) => (
+          <div
+            className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2"
+            key={event.id}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm font-semibold text-[#F8FAFC]">{event.title}</p>
+              <span className="shrink-0 text-xs font-semibold text-[#39E6D0]">
+                {event.isAllDay ? "Journée entière" : formatEventTime(event.startsAt)}
+              </span>
+            </div>
+            {event.location ? (
+              <p className="mt-1 text-xs text-[#A7B0C0]">{event.location}</p>
+            ) : null}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -383,6 +463,8 @@ function SummaryBlock({
           value={data.summary.criticalBlocker ?? "Aucun blocage critique"}
         />
       </div>
+
+      <CalendarTodayCard calendarToday={data.calendarToday} />
 
       <div className="flex flex-wrap gap-2">
         {summaryActions.map((action) => (

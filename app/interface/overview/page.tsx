@@ -173,6 +173,7 @@ export default async function OverviewPage() {
             recommendations[0],
           criticalBlocker: criticalBlockers[0] ?? null,
         },
+        calendarToday: cockpitState.calendarToday,
         trajectory: {
           globalProgress,
           activeProjects: activeProjects.map((project) => project.title),

@@ -2,12 +2,15 @@
 
 import type { ReactNode } from "react";
 import { useState } from "react";
+import Link from "next/link";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import {
   getPersonalConnectors,
   type PersonalConnector,
   type PersonalConnectorCapability,
 } from "@/lib/personal/connectors";
+import type { PersonalDailyBrief } from "@/lib/server/personal/daily-briefs-store";
+import type { CockpitCalendarTodayState } from "@/types/cockpit";
 
 type PersonalTab =
   | "summary"
@@ -318,6 +321,249 @@ export function PersonalSummaryGrid() {
   );
 }
 
+const recoveryLevelConfig: Record<
+  PersonalDailyBrief["recoveryLevel"],
+  { label: string; className: string }
+> = {
+  low: {
+    label: "Récupération basse",
+    className: "border-[#ef4444]/40 bg-[#ef4444]/10 text-[#fecaca]",
+  },
+  medium: {
+    label: "Récupération moyenne",
+    className: "border-[#f59e0b]/40 bg-[#f59e0b]/10 text-[#fbbf24]",
+  },
+  high: {
+    label: "Récupération élevée",
+    className: "border-[#39E6D0]/40 bg-[#39E6D0]/10 text-[#39E6D0]",
+  },
+};
+
+export function PersonalDailyBriefPanel({
+  brief: initialBrief,
+}: {
+  brief: PersonalDailyBrief | null;
+}) {
+  const [brief, setBrief] = useState(initialBrief);
+  const [isSaving, setIsSaving] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  if (!brief) {
+    return (
+      <PersonalModuleCard title="Brief du jour">
+        <PersonalEmptyState source="Connecte Garmin pour activer les briefs quotidiens. Le connecteur Garmin n'est pas encore actif." />
+      </PersonalModuleCard>
+    );
+  }
+
+  const recovery = recoveryLevelConfig[brief.recoveryLevel];
+
+  async function toggleAccepted() {
+    if (isSaving || !brief) {
+      return;
+    }
+
+    const nextAccepted = brief.accepted === true ? null : true;
+    setIsSaving(true);
+    setFeedback(null);
+
+    try {
+      const response = await fetch("/api/personal/daily-brief", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accepted: nextAccepted }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setFeedback(payload?.error ?? "Impossible de mettre à jour le brief.");
+        setIsSaving(false);
+        return;
+      }
+
+      setBrief((current) => (current ? { ...current, accepted: nextAccepted } : current));
+      setFeedback(nextAccepted ? "Focus du jour accepté." : "Acceptation annulée.");
+    } catch {
+      setFeedback("Impossible de mettre à jour le brief.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <PersonalModuleCard title="Brief du jour">
+      <div className="grid gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${recovery.className}`}
+          >
+            {recovery.label}
+          </span>
+          {brief.accepted ? (
+            <span className="inline-flex rounded-md border border-[#39E6D0]/40 bg-[#39E6D0]/10 px-2.5 py-1 text-xs font-semibold text-[#39E6D0]">
+              Accepté
+            </span>
+          ) : null}
+        </div>
+
+        {brief.recommendedFocus.length ? (
+          <div className="grid gap-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#A7B0C0]">
+              Focus recommandé
+            </p>
+            {brief.recommendedFocus.map((entry) => (
+              <div
+                className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2"
+                key={entry.actionId}
+              >
+                <p className="text-sm font-semibold text-[#F8FAFC]">{entry.title}</p>
+                <p className="mt-1 text-xs text-[#A7B0C0]">
+                  {entry.projectTitle} · {entry.objectiveTitle}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">{entry.reason}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-[#A7B0C0]">
+            Aucune action ouverte à proposer pour aujourd&apos;hui.
+          </p>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="rounded-md border border-[#39E6D0]/50 bg-[#39E6D0]/10 px-3 py-2 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/15 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isSaving}
+            onClick={toggleAccepted}
+            type="button"
+          >
+            {brief.accepted ? "Annuler l'acceptation" : "Accepter le focus du jour"}
+          </button>
+          <Link
+            className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
+            href="/interface/trajectoire"
+          >
+            Voir dans Trajectoire
+          </Link>
+        </div>
+
+        {feedback ? <p className="text-sm text-[#A7B0C0]">{feedback}</p> : null}
+      </div>
+    </PersonalModuleCard>
+  );
+}
+
+function formatEventTime(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatEventDay(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+  }).format(new Date(value));
+}
+
+// Memes trois etats honnetes que CalendarTodayCard cote Cockpit
+// (non connecte / erreur / vide), adaptes au style local du module Personnel
+// (PersonalEmptyState, palette propre) : cf. 06_Modules.md, ce module ne doit
+// pas etre harmonise avec les conventions components/cockpit.
+export function PersonalCalendarCard({
+  calendar,
+  emptyLabel,
+  showDay = false,
+  title,
+}: {
+  calendar: CockpitCalendarTodayState;
+  emptyLabel: string;
+  showDay?: boolean;
+  title: string;
+}) {
+  if (!calendar.connected) {
+    return (
+      <PersonalModuleCard title={title}>
+        <div className="rounded-md border border-dashed border-[#1D2A44] bg-[#03070B] p-4">
+          <p className="text-sm font-semibold text-[#F8FAFC]">
+            Aucune donnée connectée pour le moment.
+          </p>
+          <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">
+            Connecte Google Calendar pour voir tes événements ici.
+          </p>
+          <Link
+            className="mt-3 inline-flex text-sm font-semibold text-[#39E6D0] hover:underline"
+            href="/interface/settings/connections"
+          >
+            Connecter Google Calendar
+          </Link>
+        </div>
+      </PersonalModuleCard>
+    );
+  }
+
+  if (calendar.readError) {
+    return (
+      <PersonalModuleCard title={title}>
+        <div className="rounded-md border border-[#f87171]/40 bg-[#f87171]/10 p-4">
+          <p className="text-sm text-[#fecaca]">{calendar.readError}</p>
+        </div>
+      </PersonalModuleCard>
+    );
+  }
+
+  if (calendar.events.length === 0) {
+    return (
+      <PersonalModuleCard title={title}>
+        <PersonalEmptyState source={emptyLabel} />
+      </PersonalModuleCard>
+    );
+  }
+
+  return (
+    <PersonalModuleCard title={title}>
+      <div className="grid gap-2">
+        {calendar.events.map((event) => (
+          <div
+            className="rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2"
+            key={event.id}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm font-semibold text-[#F8FAFC]">{event.title}</p>
+              <span className="shrink-0 text-xs font-semibold text-[#39E6D0]">
+                {event.isAllDay
+                  ? showDay
+                    ? `${formatEventDay(event.startsAt)} · Journée entière`
+                    : "Journée entière"
+                  : showDay
+                    ? `${formatEventDay(event.startsAt)} · ${formatEventTime(event.startsAt)}`
+                    : formatEventTime(event.startsAt)}
+              </span>
+            </div>
+            {event.location ? (
+              <p className="mt-1 text-xs text-[#A7B0C0]">{event.location}</p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </PersonalModuleCard>
+  );
+}
+
 export function PersonalSourcesGrid() {
   const connectors = getPersonalConnectors();
 
@@ -420,7 +666,15 @@ export function PersonalTabs({
   );
 }
 
-export function PersonalDashboardClient() {
+export function PersonalDashboardClient({
+  calendarToday,
+  calendarUpcoming,
+  dailyBrief,
+}: {
+  calendarToday: CockpitCalendarTodayState;
+  calendarUpcoming: CockpitCalendarTodayState;
+  dailyBrief: PersonalDailyBrief | null;
+}) {
   const [activeTab, setActiveTab] = useState<PersonalTab>(() => {
     if (typeof window === "undefined") {
       return "summary";
@@ -455,7 +709,39 @@ export function PersonalDashboardClient() {
         </PersonalSection>
       ) : null}
 
-      {activeTab !== "summary" && activeTab !== "sources" ? (
+      {activeTab === "energy" ? (
+        <PersonalSection description={activeCopy.description} title={activeCopy.title}>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <PersonalDailyBriefPanel brief={dailyBrief} />
+            <PersonalModuleCard title={tabCards.energy[1].title}>
+              <PersonalEmptyState source={tabCards.energy[1].source} />
+            </PersonalModuleCard>
+          </div>
+        </PersonalSection>
+      ) : null}
+
+      {activeTab === "calendar" ? (
+        <PersonalSection description={activeCopy.description} title={activeCopy.title}>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <PersonalCalendarCard
+              calendar={calendarToday}
+              emptyLabel="Aucun événement aujourd'hui."
+              title={tabCards.calendar[0].title}
+            />
+            <PersonalCalendarCard
+              calendar={calendarUpcoming}
+              emptyLabel="Aucun événement dans les 7 prochains jours."
+              showDay
+              title={tabCards.calendar[1].title}
+            />
+          </div>
+        </PersonalSection>
+      ) : null}
+
+      {activeTab !== "summary" &&
+      activeTab !== "sources" &&
+      activeTab !== "energy" &&
+      activeTab !== "calendar" ? (
         <PersonalSection description={activeCopy.description} title={activeCopy.title}>
           <div className="grid gap-4 lg:grid-cols-2">
             {tabCards[activeTab].map((card) => (

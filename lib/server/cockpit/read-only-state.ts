@@ -15,6 +15,7 @@ import {
   getTikTokOAuthStatusPayload,
   getYouTubeOAuthStatusPayload,
 } from "@/lib/server/oauth/status-payloads";
+import { readCalendarEventsForParisRange } from "@/lib/server/calendar/calendar-events-store";
 import type {
   CockpitDependency,
   CockpitDraftState,
@@ -326,8 +327,15 @@ function buildNextActions(options: {
 }
 
 export async function readCockpitState(): Promise<CockpitReadOnlyState> {
-  const [contentDrafts, oauthStatuses, projectMemoryEntries] = await Promise.all([
+  const [contentDrafts, calendarToday, oauthStatuses, projectMemoryEntries] = await Promise.all([
     readContentDraftState(),
+    // Le Cockpit ne stocke aucune donnee propre : vue calculee en lecture
+    // partagee avec l'Espace interieur (calendar-events-store).
+    readCalendarEventsForParisRange().catch(() => ({
+      connected: false,
+      events: [],
+      readError: "Lecture calendrier indisponible.",
+    })),
     readOAuthState(),
     readProjectMemoryEntries().catch(() => []),
   ]);
@@ -351,6 +359,7 @@ export async function readCockpitState(): Promise<CockpitReadOnlyState> {
   return {
     generatedAt: new Date().toISOString(),
     contentDrafts,
+    calendarToday,
     oauthStatuses,
     platformStatuses,
     modules,

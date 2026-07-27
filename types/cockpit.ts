@@ -148,6 +148,21 @@ export type CockpitDependency = {
   note: string;
 };
 
+export type CockpitCalendarEvent = {
+  id: string;
+  title: string;
+  location: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  isAllDay: boolean;
+};
+
+export type CockpitCalendarTodayState = {
+  connected: boolean;
+  events: CockpitCalendarEvent[];
+  readError: string | null;
+};
+
 export type CockpitReadOnlyState = {
   generatedAt: string;
   contentDrafts: {
@@ -158,6 +173,7 @@ export type CockpitReadOnlyState = {
     byStatus: Record<string, number>;
     readError: string | null;
   };
+  calendarToday: CockpitCalendarTodayState;
   oauthStatuses: CockpitOAuthState[];
   platformStatuses: CockpitPlatformState[];
   modules: {

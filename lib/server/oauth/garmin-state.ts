@@ -31,10 +31,15 @@ export type GarminOAuthState = {
 // Generates a PKCE code_verifier/code_challenge pair (RFC 7636, S256) and
 // embeds the verifier in the signed state so the callback can retrieve it
 // without a second server-side store.
-export function createGarminOAuthState(): GarminOAuthState | null {
+//
+// The state is also bound to the user who started the flow, as done for TikTok
+// and YouTube: without that binding, an anonymous visitor could start a flow
+// and have the callback store a token in the shared token store. The user id
+// is signed, not merely carried, so it cannot be swapped in transit.
+export function createGarminOAuthState(userId: string): GarminOAuthState | null {
   const secret = getStateSecret();
 
-  if (!secret) {
+  if (!secret || !userId) {
     return null;
   }
 
@@ -42,7 +47,8 @@ export function createGarminOAuthState(): GarminOAuthState | null {
   const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
   const nonce = randomBytes(16).toString("base64url");
   const issuedAt = Math.floor(Date.now() / 1000).toString();
-  const payload = `${nonce}.${issuedAt}.${codeVerifier}`;
+  const encodedUserId = Buffer.from(userId).toString("base64url");
+  const payload = `${nonce}.${issuedAt}.${encodedUserId}.${codeVerifier}`;
   const signature = signStatePayload(payload, secret);
 
   return {
@@ -57,23 +63,24 @@ export type GarminOAuthStateValidation =
 
 export function verifyGarminOAuthState(
   receivedState: string | null,
+  userId: string,
 ): GarminOAuthStateValidation {
   const secret = getStateSecret();
 
-  if (!secret || !receivedState) {
+  if (!secret || !receivedState || !userId) {
     return { valid: false, codeVerifier: null };
   }
 
   const parts = receivedState.split(".");
 
-  if (parts.length !== 4) {
+  if (parts.length !== 5) {
     return { valid: false, codeVerifier: null };
   }
 
-  const [nonce, issuedAt, codeVerifier, signature] = parts;
+  const [nonce, issuedAt, encodedUserId, codeVerifier, signature] = parts;
   const issuedAtSeconds = Number(issuedAt);
 
-  if (!nonce || !codeVerifier || !Number.isFinite(issuedAtSeconds)) {
+  if (!nonce || !encodedUserId || !codeVerifier || !Number.isFinite(issuedAtSeconds)) {
     return { valid: false, codeVerifier: null };
   }
 
@@ -83,9 +90,20 @@ export function verifyGarminOAuthState(
     return { valid: false, codeVerifier: null };
   }
 
-  const expectedSignature = signStatePayload(`${nonce}.${issuedAt}.${codeVerifier}`, secret);
+  const expectedSignature = signStatePayload(
+    `${nonce}.${issuedAt}.${encodedUserId}.${codeVerifier}`,
+    secret,
+  );
 
   if (!safeEqual(signature, expectedSignature)) {
+    return { valid: false, codeVerifier: null };
+  }
+
+  // Signature checked first: the decoded user id is only trusted once the
+  // payload it belongs to is proven intact.
+  const stateUserId = Buffer.from(encodedUserId, "base64url").toString();
+
+  if (stateUserId !== userId) {
     return { valid: false, codeVerifier: null };
   }
 

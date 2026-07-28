@@ -6,6 +6,8 @@ import {
   verifyGarminOAuthState,
 } from "@/lib/server/oauth/garmin-state";
 import { exchangeGarminAuthorizationCode } from "@/lib/server/oauth/garmin-token-exchange";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const GARMIN_RETURN_PATH = "/interface/personnel";
 
@@ -42,10 +44,19 @@ function redirectToGarminReturn(request: NextRequest, connected: boolean) {
 }
 
 export async function GET(request: NextRequest) {
+  const user = await getCurrentUser();
+
+  if (!user || !canAccessPrivateCockpit(user)) {
+    console.warn("[Garmin OAuth Callback] acces refuse", {
+      failureStep: "access_check",
+    });
+    return redirectToGarminReturn(request, false);
+  }
+
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");
   const cookieState = request.cookies.get(GARMIN_STATE_COOKIE)?.value ?? null;
-  const stateResult = verifyGarminOAuthState(state);
+  const stateResult = verifyGarminOAuthState(state, user.id);
   const stateValid = Boolean(state && cookieState && state === cookieState) && stateResult.valid;
 
   console.info("[OAuth Callback] provider=garmin");

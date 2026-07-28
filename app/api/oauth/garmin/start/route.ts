@@ -4,6 +4,8 @@ import {
   GARMIN_STATE_COOKIE,
   GARMIN_STATE_MAX_AGE_SECONDS,
 } from "@/lib/server/oauth/garmin-state";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 // NOTE (DEC-006): endpoint non confirme. A verifier contre la documentation
 // officielle Garmin Developer Program avant toute activation reelle.
@@ -20,6 +22,15 @@ function hasEnvValue(name: string) {
 }
 
 export async function GET() {
+  const user = await getCurrentUser();
+
+  if (!user || !canAccessPrivateCockpit(user)) {
+    console.warn("[Garmin OAuth Start] acces refuse", {
+      failureStep: "access_check",
+    });
+    return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+  }
+
   const missing = REQUIRED_ENV.filter((name) => !hasEnvValue(name));
   const clientId = process.env.GARMIN_CLIENT_ID?.trim();
   const redirectUri = process.env.GARMIN_REDIRECT_URI?.trim();
@@ -41,7 +52,7 @@ export async function GET() {
     );
   }
 
-  const oauthState = createGarminOAuthState();
+  const oauthState = createGarminOAuthState(user.id);
 
   console.info("[Garmin OAuth Start] state genere", {
     generated: Boolean(oauthState),

@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-07-28 (audit sécurité)](#2026-07-28-audit-sécurité)
 - [2026-07-28](#2026-07-28)
 - [2026-07-22](#2026-07-22)
 - [2026-07-11](#2026-07-11)
@@ -29,6 +30,23 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-07-28 (audit sécurité)
+
+Type : sécurité  
+Résumé : fermeture des expositions restantes après les Lots 1 à 3 de l'audit de juillet. Six routes API étaient lisibles sans authentification : `/api/oauth/youtube/status` et `/api/oauth/calendar/status` (les plus graves — elles rafraîchissaient le token stocké, appelaient l'API tierce et renvoyaient l'identité de la chaîne YouTube ou de l'agenda principal, les scopes accordés et l'expiration du token), `/api/meta/status`, `/api/oauth/meta/status`, `/api/oauth/tiktok/status` et `/api/meta/instagram/accounts`. Toutes portent désormais un garde dans leur handler. Par ailleurs, l'OAuth Garmin échappait au durcissement du Lot 1 : `start` ne demandait aucune authentification et son état PKCE, bien que signé, n'était pas lié à un utilisateur — un visiteur anonyme pouvait démarrer un flow et faire écrire un token dans le magasin partagé. L'état porte maintenant l'identifiant utilisateur dans la charge signée, sur le patron de TikTok.  
+Fichiers liés :
+
+- `app/api/oauth/{youtube,calendar,meta,tiktok}/status/route.ts`
+- `app/api/meta/status/route.ts`, `app/api/meta/instagram/accounts/route.ts`
+- `app/api/oauth/garmin/{start,callback}/route.ts`
+- `lib/server/oauth/garmin-state.ts`
+- `scripts/garmin-oauth-pkce-check.mjs`
+- `/knowledge/03_Decisions.md` (DEC-007), `/knowledge/10_Conventions.md`
+
+Impact : la surface API ne comporte plus de route non gardée en dehors de `/api/health` (qui ne renvoie que `{ ok: true }`) et `/api/webhooks/calendar` (qui valide `x-goog-channel-token` à temps constant). `/api/oauth/tiktok/status` est gardée sur la session seule, sans filtre de rôle, pour préserver l'accès du compte reviewer TikTok pendant la review — la raison est écrite dans le fichier.
+
+Action de suivi : la migration RLS `20260721090000_scope_content_assets_rls_to_owner.sql` (Lot 2) est écrite et committée mais son application en base n'est pas vérifiable depuis le dépôt. Voir l'entrée correspondante dans `MANUAL_ACTIONS.md`.
 
 ## 2026-07-28
 

@@ -1,7 +1,7 @@
 # Décisions
 
 Statut : registre initial  
-Dernière mise à jour : 2026-07-08
+Dernière mise à jour : 2026-07-28
 
 ## Sommaire
 
@@ -121,6 +121,32 @@ Conséquences :
 - le code d'échange de token OAuth2/PKCE pour Garmin peut être écrit et testé avant l'approbation, mais ne doit jamais être activé automatiquement ;
 - l'activation réelle (`isEnabled: true`) est une action manuelle explicite, pas un déploiement de code ;
 - si la candidature est refusée, cette décision doit être révisée avant tout contournement.
+
+### DEC-007 - Toute route API porte un garde d'authentification, sauf exception documentée
+
+Date : 2026-07-28  
+Statut : actif
+
+Contexte : l'audit de sécurité de juillet 2026 a trouvé des routes de diagnostic et de statut accessibles sans authentification, dont certaines lisaient un token OAuth stocké pour interroger une API tierce (`/api/oauth/youtube/status`, `/api/oauth/calendar/status`). Aucune n'était sensible par son nom ; toutes l'étaient par ce qu'elles renvoyaient. Le middleware (`proxy.ts`) ne protège pas les routes API : il ne redirige les visiteurs anonymes que sur les chemins de la liste reviewer.
+
+Décision : toute route sous `app/api` porte un garde explicite dans son handler. Le garde par défaut est `getCurrentUser()` + `canAccessPrivateCockpit(user)` renvoyant `403`. Deux exceptions seulement, et elles doivent rester justifiées dans le fichier concerné :
+
+- une route publique par nature qui ne révèle rien (`/api/health`, qui renvoie `{ ok: true }`) ;
+- une route appelée par un tiers, qui valide alors un secret entrant à temps constant plutôt qu'une session (`/api/webhooks/calendar`, qui compare `x-goog-channel-token` au token du canal enregistré).
+
+`/api/oauth/tiktok/status` est un cas particulier assumé : garde sur la session seule, sans `canAccessPrivateCockpit`, parce que le compte reviewer TikTok doit pouvoir la lire pendant la review et que `canAccessPrivateCockpit` est faux pour le rôle reviewer. La raison est écrite dans le fichier pour qu'un durcissement ultérieur ne casse pas la review.
+
+Conséquences :
+
+- ajouter une route API sans garde est un défaut, même si la route « ne fait que lire un statut » ;
+- une route qui lit un token OAuth stocké est sensible quel que soit ce qu'elle en fait, y compris si elle ne teste que sa présence ;
+- le garde est vérifié dans le handler, jamais délégué au middleware.
+
+Fichiers liés :
+
+- `src/lib/auth/guards.ts`, `src/lib/auth/roles.ts`
+- `src/lib/supabase/proxy.ts`
+- `/knowledge/10_Conventions.md`
 
 ## Décisions à confirmer
 

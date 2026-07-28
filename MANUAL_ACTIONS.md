@@ -53,7 +53,38 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
-_Aucune entrée en attente._
+### 2026-07-28 — Vérifier / appliquer les policies RLS `content_assets` (Lot 2 de l'audit sécurité)
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : appliquer une migration Supabase et lire l'état réel des policies passent par le SQL Editor du dashboard. L'agent n'a pas d'accès SQL direct au projet Supabase — les variables serveur ne sont pas exposées dans son environnement — et le dépôt ne trace pas quelles migrations ont déjà été exécutées. Le fichier de migration présent dans `supabase/migrations` ne prouve donc rien sur l'état de la base.
+
+**Bloque** : la clôture du Lot 2. Tant que ce n'est pas vérifié, `content_assets` peut encore être en `using(true)` en production, c'est-à-dire lisible par n'importe quel utilisateur authentifié — la faille que le Lot 2 est censé fermer.
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. Lire l'état actuel des policies :
+   ```sql
+   select policyname, cmd, qual, with_check
+   from pg_policies
+   where schemaname = 'public' and tablename = 'content_assets'
+   order by policyname;
+   ```
+3. Si les colonnes `qual` / `with_check` valent `true` (ou si les trois policies `content_assets_authenticated_*` sont absentes), la migration n'est pas appliquée : coller et exécuter le contenu intégral de `supabase/migrations/20260721090000_scope_content_assets_rls_to_owner.sql`.
+4. Vérifier au passage que RLS est bien activé sur la table :
+   ```sql
+   select relrowsecurity from pg_class where relname = 'content_assets';
+   ```
+   Si le résultat est `false`, les policies ne sont pas appliquées quoi qu'il arrive :
+   ```sql
+   alter table public.content_assets enable row level security;
+   ```
+5. Relancer la requête de l'étape 2 pour confirmer.
+
+**Vérification** : les trois policies `content_assets_authenticated_select/insert/update` existent, aucune n'a `qual` ou `with_check` à `true`, et `relrowsecurity` vaut `true`.
+
+**Note connexe** : le changelog du 2026-07-11 indique que `20260711100000_add_effort_level_to_trajectoire_actions.sql` n'était pas encore appliquée non plus. Autant vérifier les deux dans la même session SQL.
 
 ## Archive (done)
 

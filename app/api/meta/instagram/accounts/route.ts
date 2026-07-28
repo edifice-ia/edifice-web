@@ -1,7 +1,16 @@
+import { NextResponse } from "next/server";
 import { META_ACCOUNTS_URL } from "@/lib/oauth/meta";
 import { getOAuthToken } from "@/lib/server/oauth/token-store";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
+import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export async function GET() {
+  const user = await getCurrentUser();
+
+  if (!user || !canAccessPrivateCockpit(user)) {
+    return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+  }
+
   const storedMetaToken = await getOAuthToken("meta");
 
   if (!storedMetaToken?.accessToken) {

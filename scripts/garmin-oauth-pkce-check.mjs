@@ -15,8 +15,11 @@ const {
 
 // --- PKCE state generation and verification ---
 
-const first = createGarminOAuthState();
-const second = createGarminOAuthState();
+const TEST_USER_ID = "11111111-1111-4111-8111-111111111111";
+const OTHER_USER_ID = "22222222-2222-4222-8222-222222222222";
+
+const first = createGarminOAuthState(TEST_USER_ID);
+const second = createGarminOAuthState(TEST_USER_ID);
 assert.ok(first, "state should be generated when OAUTH_STATE_SECRET is set");
 assert.notEqual(first.state, second.state, "state must be unpredictable across calls");
 assert.notEqual(
@@ -25,7 +28,8 @@ assert.notEqual(
   "code_challenge must be unpredictable across calls",
 );
 
-const codeVerifier = first.state.split(".")[2];
+// Layout: nonce.issuedAt.encodedUserId.codeVerifier.signature
+const codeVerifier = first.state.split(".")[3];
 const expectedChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
 assert.equal(
   first.codeChallenge,
@@ -33,7 +37,7 @@ assert.equal(
   "code_challenge must be SHA256(code_verifier) base64url (RFC 7636 S256)",
 );
 
-const validResult = verifyGarminOAuthState(first.state);
+const validResult = verifyGarminOAuthState(first.state, TEST_USER_ID);
 assert.equal(validResult.valid, true, "a freshly generated state must verify as valid");
 assert.equal(
   validResult.codeVerifier,
@@ -41,33 +45,68 @@ assert.equal(
   "verification must return the same code_verifier embedded at creation",
 );
 
+assert.equal(
+  verifyGarminOAuthState(first.state, OTHER_USER_ID).valid,
+  false,
+  "a state issued for one user must be rejected for another user",
+);
+
+assert.equal(
+  verifyGarminOAuthState(first.state, "").valid,
+  false,
+  "verification without a user id must be rejected",
+);
+
+assert.equal(
+  createGarminOAuthState(""),
+  null,
+  "no state may be issued without a user to bind it to",
+);
+
 const tampered = `${first.state.slice(0, -1)}${first.state.at(-1) === "a" ? "b" : "a"}`;
 assert.equal(
-  verifyGarminOAuthState(tampered).valid,
+  verifyGarminOAuthState(tampered, TEST_USER_ID).valid,
   false,
   "a tampered signature must be rejected",
 );
 
 assert.equal(
-  verifyGarminOAuthState("not.enough.parts").valid,
+  verifyGarminOAuthState("not.enough.parts", TEST_USER_ID).valid,
   false,
   "a malformed state must be rejected",
 );
 
 assert.equal(
-  verifyGarminOAuthState(null).valid,
+  verifyGarminOAuthState(null, TEST_USER_ID).valid,
   false,
   "a missing state must be rejected",
 );
 
 {
-  const [nonce, , verifier, signature] = first.state.split(".");
+  const [nonce, , encodedUserId, verifier, signature] = first.state.split(".");
   const expiredIssuedAt = (Math.floor(Date.now() / 1000) - 3600).toString();
-  const staleButUnsignedState = [nonce, expiredIssuedAt, verifier, signature].join(".");
+  const staleButUnsignedState = [
+    nonce,
+    expiredIssuedAt,
+    encodedUserId,
+    verifier,
+    signature,
+  ].join(".");
   assert.equal(
-    verifyGarminOAuthState(staleButUnsignedState).valid,
+    verifyGarminOAuthState(staleButUnsignedState, TEST_USER_ID).valid,
     false,
     "an expired issuedAt must be rejected even if the rest looks well-formed",
+  );
+}
+
+{
+  // A state forged for another user, re-signed with the same secret, must still
+  // fail: the binding is checked against the session user, not against itself.
+  const forged = createGarminOAuthState(OTHER_USER_ID);
+  assert.equal(
+    verifyGarminOAuthState(forged.state, TEST_USER_ID).valid,
+    false,
+    "a validly signed state belonging to another user must be rejected",
   );
 }
 

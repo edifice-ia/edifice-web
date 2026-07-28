@@ -1,7 +1,7 @@
 # Conventions
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-07-07
+Dernière mise à jour : 2026-07-28
 
 ## Sommaire
 
@@ -60,6 +60,9 @@ Conventions observées :
 - Aucune suppression automatique non demandée.
 - Aucun token OAuth ni secret Supabase côté client.
 - Les services internes doivent utiliser un secret partagé ou une authentification serveur.
+- Toute route sous `app/api` porte un garde d'authentification dans son handler : `getCurrentUser()` + `canAccessPrivateCockpit(user)` → `403`. Les seules exceptions sont une route publique qui ne révèle rien et une route tierce validant un secret entrant. Voir [DEC-007](./03_Decisions.md).
+- Le middleware ne protège pas les routes API : il ne redirige les visiteurs anonymes que sur les chemins de la liste reviewer. Ne jamais compter sur lui comme garde.
+- Un état OAuth doit être signé **et** lié à l'utilisateur qui a démarré le flow, sinon un visiteur anonyme peut faire écrire un token dans le magasin partagé.
 
 ## Liens utiles
 

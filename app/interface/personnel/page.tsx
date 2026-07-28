@@ -1,29 +1,21 @@
 import type { Metadata } from "next";
 import { CockpitHeader } from "@/components/cockpit/CockpitHeader";
 import { readCalendarEventsForParisRange } from "@/lib/server/calendar/calendar-events-store";
-import { todayInParis } from "@/lib/server/personal/daily-brief-engine";
-import { readPersonalDailyBrief } from "@/lib/server/personal/daily-briefs-store";
-import { getCurrentUser } from "@/src/lib/supabase/server";
+import type { CockpitCalendarTodayState } from "@/types/cockpit";
 import { PersonalDashboardClient } from "./PersonalDashboardClient";
 
 export const metadata: Metadata = {
   title: "Espace intérieur - L'Édifice",
 };
 
-const calendarReadFallback = {
+const calendarReadFallback: CockpitCalendarTodayState = {
   connected: false,
   events: [],
   readError: "Lecture calendrier indisponible.",
 };
 
 export default async function PersonnelPage() {
-  const user = await getCurrentUser();
-  const [dailyBrief, calendarToday, calendarUpcoming] = await Promise.all([
-    user
-      ? readPersonalDailyBrief({ userId: user.id, date: todayInParis() }).catch(
-          () => null,
-        )
-      : Promise.resolve(null),
+  const [calendarToday, calendarUpcoming] = await Promise.all([
     // Meme fonction de lecture que le Cockpit (calendar-events-store), plage
     // "aujourd'hui" pour Agenda du jour...
     readCalendarEventsForParisRange().catch(() => calendarReadFallback),
@@ -42,7 +34,6 @@ export default async function PersonnelPage() {
         status="Experimental"
       />
       <PersonalDashboardClient
-        dailyBrief={dailyBrief}
         calendarToday={calendarToday}
         calendarUpcoming={calendarUpcoming}
       />

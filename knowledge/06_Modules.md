@@ -137,11 +137,26 @@ Le suivi de coût est porté par `cost_events`, `lib/server/cost-tracking.ts` et
 
 ### Trajectoire
 
-Module objectifs/projets/actions. Fichiers clés :
+Module objectifs/projets/actions. C'est le sous-module de suivi de projets que la [documentation stratégique](../Documentation_Stratégique/L-Edifice-Documentation-Strategique-de-Reference.md) rattache au module Développement (section 14), et qu'elle destine à être partagé avec Business et Personnel. Aujourd'hui, seul le croisement en lecture seule avec Personnel existe (voir [Décisions](./03_Decisions.md) DEC-005) ; il n'y a ni module Business ni projets commerciaux dans le code.
 
-- `app/interface/trajectoire`
+Fichiers clés :
+
+- `app/interface/trajectoire` (`page.tsx`, `TrajectoireClient.tsx`)
 - `lib/server/trajectoire.ts`
+- `app/api/trajectoire/route.ts` et `app/api/trajectoire/[entity]/[id]/route.ts`
 - tables `trajectoire_*`
+
+#### Vocabulaire de progression
+
+Trois valeurs distinctes, qui ne doivent jamais être confondues dans l'UI :
+
+- **manuelle** : le champ `progress` saisi par l'utilisateur et stocké en base ;
+- **calculée** : dérivée des enfants — part d'actions `fait` pour un objectif, moyenne des progressions retenues des objectifs pour un projet. Elle vaut `null` quand il n'y a pas d'enfant, et l'UI affiche alors `non disponible` ;
+- **retenue** : la calculée si elle existe, sinon la manuelle. C'est la valeur des barres de progression et de la métrique « Progression moyenne retenue ».
+
+Cette séparation est la correction d'un écart réel : `calculatedProjectProgress` retombait silencieusement sur `project.progress`, si bien qu'un projet sans objectif affichait sa valeur saisie à la main sous l'étiquette « Progression calculee », juste à côté d'une « Progression manuelle » portant le même chiffre. La carte objectif faisait déjà correctement la distinction ; la carte projet non. La métrique globale, qui moyenne les progressions retenues, indique désormais combien de projets ont une progression réellement calculée.
+
+Le calcul de progression retenue est **implémenté deux fois** : `retainedObjectiveProgress` existe dans `lib/server/trajectoire.ts` et dans `TrajectoireClient.tsx`. Les deux versions sont identiques aujourd'hui, mais rien ne les tient synchronisées — toute modification de la règle doit être faite aux deux endroits.
 
 ## Modules personnels
 

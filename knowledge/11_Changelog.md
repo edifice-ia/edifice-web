@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-07-28 (module Trajectoire)](#2026-07-28-module-trajectoire)
 - [2026-07-28 (module Ressources et Bibliothèque)](#2026-07-28-module-ressources-et-bibliothèque)
 - [2026-07-28 (audit sécurité)](#2026-07-28-audit-sécurité)
 - [2026-07-28](#2026-07-28)
@@ -31,6 +32,19 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-07-28 (module Trajectoire)
+
+Type : produit, documentation  
+Résumé : cadrage du module Développement / Trajectoire. Un écart de sincérité corrigé sur la progression des projets : `calculatedProjectProgress` retombait sur `project.progress` quand le projet n'avait aucun objectif, si bien que la valeur saisie à la main s'affichait sous l'étiquette « Progression calculee », à côté d'une « Progression manuelle » portant le chiffre identique. La fonction renvoie désormais `null` dans ce cas, comme `calculatedObjectiveProgress` le faisait déjà — la carte objectif distinguait correctement calculée, manuelle et retenue, la carte projet non. Un `retainedProjectProgress` explicite porte le repli et alimente la barre de progression.  
+Fichiers liés :
+
+- `app/interface/trajectoire/TrajectoireClient.tsx`
+- `/knowledge/06_Modules.md`
+
+Impact : un projet sans objectif affiche « Calcule : non disponible » au lieu d'un pourcentage d'apparence dérivée. La métrique globale, renommée « Progression moyenne retenue », indique combien de projets ont une progression réellement calculée (`N/M calculees`) au lieu de moyenner silencieusement du calculé et du saisi. Aucun changement pour un projet dont tous les objectifs portent des actions : la valeur affichée est la même qu'avant.
+
+Action de suivi : `retainedObjectiveProgress` reste implémenté deux fois, dans `lib/server/trajectoire.ts` et dans `TrajectoireClient.tsx`. Les deux versions sont identiques aujourd'hui et rien ne les tient synchronisées ; unifier demanderait de partager du code entre serveur et client, ce qui n'a pas été fait dans ce lot. Par ailleurs, la migration `20260711100000_add_effort_level_to_trajectoire_actions.sql` est lue par `lib/server/trajectoire.ts` (`select ... effort_level ...`) alors que son application en base n'est pas confirmée — voir `MANUAL_ACTIONS.md`.
 
 ## 2026-07-28 (module Ressources et Bibliothèque)
 

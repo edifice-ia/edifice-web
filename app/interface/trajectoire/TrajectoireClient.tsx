@@ -403,18 +403,30 @@ function deadlineLabel(
   return `${remaining} jour(s) restants`;
 }
 
+// Renvoie null quand rien n'est calculable, comme calculatedObjectiveProgress :
+// un projet sans objectif n'a pas de progression derivee. Cette fonction
+// retournait project.progress dans ce cas, si bien que la valeur saisie a la
+// main s'affichait sous l'etiquette "calculee", a cote d'une "Progression
+// manuelle" portant le meme chiffre. Ne jamais y remettre de repli : le repli
+// est le role de retainedProjectProgress, qui est etiquete "retenue".
 function calculatedProjectProgress(project: TrajectoireProject) {
   const objectiveScores = project.objectives.map((objective) => {
     return retainedObjectiveProgress(objective);
   });
 
   if (!objectiveScores.length) {
-    return project.progress;
+    return null;
   }
 
   return Math.round(
     objectiveScores.reduce((sum, value) => sum + value, 0) / objectiveScores.length,
   );
+}
+
+// Valeur effectivement retenue pour l'affichage : la progression calculee quand
+// elle existe, sinon la saisie manuelle. Symetrique de retainedObjectiveProgress.
+function retainedProjectProgress(project: TrajectoireProject) {
+  return calculatedProjectProgress(project) ?? project.progress;
 }
 
 function calculatedObjectiveProgress(objective: TrajectoireObjective) {
@@ -691,10 +703,17 @@ export function TrajectoireClient() {
     }
 
     return Math.round(
-      projects.reduce((sum, project) => sum + calculatedProjectProgress(project), 0) /
+      projects.reduce((sum, project) => sum + retainedProjectProgress(project), 0) /
         projects.length,
     );
   }, [projects]);
+  // Nombre de projets dont la progression est reellement derivee des objectifs :
+  // la moyenne ci-dessus melange calcule et saisi, l'affichage doit le dire.
+  const projectsWithCalculatedProgress = useMemo(
+    () =>
+      projects.filter((project) => calculatedProjectProgress(project) !== null).length,
+    [projects],
+  );
   const popam = useMemo(
     () => ({
       projets: projects
@@ -1037,7 +1056,14 @@ export function TrajectoireClient() {
           value={lateObjectives.length + lateActions.length}
           tone={lateObjectives.length + lateActions.length > 0 ? "warning" : "good"}
         />
-        <DashboardMetric label="Progression moyenne" value={`${averageProgress}%`} />
+        <DashboardMetric
+          label={
+            projectsWithCalculatedProgress === projects.length
+              ? "Progression moyenne retenue"
+              : `Progression moyenne retenue (${projectsWithCalculatedProgress}/${projects.length} calculees)`
+          }
+          value={`${averageProgress}%`}
+        />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -1308,6 +1334,7 @@ function ProjectCard({
   ) => Promise<void>;
 }) {
   const calculatedProgress = calculatedProjectProgress(project);
+  const retainedProgress = retainedProjectProgress(project);
   const syncBlock = extractSyncBlock(project.description, "edifice-sync:atelier-shorts");
   const displayDescription = visibleDescription(project.description, "edifice-sync:atelier-shorts");
   const syncUpdatedAt = syncLine(syncBlock, "Derniere synchronisation");
@@ -1352,7 +1379,10 @@ function ProjectCard({
             </span>
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
-            <InfoBox label="Progression calculee" value={`${calculatedProgress}%`} />
+            <InfoBox
+              label="Progression calculee"
+              value={calculatedProgress === null ? "non disponible" : `${calculatedProgress}%`}
+            />
             <InfoBox label="Progression manuelle" value={`${project.progress}%`} />
             <InfoBox label="Prochaine etape" value={syncNextStep ?? "Non renseignee"} />
             <InfoBox label="Blocage" value={syncBlocker ?? "Aucun blocage renseigne"} />
@@ -1375,11 +1405,15 @@ function ProjectCard({
           value={deadlineLabel(project.deadline, project.status === "termine")}
         />
         <InfoBox label="Manuel" value={`${project.progress}%`} />
-        <InfoBox label="Calcule" value={`${calculatedProgress}%`} />
+        <InfoBox
+          label="Calcule"
+          value={calculatedProgress === null ? "non disponible" : `${calculatedProgress}%`}
+        />
+        <InfoBox label="Retenue" value={`${retainedProgress}%`} />
       </div>
 
       <div className="mt-4">
-        <ProgressBar value={calculatedProgress} />
+        <ProgressBar value={retainedProgress} />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">

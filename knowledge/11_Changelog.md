@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-07-28 (module Ressources et Bibliothèque)](#2026-07-28-module-ressources-et-bibliothèque)
 - [2026-07-28 (audit sécurité)](#2026-07-28-audit-sécurité)
 - [2026-07-28](#2026-07-28)
 - [2026-07-22](#2026-07-22)
@@ -30,6 +31,20 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-07-28 (module Ressources et Bibliothèque)
+
+Type : produit, documentation  
+Résumé : cadrage du module Bibliothèque demandé, qui a mené à deux constats distincts. D'abord, la Bibliothèque décrite en section 13 de la documentation stratégique (gestion documentaire centralisée, indexation par entité) n'existe nulle part dans le code et n'était pas documentée dans `/knowledge` : écart de couverture entre vision et implémentation, désormais consigné explicitement plutôt que laissé implicite. Aucune surface ne prétendant l'offrir, ce n'est pas une dette masquée. Ensuite, le module Ressources — le plus proche parent existant — portait un écart de sincérité : les 27 entrées de `projectResources` avaient `linkStatus: "accessible"` en dur, affiché en badge vert, alors qu'aucune sonde ne teste les URL et que le champ n'est lu nulle part ailleurs que dans le rendu. L'en-tête de la page affirmait par ailleurs que « le statut du lien est separe de l'etat projet », ce qui suggérait une vérification indépendante inexistante.  
+Fichiers liés :
+
+- `lib/resources/project-resources.ts`
+- `components/cockpit/ProjectResourcesView.tsx`
+- `/knowledge/06_Modules.md`
+
+Impact : `linkStatus` vaut `"non testé"` partout, seule valeur exacte tant qu'aucune sonde n'existe, et l'invariant est écrit sur le type pour empêcher qu'on y remette une valeur affirmative sans sonde. L'en-tête annonce que les deux statuts sont déclaratifs. Les deux entrées GitHub pointaient vers `https://github.com/` alors qu'elles sont décrites comme le dépôt du projet : corrigées vers l'URL réelle du dépôt. `06_Modules.md` documente enfin les fichiers du module Ressources, jusque-là décrit en une ligne sans référence.
+
+Action de suivi : deux points laissés en l'état faute d'arbitrage produit — six paires de ressources pointent vers la même URL sous deux noms et gonflent le compteur affiché par catégorie ; `projectStatus` reste un jugement éditorial qui vieillit sans marquage. Si Bibliothèque doit exister, elle doit d'abord entrer dans la [Roadmap](./02_Roadmap.md), où elle ne figure à aucun horizon.
 
 ## 2026-07-28 (audit sécurité)
 

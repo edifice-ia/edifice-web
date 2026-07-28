@@ -1,12 +1,13 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-07-08
+Dernière mise à jour : 2026-07-28
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Modules cockpit](#modules-cockpit)
+- [Bibliothèque (vision, non implémentée)](#bibliothèque-vision-non-implémentée)
 - [Modules de création](#modules-de-création)
 - [Modules de publication](#modules-de-publication)
 - [Modules d'observation](#modules-dobservation)
@@ -41,7 +42,28 @@ Vue d'ensemble des modules, statuts, risques et ressources. Fichiers principaux 
 
 ### Ressources
 
-Espace documentaire et liens utiles dans l'interface. À maintenir avec `/knowledge` sans le remplacer.
+Annuaire de liens vers les consoles externes nécessaires au pilotage (Vercel, Supabase, GitHub, consoles développeurs des plateformes, OVHcloud), plus un raccourci vers la mémoire projet. À maintenir avec `/knowledge` sans le remplacer.
+
+Fichiers :
+
+- `app/interface/resources/page.tsx` et `app/interface/resources/memory/page.tsx`
+- `components/cockpit/ProjectResourcesView.tsx`
+- `lib/resources/project-resources.ts` (les données, en dur)
+
+Le module est **entièrement déclaratif** : `projectResources` est une liste écrite à la main, et les deux statuts affichés par ressource (`linkStatus`, `projectStatus`) sont des chaînes saisies, jamais calculées. Aucune sonde ne teste les URL. `linkStatus` valait `"accessible"` sur les 27 ressources — une valeur constante, donc sans information, rendue en badge vert à côté d'un état projet présenté comme distinct, ce qui laissait croire à une vérification indépendante. Le champ est désormais à `"non testé"` partout, ce qui est la seule valeur exacte tant qu'aucune sonde n'existe, et l'en-tête de la page annonce que les deux statuts sont déclaratifs. `projectStatus` reste un jugement éditorial assumé, à relire à la main.
+
+Deux limites connues, non corrigées faute d'arbitrage produit : six paires d'entrées pointent vers la même URL sous deux noms (`GitHub`/`GitHub repository`, `Supabase Dashboard`/`Supabase project`, `Vercel Dashboard`/`Vercel project`, `OVHcloud domaine`/`DNS`, `OVHcloud mails`/`Email professionnel`, `Documentation interne Edifice`/`Notion`), ce qui gonfle le compteur « N ressources » affiché par catégorie ; et `projectStatus` vieillit sans que rien ne le signale, exactement comme les items déclaratifs de l'Observatoire.
+
+### Bibliothèque (vision, non implémentée)
+
+La [documentation stratégique](../Documentation_Stratégique/L-Edifice-Documentation-Strategique-de-Reference.md) décrit un module Bibliothèque (section 13) : gestion documentaire centralisée, indexation des documents par entité du graphe (client CRM, projet, dépense), notes liées, sans dupliquer le stockage quand une source externe fait autorité.
+
+**Rien de ce module n'existe dans le code.** Il n'apparaît ni dans `lib/cockpit/modules.ts`, ni dans `lib/cockpit/navigation.ts`, ni dans aucune route. Ce n'est pas une dette masquée : aucune surface ne prétend l'offrir. C'est un écart de couverture entre la vision et l'implémentation, à traiter le jour où il entrera dans la [Roadmap](./02_Roadmap.md) — il n'y figure à ce jour à aucun horizon.
+
+Ne pas confondre avec deux choses qui existent et portent le même mot :
+
+- la **bibliothèque médias** du domaine contenu (`content_assets`, `components/pinterest/PinterestLibrary.tsx`, `lib/server/media-pipeline.ts`), que la vision décrit comme partageant le stockage de la Bibliothèque globale mais gardant une taxonomie propre au contenu ;
+- le module **Ressources** ci-dessus, qui est un annuaire de liens, pas un système documentaire.
 
 ## Modules de création
 

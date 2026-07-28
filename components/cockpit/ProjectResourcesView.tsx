@@ -41,7 +41,7 @@ export function ProjectResourcesView() {
       <CockpitHeader
         eyebrow="Ressources"
         title="Ressources operationnelles"
-        description="Acces rapide aux plateformes externes necessaires au pilotage de L'Edifice. Le statut du lien est separe de l'etat projet. Aucun secret, token ou action sensible n'est expose ici."
+        description="Acces rapide aux plateformes externes necessaires au pilotage de L'Edifice. Les deux statuts affiches sont declaratifs et saisis a la main : aucune sonde ne teste les liens, aucun n'est verifie au chargement de la page. Aucun secret, token ou action sensible n'est expose ici."
         status="Disponible"
       />
 

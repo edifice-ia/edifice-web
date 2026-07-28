@@ -1,5 +1,4 @@
 import type {
-  ConstructionJournalEntry,
   ObservatoryArea,
   ObservatoryItem,
 } from "@/types/cockpit";
@@ -137,16 +136,13 @@ export const observatoryItems: ObservatoryItem[] = [
   },
 ];
 
-export const constructionJournalSeed: ConstructionJournalEntry[] = [
-  {
-    id: "journal-observatory-foundation",
-    date: "2026-05-29",
-    action: "Pose de la premiere couche Observatoire.",
-    decision: "Creer une memoire projet lisible par l'assistant global.",
-    blocker: "Les statuts restent declaratifs tant que les sondes live ne sont pas branchees.",
-    nextStep: "Relier les statuts reels sans toucher aux OAuth fonctionnels.",
-  },
-];
+// Repli utilise quand aucune source live n'a produit de recommandation.
+// Cette phrase ne doit jamais decrire l'etat du projet : elle signale son
+// propre statut de repli. Y remettre une directive projet la rendrait fausse
+// avec le temps sans que rien ne le signale, ce qui est exactement l'ecart
+// corrige le 2026-07-28.
+export const fallbackNextRecommendedAction =
+  "Aucune recommandation derivee d'une source live. Renseigner la memoire projet ou brancher une sonde pour en obtenir une.";
 
 export const projectMemoryForAssistant = {
   project: "L'Edifice",
@@ -158,10 +154,8 @@ export const projectMemoryForAssistant = {
     "Ne pas declencher de publication reelle.",
     "Garder la validation humaine active pour les actions sensibles.",
   ],
-  nextRecommendedAction:
-    "Brancher les statuts reels en lecture seule dans l'Observatoire, en commencant par OAuth YouTube et Supabase.",
+  nextRecommendedAction: fallbackNextRecommendedAction,
   observatoryItems,
-  constructionJournalSeed,
 };
 
 export function buildProjectStatusOverview(items: ObservatoryItem[]) {

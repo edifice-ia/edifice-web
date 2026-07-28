@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-07-22
+Dernière mise à jour : 2026-07-28
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-07-28](#2026-07-28)
 - [2026-07-22](#2026-07-22)
 - [2026-07-11](#2026-07-11)
 - [2026-07-08](#2026-07-08)
@@ -28,6 +29,19 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-07-28
+
+Type : produit, documentation  
+Résumé : correction des deux derniers contenus déclaratifs figés de l'Observatoire, repérés après la clôture de l'audit du 22 juillet. `projectMemoryForAssistant.nextRecommendedAction` portait une directive écrite le 29 mai (« Brancher les statuts reels en lecture seule dans l'Observatoire, en commencant par OAuth YouTube et Supabase ») devenue fausse une fois les sondes branchées, et s'affichait comme « Prochaine pierre » dans `ProjectMemoryPanel` sans marquage. Elle est remplacée par `fallbackNextRecommendedAction`, dont le texte annonce son propre statut de repli au lieu de décrire l'état du projet. `constructionJournalSeed`, entrée de journal codée en dur du 29 mai dont le blocage annoncé (« les statuts restent declaratifs tant que les sondes live ne sont pas branchees ») était devenu faux, est supprimé : il n'était plus rendu dans l'UI mais restait exposé à l'assistant.  
+Fichiers liés :
+
+- `lib/cockpit/observatory.ts`
+- `/knowledge/06_Modules.md`
+
+Impact : les deux chemins de lecture de l'assistant sont concernés — celui de `getLiveProjectMemory` et le repli de `AssistantCommandCenter` quand `projectContext` est absent. Aucun des deux ne peut plus présenter une directive périmée comme une recommandation courante, ni un blocage résolu comme actif. Aucun changement de comportement quand une source live existe : la chaîne de dérivation (mémoire projet, puis premier item `Bloque`/`A migrer`/`En cours`) est inchangée.
+
+Action de suivi : aucune. Les trois items d'area `Agents` non rendus (`ProjectObservatory.tsx` non monté) restent une décision de conception UI ouverte, distincte de la transparence des statuts.
 
 ## 2026-07-22
 

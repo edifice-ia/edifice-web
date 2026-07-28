@@ -97,6 +97,10 @@ Regroupe signaux, alertes, coûts et état système. Fichiers clés :
 - `app/interface/monitoring`
 - `app/api/observatory`
 
+`nextRecommendedAction` est dérivé en priorité d'une source live par `getLiveProjectMemory` (`lib/server/observatory/read-model.ts`) : action prioritaire de la mémoire projet, puis premier item `Bloque`, `A migrer` ou `En cours`. Quand aucune de ces sources ne produit de recommandation, la valeur retombe sur `fallbackNextRecommendedAction` (`lib/cockpit/observatory.ts`), dont le texte annonce explicitement qu'il s'agit d'un repli et ne décrit pas l'état du projet. Cette contrainte est délibérée : la constante contenait auparavant une directive figée (« brancher les statuts réels… en commençant par OAuth YouTube et Supabase ») qui, une fois la tâche faite, s'affichait toujours comme « Prochaine pierre » dans `ProjectMemoryPanel` sans que rien ne signale son obsolescence. Toute directive projet remise à cet endroit reproduirait l'écart.
+
+Il n'existe plus de journal de construction codé en dur. `ConstructionJournal` lit les entrées réelles de `project_memory` ; l'ancien `constructionJournalSeed` (une entrée du 29 mai 2026 dont le blocage annoncé était devenu faux) n'était plus rendu dans l'UI mais restait exposé à l'assistant via `projectMemoryForAssistant`, et a été supprimé.
+
 `observatoryItems` (`lib/cockpit/observatory.ts`) définit trois items d'area `Agents` (`agent-assistant`, `agent-generation`, `agent-montage`) qui ne sont rendus nulle part dans l'app : `app/interface/monitoring` n'affiche que l'area `Infrastructure`, et le seul composant qui rendrait aussi `Agents` (`components/cockpit/ProjectObservatory.tsx`) n'est monté sur aucune route — code mort. À traiter séparément (décision de conception UI, pas une correction de transparence) avant de considérer ces trois items comme réellement visibles quelque part.
 
 ### Performance de publication

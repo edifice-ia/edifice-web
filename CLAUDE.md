@@ -156,12 +156,43 @@ En `push auto`, si la vérification échoue : committer quand même en local (le
 
 Dans les deux modes : commits sur une branche, jamais de `push --force`, jamais de réécriture d'historique déjà poussé.
 
+### Surclassement permanent : jamais de push automatique sur du code sensible
+
+**Toute session qui touche à l'authentification, à la sécurité ou aux politiques RLS repasse automatiquement en `commit seul`**, quelle que soit la phrase de lancement — y compris un `push auto` demandé explicitement. Cette règle ne se désactive pas depuis le prompt de lancement : elle n'est levée que par une demande humaine explicite, après relecture, une fois la session terminée.
+
+Raison : une régression de build se voit au déploiement suivant et se corrige. Une route d'authentification affaiblie ou une politique RLS trop permissive s'exploite silencieusement, et le seul moment où un humain peut l'attraper est **avant** que le code ne parte en production. `tsc` et `npm run build` ne détectent aucune de ces deux fautes — la vérification isolée passe au vert sur une faille.
+
+Périmètre — la règle s'applique dès qu'un seul fichier du commit relève de l'une de ces catégories :
+
+- routes d'authentification et OAuth : `app/api/auth/**`, `app/api/oauth/**` (tous providers, y compris `[provider]`) ;
+- surfaces à secret partagé ou à jeton entrant : `app/api/internal/**`, `app/api/webhooks/**` ;
+- couche d'accès serveur : `lib/server/oauth/**`, `src/lib/supabase/*.ts`, `proxy.ts` (middleware) ;
+- SQL touchant à la sécurité : toute migration contenant `POLICY`, `ROW LEVEL SECURITY`, `GRANT`, `REVOKE` ou `SECURITY DEFINER` ;
+- catch-all comportemental, indépendant du chemin : tout code qui lit ou écrit `oauth_tokens`, manipule un jeton, un secret partagé ou la clé service-role, ou décide qui a le droit de lire ou d'écrire quelque chose.
+
+Le catch-all prime sur la liste de chemins : un fichier hors des dossiers cités mais qui décide d'un droit d'accès déclenche la règle. En cas de doute sur la qualification d'un fichier, **il est sensible** — le coût d'un push retardé est nul, celui d'un push prématuré ne l'est pas.
+
+Portée **session, pas commit** : dès qu'un commit de la session tombe dans le périmètre, toute la session passe en `commit seul`, y compris ses commits ultérieurs sans rapport. C'est délibéré, pour la même raison que l'interdiction de découper un commit dans la clause d'exception : sinon il suffirait d'isoler le code sensible dans un commit et de pousser le reste.
+
+La règle ne relâche rien d'autre : la [vérification isolée](#vérification-isolée-avant-tout-commit) reste obligatoire dans les mêmes termes, et le travail est commité normalement en local. Seul le `push` est retenu, et il redevient une action humaine explicite.
+
+Quand ce surclassement s'applique alors qu'un `push auto` avait été demandé, il doit apparaître **en tête** du [Résumé de fin de session](#résumé-de-fin-de-session), avec la mention exacte :
+
+```text
+Mode "push auto" surclasse en commit seul — session touchant du code d'authentification/securite (regle permanente). Commits locaux, push a valider manuellement.
+```
+
+Si la session était déjà en `commit seul`, la règle n'a rien surclassé et n'a pas à être mentionnée.
+
 ## Résumé de fin de session
 
 Produit systématiquement à la fin d'une session autonome, dans le dernier message. Format fixe :
 
 ```markdown
 ## Résumé de session autonome — <date> — mode <commit seul | push auto>
+
+<si la regle de surclassement securite a bloque un push auto demande :
+la mention exacte definie plus haut, ici, avant toute autre section>
 
 ### Commits
 - `<sha court>` <message de commit> — poussé | local uniquement | local, vérification échouée, push non effectué

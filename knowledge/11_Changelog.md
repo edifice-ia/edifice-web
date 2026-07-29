@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-07-28 (RLS content_assets, policy DELETE)](#2026-07-28-rls-content_assets-policy-delete)
 - [2026-07-28 (module Trajectoire)](#2026-07-28-module-trajectoire)
 - [2026-07-28 (module Ressources et Bibliothèque)](#2026-07-28-module-ressources-et-bibliothèque)
 - [2026-07-28 (audit sécurité)](#2026-07-28-audit-sécurité)
@@ -32,6 +33,21 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-07-28 (RLS content_assets, policy DELETE)
+
+Type : sécurité, base de données  
+Résumé : la vérification en base des policies `content_assets` (dernier point ouvert du Lot 2) a révélé une quatrième policy que personne n'avait dans son périmètre : `content_assets_authenticated_delete`, avec `qual = true` littéral. N'importe quel utilisateur authentifié pouvait supprimer n'importe quelle ligne de la table, sans restriction de propriétaire. Le grant `DELETE` étant effectivement accordé à `authenticated`, la faille était exploitable en production, pas seulement latente. Corrigée en base par `ALTER POLICY` le 2026-07-28, puis versionnée.  
+Fichiers liés :
+
+- `supabase/migrations/20260728210000_scope_content_assets_delete_policy_to_owner.sql`
+- `MANUAL_ACTIONS.md`
+
+Impact : la policy `DELETE` porte la même condition de propriétaire que `UPDATE` (appartenance directe via `linked_draft_id` ou indirecte via `content_draft_asset_links`). La migration est écrite en `drop if exists` + `create` et non en `ALTER POLICY` : sur une base reconstruite depuis les seules migrations du dépôt, cette policy n'existe pas et un `ALTER` échouerait.
+
+Constat structurant, distinct de la faille : **`supabase/migrations` ne reflète pas fidèlement l'état réel de la base.** Cette policy n'était créée par aucune migration — `20260601133000` la supprime en préambule sans jamais la recréer, `20260721090000` ne la mentionne pas. Elle existait uniquement en base, créée hors du flux de migrations. Un audit qui ne lit que les fichiers de migration ne peut donc pas conclure sur la sécurité réelle : il faut interroger `pg_policies` et `information_schema.role_table_grants`.
+
+Action de suivi : aucun code de l'application ne supprime de `content_assets` (aucun `.delete()` sur cette table dans `lib/`, `app/` ou `scripts/`). Le grant `DELETE` à `authenticated` ne sert donc aucun usage réel et pourrait être révoqué, ce qui retirerait la couche de privilège en plus de la couche RLS. Révoquer un privilège en production est un changement de comportement qui demande une décision humaine explicite, non prise ici.
 
 ## 2026-07-28 (module Trajectoire)
 

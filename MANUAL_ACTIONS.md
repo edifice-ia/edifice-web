@@ -53,9 +53,13 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+_Aucune entrée en attente._
+
+## Archive (done)
+
 ### 2026-07-28 — Vérifier / appliquer les policies RLS `content_assets` (Lot 2 de l'audit sécurité)
 
-**Statut** : `pending`
+**Statut** : `done` — 2026-07-28
 
 **Pourquoi c'est manuel** : appliquer une migration Supabase et lire l'état réel des policies passent par le SQL Editor du dashboard. L'agent n'a pas d'accès SQL direct au projet Supabase — les variables serveur ne sont pas exposées dans son environnement — et le dépôt ne trace pas quelles migrations ont déjà été exécutées. Le fichier de migration présent dans `supabase/migrations` ne prouve donc rien sur l'état de la base.
 
@@ -82,11 +86,16 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
    ```
 5. Relancer la requête de l'étape 2 pour confirmer.
 
-**Vérification** : les trois policies `content_assets_authenticated_select/insert/update` existent, aucune n'a `qual` ou `with_check` à `true`, et `relrowsecurity` vaut `true`.
+**Vérification** — résultat obtenu le 2026-07-28, en base :
 
-**Note connexe** : le changelog du 2026-07-11 indique que `20260711100000_add_effort_level_to_trajectoire_actions.sql` n'était pas encore appliquée non plus. Autant vérifier les deux dans la même session SQL.
+- Les policies `_select`, `_insert`, `_update` sont bien resserrées sur le propriétaire : la migration `20260721090000` était appliquée.
+- **Une quatrième policy non prévue a été trouvée** : `content_assets_authenticated_delete`, avec `qual = true` littéral — n'importe quel utilisateur authentifié pouvait supprimer n'importe quelle ligne. Elle n'était créée par aucune migration du dépôt (`20260601133000` la supprime en préambule sans la recréer, `20260721090000` ne la mentionne pas) : elle existait uniquement en base, hors du flux de migrations.
+- Le grant `DELETE` **était bien accordé** à `authenticated`. La faille était donc réellement exploitable, pas seulement latente — la couche de privilège ne rattrapait pas la couche RLS.
+- Corrigé en base par `ALTER POLICY`, vérifié par relecture de `pg_policies` : `_delete` porte désormais la même restriction propriétaire que `_update`. Le correctif est versionné dans `supabase/migrations/20260728210000_scope_content_assets_delete_policy_to_owner.sql`.
 
-## Archive (done)
+**Ce que cette entrée a appris, au-delà de son objet** : `supabase/migrations` ne reflète pas fidèlement l'état réel de la base. Au moins un objet de sécurité y existait sans être versionné. Le critère de succès initialement écrit ici (« les trois policies existent ») était trop étroit et invitait à cocher trois cases au lieu de lire ce que la table contenait — c'est la requête, qui listait toutes les policies sans filtre de nom, qui a rattrapé le coup.
+
+**Note connexe** : le changelog du 2026-07-11 indique que `20260711100000_add_effort_level_to_trajectoire_actions.sql` n'était pas encore appliquée non plus. Reste à vérifier — `lib/server/trajectoire.ts` lit `effort_level`, donc la page Trajectoire échoue si la colonne manque.
 
 ### 2026-07-28 — Rendre lisible le PDF de `Documentation_Stratégique/`
 

@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-07-28 (révocation du grant DELETE content_assets)](#2026-07-28-révocation-du-grant-delete-content_assets)
 - [2026-07-28 (RLS content_assets, policy DELETE)](#2026-07-28-rls-content_assets-policy-delete)
 - [2026-07-28 (module Trajectoire)](#2026-07-28-module-trajectoire)
 - [2026-07-28 (module Ressources et Bibliothèque)](#2026-07-28-module-ressources-et-bibliothèque)
@@ -34,6 +35,20 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
+## 2026-07-28 (révocation du grant DELETE content_assets)
+
+Type : sécurité, base de données  
+Résumé : retrait de la seconde couche de la faille `content_assets`. La policy RLS a été corrigée par `20260728210000`, mais c'est le grant `DELETE` accordé à `authenticated` qui rendait la policy `using(true)` réellement exploitable — une policy ne filtre que les lignes d'un privilège déjà détenu. Ce grant n'était pas prévu : la migration d'origine `20260601133000` fait `grant select, insert, update`, sans `delete`. Il a donc été ajouté hors du flux de migrations, comme la policy elle-même.  
+Fichiers liés :
+
+- `supabase/migrations/20260728220000_revoke_content_assets_delete_from_authenticated.sql`
+
+Impact : les deux couches doivent désormais tomber pour que la faille réapparaisse. Si une future policy revenait à `using(true)` par accident, aucun utilisateur authentifié ne pourrait supprimer de ligne faute de privilège ; si le grant était réaccordé, la policy filtrerait sur le propriétaire.
+
+Vérifié avant révocation, sur l'ensemble du dépôt : aucun code ne supprime de `content_assets`. Les six appels `.delete()` visent `content_drafts`, `content_draft_asset_links` (trois fois), les tables `trajectoire_*` et `oauth_tokens`. Les trois scripts qui touchent `content_assets` (`index-content-assets`, `enrich-visual-assets`, `reconcile-content-assets-storage`) ne font que lire, insérer et mettre à jour, et passent par la clé service-role — non affectée, `service_role` contournant RLS et disposant de ses propres privilèges.
+
+Découpage volontaire en deux migrations plutôt qu'une : `20260728210000` était déjà commitée et son équivalent déjà appliqué en production. Y ajouter la révocation aurait fait que toute base l'ayant déjà exécutée ne la recevrait jamais.
+
 ## 2026-07-28 (RLS content_assets, policy DELETE)
 
 Type : sécurité, base de données  
@@ -47,7 +62,7 @@ Impact : la policy `DELETE` porte la même condition de propriétaire que `UPDAT
 
 Constat structurant, distinct de la faille : **`supabase/migrations` ne reflète pas fidèlement l'état réel de la base.** Cette policy n'était créée par aucune migration — `20260601133000` la supprime en préambule sans jamais la recréer, `20260721090000` ne la mentionne pas. Elle existait uniquement en base, créée hors du flux de migrations. Un audit qui ne lit que les fichiers de migration ne peut donc pas conclure sur la sécurité réelle : il faut interroger `pg_policies` et `information_schema.role_table_grants`.
 
-Action de suivi : aucun code de l'application ne supprime de `content_assets` (aucun `.delete()` sur cette table dans `lib/`, `app/` ou `scripts/`). Le grant `DELETE` à `authenticated` ne sert donc aucun usage réel et pourrait être révoqué, ce qui retirerait la couche de privilège en plus de la couche RLS. Révoquer un privilège en production est un changement de comportement qui demande une décision humaine explicite, non prise ici.
+Action de suivi : la révocation du grant `DELETE`, évoquée ici comme décision humaine à prendre, a été décidée et versionnée le même jour — voir l'entrée [2026-07-28 (révocation du grant DELETE content_assets)](#2026-07-28-révocation-du-grant-delete-content_assets).
 
 ## 2026-07-28 (module Trajectoire)
 

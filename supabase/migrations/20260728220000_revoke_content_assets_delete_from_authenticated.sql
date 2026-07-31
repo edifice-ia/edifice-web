@@ -1,0 +1,29 @@
+-- Security audit 2026-07, defense en profondeur sur content_assets.
+--
+-- La migration 20260728210000 a corrige la couche RLS : la policy
+-- content_assets_authenticated_delete est desormais restreinte au
+-- proprietaire. Ce fichier retire la couche de privilege qui rendait la
+-- policy defectueuse reellement exploitable : le grant DELETE etait accorde
+-- a authenticated (verifie en base le 2026-07-28), alors que la migration
+-- d'origine 20260601133000 ne l'accordait pas -- elle fait
+-- "grant select, insert, update", sans delete. Ce grant a donc ete ajoute
+-- hors du flux de migrations, comme la policy elle-meme.
+--
+-- Aucun code de l'application ne supprime de content_assets. Verifie sur
+-- l'ensemble du depot : les six appels .delete() visent content_drafts,
+-- content_draft_asset_links (trois fois), les tables trajectoire_* et
+-- oauth_tokens. Les scripts qui touchent content_assets
+-- (index-content-assets, enrich-visual-assets,
+-- reconcile-content-assets-storage) ne font que lire, inserer et mettre a
+-- jour, et passent par la cle service-role, que cette revocation n'affecte
+-- pas : service_role contourne RLS et possede ses propres privileges.
+--
+-- Effet combine avec 20260728210000 : meme si une future policy revenait a
+-- using(true) par accident, aucun utilisateur authentifie ne pourrait
+-- supprimer de ligne, faute du privilege. Et meme si le grant etait
+-- reaccorde, la policy filtrerait sur le proprietaire. Les deux couches
+-- doivent tomber pour que la faille reapparaisse.
+--
+-- revoke est idempotent : revoquer un privilege non detenu est un no-op.
+
+revoke delete on table public.content_assets from authenticated;

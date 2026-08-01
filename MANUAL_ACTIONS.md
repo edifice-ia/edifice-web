@@ -53,13 +53,36 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+_Aucune entrée en attente._
+
+## Archive (done)
+
 ### 2026-08-01 — Régénérer 3 PDF de `knowledge/Documentation-Strategique/PDF/` désynchronisés de leur source Markdown
 
-**Statut** : `pending`
+**Statut** : `done` — 2026-08-01, via `npx md-to-pdf@5.2.5`
 
 **Pourquoi c'est manuel** : aucun outil de rendu Markdown → PDF n'est disponible. Vérifié dans le dépôt — aucun script npm de génération (les 18 scripts de `package.json` ne couvrent pas la documentation), aucun fichier de `scripts/`, aucune dépendance de rendu dans `package.json`. Vérifié sur la machine — `pandoc`, `wkhtmltopdf`, `weasyprint`, `libreoffice` et `soffice` sont tous absents du `PATH`. `npx md-to-pdf` exige le téléchargement d'un paquet, c'est-à-dire une installation non demandée. Seul `pdftotext` est présent (`/mingw64/bin/pdftotext`), mais il extrait du texte, il n'en produit pas. Le `README.md` de `Documentation-Technique-Code/` confirme d'ailleurs que la génération a toujours été faite à la main : sa section « À mettre à jour » demande encore « ajouter la commande officielle de génération du PDF si elle devient un script npm ».
 
-**Bloque** : rien de fonctionnel. Mais les trois PDF affichent désormais des liens internes faux, alors que leurs `.md` sources sont corrects — c'est-à-dire exactement le type d'écart que la correction visait à supprimer. Quiconque lit la version PDF suivra un lien mort.
+**Bloquait** : rien de fonctionnel. Mais les trois PDF affichent désormais des liens internes faux, alors que leurs `.md` sources sont corrects — c'est-à-dire exactement le type d'écart que la correction visait à supprimer. Quiconque lit la version PDF suivra un lien mort.
+
+**Ce qui a débloqué la situation** : `npx -y md-to-pdf@5.2.5` fonctionne sur cette machine. Le paquet embarque son propre Chromium via Puppeteer et n'a besoin d'aucun installeur système ni droit administrateur — c'est précisément la limite que cette entrée croyait bloquante. Il n'a **pas** été ajouté à `package.json` : usage ponctuel via `npx`, aucune dépendance du projet n'a changé.
+
+**Deux écarts de rendu découverts en comparant aux 13 autres PDF**, et traités :
+
+1. Le lot initial **ne contient pas la section « Sommaire »** que porte chaque `.md` — vérifié sur trois documents : le `.md` en a une, le `.pdf` n'en garde aucune trace. Un rendu direct en aurait ajouté une que les autres documents n'ont pas. Un script de préparation la retire donc avant rendu.
+2. Le lot initial porte un pied de page « L'Édifice — Documentation stratégique » à gauche et le numéro de page à droite, absent du `.md`. Reproduit via `footerTemplate`.
+
+**Ce qui n'est pas identique** : la typographie et la mise en page. Le gabarit d'origine est inconnu — les PDF ne portent aucune métadonnée `Producer`/`Creator` — et n'a donc pas pu être reproduit à l'identique. Les trois documents régénérés sont lisibles et complets, mais ne sont pas visuellement interchangeables avec les treize autres. **C'est un arbitrage à trancher** : soit régénérer les seize avec ce pipeline pour retrouver l'homogénéité, soit retrouver le gabarit d'origine et refaire ces trois-là avec. En l'état, un lien juste a été préféré à une police identique.
+
+**Vérification effectuée** — extraction `pdftotext -layout`, méthode d'abord validée sur les PDF fautifs encore en place, qui remontaient bien une occurrence de chaque ancien nom :
+
+| PDF régénéré | Nom corrigé présent | Ancien nom restant |
+| --- | --- | --- |
+| `10-architecture-systeme.pdf` | `11-modularite-configuration.md` ×1, `12-modele-de-donnees.md` ×1 | 0 |
+| `11-modularite-configuration.pdf` | `13-securite-gouvernance.md` ×1 | 0 |
+| `20-catalogue-services.pdf` | `22-espaces-et-marques.md` ×1 | 0 |
+
+Contrôles complémentaires : aucun des seize PDF du dossier ne contient plus d'ancien nom de fichier ; tous les titres de niveau 1 à 3 des sources sont présents dans les rendus (11, 6 et 17 titres, aucun manquant) ; les volumes de texte concordent avec les `.md` sources comme avec les PDF d'origine, à moins de 1 % près, écart imputable au pied de page répété.
 
 **Les trois fichiers concernés**, et la correction que leur `.md` a reçue mais pas eux :
 
@@ -90,8 +113,6 @@ pdftotext -enc UTF-8 knowledge/Documentation-Strategique/PDF/10-architecture-sys
 ```
 
 Doit renvoyer au moins `1`, et la commande équivalente sur `11-configuration.md` doit renvoyer `0`.
-
-## Archive (done)
 
 ### 2026-07-28 — Vérifier / appliquer les policies RLS `content_assets` (Lot 2 de l'audit sécurité)
 

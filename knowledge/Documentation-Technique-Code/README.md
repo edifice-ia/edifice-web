@@ -90,12 +90,25 @@ Bonnes pratiques :
 
 `docs/Edifice_Knowledge_Base.pdf` a longtemps rempli ce rôle : il rassemblait les fichiers Markdown de ce dossier dans l'ordre logique. Il a été supprimé le 2026-08-01 parce qu'il était périmé sans le dire — sa dernière génération datait du 2026-07-07, et il lui manquait `DEC-005`, `DEC-006`, `DEC-007` ainsi que trois semaines de changelog. Un export figé qui ne signale pas sa propre péremption est plus nuisible qu'absent : il se lit comme la base elle-même.
 
-Aucune commande de régénération n'existe dans le dépôt — ni script npm, ni dépendance. L'export était produit à la main. Si un PDF redevient nécessaire, le régénérer depuis les Markdown de ce dossier au moment du partage, et ne pas le committer : il redeviendrait périmé au commit suivant.
+Il n'existe pas de commande couvrant **ce** dossier-ci. Si un PDF de la base technique redevient nécessaire, le produire au moment du partage et ne pas le committer : il redeviendrait périmé au commit suivant.
 
-Le dossier voisin `knowledge/Documentation-Strategique/` suit une autre règle, délibérément : il maintient un `PDF/` versionné en miroir de son `Markdown/`, chaque `.pdf` étant régénéré en même temps que son `.md` source.
+Le dossier voisin `knowledge/Documentation-Strategique/` suit une autre règle, délibérément : il maintient un `PDF/` versionné en miroir de son `Markdown/`, chaque `.pdf` étant régénéré en même temps que son `.md` source. Depuis le **2026-08-01**, cette régénération est un script npm :
+
+```bash
+npm run docs:pdf
+```
+
+Elle relit les 16 `.md` de `knowledge/Documentation-Strategique/Markdown/` et réécrit les 16 `.pdf` correspondants en une seule commande. Le script (`scripts/generate-strategic-pdf.mjs`, sur `md-to-pdf`) reproduit deux traits du lot initial que le Markdown ne porte pas : la section `## Sommaire` est retirée avant rendu — aucun PDF du dossier n'en contient — et un pied de page « L'Édifice — Documentation stratégique » avec numéro de page est ajouté. Les libellés de lien, qui sont des noms de fichiers, ne sont plus coupés en fin de ligne.
+
+```bash
+npm run docs:pdf:check
+```
+
+La même chose sans rien écrire : signale les `.pdf` dont le contenu ne correspond plus à leur `.md`, et sort en erreur s'il y en a. Utile après avoir modifié un Markdown, pour savoir s'il faut régénérer.
+
+Règle : **un `.md` modifié dans ce dossier se régénère dans le même commit.** Un `PDF/` versionné qui diverge de sa source est pire qu'un dossier sans PDF, puisque rien ne signale l'écart au lecteur.
 
 ## À mettre à jour
 
-- Ajouter la commande officielle de génération du PDF si elle devient un script npm.
 - Ajouter une fréquence de revue documentaire.
 - Ajouter un responsable de maintenance lorsque l'organisation du projet le nécessite.

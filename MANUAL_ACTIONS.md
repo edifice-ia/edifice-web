@@ -61,6 +61,10 @@ _Aucune entrée en attente._
 
 **Statut** : `done` — 2026-08-01, via `npx md-to-pdf@5.2.5`
 
+**Suite donnée — 2026-08-01** : l’outillage n’est plus ponctuel. `md-to-pdf` est passé en `devDependency` et la régénération des 16 PDF tient dans `npm run docs:pdf` (`scripts/generate-strategic-pdf.mjs`), avec `npm run docs:pdf:check` pour détecter un `.pdf` divergent sans rien réécrire. Le point ouvert que cette entrée laissait — « aucun outil de rendu Markdown → PDF n’est disponible » — est clos : ce n’est plus une action manuelle.
+
+L’arbitrage typographique que cette entrée signalait est tranché du même coup : les 16 PDF sont désormais produits par le même pipeline, donc homogènes. Contenu vérifié identique document par document — seules changent les coupures de ligne, désormais correctes sur les noms de fichiers.
+
 **Pourquoi c'est manuel** : aucun outil de rendu Markdown → PDF n'est disponible. Vérifié dans le dépôt — aucun script npm de génération (les 18 scripts de `package.json` ne couvrent pas la documentation), aucun fichier de `scripts/`, aucune dépendance de rendu dans `package.json`. Vérifié sur la machine — `pandoc`, `wkhtmltopdf`, `weasyprint`, `libreoffice` et `soffice` sont tous absents du `PATH`. `npx md-to-pdf` exige le téléchargement d'un paquet, c'est-à-dire une installation non demandée. Seul `pdftotext` est présent (`/mingw64/bin/pdftotext`), mais il extrait du texte, il n'en produit pas. Le `README.md` de `Documentation-Technique-Code/` confirme d'ailleurs que la génération a toujours été faite à la main : sa section « À mettre à jour » demande encore « ajouter la commande officielle de génération du PDF si elle devient un script npm ».
 
 **Bloquait** : rien de fonctionnel. Mais les trois PDF affichent désormais des liens internes faux, alors que leurs `.md` sources sont corrects — c'est-à-dire exactement le type d'écart que la correction visait à supprimer. Quiconque lit la version PDF suivra un lien mort.

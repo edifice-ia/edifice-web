@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "costs:check": "node scripts/cost-tracking-check.mjs",
+    "docs:pdf": "node scripts/generate-strategic-pdf.mjs",
+    "docs:pdf:check": "node scripts/generate-strategic-pdf.mjs --check",
     "garmin:oauth:check": "node scripts/garmin-oauth-pkce-check.mjs",
     "personal:daily-brief:check": "node scripts/personal-daily-brief-check.mjs",
     "personal:daily-brief:cron:check": "node scripts/personal-daily-brief-cron-check.mjs",
@@ -36,6 +38,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "md-to-pdf": "^5.2.5",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

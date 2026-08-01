@@ -33,18 +33,19 @@ Trois sources coexistent dans le dépôt. Elles ne sont **pas** interchangeables
 
 | Source | Nature | Fait autorité sur |
 | --- | --- | --- |
-| [`knowledge/`](./knowledge/) — 13 fichiers Markdown, suivis par git | Documentation vivante, mise à jour avec le code | **L'état réel du code** : modules, tables, décisions, conventions, changelog |
-| [`Documentation_Stratégique/`](./Documentation_Stratégique/) — un PDF de référence + son export Markdown suivi par git | Document de référence stratégique, hors cycle de développement | **La vision et l'intention long terme** |
-| `docs/Edifice_Knowledge_Base.pdf` | **Export consolidé de `knowledge/`**, régénéré à la main | Rien. Ne jamais s'y référer comme source. |
+| [`knowledge/Documentation-Technique-Code/`](./knowledge/Documentation-Technique-Code/) — 13 fichiers Markdown (`00_Vision.md` … `11_Changelog.md` + `README.md`), suivis par git | Documentation vivante, mise à jour avec le code | **L'état réel du code** : modules, tables, décisions, conventions, changelog |
+| [`knowledge/Documentation-Strategique/`](./knowledge/Documentation-Strategique/) — 16 documents, en `Markdown/` et en `PDF/`, suivis par git | Documentation de référence stratégique, hors cycle de développement | **La vision et l'intention long terme** |
+| [`knowledge/Archive/`](./knowledge/Archive/) | Versions remplacées, conservées pour l'historique | Rien. Ne jamais s'y référer comme source. |
 
 Précisions vérifiées :
 
-- `Documentation_Stratégique/` (accent inclus, `D:\edifice-web\Documentation_Stratégique`) contient deux fichiers pour un même contenu : `L'Edifice - Documentation Strategique de Reference.pdf`, l'original de référence non suivi par git, et `L-Edifice-Documentation-Strategique-de-Reference.md`, son export Markdown suivi par git. **Lire le `.md`** : le PDF n'est pas lisible par l'agent sur cette machine (`pdftoppm` absent, voir l'entrée archivée du 2026-07-28 dans `MANUAL_ACTIONS.md`). Si le PDF est mis à jour sans que le `.md` le soit, l'export devient périmé sans que rien ne le signale — regénérer le `.md` fait partie de la mise à jour.
-- `docs/Edifice_Knowledge_Base.pdf` n'est **pas** une source distincte : `knowledge/README.md` le décrit comme le PDF consolidé rassemblant les fichiers Markdown de `/knowledge`. Même contenu, autre format, régénéré manuellement (aucun script npm). Lire les `.md` de `knowledge/`, jamais ce PDF.
-- Le reste de `docs/` (notes Pinterest, Shorts, workflow engine) est constitué de notes de travail par sujet, ni source de vérité ni doublon des deux autres.
-- Le code et `supabase/migrations` restent la source de vérité **d'exécution**, au-dessus de toute documentation (règle posée par `knowledge/README.md`).
+- `knowledge/Documentation-Strategique/` contient deux fois le même contenu : `Markdown/` est la source, `PDF/` en est le rendu versionné, fichier par fichier (`00-manifeste.md` ↔ `00-manifeste.pdf`, etc.). **Lire le `Markdown/`.** Modifier un `.md` sans régénérer le `.pdf` correspondant désynchronise la paire sans que rien ne le signale — aucun outil de rendu n'existe dans le dépôt ni sur cette machine, donc la régénération est une action manuelle : voir l'entrée du 2026-08-01 dans `MANUAL_ACTIONS.md`.
+- Les PDF sont lisibles par l'agent : `pdftotext` est présent (`/mingw64/bin/pdftotext`). C'est `pdftoppm` (rendu en image) qui est absent — l'entrée archivée du 2026-07-28 dans `MANUAL_ACTIONS.md` conclut à tort que l'extraction de texte est impossible.
+- `knowledge/Archive/v1.0-2026-07/` contient la documentation stratégique v1.0 de juillet 2026, remplacée le 2026-08-01. Sa taxonomie est différente et **incompatible** avec celle en vigueur — voir le `README.md` du dossier. Ne pas la citer comme source ; deux de ses modules, Bibliothèque et Paramètres, n'ont pas d'équivalent direct dans la structure actuelle, et c'est un point ouvert.
+- `docs/` (notes Pinterest, Shorts, workflow engine) est constitué de notes de travail par sujet, ni source de vérité ni doublon des deux autres. Il ne contient plus d'export consolidé de la base : `docs/Edifice_Knowledge_Base.pdf` a été supprimé le 2026-08-01, périmé au 2026-07-07.
+- Le code et `supabase/migrations` restent la source de vérité **d'exécution**, au-dessus de toute documentation (règle posée par `knowledge/Documentation-Technique-Code/README.md`).
 
-En cas de divergence entre `knowledge/` et `Documentation_Stratégique/` : `knowledge/` gagne sur ce que le code fait, `Documentation_Stratégique/` gagne sur ce que le produit vise. Si la divergence porte sur ce qu'il faut faire maintenant, ce n'est pas un arbitrage à trancher seul → [Décision ambiguë](#décision-ambiguë) et remontée dans le résumé.
+En cas de divergence entre les deux premières sources : `Documentation-Technique-Code/` gagne sur ce que le code fait, `Documentation-Strategique/` gagne sur ce que le produit vise. Si la divergence porte sur ce qu'il faut faire maintenant, ce n'est pas un arbitrage à trancher seul → [Décision ambiguë](#décision-ambiguë) et remontée dans le résumé.
 
 ## Cadrage « concentre-toi sur le module X »
 
@@ -52,9 +53,9 @@ Quand la session s'ouvre sur une consigne de ce type (« concentre-toi sur le mo
 
 **1. Localiser la documentation du module**
 
-- `knowledge/06_Modules.md` en premier : c'est la cartographie des modules et de leurs responsabilités, et elle relie chaque module à ses fichiers réels.
-- Puis les fichiers `knowledge/` liés au sujet : `05_Database.md` pour les tables, `03_Decisions.md` pour les décisions déjà prises (référencées `DEC-00x`), `01_Architecture.md`, `07_Agents.md`/`08_Workflows.md` selon le module.
-- Puis `Documentation_Stratégique/` s'il couvre ce module. Autorité selon le tableau ci-dessus : `knowledge/` sur l'état réel, `Documentation_Stratégique/` sur la vision.
+- `knowledge/Documentation-Technique-Code/06_Modules.md` en premier : c'est la cartographie des modules et de leurs responsabilités, et elle relie chaque module à ses fichiers réels.
+- Puis les autres fichiers de `knowledge/Documentation-Technique-Code/` liés au sujet : `05_Database.md` pour les tables, `03_Decisions.md` pour les décisions déjà prises (référencées `DEC-00x`), `01_Architecture.md`, `07_Agents.md`/`08_Workflows.md` selon le module.
+- Puis `knowledge/Documentation-Strategique/Markdown/` s'il couvre ce module — `23-modules.md` et `21-poles.md` en premier lieu. Autorité selon le tableau ci-dessus : `Documentation-Technique-Code/` sur l'état réel, `Documentation-Strategique/` sur la vision.
 
 **2. Comparer la vision documentée au code réel**
 
@@ -63,7 +64,7 @@ Relever deux types d'écarts, et **les traiter dans cet ordre de gravité** :
 1. **Écart de sincérité** (prioritaire) : ce qui existe dans le code mais ment sur son état réel — sonde de statut cassée qui affiche un statut figé, flag ou capacité déclarée active alors qu'elle ne l'est pas, UI qui affiche une valeur périmée sans le signaler, code mort déclaré comme rendu quelque part. Ce type d'écart est **plus grave qu'une fonctionnalité absente** : une absence est visible, un mensonge silencieux corrompt la confiance dans tout le reste du module et fausse les décisions prises à partir de lui.
 2. **Écart de couverture** : ce qui est décrit comme faisant partie du rôle du module mais simplement absent du code.
 
-`knowledge/06_Modules.md` donne le standard de rédaction attendu sur ce point — la section Observatoire y qualifie explicitement trois items comme du code mort non rendu, et la section Performance de publication assume que TikTok reste un placeholder en lecture plutôt que d'afficher un faux zéro. C'est ce niveau d'honnêteté qu'il faut maintenir en documentant les écarts trouvés.
+`knowledge/Documentation-Technique-Code/06_Modules.md` donne le standard de rédaction attendu sur ce point — la section Observatoire y qualifie explicitement trois items comme du code mort non rendu, et la section Performance de publication assume que TikTok reste un placeholder en lecture plutôt que d'afficher un faux zéro. C'est ce niveau d'honnêteté qu'il faut maintenir en documentant les écarts trouvés.
 
 **3. Vérifier la feuille de route**
 
@@ -78,7 +79,7 @@ Ordonner par **gravité de l'écart**, pas par facilité d'exécution : écarts 
 
 **5. Mettre à jour la documentation dans le même commit que le code**
 
-Principe de documentation vivante déjà en vigueur (`knowledge/README.md` et `knowledge/10_Conventions.md`) : le fichier `knowledge/` concerné est modifié dans le **même** commit que le code, plus une entrée dans `11_Changelog.md` si le changement est structurant, plus une décision dans `03_Decisions.md` si un choix durable est pris. Une doc mise à jour dans un commit séparé est une doc qui redeviendra fausse.
+Principe de documentation vivante déjà en vigueur (`knowledge/Documentation-Technique-Code/README.md` et son `10_Conventions.md`) : le fichier de `knowledge/Documentation-Technique-Code/` concerné est modifié dans le **même** commit que le code, plus une entrée dans `11_Changelog.md` si le changement est structurant, plus une décision dans `03_Decisions.md` si un choix durable est pris. Une doc mise à jour dans un commit séparé est une doc qui redeviendra fausse.
 
 **Si la doc elle-même est ambiguë ou contradictoire** sur ce qu'il faut faire pour ce module : ne pas deviner silencieusement. Retenir l'option la plus conservative, la documenter comme hypothèse, et l'inscrire dans la section « décisions ambiguës à relire en priorité » du résumé de fin de session — c'est exactement le cas que cette section existe pour attraper.
 
@@ -126,7 +127,7 @@ Si le `git stash pop` échoue (conflit) : **aucune résolution automatique, aucu
 
 La vérification n'est pas requise **si et seulement si tous les fichiers du commit, sans exception**, relèvent de l'une de ces deux catégories :
 
-- **Documentation Markdown** : `*.md` à la racine (`CLAUDE.md`, `MANUAL_ACTIONS.md`, `README.md`, `suivi-chantiers-edifice.md`), dans `knowledge/`, dans `docs/`, dans `Documentation_Stratégique/`.
+- **Documentation Markdown** : `*.md` à la racine (`CLAUDE.md`, `MANUAL_ACTIONS.md`, `README.md`, `suivi-chantiers-edifice.md`), et partout sous `knowledge/` et `docs/`. Les `.pdf` de `knowledge/Documentation-Strategique/PDF/` et de `knowledge/Archive/` relèvent de la même logique hors périmètre build.
 - **Définitions d'agents et de skills en Markdown** : `.claude/agents/*.md`, `.claude/skills/*.md`.
 
 Sont **explicitement exclus** du périmètre — leur présence rend la vérification obligatoire, quelle que soit l'apparente innocuité de leur extension :
@@ -226,4 +227,4 @@ Le mode autonome lève l'attente de validation sur les décisions techniques ord
 - Toute modification de secrets, de variables d'environnement de production, ou de réglages de compte.
 - Toute dépense.
 
-Ces règles prolongent la section Sécurité de [`knowledge/10_Conventions.md`](./knowledge/10_Conventions.md) et ne s'y substituent pas.
+Ces règles prolongent la section Sécurité de [`knowledge/Documentation-Technique-Code/10_Conventions.md`](./knowledge/Documentation-Technique-Code/10_Conventions.md) et ne s'y substituent pas.

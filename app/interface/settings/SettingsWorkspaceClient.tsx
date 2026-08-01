@@ -210,6 +210,22 @@ export function SettingsWorkspaceClient({
         ))}
       </div>
 
+      <div className="rounded-md border border-[#f59e0b]/40 bg-[#f59e0b]/10 px-4 py-3 text-sm leading-6 text-[#fbbf24]">
+        <p className="font-semibold text-[#F8FAFC]">Reglages enregistres, pas encore appliques</p>
+        <p className="mt-1">
+          Les preferences de cet ecran sont bien persistees dans Supabase
+          (<span className="font-semibold">user_preferences</span>), mais aucun module de
+          L&apos;Edifice ne les relit aujourd&apos;hui : ni l&apos;atelier Shorts, ni la voix, ni la
+          programmation, ni les garde-fous de publication. Les modules utilisent leurs propres
+          valeurs par defaut, codees en dur. Modifier une valeur ici ne change donc aucun
+          comportement pour l&apos;instant.
+        </p>
+        <p className="mt-1">
+          Seul l&apos;onglet <span className="font-semibold">Connexions</span> fait exception : il lit
+          et agit sur l&apos;etat OAuth reel.
+        </p>
+      </div>
+
       <div className="flex flex-col gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] p-4 text-sm text-[#A7B0C0] lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p>
@@ -260,7 +276,7 @@ export function SettingsWorkspaceClient({
           <label><FieldLabel>Langue d&apos;interface</FieldLabel><SelectInput value={globalPreferences.defaultInterfaceLanguage} onChange={(value) => updateGlobal({ defaultInterfaceLanguage: value === "en" ? "en" : "fr" })}><option value="fr">Francais</option><option value="en">English</option></SelectInput></label>
           <label><FieldLabel>Preference d&apos;interface</FieldLabel><SelectInput value={globalPreferences.interfaceDensity} onChange={(value) => updateGlobal({ interfaceDensity: value === "compact" ? "compact" : "comfortable" })}><option value="comfortable">Confortable</option><option value="compact">Compact</option></SelectInput></label>
           <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4 text-sm text-[#A7B0C0]">
-            Priorite active : reglage specifique du compte, puis reglage global, puis valeur par defaut existante.
+            Priorite <span className="font-semibold text-[#F8FAFC]">prevue</span> le jour ou ces reglages seront lus : reglage specifique du compte, puis reglage global, puis valeur par defaut. Aucun module ne l&apos;implemente aujourd&apos;hui.
           </div>
         </section>
       ) : null}
@@ -268,7 +284,7 @@ export function SettingsWorkspaceClient({
       {activeTab === "accounts" ? (
         <section className="space-y-4 rounded-md border border-[#1D2A44] bg-[#0B1420] p-5">
           <p className="rounded-md border border-[#39E6D0]/30 bg-[#39E6D0]/10 px-4 py-3 text-sm text-[#39E6D0]">
-            Les reglages specifiques au compte remplacent les reglages globaux lorsqu&apos;ils sont definis.
+            Les reglages specifiques au compte sont prevus pour remplacer les reglages globaux lorsqu&apos;ils sont definis. Cette resolution n&apos;est branchee nulle part : les overrides sont stockes, pas encore consommes.
           </p>
           {initialState.accounts.map((knownAccount: KnownContentAccount) => {
             const account = accountPreferences[knownAccount.accountKey] ?? {};
@@ -332,7 +348,7 @@ export function SettingsWorkspaceClient({
         <section className="grid gap-4 rounded-md border border-[#1D2A44] bg-[#0B1420] p-5 md:grid-cols-2">
           <label><FieldLabel>Voix ElevenLabs par defaut</FieldLabel><TextInput value={globalPreferences.defaultVoiceId} onChange={(value) => updateGlobal({ defaultVoiceId: value })} /></label>
           <label><FieldLabel>Ton / style vocal par defaut</FieldLabel><TextInput value={globalPreferences.defaultVoiceStyle} onChange={(value) => updateGlobal({ defaultVoiceStyle: value })} /></label>
-          <Toggle checked label="Generation manuelle obligatoire active" onChange={() => undefined} />
+          <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">Generation manuelle obligatoire : <span className="font-semibold text-[#F8FAFC]">active</span>, en lecture seule. Cette contrainte ne fait pas partie des preferences enregistrees et ne peut pas etre modifiee ici — elle etait auparavant affichee comme une bascule inerte, toujours cochee et sans effet.</p>
           <Toggle checked={globalPreferences.showVoiceCostEstimate} label="Afficher l'estimation de cout si disponible" onChange={(checked) => updateGlobal({ showVoiceCostEstimate: checked })} />
           <p className="md:col-span-2 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0]">La cle API ElevenLabs n&apos;est jamais affichee ni stockee dans ces reglages.</p>
         </section>
@@ -365,12 +381,13 @@ export function SettingsWorkspaceClient({
           <Toggle checked={globalPreferences.requireSubtitleRegenerationConfirmation} label="Confirmation avant regeneration sous-titres" onChange={(checked) => updateGlobal({ requireSubtitleRegenerationConfirmation: checked })} />
           <Toggle checked={globalPreferences.requireVideoRegenerationConfirmation} label="Confirmation avant regeneration video" onChange={(checked) => updateGlobal({ requireVideoRegenerationConfirmation: checked })} />
           <Toggle checked={globalPreferences.requirePublishConfirmation} label="Confirmation avant publication future" onChange={(checked) => updateGlobal({ requirePublishConfirmation: checked })} />
+          <p className="rounded-md border border-[#f59e0b]/40 bg-[#f59e0b]/10 px-4 py-3 text-sm leading-6 text-[#fbbf24] md:col-span-2">Ces quatre bascules ne pilotent aucun garde-fou : elles sont enregistrees mais aucun workflow ne les lit. Les confirmations reellement appliquees avant une regeneration ou une publication sont codees dans les workflows concernes et ne sont ni activables ni desactivables depuis cet ecran. Desactiver une bascule ici ne retire donc aucune protection — et en activer une n&apos;en ajoute aucune.</p>
           <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm text-[#A7B0C0] md:col-span-2">Limite de rendus video simultanes : <span className="font-semibold text-[#F8FAFC]">{globalPreferences.videoConcurrentRenderLimit}</span> en lecture seule.</p>
         </section>
       ) : null}
 
       <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-4 text-sm text-[#A7B0C0]">
-        Reglages actifs globaux : fuseau {globalPreferences.defaultTimezone}, sous-titres {subtitleModeLabel(globalPreferences.defaultSubtitleStyle)}, programmation {globalPreferences.weeklyPostingFrequency} post/jour sur {globalPreferences.defaultScheduleDays} jours.
+        Reglages globaux enregistres, non encore appliques : fuseau {globalPreferences.defaultTimezone}, sous-titres {subtitleModeLabel(globalPreferences.defaultSubtitleStyle)}, programmation {globalPreferences.weeklyPostingFrequency} post/jour sur {globalPreferences.defaultScheduleDays} jours.
       </div>
     </div>
   );

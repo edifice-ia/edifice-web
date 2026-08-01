@@ -33,8 +33,11 @@ Un bon prompt pour L'Édifice doit :
 ```text
 Tu travailles sur L'Édifice.
 
-Lis d'abord /knowledge/README.md, puis les fichiers /knowledge pertinents pour la tâche.
-Considère /knowledge comme la source de vérité documentaire, et le code comme la source de vérité d'exécution.
+Lis d'abord knowledge/Documentation-Technique-Code/README.md, puis les fichiers
+knowledge/Documentation-Technique-Code/ pertinents pour la tâche.
+Considère knowledge/Documentation-Technique-Code/ comme la source de vérité
+documentaire sur l'état réel du code, knowledge/Documentation-Strategique/ comme
+la source de vérité sur la vision, et le code comme la source de vérité d'exécution.
 
 Avant toute modification Next.js, lis les guides pertinents dans node_modules/next/dist/docs/.
 
@@ -42,8 +45,10 @@ Respecte les garde-fous :
 - aucune publication réelle sans validation humaine explicite ;
 - aucun secret exposé ;
 - aucune suppression non demandée ;
-- toute décision durable doit être documentée dans /knowledge/03_Decisions.md ;
-- tout changement structurant doit mettre à jour /knowledge/11_Changelog.md.
+- toute décision durable doit être documentée dans
+  knowledge/Documentation-Technique-Code/03_Decisions.md ;
+- tout changement structurant doit mettre à jour
+  knowledge/Documentation-Technique-Code/11_Changelog.md.
 
 Réponds avec les fichiers modifiés, les vérifications réalisées et les limites restantes.
 ```
@@ -54,10 +59,10 @@ Réponds avec les fichiers modifiés, les vérifications réalisées et les limi
 Mets à jour la base de connaissances de L'Édifice après ce changement.
 
 Objectif :
-- identifier les fichiers /knowledge concernés ;
+- identifier les fichiers knowledge/Documentation-Technique-Code/ concernés ;
 - mettre à jour les sections devenues obsolètes ;
 - ajouter une décision si un choix durable a été pris ;
-- ajouter une entrée dans /knowledge/11_Changelog.md ;
+- ajouter une entrée dans knowledge/Documentation-Technique-Code/11_Changelog.md ;
 - préserver un Markdown clair, stable et compréhensible par plusieurs IA.
 ```
 

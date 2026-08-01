@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Modules cockpit](#modules-cockpit)
+- [Paramètres (Réglages)](#paramètres-réglages)
 - [Bibliothèque (vision, non implémentée)](#bibliothèque-vision-non-implémentée)
 - [Modules de création](#modules-de-création)
 - [Modules de publication](#modules-de-publication)
@@ -54,9 +55,43 @@ Le module est **entièrement déclaratif** : `projectResources` est une liste é
 
 Deux limites connues, non corrigées faute d'arbitrage produit : six paires d'entrées pointent vers la même URL sous deux noms (`GitHub`/`GitHub repository`, `Supabase Dashboard`/`Supabase project`, `Vercel Dashboard`/`Vercel project`, `OVHcloud domaine`/`DNS`, `OVHcloud mails`/`Email professionnel`, `Documentation interne Edifice`/`Notion`), ce qui gonfle le compteur « N ressources » affiché par catégorie ; et `projectStatus` vieillit sans que rien ne le signale, exactement comme les items déclaratifs de l'Observatoire.
 
+### Paramètres (Réglages)
+
+Écran de configuration du cockpit, accessible depuis la navigation sous le libellé « Reglages ». Six onglets : Général, Comptes, Shorts, Voix, Programmation, Connexions, Sécurité.
+
+Fichiers :
+
+- `app/interface/settings/page.tsx` et `app/interface/settings/SettingsWorkspaceClient.tsx`
+- `app/interface/settings/connections/page.tsx`, `components/cockpit/SettingsConnectionsPanel.tsx` et les contrôles par provider (`MetaConnectionControls`, `OAuthConnectionControls`, `PinterestConnectionControls`, `TikTokConnectionControls`, `YouTubeConnectionControls`)
+- `app/api/settings/preferences/route.ts`
+- `lib/settings-preferences.ts` (types, valeurs par défaut, normalisation) et `lib/server/settings-preferences.ts` (lecture/écriture)
+- table `user_preferences` (`supabase/migrations/20260627170000_create_user_preferences.sql`)
+
+**Les préférences sont enregistrées mais jamais relues.** C'est le fait le plus important à connaître sur ce module. Les 18 champs de `GlobalSettingsPreferences` et les overrides par compte sont persistés dans `user_preferences` et rechargés par l'écran de réglages lui-même, mais **aucun autre module ne les lit** : aucun fichier hors `app/interface/settings`, `app/api/settings` et `lib/settings-preferences*` n'importe ce module, n'appelle `readSettingsPreferences` ni ne requête `user_preferences`. L'atelier Shorts, le pipeline voix, la programmation et les garde-fous de publication utilisent leurs propres valeurs par défaut, codées en dur — `defaultVoiceId` par exemple existe aussi comme fonction locale dans `lib/server/voice-pipeline.ts`, qui lit la variable d'environnement `ELEVENLABS_VOICE_ID` et ignore la préférence du même nom. Modifier un réglage ne change donc aucun comportement.
+
+L'écran le dit désormais, plutôt que de câbler 18 réglages à travers le produit — ce serait une refonte, pas une correction :
+
+- un bandeau en tête d'écran énonce que les réglages sont stockés et non appliqués, et situe l'onglet Connexions à part (voir ci-dessous) ;
+- l'onglet Sécurité porte son propre avertissement : ses quatre bascules de confirmation ne pilotent aucun garde-fou. Les confirmations réellement appliquées sont codées dans les workflows concernés. En désactiver une ne retire aucune protection, en activer une n'en ajoute aucune — c'était le point le plus dangereux du module, puisqu'il pouvait faire croire à un réglage de sécurité ;
+- la mention « Priorité active : réglage compte, puis global, puis défaut » est requalifiée en priorité *prévue* : cette résolution n'est implémentée nulle part ;
+- le récapitulatif de bas de page ne dit plus « réglages actifs » mais « enregistrés, non encore appliqués » ;
+- la bascule « Génération manuelle obligatoire active » était inerte — toujours cochée, `onChange` vide, jamais enregistrée. Remplacée par une mention en lecture seule, sur le modèle de la limite de rendus simultanés qui, elle, était déjà honnête.
+
+#### Onglet Connexions : ce qui est réel et ce qui ne l'est pas
+
+Cet onglet est le seul du module à agir : ses boutons déclenchent de vrais flux OAuth, et ses boutons de test interrogent les routes de statut, qui lisent le token et interrogent l'API tierce.
+
+Le **badge de statut de chaque carte**, en revanche, ne mesure pas la connexion. `getOAuthStatus` (`lib/oauth/server.ts`) ne lit aucun token : elle vérifie la présence des variables d'environnement requises, d'où les libellés `Configure` / `A configurer`. Seul Pinterest fait exception — `SettingsConnectionsPanel` lit `getOAuthTokenStatus("pinterest")` et affiche `Actif` si un token existe réellement.
+
+La fonction contenait un `if (provider.key === "youtube") return "Connecte"` qui renvoyait une connexion **en dur, inconditionnellement** : la carte YouTube affichait un badge « Connecte » permanent, sans token et même sans variable d'environnement configurée. C'est le même motif que la sonde cassée de l'Observatoire. Supprimé le 2026-08-01 ; YouTube suit désormais la logique commune, et un commentaire sur la fonction interdit d'y réintroduire une valeur affirmative sans lecture de token. Le panneau annonce explicitement ce que le badge mesure.
+
+Suite possible, non faite : étendre à tous les providers la lecture réelle du token, sur le modèle de Pinterest, pour que le badge signifie « connecté » plutôt que « configuré ».
+
+Écart de couverture avec la [documentation stratégique v1.0, archivée](../Archive/v1.0-2026-07/L-Edifice-Documentation-Strategique-de-Reference.md) (section 17), non traité : identité et profil, notifications, sessions actives et journaux d'accès n'existent pas. Les deux capacités de souveraineté que la vision rattache explicitement à ce module — **export complet des données** et **suppression ciblée ou totale** — sont également absentes du code.
+
 ### Bibliothèque (vision, non implémentée)
 
-La [documentation stratégique](../Documentation_Stratégique/L-Edifice-Documentation-Strategique-de-Reference.md) décrit un module Bibliothèque (section 13) : gestion documentaire centralisée, indexation des documents par entité du graphe (client CRM, projet, dépense), notes liées, sans dupliquer le stockage quand une source externe fait autorité.
+La [documentation stratégique v1.0, archivée](../Archive/v1.0-2026-07/L-Edifice-Documentation-Strategique-de-Reference.md) décrit un module Bibliothèque (section 13) : gestion documentaire centralisée, indexation des documents par entité du graphe (client CRM, projet, dépense), notes liées, sans dupliquer le stockage quand une source externe fait autorité.
 
 **Rien de ce module n'existe dans le code.** Il n'apparaît ni dans `lib/cockpit/modules.ts`, ni dans `lib/cockpit/navigation.ts`, ni dans aucune route. Ce n'est pas une dette masquée : aucune surface ne prétend l'offrir. C'est un écart de couverture entre la vision et l'implémentation, à traiter le jour où il entrera dans la [Roadmap](./02_Roadmap.md) — il n'y figure à ce jour à aucun horizon.
 
@@ -137,7 +172,7 @@ Le suivi de coût est porté par `cost_events`, `lib/server/cost-tracking.ts` et
 
 ### Trajectoire
 
-Module objectifs/projets/actions. C'est le sous-module de suivi de projets que la [documentation stratégique](../Documentation_Stratégique/L-Edifice-Documentation-Strategique-de-Reference.md) rattache au module Développement (section 14), et qu'elle destine à être partagé avec Business et Personnel. Aujourd'hui, seul le croisement en lecture seule avec Personnel existe (voir [Décisions](./03_Decisions.md) DEC-005) ; il n'y a ni module Business ni projets commerciaux dans le code.
+Module objectifs/projets/actions. C'est le sous-module de suivi de projets que la [documentation stratégique v1.0, archivée](../Archive/v1.0-2026-07/L-Edifice-Documentation-Strategique-de-Reference.md) rattache au module Développement (section 14), et qu'elle destine à être partagé avec Business et Personnel. Aujourd'hui, seul le croisement en lecture seule avec Personnel existe (voir [Décisions](./03_Decisions.md) DEC-005) ; il n'y a ni module Business ni projets commerciaux dans le code.
 
 Fichiers clés :
 

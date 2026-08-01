@@ -53,7 +53,43 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
-_Aucune entrée en attente._
+### 2026-08-01 — Régénérer 3 PDF de `knowledge/Documentation-Strategique/PDF/` désynchronisés de leur source Markdown
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : aucun outil de rendu Markdown → PDF n'est disponible. Vérifié dans le dépôt — aucun script npm de génération (les 18 scripts de `package.json` ne couvrent pas la documentation), aucun fichier de `scripts/`, aucune dépendance de rendu dans `package.json`. Vérifié sur la machine — `pandoc`, `wkhtmltopdf`, `weasyprint`, `libreoffice` et `soffice` sont tous absents du `PATH`. `npx md-to-pdf` exige le téléchargement d'un paquet, c'est-à-dire une installation non demandée. Seul `pdftotext` est présent (`/mingw64/bin/pdftotext`), mais il extrait du texte, il n'en produit pas. Le `README.md` de `Documentation-Technique-Code/` confirme d'ailleurs que la génération a toujours été faite à la main : sa section « À mettre à jour » demande encore « ajouter la commande officielle de génération du PDF si elle devient un script npm ».
+
+**Bloque** : rien de fonctionnel. Mais les trois PDF affichent désormais des liens internes faux, alors que leurs `.md` sources sont corrects — c'est-à-dire exactement le type d'écart que la correction visait à supprimer. Quiconque lit la version PDF suivra un lien mort.
+
+**Les trois fichiers concernés**, et la correction que leur `.md` a reçue mais pas eux :
+
+| PDF à régénérer | Source Markdown | Lien corrigé dans le `.md` |
+| --- | --- | --- |
+| `knowledge/Documentation-Strategique/PDF/10-architecture-systeme.pdf` | `../Markdown/10-architecture-systeme.md` | `11-configuration.md` → `11-modularite-configuration.md`, et `12-modele-donnees.md` → `12-modele-de-donnees.md` |
+| `knowledge/Documentation-Strategique/PDF/11-modularite-configuration.pdf` | `../Markdown/11-modularite-configuration.md` | `13-securite.md` → `13-securite-gouvernance.md` |
+| `knowledge/Documentation-Strategique/PDF/20-catalogue-services.pdf` | `../Markdown/20-catalogue-services.md` | `22-espaces.md` → `22-espaces-et-marques.md` |
+
+Les 13 autres paires `.md`/`.pdf` du dossier sont inchangées et restent synchronisées.
+
+**Étapes** :
+
+1. Régénérer les trois PDF depuis leur `.md` source, avec l'outil et le gabarit utilisés pour produire le lot initial du 2026-08-01 (chaque PDF porte un pied de page « L'Édifice — Documentation stratégique » : reprendre le même rendu pour que le dossier reste homogène).
+2. Les écrire par-dessus les fichiers existants, aux mêmes chemins que le tableau ci-dessus.
+3. Committer les trois PDF avec les `.md` déjà corrigés.
+
+Si l'outil d'origine n'est plus disponible, l'alternative durable est d'installer un moteur de rendu et de le câbler en script npm — ce qui fermerait cette entrée définitivement plutôt qu'à chaque révision :
+
+```powershell
+winget install --id JohnMacFarlane.Pandoc -e
+```
+
+**Vérification** : ouvrir chaque PDF régénéré et contrôler que les noms de fichiers cités correspondent à ceux de la colonne de droite du tableau. Côté agent, l'extraction fonctionne sans Poppler :
+
+```bash
+pdftotext -enc UTF-8 knowledge/Documentation-Strategique/PDF/10-architecture-systeme.pdf - | grep -c "11-modularite-configuration"
+```
+
+Doit renvoyer au moins `1`, et la commande équivalente sur `11-configuration.md` doit renvoyer `0`.
 
 ## Archive (done)
 

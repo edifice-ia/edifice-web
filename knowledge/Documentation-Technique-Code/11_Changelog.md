@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-01 (module Paramètres)](#2026-08-01-module-paramètres)
 - [2026-07-28 (révocation du grant DELETE content_assets)](#2026-07-28-révocation-du-grant-delete-content_assets)
 - [2026-07-28 (RLS content_assets, policy DELETE)](#2026-07-28-rls-content_assets-policy-delete)
 - [2026-07-28 (module Trajectoire)](#2026-07-28-module-trajectoire)
@@ -34,6 +35,23 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-01 (module Paramètres)
+
+Type : produit, documentation  
+Résumé : cadrage du module Paramètres, jusque-là totalement absent de la base de connaissances — aucune occurrence de « paramètre », « réglage » ni « settings » dans les treize fichiers, alors que le module existe en code et dans la navigation. La comparaison doc/code a révélé un écart de sincérité de grande ampleur : **les 18 préférences globales et les overrides par compte sont enregistrés dans `user_preferences`, mais aucun module ne les relit**. Vérifié champ par champ : zéro consommateur hors du module lui-même, aucun import de `settings-preferences`, aucun appel à `readSettingsPreferences`, aucune requête sur `user_preferences`. L'unique correspondance trouvée pour `defaultVoiceId` est une fonction locale homonyme de `lib/server/voice-pipeline.ts` qui lit `ELEVENLABS_VOICE_ID`.  
+Fichiers liés :
+
+- `app/interface/settings/SettingsWorkspaceClient.tsx`
+- `Documentation-Technique-Code/06_Modules.md`
+
+Impact : l'écran annonce désormais ce qu'il fait réellement. Un bandeau en tête indique que les réglages sont stockés et non appliqués, en excluant l'onglet Connexions qui agit réellement. L'onglet Sécurité — le point le plus dangereux, puisque ses quatre bascules pouvaient passer pour des garde-fous configurables — précise qu'elles ne pilotent rien et que les confirmations réelles sont codées dans les workflows. La priorité compte/global/défaut est requalifiée en « prévue ». Le récapitulatif de bas de page ne dit plus « réglages actifs ». La bascule « Génération manuelle obligatoire active », inerte (toujours cochée, `onChange` vide, jamais enregistrée), devient une mention en lecture seule.
+
+Aucun réglage n'a été câblé : brancher 18 préférences dans l'atelier Shorts, la voix, la programmation et les garde-fous est une refonte, pas une correction, et elle demande des arbitrages produit. Le module n'apparaît d'ailleurs à aucun horizon de la [Roadmap](./02_Roadmap.md).
+
+Second écart, trouvé en vérifiant l'affirmation ci-dessus : le badge de statut des cartes de l'onglet Connexions ne mesure pas la connexion mais la présence des variables d'environnement, et `getOAuthStatus` contenait un `if (provider.key === "youtube") return "Connecte"` renvoyant une connexion en dur, sans lire ni token ni configuration — même motif que la sonde cassée de l'Observatoire. Supprimé ; YouTube suit la logique commune, un commentaire interdit d'y remettre une valeur affirmative, et le panneau annonce ce que le badge mesure réellement. Pinterest reste le seul provider dont le badge repose sur un token réellement lu.
+
+Action de suivi : étendre à tous les providers la lecture réelle du token, sur le modèle de Pinterest, pour que le badge signifie « connecté » plutôt que « configuré ». Et écarts de couverture avec la documentation stratégique (section 17) non traités — identité et profil, notifications, sessions actives, journaux d'accès. Et surtout les deux capacités de souveraineté que la vision rattache explicitement à ce module : export complet des données et suppression ciblée ou totale.
 
 ## 2026-07-28 (révocation du grant DELETE content_assets)
 

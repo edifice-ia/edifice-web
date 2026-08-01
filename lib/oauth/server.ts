@@ -24,12 +24,19 @@ export function getOAuthConfigState(
   };
 }
 
+// ATTENTION : cette fonction mesure la CONFIGURATION (les variables
+// d'environnement requises sont-elles presentes), pas la CONNEXION. Elle ne lit
+// aucun token et ne peut donc pas savoir si un provider est reellement
+// connecte. Les libelles renvoyes disent bien "Configure" / "A configurer".
+//
+// Elle contenait un `if (provider.key === "youtube") return "Connecte"` qui
+// renvoyait "Connecte" en dur, sans lire quoi que ce soit : la carte YouTube
+// affichait un badge de connexion permanent, meme sans token et meme sans
+// variable d'environnement. Ne jamais reintroduire de valeur affirmative ici :
+// une reponse sur la connexion reelle demande getOAuthTokenStatus, comme le
+// fait SettingsConnectionsPanel pour Pinterest.
 export function getOAuthStatus(provider: OAuthProviderConfig) {
   const state = getOAuthConfigState(provider);
-
-  if (provider.key === "youtube") {
-    return "Connecte";
-  }
 
   if (provider.placeholder) {
     return state.configured ? "Placeholder" : "A securiser";

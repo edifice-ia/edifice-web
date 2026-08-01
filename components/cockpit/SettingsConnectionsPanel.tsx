@@ -56,6 +56,14 @@ export async function SettingsConnectionsPanel({
         scopes_missing={result.scopes_missing}
       />
 
+      <p className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3 text-sm leading-6 text-[#A7B0C0]">
+        Le badge de chaque carte indique l&apos;etat de <span className="font-semibold text-[#F8FAFC]">configuration</span> — les
+        variables d&apos;environnement requises sont-elles presentes — et non l&apos;etat de connexion : aucun token
+        n&apos;est lu pour le produire. Seul Pinterest affiche <span className="font-semibold text-[#F8FAFC]">Actif</span> sur
+        la base d&apos;un token reellement present. Pour connaitre l&apos;etat reel d&apos;un provider, utiliser son bouton
+        de test, qui interroge la route de statut correspondante.
+      </p>
+
       <div className="grid gap-4 xl:grid-cols-2">
         {visibleProviders.map((provider) => {
           const isMeta = provider.key === "meta";

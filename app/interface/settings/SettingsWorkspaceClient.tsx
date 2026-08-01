@@ -221,8 +221,11 @@ export function SettingsWorkspaceClient({
           comportement pour l&apos;instant.
         </p>
         <p className="mt-1">
-          Seul l&apos;onglet <span className="font-semibold">Connexions</span> fait exception : il lit
-          et agit sur l&apos;etat OAuth reel.
+          L&apos;onglet <span className="font-semibold">Connexions</span> est a part : ses boutons declenchent
+          de vrais flux OAuth et ses boutons de test interrogent les routes de statut reelles. Le badge
+          affiche sur chaque carte, en revanche, indique l&apos;etat de configuration des variables
+          d&apos;environnement, pas l&apos;etat de connexion — sauf Pinterest, seul provider dont le badge
+          repose sur un token reellement present.
         </p>
       </div>
 

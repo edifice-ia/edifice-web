@@ -53,7 +53,107 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
-_Aucune entrée en attente._
+### 2026-08-01 — Ajouter la colonne `effort_level` à `trajectoire_actions` en production
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : appliquer une migration passe par le SQL Editor du dashboard Supabase. L'agent n'a pas d'accès SQL direct au projet — les variables serveur ne sont pas exposées dans son environnement. La CLI `supabase` est bien liée au projet et `supabase migration list` fonctionne, mais la seule commande qui appliquerait la migration est `supabase db push`, et **elle ne doit surtout pas être lancée ici** : elle pousserait les **quatre** migrations en retard d'un coup, dont les trois du lot Garmin/Vitals volontairement en pause (voir le tableau ci-dessous). C'est précisément ce que cette entrée existe pour éviter.
+
+**Bloque** : tout le module Trajectoire en production, en lecture comme en écriture.
+
+**État confirmé le 2026-08-01** par `supabase migration list` (compare le local au registre distant, sans rien appliquer). Quatre migrations locales n'ont pas d'équivalent distant, et ce sont les seules :
+
+| Migration | Objet | Remote | Lot |
+| --- | --- | --- | --- |
+| `20260708100000_create_personal_garmin_daily_stats.sql` | table `personal_garmin_daily_stats` | **absente** | Garmin/Vitals — en pause |
+| `20260708110000_create_personal_daily_briefs.sql` | table `personal_daily_briefs` | **absente** | Garmin/Vitals — en pause |
+| `20260708120000_add_garmin_oauth_provider.sql` | `garmin` dans le check `provider` de `oauth_tokens` | **absente** | Garmin/Vitals — en pause |
+| `20260711100000_add_effort_level_to_trajectoire_actions.sql` | colonne `effort_level` | **absente** | **isolée — objet de cette entrée** |
+
+Toutes les autres migrations du dossier sont appliquées, y compris celles postérieures au 2026-07-11 (`20260721090000` et suivantes) : le retard est un trou au milieu de la séquence, pas une queue non appliquée.
+
+**Pourquoi la quatrième est isolable** — vérifié point par point :
+
+- elle ne touche que `public.trajectoire_actions`, créée par `20260613170000_create_trajectoire_tables.sql`, qui **est** appliquée en remote ;
+- son contenu ne comporte aucune clé étrangère, aucun trigger, aucune fonction, aucune référence à une autre table ;
+- les trois migrations Garmin ne mentionnent ni `trajectoire` ni `effort_level` (zéro occurrence dans les trois fichiers) ;
+- `20260711100000` est le seul fichier du dossier à ajouter `effort_level`.
+
+Elle peut donc être appliquée seule, sans rien réactiver du lot en pause.
+
+**Ce que ça casse aujourd'hui, précisément** — la page ne plante pas, elle se vide. `readTrajectoire` (`lib/server/trajectoire.ts:566`) sélectionne `effort_level` dans la requête sur `trajectoire_actions` et relance l'erreur telle quelle (`throw new Error(actionsError.message)`, ligne 572). Comme cette requête est dans la même fonction que la lecture des projets et des objectifs, son échec **emporte tout le reste** : des projets et objectifs parfaitement lisibles ne sont jamais renvoyés.
+
+En aval, l'erreur est bien attrapée partout, mais ne peut qu'être affichée :
+
+- `/api/trajectoire` répond **500** avec le message Postgres brut ;
+- `app/interface/trajectoire/TrajectoireClient.tsx:754` l'affiche dans un bandeau et laisse la liste vide ;
+- `app/interface/overview/page.tsx:47` l'attrape aussi et le passe en `readError` ; l'aperçu Trajectoire de l'accueil est vide.
+
+Le message vu par l'utilisateur est donc le texte Postgres, du type `column trajectoire_actions.effort_level does not exist` (SQLSTATE `42703`).
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. Coller et exécuter le contenu intégral de `supabase/migrations/20260711100000_add_effort_level_to_trajectoire_actions.sql`, reproduit ici tel quel. Il est idempotent (`if not exists` / `if exists`) : le relancer ne casse rien.
+
+   ```sql
+   alter table public.trajectoire_actions
+   add column if not exists effort_level text not null default 'medium';
+
+   alter table public.trajectoire_actions
+   drop constraint if exists trajectoire_actions_effort_level_check;
+
+   alter table public.trajectoire_actions
+   add constraint trajectoire_actions_effort_level_check
+   check (effort_level in ('low', 'medium', 'high'));
+   ```
+
+   Le `default 'medium'` est ce que le code attend déjà : `mapAction` (`lib/server/trajectoire.ts:370`) retombe sur `"medium"` quand la valeur est nulle ou inconnue. Les lignes existantes prennent donc la valeur que l'application leur donnait déjà implicitement.
+
+3. Vérifier que la colonne et la contrainte existent :
+
+   ```sql
+   select column_name, data_type, is_nullable, column_default
+   from information_schema.columns
+   where table_schema = 'public'
+     and table_name = 'trajectoire_actions'
+     and column_name = 'effort_level';
+
+   select conname, pg_get_constraintdef(oid)
+   from pg_constraint
+   where conrelid = 'public.trajectoire_actions'::regclass
+     and conname = 'trajectoire_actions_effort_level_check';
+   ```
+
+4. Vérifier que la lecture qui échouait passe :
+
+   ```sql
+   select id, status, effort_level
+   from public.trajectoire_actions
+   limit 5;
+   ```
+
+5. Réconcilier le registre de migrations, pour que `supabase migration list` cesse de signaler ce décalage — **uniquement ce timestamp**, jamais les trois autres :
+
+   ```bash
+   supabase migration repair --status applied 20260711100000
+   ```
+
+6. Contrôler que les trois migrations Garmin sont **toujours** signalées comme non appliquées :
+
+   ```bash
+   supabase migration list
+   ```
+
+   Attendu : `20260708100000`, `20260708110000` et `20260708120000` sans équivalent remote ; `20260711100000` désormais avec.
+
+**Vérification** : ouvrir `/interface/trajectoire`. Attendu — le bandeau d'erreur disparaît et les projets s'affichent. Côté agent, `curl` authentifié sur `/api/trajectoire` doit renvoyer 200 au lieu de 500.
+
+**Option écartée, à rouvrir seulement si l'exécution SQL doit attendre longtemps** : ajouter un repli côté lecture dans `readTrajectoire`, sur le modèle de `isMissingTableError` dans `lib/server/personal/daily-briefs-store.ts` — retenter la requête sans `effort_level` sur SQLSTATE `42703`, et laisser `mapAction` appliquer son défaut `"medium"`. Ce serait trivial et sans risque (lecture seule, aucune RLS, aucune auth touchée), et rendrait les projets et objectifs de nouveau visibles sans attendre.
+
+Non fait délibérément, et non commité : ce repli deviendrait **définitivement du code mort** dès l'étape 2 exécutée, puisqu'il protège contre un état transitoire qui ne doit pas se reproduire. Ajouter une branche permanente pour contourner une migration en retard revient à documenter le retard dans le code plutôt que de le corriger. Si l'exécution SQL est repoussée de plusieurs jours, l'arbitrage se justifie et le correctif tient en quelques lignes — c'est un choix à faire, pas une évidence.
+
+_Aucune autre entrée en attente._
 
 ## Archive (done)
 

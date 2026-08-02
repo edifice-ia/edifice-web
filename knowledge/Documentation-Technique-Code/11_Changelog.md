@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-01 (réévaluation du garde TikTok status)](#2026-08-01-réévaluation-du-garde-tiktok-status)
 - [2026-08-01 (alignement des libellés sur la doc stratégique)](#2026-08-01-alignement-des-libellés-sur-la-doc-stratégique)
 - [2026-08-01 (module Paramètres)](#2026-08-01-module-paramètres)
 - [2026-07-28 (révocation du grant DELETE content_assets)](#2026-07-28-révocation-du-grant-delete-content_assets)
@@ -36,6 +37,25 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-01 (réévaluation du garde TikTok status)
+
+Type : sécurité, documentation  
+Résumé : réévaluation de l'exception de `/api/oauth/tiktok/status`, seul cas particulier laissé ouvert par `DEC-007`. **Aucun changement de comportement** — la mesure a montré que le durcissement aurait cassé la review qu'il devait sécuriser, et que le défaut réel était ailleurs.
+
+Ce que la route expose réellement : `{ present, storageEnabled, storageMode, expiresAt, updatedAt }`. Ni token, ni identifiant de compte, ni scope. Et surtout, **aucun accès anonyme** : sans session la route répond `403`, le middleware redirigeant déjà vers `/login`. Le compromis ne portait que sur le filtre de rôle. Comme `canAccessPrivateCockpit(user)` vaut `getUserRole(user) !== "reviewer"`, l'écart avec le garde strict est exactement un rôle — celui de `reviewer@edificeia.com`, compte créé et contrôlé par le projet, qui dispose déjà du flux OAuth complet et de l'upload sandbox.
+
+Deux durcissements écartés, avec leur raison : ajouter `canAccessPrivateCockpit` ferait répondre `403` au reviewer sur `/tiktok-sandbox-test`, page qui rend `<TikTokConnectionControls />` et dont la vérification du token stocké est la fonction annoncée ; réduire la charge utile à `present` seul viderait les trois autres champs que cette même page affiche, pendant son examen.
+
+Fichiers liés :
+
+- `app/api/oauth/tiktok/status/route.ts` (commentaire uniquement)
+- `knowledge/Documentation-Technique-Code/03_Decisions.md` (`DEC-007`)
+- `MANUAL_ACTIONS.md`
+
+Impact : le commentaire du fichier et `DEC-007` énoncent désormais la portée mesurée de l'écart, au lieu d'un « cas particulier assumé » qui pouvait se relire comme une route non gardée. Le défaut trouvé n'est pas le garde mais l'**absence de condition de sortie** : rien dans le dépôt n'indiquait où en était la review — aucun ticket, aucune date, aucun statut, ni en code, ni dans `knowledge/`, ni dans l'historique git. Une entrée `pending` de `MANUAL_ACTIONS.md` porte désormais la vérification et les étapes exactes du durcissement, l'état de la review n'étant lisible que dans le portail développeur TikTok.
+
+Action de suivi, non traitée : `getOAuthTokenStatus` est appelée sans `userId` par les trois routes de statut (`tiktok`, `youtube`, `calendar`), donc renvoie la ligne `oauth_tokens` du propriétaire quel que soit l'appelant authentifié. Conséquence assumée d'un cockpit mono-utilisateur, à revoir quand plusieurs comptes réels coexisteront.
 
 ## 2026-08-01 (alignement des libellés sur la doc stratégique)
 

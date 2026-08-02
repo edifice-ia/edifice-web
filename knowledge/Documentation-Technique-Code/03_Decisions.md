@@ -136,6 +136,18 @@ Décision : toute route sous `app/api` porte un garde explicite dans son handler
 
 `/api/oauth/tiktok/status` est un cas particulier assumé : garde sur la session seule, sans `canAccessPrivateCockpit`, parce que le compte reviewer TikTok doit pouvoir la lire pendant la review et que `canAccessPrivateCockpit` est faux pour le rôle reviewer. La raison est écrite dans le fichier pour qu'un durcissement ultérieur ne casse pas la review.
 
+**Réévaluation du 2026-08-01 — exception maintenue, portée mesurée.** Le libellé « cas particulier » ci-dessus pouvait se relire comme « route non gardée ». Ce n'en est pas une :
+
+- **aucun accès anonyme n'existe** : sans session, la route répond `403`, et le middleware redirige déjà vers `/login`. Le compromis porte uniquement sur le filtre de rôle ;
+- `canAccessPrivateCockpit(user)` vaut `getUserRole(user) !== "reviewer"` : l'écart entre ce garde et le garde strict est **exactement un rôle**, celui de `reviewer@edificeia.com`, compte créé et contrôlé par le projet ;
+- la réponse ne contient ni token, ni identifiant de compte, ni scope — `{ present, storageEnabled, storageMode, expiresAt, updatedAt }`. C'est strictement moins que ce que le flux OAuth et l'upload sandbox accordent déjà au même compte.
+
+Deux durcissements ont été examinés puis écartés, non par principe mais parce qu'ils cassaient la review qu'ils étaient censés sécuriser. Ajouter `canAccessPrivateCockpit` ferait répondre `403` au reviewer sur la page `/tiktok-sandbox-test`, qui rend `<TikTokConnectionControls />` et dont c'est la fonction annoncée. Réduire la charge utile à `present` seul viderait les trois autres champs que cette même page affiche, pendant qu'elle est examinée.
+
+Ce que la réévaluation a réellement trouvé de défectueux n'est pas le garde, mais l'**absence de condition de sortie** : rien dans le dépôt n'indique où en est la review — aucun ticket, aucune date de soumission, aucun statut, ni dans le code, ni dans `knowledge/`, ni dans l'historique git. Une exception de sécurité sans date d'expiration survit à sa raison d'être. Une entrée `pending` de [`MANUAL_ACTIONS.md`](../../MANUAL_ACTIONS.md) porte désormais la vérification, l'état de la review n'étant lisible que dans le portail développeur TikTok.
+
+Point connexe relevé au passage, **non corrigé** : `getOAuthTokenStatus("tiktok")` est appelée sans `userId`, donc renvoie la première ligne `oauth_tokens` du provider, celle du propriétaire, quel que soit l'appelant. Ce n'est pas propre à TikTok — `youtube/status` et `calendar/status` font de même. C'est la conséquence assumée d'un cockpit mono-utilisateur, à revoir le jour où plusieurs comptes réels coexisteront, pas dans le cadre de cette route.
+
 Conséquences :
 
 - ajouter une route API sans garde est un défaut, même si la route « ne fait que lire un statut » ;

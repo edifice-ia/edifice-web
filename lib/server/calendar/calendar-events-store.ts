@@ -152,7 +152,7 @@ function parisMidnightUtc(dateString: string) {
 }
 
 // Lecture seule partagee entre le Cockpit ("Calendrier du jour") et
-// l'Espace interieur (onglet Calendrier) : evenements non annules dont le
+// Personnel (onglet Calendrier) : evenements non annules dont le
 // debut tombe dans une plage de jours calendaires Europe/Paris, triee par
 // starts_at croissant. startDayOffset=0 + days=1 = aujourd'hui ;
 // startDayOffset=1 + days=7 = les 7 prochains jours. "connected" reflete

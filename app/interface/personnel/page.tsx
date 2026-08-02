@@ -5,7 +5,7 @@ import type { CockpitCalendarTodayState } from "@/types/cockpit";
 import { PersonalDashboardClient } from "./PersonalDashboardClient";
 
 export const metadata: Metadata = {
-  title: "Espace intérieur - L'Édifice",
+  title: "Personnel - L'Édifice",
 };
 
 const calendarReadFallback: CockpitCalendarTodayState = {
@@ -29,7 +29,7 @@ export default async function PersonnelPage() {
     <div>
       <CockpitHeader
         eyebrow="Personnel"
-        title="Espace intérieur"
+        title="Personnel"
         description="OS personnel pour suivre énergie, objectifs, routines, notes et décisions du quotidien."
         status="Experimental"
       />

@@ -305,7 +305,7 @@ export function OverviewDashboardClient({ data }: { data: DashboardData }) {
     <div>
       <CockpitHeader
         eyebrow="Accueil cockpit"
-        title="Accueil Cockpit"
+        title="Accueil"
         description="Centre de pilotage quotidien de L'Edifice, organise en blocs rapides."
         status="Operationnel"
       />
@@ -664,7 +664,7 @@ function PersonalBlock({ data }: { data: DashboardData }) {
         </h3>
         <p className="mt-3 leading-7 text-[#A7B0C0]">
           Ce bloc servira de passerelle vers sport, écriture, alternance,
-          routine et santé, avec un futur lien vers l&apos;Espace intérieur et la
+          routine et santé, avec un futur lien vers Personnel et la
           Trajectoire personnelle.
         </p>
       </div>
@@ -679,7 +679,7 @@ function PersonalBlock({ data }: { data: DashboardData }) {
         ))}
       </div>
       <div className="flex flex-wrap gap-2">
-        <LinkButton href="/interface/personnel">Ouvrir Espace intérieur</LinkButton>
+        <LinkButton href="/interface/personnel">Ouvrir Personnel</LinkButton>
         <LinkButton href="/interface/trajectoire">Ouvrir Trajectoire personnelle</LinkButton>
       </div>
     </div>

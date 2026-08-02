@@ -296,7 +296,7 @@ export function PersonalSection({
     <SectionContainer>
       <div className="mb-5 min-w-0">
         <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#39E6D0]">
-          Espace intérieur
+          Personnel
         </p>
         <h2 className="mt-2 text-2xl font-semibold text-[#F8FAFC]">{title}</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#A7B0C0]">

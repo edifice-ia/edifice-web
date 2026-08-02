@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { OAUTH_CONNECTIONS_RETURN_PATH } from "@/lib/server/oauth/oauth-redirects";
 import { saveOAuthToken } from "@/lib/server/oauth/token-store";
 import {
   verifyYouTubeOAuthState,
@@ -9,7 +10,10 @@ import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const YOUTUBE_RETURN_PATH = "/interface/reglages/connexions";
+// Chemin de retour partage avec les autres providers (surchargeable par
+// OAUTH_CONNECTIONS_RETURN_PATH). Etait code en dur sur /interface/reglages/
+// connexions, un alias partiel supprime le 2026-08-01.
+const YOUTUBE_RETURN_PATH = OAUTH_CONNECTIONS_RETURN_PATH;
 
 type GoogleTokenResponse = {
   access_token?: string;

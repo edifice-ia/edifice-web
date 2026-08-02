@@ -57,7 +57,7 @@ export const cockpitModules: CockpitModule[] = [
   },
   {
     id: "personnel-light",
-    title: "Espace interieur",
+    title: "Personnel",
     description: "Vision du jour, routines, notes, energie et objectifs.",
     href: "/interface/personnel",
     status: "Experimental",

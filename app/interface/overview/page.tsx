@@ -8,9 +8,9 @@ import { readTrajectoire } from "@/lib/server/trajectoire";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Accueil Cockpit - L'Edifice",
+  title: "Accueil - L'Edifice",
   description:
-    "Accueil Cockpit du portail prive de L'Edifice.",
+    "Accueil du portail prive de L'Edifice.",
 };
 
 function daysUntil(value: string | null) {

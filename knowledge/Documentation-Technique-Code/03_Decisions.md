@@ -1,7 +1,7 @@
 # Décisions
 
 Statut : registre initial  
-Dernière mise à jour : 2026-07-28
+Dernière mise à jour : 2026-08-01
 
 ## Sommaire
 
@@ -147,6 +147,62 @@ Fichiers liés :
 - `src/lib/auth/guards.ts`, `src/lib/auth/roles.ts`
 - `src/lib/supabase/proxy.ts`
 - `/knowledge/10_Conventions.md`
+
+### DEC-008 - Le renommage de route `/interface/settings` vers `/interface/reglages` est reporté
+
+Date : 2026-08-01  
+Statut : actif (décision de report)
+
+Contexte : la documentation stratégique du 2026-08-01 nomme la surface « Réglages » — voir [10-architecture-systeme.md](../Documentation-Strategique/Markdown/10-architecture-systeme.md), qui la classe hors taxonomie pôle/espace avec Ressources. Le libellé affiché et le titre de page disent déjà « Reglages », mais la route est restée `/interface/settings`. Un alias français partiel existait : `app/interface/reglages/connexions/page.tsx` ré-exportait `settings/connections`, si bien que `/interface/reglages/connexions` répondait alors que `/interface/reglages` seul renvoyait 404.
+
+Cet alias n'était pas décoratif : les callbacks OAuth YouTube et Meta y renvoyaient en dur après autorisation, alors que tous les autres providers et tous les liens d'interface utilisaient `/interface/settings/connections`, via `OAUTH_CONNECTIONS_RETURN_PATH` (`lib/server/oauth/oauth-redirects.ts`). Deux chemins de retour coexistaient donc pour la même page.
+
+Décision : ne pas renommer la route maintenant. Supprimer l'alias partiel, et faire converger les deux callbacks sur la constante partagée. Le renommage complet `/interface/settings` → `/interface/reglages` reste à faire, comme chantier distinct.
+
+Raison du report : un renommage de route touche les liens internes, les chemins de retour OAuth (donc la configuration des consoles tierces si le chemin y est déclaré), et les URL déjà connues de l'utilisateur. Le faire à l'occasion d'un alignement de libellés mélangerait un changement cosmétique et un changement d'URL en production.
+
+Conséquences :
+
+- `/interface/reglages/connexions` ne répond plus ; la route de référence est `/interface/settings/connections` ;
+- les callbacks YouTube et Meta lisent désormais `OAUTH_CONNECTIONS_RETURN_PATH`, donc `OAUTH_CONNECTIONS_RETURN_PATH` suffit à déplacer le point de retour de tous les providers d'un coup, ce qui est précisément ce que le renommage futur utilisera ;
+- tant que le renommage n'est pas fait, la route et le libellé divergent — divergence connue, pas un oubli.
+
+Fichiers liés :
+
+- `app/interface/settings/page.tsx`, `app/interface/settings/connections/page.tsx`
+- `app/api/oauth/youtube/callback/route.ts`, `app/api/oauth/meta/callback/route.ts`
+- `lib/server/oauth/oauth-redirects.ts`
+- `lib/cockpit/navigation.ts`
+
+### DEC-009 - Trois absences structurelles assumées jusqu'à l'achèvement du pôle Personnel
+
+Date : 2026-08-01  
+Statut : actif (dette documentée)
+
+Contexte : la refonte stratégique du 2026-08-01 décrit une cible que le code n'atteint pas sur trois points structurants. Les inscrire ici évite qu'ils soient redécouverts comme des bugs, ou comblés dans le désordre. [02-strategie-produit.md](../Documentation-Strategique/Markdown/02-strategie-produit.md) fixe l'ordre : le logiciel idéal pour un usage réel d'abord, la généralisation ensuite.
+
+Décision : documenter ces trois absences comme dette connue et **ne pas les combler tant que le pôle Personnel n'est pas terminé**. Ce ne sont pas des oublis.
+
+**1. Le pôle Finances n'existe pas.** Aucune occurrence de « Finances » dans `app/`, `components/`, `lib/`, `types/`. Ni route, ni composant, ni table. Prévu par [21-poles.md](../Documentation-Strategique/Markdown/21-poles.md), qui précise aussi que le nom est « Finances », jamais « Business » — ce dernier terme est abandonné et ne renaît pas sous forme de pôle. Le code ne contient d'ailleurs aucun module Business : les occurrences de « business » y relèvent toutes du vocabulaire Meta (`business_management`, `business.facebook.com`).
+
+**2. La notion de marque n'existe pas.** L'espace Contenu de [22-espaces-et-marques.md](../Documentation-Strategique/Markdown/22-espaces-et-marques.md) est un conteneur de N marques, chacune avec présence et contenu, acquisition, conversion et relation, infrastructure de marque. Le code a un atelier de contenu unique, organisé par outil (Shorts, Pinterest) et non par marque. Ce même document qualifie explicitement la cible de vision, pas de chantier court terme.
+
+**3. La couche de configuration unique n'existe pas.** Troisième règle d'or de [01-principes.md](../Documentation-Strategique/Markdown/01-principes.md). Le code utilise deux registres statiques codés en dur, `cockpitNavigation` (`lib/cockpit/navigation.ts`) et `cockpitModules` (`lib/cockpit/modules.ts`), dont les identifiants divergent pour une même surface — `assistant` / `assistant-edifice`, `post-creation` / `content-workshop`, `monitoring` / `monitoring-static`, `personnel` / `personnel-light`, `links` / `links-useful` ; seul `trajectory` coïncide. Aucun mécanisme d'activation piloté par une préférence utilisateur, et aucune table `ACTIVATION_MODULE` en base, alors que [12-modele-de-donnees.md](../Documentation-Strategique/Markdown/12-modele-de-donnees.md) la place dans le graphe.
+
+Portée attendue de cette couche, à ne pas sous-dimensionner le jour où elle sera construite : elle ne couvre pas seulement les modules de domaine de vie (sommeil, sport, tâches…), mais aussi **les pôles eux-mêmes, les espaces (Contenu, Trajectoire), et chaque instance individuellement** — une marque précise, un projet précis — pas seulement leur catégorie. C'est la conséquence directe de « aucune fonctionnalité, aucun module, aucun service commun n'est indispensable » ([01-principes.md](../Documentation-Strategique/Markdown/01-principes.md)).
+
+Le geste qui doit s'appliquer à toutes ces granularités est **Désactiver**, tel que défini par [11-modularite-configuration.md](../Documentation-Strategique/Markdown/11-modularite-configuration.md), qui garantit par construction que désactiver ne supprime jamais l'historique — et non « Supprimer l'historique d'un module », qui est un geste distinct.
+
+Conséquences :
+
+- ces trois points ne sont pas des défauts à corriger dans l'immédiat ; les rouvrir demande de constater d'abord que Personnel est terminé ;
+- toute implémentation partielle de la couche de configuration qui ne viserait que les modules serait un sous-dimensionnement, à refaire ensuite ;
+- les surfaces que la cible rend invisibles restent visibles en attendant — voir la divergence assumée notée dans [06_Modules.md](./06_Modules.md).
+
+Fichiers liés :
+
+- `lib/cockpit/navigation.ts`, `lib/cockpit/modules.ts`
+- `supabase/migrations` (aucune migration `activation_module`)
 
 ## Décisions à confirmer
 

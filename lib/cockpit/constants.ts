@@ -18,7 +18,7 @@ export const migrationNotes = {
     "ElevenLabs cote UI",
     "Observatoire statique",
     "Ressources",
-    "Espace interieur simple",
+    "Personnel simple",
   ],
   localOnly: [
     "Agents Streamlit critiques",

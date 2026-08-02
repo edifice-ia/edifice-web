@@ -4,7 +4,7 @@ export const cockpitNavigation: CockpitNavItem[] = [
   {
     id: "cockpit-home",
     href: "/interface/overview",
-    label: "Accueil Cockpit",
+    label: "Accueil",
     description: "Lecture quotidienne rapide",
     status: "Operationnel",
     showStatus: true,
@@ -74,7 +74,7 @@ export const cockpitNavigation: CockpitNavItem[] = [
   {
     id: "personnel",
     href: "/interface/personnel",
-    label: "Espace interieur",
+    label: "Personnel",
     description: "Routines et energie",
     status: "Experimental",
   },

@@ -2,12 +2,16 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { hasRequiredMetaPermissions, verifyMetaState } from "@/lib/oauth/meta";
+import { OAUTH_CONNECTIONS_RETURN_PATH } from "@/lib/server/oauth/oauth-redirects";
 import { saveOAuthToken } from "@/lib/server/oauth/token-store";
 import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 const META_TOKEN_URL = "https://graph.facebook.com/v23.0/oauth/access_token";
-const META_RETURN_PATH = "/interface/reglages/connexions";
+// Chemin de retour partage avec les autres providers (surchargeable par
+// OAUTH_CONNECTIONS_RETURN_PATH). Etait code en dur sur /interface/reglages/
+// connexions, un alias partiel supprime le 2026-08-01.
+const META_RETURN_PATH = OAUTH_CONNECTIONS_RETURN_PATH;
 
 type MetaTokenResponse = {
   access_token?: string;

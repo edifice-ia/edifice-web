@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-01 (alignement des libellés sur la doc stratégique)](#2026-08-01-alignement-des-libellés-sur-la-doc-stratégique)
 - [2026-08-01 (module Paramètres)](#2026-08-01-module-paramètres)
 - [2026-07-28 (révocation du grant DELETE content_assets)](#2026-07-28-révocation-du-grant-delete-content_assets)
 - [2026-07-28 (RLS content_assets, policy DELETE)](#2026-07-28-rls-content_assets-policy-delete)
@@ -35,6 +36,29 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-01 (alignement des libellés sur la doc stratégique)
+
+Type : produit, documentation  
+Résumé : premier alignement du code sur la refonte stratégique du 2026-08-01, limité aux libellés et aux vestiges. Deux renommages d'affichage — « Accueil Cockpit » devient « Accueil », « Espace intérieur » devient « Personnel », conformément à la règle des noms nus de [`10-architecture-systeme.md`](../Documentation-Strategique/Markdown/10-architecture-systeme.md). Les deux libellés ont été corrigés partout où ils apparaissaient, pas seulement dans `navigation.ts` : titres de page, métadonnées, en-têtes de section, texte de bouton et commentaires de code.
+
+Suppression de l'alias partiel `/interface/reglages/connexions`. Il n'était pas décoratif : les callbacks OAuth YouTube et Meta y renvoyaient en dur après autorisation, alors que tous les autres providers et tous les liens d'interface passaient par `/interface/settings/connections`. Le supprimer sans plus aurait cassé le retour d'autorisation de ces deux providers. Les deux callbacks lisent désormais `OAUTH_CONNECTIONS_RETURN_PATH` (`lib/server/oauth/oauth-redirects.ts`), ce qui supprime du même coup la divergence de chemin de retour entre providers.
+
+Fichiers liés :
+
+- `lib/cockpit/navigation.ts`, `lib/cockpit/modules.ts`, `lib/cockpit/constants.ts`
+- `app/interface/overview/page.tsx`, `app/interface/overview/OverviewDashboardClient.tsx`
+- `app/interface/personnel/page.tsx`, `app/interface/personnel/PersonalDashboardClient.tsx`
+- `app/api/oauth/youtube/callback/route.ts`, `app/api/oauth/meta/callback/route.ts`
+- `app/interface/reglages/connexions/page.tsx` (supprimé)
+
+Impact : l'interface ne porte plus les deux noms que la refonte abandonne, et il n'existe plus deux chemins de retour OAuth pour la même page. Aucune fonctionnalité ajoutée ni retirée.
+
+Trois décisions consignées dans [`03_Decisions.md`](./03_Decisions.md) : **DEC-008** reporte le renommage de route `/interface/settings` → `/interface/reglages`, qui touche des URL de production et les chemins de retour OAuth, et n'avait pas sa place dans un alignement de libellés. **DEC-009** inscrit trois absences structurelles comme dette assumée jusqu'à l'achèvement du pôle Personnel : le pôle Finances (aucune occurrence dans le code), la notion de marque (l'atelier de contenu est organisé par outil, pas par marque), et la couche de configuration unique (deux registres statiques aux identifiants divergents, aucune table `ACTIVATION_MODULE`). L'entrée précise la portée que cette couche devra couvrir — modules, pôles, espaces **et instances individuelles** — pour qu'une implémentation future ne la sous-dimensionne pas.
+
+Deux points de documentation clos au passage. La **mémoire projet** (`/interface/resources/memory`) est décrite comme sous-surface de Ressources, lue par l'Assistant en portée large. Et **Bibliothèque (v1.0)** cesse d'être un point ouvert : son repreneur est Ressources, confirmé par Vincent, avec la précision que l'ambition documentaire de la v1.0 — indexation par entité du graphe, notes liées — n'a pas été reprise. La note correspondante de [`../Archive/v1.0-2026-07/README.md`](../Archive/v1.0-2026-07/README.md) est corrigée en conséquence ; seul Paramètres y reste un point ouvert, sur ses deux capacités de souveraineté.
+
+Non fait délibérément : les surfaces que la cible range en services communs (Publications, les deux Publishers, Pilotage IA, Réglages › Connexions) restent des destinations visibles, faute de marque pour les consommer — divergence désormais écrite en tête des modules de publication dans [`06_Modules.md`](./06_Modules.md). Le nettoyage du vestige « Cockpit » dans les noms de fichiers, composants et dossiers reste un refactor à part.
 
 ## 2026-08-01 (module Paramètres)
 

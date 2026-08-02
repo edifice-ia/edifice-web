@@ -330,7 +330,7 @@ export async function readCockpitState(): Promise<CockpitReadOnlyState> {
   const [contentDrafts, calendarToday, oauthStatuses, projectMemoryEntries] = await Promise.all([
     readContentDraftState(),
     // Le Cockpit ne stocke aucune donnee propre : vue calculee en lecture
-    // partagee avec l'Espace interieur (calendar-events-store).
+    // partagee avec Personnel (calendar-events-store).
     readCalendarEventsForParisRange().catch(() => ({
       connected: false,
       events: [],

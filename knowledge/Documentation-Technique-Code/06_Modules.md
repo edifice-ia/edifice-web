@@ -8,7 +8,7 @@ Dernière mise à jour : 2026-07-28
 - [Rôle du document](#rôle-du-document)
 - [Modules cockpit](#modules-cockpit)
 - [Paramètres (Réglages)](#paramètres-réglages)
-- [Bibliothèque (vision, non implémentée)](#bibliothèque-vision-non-implémentée)
+- [Bibliothèque (v1.0) — reprise par Ressources](#bibliothèque-v10--reprise-par-ressources)
 - [Modules de création](#modules-de-création)
 - [Modules de publication](#modules-de-publication)
 - [Modules d'observation](#modules-dobservation)
@@ -55,6 +55,16 @@ Le module est **entièrement déclaratif** : `projectResources` est une liste é
 
 Deux limites connues, non corrigées faute d'arbitrage produit : six paires d'entrées pointent vers la même URL sous deux noms (`GitHub`/`GitHub repository`, `Supabase Dashboard`/`Supabase project`, `Vercel Dashboard`/`Vercel project`, `OVHcloud domaine`/`DNS`, `OVHcloud mails`/`Email professionnel`, `Documentation interne Edifice`/`Notion`), ce qui gonfle le compteur « N ressources » affiché par catégorie ; et `projectStatus` vieillit sans que rien ne le signale, exactement comme les items déclaratifs de l'Observatoire.
 
+#### Sous-surface : la mémoire projet
+
+`/interface/resources/memory` (`app/interface/resources/memory/page.tsx`) est la **mémoire projet**, rattachée à Ressources et non à l'Assistant, bien que ce soit l'Assistant qui la consomme. C'est une sous-surface à part entière, atteignable par un raccourci depuis la page Ressources, sans entrée propre dans `cockpitNavigation`.
+
+Son rôle : conserver l'état durable du projet — ce qui a été décidé, ce qui est en cours, ce qui bloque — pour que l'Assistant n'ait pas à le reconstruire à chaque conversation. Elle est stockée dans `project_memory` (`supabase/migrations/20260529143000_create_project_memory.sql`, étendue par `20260613180000` et `20260613190000`) et lue côté serveur par `lib/server/project-memory.ts`.
+
+Elle est **lue par l'Assistant en portée large**, la portée du service commun IA décrite dans [20-catalogue-services.md](../Documentation-Strategique/Markdown/20-catalogue-services.md) : l'Assistant voit tout en focus, sans cloisonnement dur, et la mémoire projet fait partie de ce qu'il voit. C'est ce qui justifie qu'elle soit une ressource consultable par l'humain plutôt qu'un état interne de l'Assistant : les deux lisent la même chose, et ce que l'humain corrige à l'écran, l'Assistant le lit ensuite.
+
+Rattachement dans la nouvelle taxonomie : Ressources est une **surface hors taxonomie pôle/espace**, au même titre que Réglages — voir [10-architecture-systeme.md](../Documentation-Strategique/Markdown/10-architecture-systeme.md). La mémoire projet suit ce rattachement.
+
 ### Paramètres (Réglages)
 
 Écran de configuration du cockpit, accessible depuis la navigation sous le libellé « Reglages ». Six onglets : Général, Comptes, Shorts, Voix, Programmation, Connexions, Sécurité.
@@ -89,16 +99,15 @@ Suite possible, non faite : étendre à tous les providers la lecture réelle du
 
 Écart de couverture avec la [documentation stratégique v1.0, archivée](../Archive/v1.0-2026-07/L-Edifice-Documentation-Strategique-de-Reference.md) (section 17), non traité : identité et profil, notifications, sessions actives et journaux d'accès n'existent pas. Les deux capacités de souveraineté que la vision rattache explicitement à ce module — **export complet des données** et **suppression ciblée ou totale** — sont également absentes du code.
 
-### Bibliothèque (vision, non implémentée)
+### Bibliothèque (v1.0) — reprise par Ressources
 
-La [documentation stratégique v1.0, archivée](../Archive/v1.0-2026-07/L-Edifice-Documentation-Strategique-de-Reference.md) décrit un module Bibliothèque (section 13) : gestion documentaire centralisée, indexation des documents par entité du graphe (client CRM, projet, dépense), notes liées, sans dupliquer le stockage quand une source externe fait autorité.
+La [documentation stratégique v1.0, archivée](../Archive/v1.0-2026-07/L-Edifice-Documentation-Strategique-de-Reference.md) décrivait un module Bibliothèque (section 13). **Son repreneur dans la structure actuelle est le module [Ressources](#ressources)** — liens utiles et accès direct aux sites — confirmé par Vincent le 2026-08-01.
 
-**Rien de ce module n'existe dans le code.** Il n'apparaît ni dans `lib/cockpit/modules.ts`, ni dans `lib/cockpit/navigation.ts`, ni dans aucune route. Ce n'est pas une dette masquée : aucune surface ne prétend l'offrir. C'est un écart de couverture entre la vision et l'implémentation, à traiter le jour où il entrera dans la [Roadmap](./02_Roadmap.md) — il n'y figure à ce jour à aucun horizon.
+La v1.0 portait une ambition plus large que ce qui a été retenu : gestion documentaire centralisée, indexation des documents par entité du graphe (client CRM, projet, dépense), notes liées, sans dupliquer le stockage quand une source externe fait autorité. **Cette part n'a pas été reprise.** La fonction retenue dans le produit réel est plus simple : un annuaire de liens vers les consoles externes, plus le raccourci vers la mémoire projet.
 
-Ne pas confondre avec deux choses qui existent et portent le même mot :
+Ce n'est donc ni une dette masquée ni un écart de couverture — c'est un périmètre volontairement réduit. Aucune surface ne prétend offrir l'indexation documentaire.
 
-- la **bibliothèque médias** du domaine contenu (`content_assets`, `components/pinterest/PinterestLibrary.tsx`, `lib/server/media-pipeline.ts`), que la vision décrit comme partageant le stockage de la Bibliothèque globale mais gardant une taxonomie propre au contenu ;
-- le module **Ressources** ci-dessus, qui est un annuaire de liens, pas un système documentaire.
+Ne pas confondre avec la **bibliothèque médias** du domaine contenu (`content_assets`, `components/pinterest/PinterestLibrary.tsx`, `lib/server/media-pipeline.ts`), qui porte le même mot et relève du stockage d'assets de marque.
 
 ## Modules de création
 
@@ -131,6 +140,10 @@ Fichiers importants :
 - `scripts/sync-pinterest-to-supabase.mjs`
 
 ## Modules de publication
+
+**Divergence connue et acceptée sur tout ce groupe.** La documentation stratégique du 2026-08-01 fait de la publication un **service commun** — plomberie consommée depuis une marque, jamais une destination qu'on visite ([20-catalogue-services.md](../Documentation-Strategique/Markdown/20-catalogue-services.md)). Ces surfaces restent pourtant visibles, avec leurs entrées de navigation, parce que la notion de marque qui devrait les consommer n'existe pas encore (voir DEC-009 dans [03_Decisions.md](./03_Decisions.md)). Les retirer du menu supprimerait un accès fonctionnel réel sans lui offrir de remplacement. Elles resteront des destinations tant que l'espace Contenu n'est pas construit.
+
+La même remarque vaut pour l'atelier **Pilotage IA** (`/interface/post-creation/shorts/pilotage-ia`), qui expose en entrée de menu une capacité que la cible range dans le service commun IA, et pour **Réglages › Connexions** (`/interface/settings/connections`), que la cible rattache au service commun OAuth et Connexions.
 
 ### YouTube Publisher
 
@@ -195,9 +208,11 @@ Le calcul de progression retenue est **implémenté deux fois** : `retainedObjec
 
 ## Modules personnels
 
-### Personnel (Espace intérieur)
+### Personnel
 
 OS personnel distinct du cockpit éditorial : suivi d'énergie, sommeil, sport, objectifs, routines, journal et notes. Sert de surface de lecture pour des connecteurs de données externes et de croisement en lecture seule avec Trajectoire.
+
+La surface s'appelait « Espace intérieur » à l'écran jusqu'au 2026-08-01. Renommée « Personnel » pour suivre la règle de nommage de [10-architecture-systeme.md](../Documentation-Strategique/Markdown/10-architecture-systeme.md) : les noms sont nus à l'écran, sans préfixe de catégorie. La route `/interface/personnel` et les identifiants internes étaient déjà cohérents avec ce nom.
 
 Fichiers clés :
 

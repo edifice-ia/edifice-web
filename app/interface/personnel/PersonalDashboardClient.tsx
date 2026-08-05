@@ -10,6 +10,7 @@ import {
   type PersonalConnectorCapability,
 } from "@/lib/personal/connectors";
 import type { CockpitCalendarTodayState } from "@/types/cockpit";
+import { PersonalNotesPanel } from "./PersonalNotesPanel";
 import { PersonalEmptyState, PersonalModuleCard } from "./PersonalPrimitives";
 
 type PersonalTab =
@@ -76,7 +77,12 @@ const summaryCards: PersonalCardDefinition[] = [
   },
 ];
 
-const tabCards: Record<Exclude<PersonalTab, "summary" | "sources">, PersonalCardDefinition[]> = {
+// "notes" est exclu : l'onglet Notes n'affiche plus de cartes statiques depuis
+// le 2026-08-04, il rend PersonalNotesPanel avec les donnees reelles.
+const tabCards: Record<
+  Exclude<PersonalTab, "summary" | "sources" | "notes">,
+  PersonalCardDefinition[]
+> = {
   calendar: [
     {
       title: "Agenda du jour",
@@ -115,16 +121,6 @@ const tabCards: Record<Exclude<PersonalTab, "summary" | "sources">, PersonalCard
     {
       title: "Décisions du quotidien",
       source: "Ce bloc sera alimenté par journal / objectifs selon le cas.",
-    },
-  ],
-  notes: [
-    {
-      title: "Notes rapides",
-      source: "Ce bloc sera alimenté par notes selon le cas.",
-    },
-    {
-      title: "Repères personnels",
-      source: "Ce bloc sera alimenté par notes / journal selon le cas.",
     },
   ],
   routines: [
@@ -239,7 +235,9 @@ function sourceForActiveTab(tab: PersonalTab) {
     return "Ce bloc sera alimenté par objectifs selon le cas.";
   }
 
-  if (tab === "journal" || tab === "notes" || tab === "routines") {
+  // "notes" retire le 2026-08-04 : l'onglet Notes ne passe plus par la branche
+  // generique, il rend PersonalNotesPanel avec les donnees reelles.
+  if (tab === "journal" || tab === "routines") {
     return "Ce bloc sera alimenté par journal / objectifs selon le cas.";
   }
 
@@ -588,6 +586,12 @@ export function PersonalDashboardClient({
         </PersonalSection>
       ) : null}
 
+      {activeTab === "notes" ? (
+        <PersonalSection description={activeCopy.description} title={activeCopy.title}>
+          <PersonalNotesPanel />
+        </PersonalSection>
+      ) : null}
+
       {activeTab === "calendar" ? (
         <PersonalSection description={activeCopy.description} title={activeCopy.title}>
           <div className="grid gap-4 lg:grid-cols-2">
@@ -606,7 +610,10 @@ export function PersonalDashboardClient({
         </PersonalSection>
       ) : null}
 
-      {activeTab !== "summary" && activeTab !== "sources" && activeTab !== "calendar" ? (
+      {activeTab !== "summary" &&
+      activeTab !== "sources" &&
+      activeTab !== "calendar" &&
+      activeTab !== "notes" ? (
         <PersonalSection description={activeCopy.description} title={activeCopy.title}>
           <div className="grid gap-4 lg:grid-cols-2">
             {tabCards[activeTab].map((card) => (

@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-04 (module Notes)](#2026-08-04-module-notes)
 - [2026-08-01 (réévaluation du garde TikTok status)](#2026-08-01-réévaluation-du-garde-tiktok-status)
 - [2026-08-01 (alignement des libellés sur la doc stratégique)](#2026-08-01-alignement-des-libellés-sur-la-doc-stratégique)
 - [2026-08-01 (module Paramètres)](#2026-08-01-module-paramètres)
@@ -37,6 +38,28 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-04 (module Notes)
+
+Type : produit, sécurité, documentation  
+Résumé : premier module à saisie manuelle du pôle Personnel construit de bout en bout — table, route API, UI. Les deux cartes statiques de l'onglet Notes (« Notes rapides », « Repères personnels ») sont remplacées par une liste réelle, un formulaire d'ajout, l'édition en place et la suppression avec confirmation légère. Onze onglets du pôle en portaient ; il en reste neuf.
+
+Fichiers liés :
+
+- `supabase/migrations/20260804100000_create_personal_notes.sql`
+- `lib/personal/notes.ts`, `lib/server/personal/notes-store.ts`
+- `app/api/personal/notes/route.ts`, `app/api/personal/notes/[id]/route.ts`
+- `app/interface/personnel/PersonalNotesPanel.tsx`, `PersonalPrimitives.tsx`, `PersonalDashboardClient.tsx`
+
+Impact : Notes est le premier onglet du pôle à porter de la donnée saisie par l'utilisateur — Calendrier affichait déjà du réel, mais en lecture seule depuis Google.
+
+**Point de sécurité structurant** : ce store est le seul du pôle à utiliser le client de session plutôt que la clé service-role. Les deux autres stores Personnel contournent RLS, non par choix mais parce qu'ils tournent sans session (webhook, cron). Notes n'a pas cette contrainte, donc **RLS est ici le garde réel et non une défense en profondeur**. La table n'accorde pas le privilège `DELETE` à `authenticated` et ne porte aucune policy `DELETE` : la suppression est logique (`deleted_at`), et il faudrait ajouter les deux couches pour qu'une suppression physique redevienne possible — leçon directe de l'audit `content_assets` du 2026-07-28. Vérifié contre la base réelle : un appel PostgREST anonyme en `SELECT`, `INSERT` et `DELETE` est refusé avec `42501`.
+
+Deux décisions consignées dans [`03_Decisions.md`](./03_Decisions.md). **DEC-010** pose qu'aucun rattachement Marque/Projet n'est construit tant que le concept n'existe pas en code — commune à Notes et à Tâches, sans dette de migration puisque le modèle prévoit une table de liaison. La validation du contenu vit dans `lib/personal/notes.ts`, importée à la fois par les routes et par le composant client, pour que le retour visuel avant appel et le 400 du serveur ne puissent pas diverger.
+
+**Correction d'un bug antérieur, trouvé en testant Notes** : l'onglet actif était lu dans l'initialiseur de `useState` depuis `sessionStorage`. Le rendu serveur (sans `window`) rendait Résumé actif, le premier rendu client rendait l'onglet mémorisé — divergence de `className` sur les boutons d'onglet et de texte sur le titre de section, donc erreur d'hydratation React à chaque rechargement suivant la visite d'un onglet autre que Résumé. Le bug est **antérieur au module Notes** — code identique dans l'historique — et se reproduisait aussi bien via l'onglet Calendrier ; la suppression d'une note n'y était pour rien, elle obligeait seulement à passer par l'onglet Notes. Corrigé par `useSyncExternalStore`, dont l'instantané serveur rend les deux premiers rendus identiques par construction. Aucun `suppressHydrationWarning`.
+
+Action de suivi, non traitée : l'onglet actif pourrait vivre dans l'URL plutôt que dans `sessionStorage`, ce qui supprimerait le bref affichage de Résumé avant bascule. C'est un changement de comportement, pas une correction.
 
 ## 2026-08-01 (réévaluation du garde TikTok status)
 

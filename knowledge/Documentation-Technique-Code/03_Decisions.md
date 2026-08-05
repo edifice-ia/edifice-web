@@ -216,6 +216,31 @@ Fichiers liés :
 - `lib/cockpit/navigation.ts`, `lib/cockpit/modules.ts`
 - `supabase/migrations` (aucune migration `activation_module`)
 
+### DEC-010 - Aucun rattachement Marque/Projet tant que le concept n'existe pas en code
+
+Date : 2026-08-04  
+Statut : actif
+
+Contexte : [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) prévoit qu'une donnée de module puisse se rattacher à une Marque ou un Projet — explicitement pour Notes, et par le biais de l'entité Action de Trajectoire pour Tâches. Or la notion de marque n'existe nulle part dans le code : ni table, ni type, ni surface (voir `DEC-009`, point 2). La question s'est posée deux fois le même jour, en construisant Notes et en cadrant Tâches.
+
+Décision : **ne rien construire autour de ce rattachement tant que Marque et Projet n'existent pas comme entités réelles.** Concrètement, pas de colonne `marque_id` ou `projet_id` nullable ajoutée « en prévision », pas de table de liaison vide, pas de champ inerte dans l'interface.
+
+Raison : une colonne nullable ajoutée par anticipation reste vide indéfiniment, mais elle apparaît dans le schéma, dans les types et dans les revues, où elle se lit comme une capacité existante. C'est le même motif que les 18 préférences de `user_preferences` enregistrées et jamais relues, ou que le badge YouTube codé en dur — du scaffolding qui ment sur l'état réel du produit. Une absence est visible ; un champ vide qui prétend au rattachement ne l'est pas.
+
+Ce que la décision **ne** coûte pas : [12-modele-de-donnees.md](../Documentation-Strategique/Markdown/12-modele-de-donnees.md) modélise ce rattachement par une **table de liaison** (« Rattachement contexte »), pas par une colonne portée par la donnée. Le jour où Marque et Projet existeront, la liaison s'ajoutera sans toucher à `personal_notes` ni à la table des tâches. Différer ne crée donc aucune dette de migration.
+
+Conséquences :
+
+- `personal_notes` n'a ni `marque_id` ni `projet_id`, et c'est intentionnel ;
+- Tâches, quand il sera construit, suit la même règle ;
+- rouvrir cette décision suppose d'abord que Marque et Projet existent, ce que `DEC-009` conditionne à l'achèvement du pôle Personnel ;
+- tout module de domaine de vie construit d'ici là applique la même règle par défaut.
+
+Fichiers liés :
+
+- `supabase/migrations/20260804100000_create_personal_notes.sql`
+- `knowledge/Documentation-Technique-Code/06_Modules.md` (sections Notes et Personnel)
+
 ## Décisions à confirmer
 
 - Politique de rétention des assets et rendus vidéo.

@@ -230,7 +230,34 @@ Le registre `lib/personal/connectors/registry.ts` est conçu pour accueillir plu
 - **Garmin** : connecteur actif en développement. Voir [Décisions](./03_Decisions.md) DEC-005 et DEC-006.
 - **Strava, Notion, Finance, Calendrier** : stubs déclarés pour usage futur, non implémentés. `syncPersonalConnector` renvoie `success: false` tant qu'un connecteur n'est pas branché.
 
-Tables associées : `personal_garmin_daily_stats`, `personal_daily_briefs`. Voir [Base de données](./05_Database.md).
+Tables associées : `personal_garmin_daily_stats`, `personal_daily_briefs`, `personal_notes`. Voir [Base de données](./05_Database.md).
+
+**Un seul des onze onglets porte de la donnée saisie** : Notes, ci-dessous. Calendrier affiche des événements réels mais en lecture seule, depuis la synchronisation Google. Les neuf autres — Résumé, Énergie, Sommeil, Sport, Objectifs, Tâches, Routines, Journal, Sources — rendent des cartes statiques portant « Ce bloc sera alimenté par … selon le cas ». C'est un écart de couverture assumé, pas une dette masquée : aucune de ces surfaces ne prétend afficher une donnée qu'elle n'a pas.
+
+### Notes
+
+Premier module à saisie manuelle du pôle Personnel, construit de bout en bout le 2026-08-04 : table, route API, UI. Rôle conforme à [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) — garder une information ponctuelle qui ne mérite pas une entrée de journal. Aucune donnée dérivée n'est attendue, et aucune n'est calculée.
+
+Fichiers :
+
+- `supabase/migrations/20260804100000_create_personal_notes.sql` — table `personal_notes`
+- `lib/personal/notes.ts` — types et validation, sans I/O
+- `lib/server/personal/notes-store.ts` — les quatre opérations base
+- `app/api/personal/notes/route.ts` (GET, POST) et `app/api/personal/notes/[id]/route.ts` (PATCH, DELETE)
+- `app/interface/personnel/PersonalNotesPanel.tsx` — liste, ajout, édition en place, suppression avec confirmation légère
+
+**Statut réel : store, API et UI en place, testé en conditions réelles.** Création, édition, suppression et persistance du soft delete confirmées par test manuel le 2026-08-04, migration appliquée et réconciliée en production.
+
+**Ce store est le seul du pôle à utiliser le client de session.** `daily-briefs-store.ts` et `calendar-events-store.ts` instancient Supabase avec `SUPABASE_SERVICE_ROLE_KEY`, qui contourne RLS — non par choix de sécurité, mais parce qu'ils s'exécutent sans session utilisateur, depuis un webhook ou un cron. Notes n'a pas cette contrainte : chaque appel arrive par une requête HTTP authentifiée. Le store utilise donc le client de session (`src/lib/supabase/server.ts`, clé anon + cookies), et **RLS devient le garde réel** plutôt qu'une couche contournée par défaut — principe de moindre privilège, voir [13-securite-gouvernance.md](../Documentation-Strategique/Markdown/13-securite-gouvernance.md).
+
+Conséquence à connaître avant de modifier ce module : si les policies de `personal_notes` sont absentes ou mal appliquées, **il n'y a aucun second filet applicatif**. Les filtres `.eq("user_id", userId)` du store sont redondants avec RLS et volontairement conservés, pour rendre l'intention lisible et couvrir un futur passage au service-role.
+
+Deux traits de la table méritent d'être connus :
+
+- **Suppression logique uniquement.** `DELETE /api/personal/notes/[id]` écrit `deleted_at` ; les notes supprimées ne sont jamais listées. Le privilège `DELETE` n'est pas accordé à `authenticated` et **aucune policy DELETE n'existe** : sous RLS, l'absence de policy vaut refus, donc il faudrait ajouter les deux couches pour qu'une suppression physique redevienne possible. C'est la leçon de l'audit `content_assets` du 2026-07-28, où la faille n'était exploitable que parce que le grant et la policy permissive étaient tombés ensemble. La suppression physique relève du geste RGPD « Supprimer l'historique d'un module », qui passera par la clé service-role.
+- **`user_id` est `not null` et référence `auth.users`**, contrairement à `personal_calendar_events` dont le `user_id` est nullable — ce dernier est alimenté par une synchronisation sans contexte utilisateur. Une note est toujours écrite par un humain authentifié.
+
+**Rattachement Marque/Projet : extension différée.** [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) prévoit qu'une note puisse se rattacher à une Marque ou un Projet. Rien de tel n'existe ici, délibérément — voir [Décisions](./03_Decisions.md) DEC-010, commune avec Tâches. Le rattachement se fera par une table de liaison dédiée, sans toucher à `personal_notes` : c'est précisément ce que le modèle en table de liaison de [12-modele-de-donnees.md](../Documentation-Strategique/Markdown/12-modele-de-donnees.md) permet, et la raison de ne pas avoir ajouté une colonne `marque_id` nullable qui serait restée vide indéfiniment.
 
 ## Service renderer
 

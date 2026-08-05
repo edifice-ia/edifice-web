@@ -87,9 +87,78 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 **Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
 
+## Archive (done)
+
+### 2026-08-04 — Appliquer la migration `personal_notes` (module Notes du pôle Personnel)
+
+**Statut** : `done` — 2026-08-04
+
+**Resultat** : migration appliquee dans le SQL Editor et registre reconcilie. Verifie cote agent — `supabase migration list` renvoie desormais `{"local":"20260804100000","remote":"20260804100000"}`, et les trois migrations Garmin restent sans equivalent remote : la pause n'a pas ete rompue. Les policies ont ete controlees contre la base reelle par un appel PostgREST anonyme : `SELECT`, `INSERT` et `DELETE` refuses avec `42501`. Le cycle CRUD complet a ete valide par test manuel le 2026-08-04.
+
+**Pourquoi c'est manuel** : appliquer une migration passe par le SQL Editor du dashboard Supabase. L'agent n'a pas d'accès SQL direct au projet — les variables serveur ne sont pas exposées dans son environnement. La CLI `supabase` est liée et `supabase migration list` fonctionne, mais la seule commande qui appliquerait la migration est `supabase db push`, et **elle ne doit pas être lancée ici** : elle pousserait aussi les trois migrations du lot Garmin/Vitals volontairement en pause (`20260708100000`, `20260708110000`, `20260708120000`).
+
+**Bloque** : tout le module Notes. Sans cette table, la route `/api/personal/notes` échoue et l'onglet Notes ne peut rien afficher ni enregistrer.
+
+**Particularité de sécurité, à lire avant d'exécuter** : c'est la première table du dépôt dont **RLS est le garde réel et non une défense en profondeur**. Le store Notes utilise le client de session (`src/lib/supabase/server.ts`, clé `anon` + cookies), pas la clé service-role des deux autres stores Personnel — qui, eux, contournent RLS. Si les policies ne sont pas appliquées correctement, il n'y a pas de second filet côté application. Les étapes de vérification ci-dessous ne sont donc pas optionnelles.
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. Coller et exécuter le contenu intégral de `supabase/migrations/20260804100000_create_personal_notes.sql`. Le fichier est idempotent (`if not exists`, `drop policy if exists`, `create or replace`) : le relancer ne casse rien.
+3. Vérifier que la table et ses contraintes existent :
+   ```sql
+   select column_name, data_type, is_nullable
+   from information_schema.columns
+   where table_schema = 'public' and table_name = 'personal_notes'
+   order by ordinal_position;
+   ```
+   Attendu : `id`, `user_id` (`NO`), `content` (`NO`), `created_at`, `updated_at`, `deleted_at` (`YES`).
+4. Vérifier que **RLS est activée** — sans cela, les policies ne s'appliquent pas, quoi qu'il arrive :
+   ```sql
+   select relrowsecurity from pg_class where relname = 'personal_notes';
+   ```
+   Doit renvoyer `true`.
+5. Lire **toutes** les policies sans filtre de nom, et contrôler qu'aucune ne porte un `qual` permissif :
+   ```sql
+   select policyname, cmd, qual, with_check
+   from pg_policies
+   where schemaname = 'public' and tablename = 'personal_notes'
+   order by policyname;
+   ```
+   Attendu exactement trois lignes — `_select_own` (SELECT), `_insert_own` (INSERT), `_update_own` (UPDATE) — toutes avec `user_id = auth.uid()`. **Aucune ligne `DELETE`, et aucun `qual` ou `with_check` à `true`.** C'est la requête sans filtre de nom qui avait rattrapé la policy fantôme de `content_assets` le 2026-07-28 : la garder telle quelle.
+6. Vérifier que le privilège DELETE n'est **pas** accordé — l'application ne fait que du soft delete :
+   ```sql
+   select privilege_type
+   from information_schema.role_table_grants
+   where table_schema = 'public' and table_name = 'personal_notes' and grantee = 'authenticated'
+   order by privilege_type;
+   ```
+   Attendu : `INSERT`, `SELECT`, `UPDATE`. **Pas de `DELETE`.**
+7. Réconcilier le registre de migrations — **uniquement ce timestamp** :
+   ```bash
+   supabase migration repair --status applied 20260804100000
+   ```
+8. Contrôler que les trois migrations Garmin sont **toujours** non appliquées :
+   ```bash
+   supabase migration list
+   ```
+
+**Vérification fonctionnelle** : ouvrir `/interface/personnel`, onglet Notes. Créer une note, la modifier, la supprimer. Puis contrôler que la suppression est bien logique et non physique :
+
+```sql
+select id, left(content, 40) as extrait, deleted_at
+from public.personal_notes
+order by created_at desc
+limit 5;
+```
+
+La note supprimée doit toujours être présente, avec un `deleted_at` non nul.
+
 ### 2026-08-01 — Ajouter la colonne `effort_level` à `trajectoire_actions` en production
 
-**Statut** : `pending`
+**Statut** : `done` — 2026-08-04
+
+**Resultat** : migration appliquee et registre reconcilie. Constate cote agent le 2026-08-04 en verifiant une autre migration — `supabase migration list` renvoie `{"local":"20260711100000","remote":"20260711100000"}`. Le module Trajectoire n'est donc plus vide en production.
 
 **Pourquoi c'est manuel** : appliquer une migration passe par le SQL Editor du dashboard Supabase. L'agent n'a pas d'accès SQL direct au projet — les variables serveur ne sont pas exposées dans son environnement. La CLI `supabase` est bien liée au projet et `supabase migration list` fonctionne, mais la seule commande qui appliquerait la migration est `supabase db push`, et **elle ne doit surtout pas être lancée ici** : elle pousserait les **quatre** migrations en retard d'un coup, dont les trois du lot Garmin/Vitals volontairement en pause (voir le tableau ci-dessous). C'est précisément ce que cette entrée existe pour éviter.
 
@@ -186,10 +255,6 @@ Le message vu par l'utilisateur est donc le texte Postgres, du type `column traj
 **Option écartée, à rouvrir seulement si l'exécution SQL doit attendre longtemps** : ajouter un repli côté lecture dans `readTrajectoire`, sur le modèle de `isMissingTableError` dans `lib/server/personal/daily-briefs-store.ts` — retenter la requête sans `effort_level` sur SQLSTATE `42703`, et laisser `mapAction` appliquer son défaut `"medium"`. Ce serait trivial et sans risque (lecture seule, aucune RLS, aucune auth touchée), et rendrait les projets et objectifs de nouveau visibles sans attendre.
 
 Non fait délibérément, et non commité : ce repli deviendrait **définitivement du code mort** dès l'étape 2 exécutée, puisqu'il protège contre un état transitoire qui ne doit pas se reproduire. Ajouter une branche permanente pour contourner une migration en retard revient à documenter le retard dans le code plutôt que de le corriger. Si l'exécution SQL est repoussée de plusieurs jours, l'arbitrage se justifie et le correctif tient en quelques lignes — c'est un choix à faire, pas une évidence.
-
-_Aucune autre entrée en attente._
-
-## Archive (done)
 
 ### 2026-08-01 — Régénérer 3 PDF de `knowledge/Documentation-Strategique/PDF/` désynchronisés de leur source Markdown
 

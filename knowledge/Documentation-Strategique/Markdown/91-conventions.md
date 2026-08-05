@@ -31,6 +31,8 @@ Ref: DEC-XXX (si applicable)
 
 Le type indique la nature du changement (par exemple une fonctionnalité, un correctif, une évolution de documentation, un changement de sécurité). Le scope indique le domaine touché — un module, un pôle, un service commun. Le résumé est écrit à l'impératif, sans point final. Les points de détail listent ce qui change concrètement, un par ligne. La référence pointe vers une décision ou un ticket quand le commit en découle directement.
 
+**Le message est rédigé en français, en entier** — résumé, points de détail et corps. Le type et le scope restent en anglais, puisqu'ils appartiennent au format. Les messages antérieurs au 2026-08-04 mêlent un résumé anglais à un corps français ; ils ne sont pas réécrits, mais ils ne servent pas de modèle.
+
 ## Documentation vivante
 
 Le principe est déjà posé — voir [01-principes.md](./01-principes.md) : la documentation change dans le même geste que le code. Ce document en fixe la procédure : un changement qui touche à l'architecture, à un service commun, à un pôle, à un espace, à un module, ou qui constitue une décision durable, met à jour le fichier `/knowledge` concerné dans le même commit ou la même série de commits que le code — jamais dans une passe de rattrapage ultérieure.

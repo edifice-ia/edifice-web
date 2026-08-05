@@ -10,6 +10,7 @@ import {
   type PersonalConnectorCapability,
 } from "@/lib/personal/connectors";
 import type { CockpitCalendarTodayState } from "@/types/cockpit";
+import { PersonalEmptyState, PersonalModuleCard } from "./PersonalPrimitives";
 
 type PersonalTab =
   | "summary"
@@ -255,32 +256,6 @@ function connectorStatusClass(connector: PersonalConnector) {
   }
 
   return "border-[#64748b]/40 bg-[#64748b]/10 text-[#cbd5e1]";
-}
-
-export function PersonalEmptyState({ source }: { source: string }) {
-  return (
-    <div className="rounded-md border border-dashed border-[#1D2A44] bg-[#03070B] p-4">
-      <p className="text-sm font-semibold text-[#F8FAFC]">
-        Aucune donnée connectée pour le moment.
-      </p>
-      <p className="mt-2 text-sm leading-6 text-[#A7B0C0]">{source}</p>
-    </div>
-  );
-}
-
-export function PersonalModuleCard({
-  children,
-  title,
-}: {
-  children: ReactNode;
-  title: string;
-}) {
-  return (
-    <article className="min-w-0 rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
-      <h3 className="text-base font-semibold text-[#F8FAFC]">{title}</h3>
-      <div className="mt-4">{children}</div>
-    </article>
-  );
 }
 
 export function PersonalSection({

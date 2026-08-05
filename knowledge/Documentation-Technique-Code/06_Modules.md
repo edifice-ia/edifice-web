@@ -221,6 +221,8 @@ Fichiers clés :
 
 Le style UI de `PersonalDashboardClient.tsx` est volontairement distinct des conventions `components/cockpit` (composants locaux `PersonalModuleCard`, `PersonalSection`, `PersonalEmptyState`, palette propre). Ce n'est pas une dette à corriger : le module Personnel n'est pas un module cockpit et ne doit pas être harmonisé avec lui.
 
+**Onglet actif et hydratation.** L'onglet courant est mémorisé dans `sessionStorage` et lu par `useSyncExternalStore`, dont l'instantané serveur renvoie toujours `"summary"`. Ce détour est nécessaire : la valeur était auparavant lue dans l'initialiseur de `useState`, si bien que le rendu serveur (sans `window`) et le premier rendu client divergeaient sur la `className` des boutons d'onglet et sur le titre de section — erreur d'hydratation React à chaque rechargement suivant la visite d'un onglet autre que Résumé. Corrigé le 2026-08-04. Conséquence assumée : Résumé s'affiche brièvement avant la bascule sur l'onglet mémorisé. Porter l'onglet dans l'URL supprimerait ce clignotement et reste possible ; ce serait un changement de comportement, pas une correction.
+
 Le registre `lib/personal/connectors/registry.ts` est conçu pour accueillir plusieurs connecteurs sans réécriture : chaque connecteur déclare son statut (`À connecter`, `Préparé`, `Indisponible`), ses capacités et ses variables d'environnement requises. Statut réel par connecteur :
 
 - **Garmin** : connecteur actif en développement. Voir [Décisions](./03_Decisions.md) DEC-005 et DEC-006.

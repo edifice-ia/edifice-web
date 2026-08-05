@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { SectionContainer } from "@/components/cockpit/SectionContainer";
 import {
@@ -502,6 +502,42 @@ export function PersonalSourcesGrid() {
   );
 }
 
+const ACTIVE_TAB_STORAGE_KEY = "personal-active-tab";
+
+// Petit store externe adosse a sessionStorage, pour que useSyncExternalStore
+// puisse distinguer instantane serveur et instantane client. Les abonnes sont
+// notifies a l'ecriture : un clic sur un onglet declenche le re-rendu, sans
+// etat React duplique a cote du stockage.
+let activeTabListeners: Array<() => void> = [];
+
+function subscribeActiveTab(listener: () => void) {
+  activeTabListeners = [...activeTabListeners, listener];
+
+  return () => {
+    activeTabListeners = activeTabListeners.filter((entry) => entry !== listener);
+  };
+}
+
+// Instantane serveur : toujours le meme onglet, puisque le serveur n'a acces a
+// aucun stockage navigateur. React s'en sert aussi pour le rendu d'hydratation,
+// ce qui rend les deux premiers rendus identiques par construction.
+function getServerActiveTab(): PersonalTab {
+  return "summary";
+}
+
+function readStoredActiveTab(): PersonalTab {
+  const saved = window.sessionStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+
+  return saved && personalTabs.some((tab) => tab.id === saved)
+    ? (saved as PersonalTab)
+    : "summary";
+}
+
+function writeStoredActiveTab(tab: PersonalTab) {
+  window.sessionStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tab);
+  activeTabListeners.forEach((listener) => listener());
+}
+
 export function PersonalTabs({
   activeTab,
   onSelect,
@@ -538,20 +574,25 @@ export function PersonalDashboardClient({
   calendarToday: CockpitCalendarTodayState;
   calendarUpcoming: CockpitCalendarTodayState;
 }) {
-  const [activeTab, setActiveTab] = useState<PersonalTab>(() => {
-    if (typeof window === "undefined") {
-      return "summary";
-    }
-
-    const saved = window.sessionStorage.getItem("personal-active-tab");
-    return saved && personalTabs.some((tab) => tab.id === saved)
-      ? (saved as PersonalTab)
-      : "summary";
-  });
+  // sessionStorage est la source unique de l'onglet actif, lue via
+  // useSyncExternalStore : son instantane serveur est distinct, ce qui garantit
+  // que le rendu serveur et le premier rendu client sont identiques.
+  //
+  // L'onglet memorise etait auparavant lu dans l'initialiseur de useState. Le
+  // serveur n'a pas de window et rendait donc "summary" actif, tandis que le
+  // premier rendu client lisait sessionStorage et rendait un autre onglet
+  // actif : les deux arbres differaient sur la className des boutons d'onglet
+  // (accent contre neutre), d'ou l'erreur d'hydratation. Elle ne se declenchait
+  // qu'apres avoir visite un onglet autre que Resume puis recharge la page,
+  // puisqu'il faut que sessionStorage contienne autre chose que "summary".
+  const activeTab = useSyncExternalStore(
+    subscribeActiveTab,
+    readStoredActiveTab,
+    getServerActiveTab,
+  );
 
   function selectTab(tab: PersonalTab) {
-    window.sessionStorage.setItem("personal-active-tab", tab);
-    setActiveTab(tab);
+    writeStoredActiveTab(tab);
   }
 
   const activeCopy = tabCopy[activeTab];

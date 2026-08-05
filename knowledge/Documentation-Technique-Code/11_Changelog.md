@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-04 (pôle Assistant)](#2026-08-04-pôle-assistant)
 - [2026-08-04 (module Notes)](#2026-08-04-module-notes)
 - [2026-08-01 (réévaluation du garde TikTok status)](#2026-08-01-réévaluation-du-garde-tiktok-status)
 - [2026-08-01 (alignement des libellés sur la doc stratégique)](#2026-08-01-alignement-des-libellés-sur-la-doc-stratégique)
@@ -38,6 +39,27 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-04 (pôle Assistant)
+
+Type : produit, documentation  
+Résumé : audit du pôle Assistant, en préparation d'un accès en lecture aux données Personnel. Le constat rend la question de départ caduque : **l'Assistant n'appelle aucun LLM**. `answerConversation` est une cascade de correspondance de mots-clés — `includes("memoire")`, `includes("module")`, `includes("brouillon")` — qui assemble des chaînes de caractères à partir d'un `ProjectContext` pré-calculé. Le choix entre modes Conversation et Workflow repose sur une liste de dix-neuf verbes d'action. Il n'existe ni prompt système, ni modèle, ni paramètre d'inférence, ni `tools`. Vérifié de trois façons : aucun SDK LLM dans `package.json`, aucune URL d'API de modèle sur ce chemin, et les occurrences de « openai » dans le moteur de workflow sont des estimations de coût, pas des appels. Les seuls appels LLM réels du dépôt visent OpenAI depuis l'atelier de contenu.
+
+Fichiers liés :
+
+- `app/api/assistant/global/route.ts`, `lib/server/assistant/global-assistant.ts`
+- `lib/server/assistant/build-project-context.ts`
+- `knowledge/Documentation-Technique-Code/06_Modules.md` (section Assistant de L'Édifice)
+
+Impact : aucun code modifié. La documentation cesse de laisser croire à une capacité IA sur ce pôle, alors que [21-poles.md](../Documentation-Strategique/Markdown/21-poles.md) le décrit comme la surface transversale au-dessus de la capacité IA en portée large. L'écart entre la cible et le code est désormais écrit là où un audit du module le trouvera.
+
+Deux constats structurants relevés au passage. **Aucun historique de conversation n'existe** : le client garde un seul échange en mémoire React et chaque requête ne transmet que le message courant, si bien qu'un modèle branché en l'état répondrait à chaque message comme au premier. Et **`buildProjectContext()` ne prend aucun `userId`** — le contexte est entièrement projet, sans rien de Personnel ni de Trajectoire, alors que la route dispose pourtant de `user.id`. Le seul patron existant de lecture d'une donnée vivant ailleurs est `project_memory`, table sans colonne `user_id`, lue par clé service-role : inutilisable tel quel pour une donnée scopée par utilisateur comme `personal_notes`.
+
+**DEC-011** consigne la décision produit : le LLM sera branché plus tard, comme chantier à part entière — coût par appel, gestion d'erreur, et l'historique de conversation à construire de zéro. Quand ce sera fait, l'intégration visera d'emblée **tous les modules Personnel** via un registre générique sur le modèle de `lib/personal/connectors/registry.ts`, et non le seul module Notes : le point d'entrée étant déjà centralisé dans `buildProjectContext()`, le générique n'y coûte pas significativement plus que le spécifique. C'est ce qui distingue ce cas de `DEC-010`, où différer évitait du scaffolding autour d'entités inexistantes.
+
+Conséquence immédiate consignée dans la décision : **ne pas étendre la cascade de mots-clés** pour y brancher la lecture de Notes ou d'un autre module. Ce travail serait entièrement à refaire une fois le LLM branché, et donnerait l'illusion d'un assistant qui comprend. L'effort va donc à la construction des autres modules Personnel — stores et UI sur le patron de Notes — qui formeront la base de lecture du futur LLM.
+
+Action de suivi, non traitée : le champ optionnel `trajectoire` de `GlobalAssistantInput` n'est fourni par aucun appelant. Il reste en l'état, le câbler avant le LLM relevant du même travail jetable.
 
 ## 2026-08-04 (module Notes)
 

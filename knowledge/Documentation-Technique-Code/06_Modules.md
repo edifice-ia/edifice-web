@@ -32,6 +32,8 @@ Point central de conversation, analyse et orchestration. Il s'appuie sur :
 - `lib/server/assistant-workflows/engine.ts`
 - `components/cockpit/AssistantCommandCenter.tsx`
 
+**Ce module n'appelle aucun LLM.** `answerConversation` est une cascade de correspondance de mots-clés qui assemble du texte à partir d'un contexte pré-calculé, sans prompt, sans modèle et sans `tools`. Il n'y a pas non plus d'historique de conversation, et `buildProjectContext()` ne prend aucun `userId` — le contexte est entièrement projet, sans rien de Personnel ni de Trajectoire. Constat de l'audit du 2026-08-04, état assumé et non défaut : voir [Décisions](./03_Decisions.md) DEC-011, qui porte aussi la consigne de **ne pas étendre cette cascade** pour y brancher la lecture d'un module.
+
 ### Cockpit général
 
 Vue d'ensemble des modules, statuts, risques et ressources. Fichiers principaux :

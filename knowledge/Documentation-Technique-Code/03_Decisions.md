@@ -241,6 +241,34 @@ Fichiers liés :
 - `supabase/migrations/20260804100000_create_personal_notes.sql`
 - `knowledge/Documentation-Technique-Code/06_Modules.md` (sections Notes et Personnel)
 
+### DEC-011 - L'Assistant restera un moteur déterministe jusqu'à nouvel ordre — LLM prévu, pas construit maintenant
+
+Date : 2026-08-04  
+Statut : actif
+
+Contexte : l'audit du pôle Assistant, mené le 2026-08-04, a établi que **l'Assistant n'appelle aucun LLM**. Ni Anthropic, ni OpenAI, ni aucun autre — vérifié de trois façons : aucun SDK dans `package.json`, aucune URL d'API de modèle sur ce chemin, et les occurrences de « openai » dans le moteur de workflow sont des estimations de coût, pas des appels.
+
+Ce que fait réellement `globalAssistant` (`lib/server/assistant/global-assistant.ts`, servi par `app/api/assistant/global/route.ts`) : `answerConversation` est une **cascade de correspondance de mots-clés** — `normalized.includes("memoire")`, `includes("module")`, `includes("brouillon")` — qui assemble des chaînes de caractères à partir d'un `ProjectContext` pré-calculé. Le choix entre les modes Conversation et Workflow repose lui aussi sur une liste de dix-neuf verbes d'action. Il n'existe ni prompt système, ni modèle, ni paramètre d'inférence, ni `tools`.
+
+Deux conséquences observées au passage, qui font partie du constat : il n'existe **aucun historique de conversation** — le client garde un seul échange en mémoire React, chaque requête ne transmet que le message courant — et `buildProjectContext()` ne prend **aucun `userId`**, si bien que le contexte assemblé est entièrement projet, sans rien de Personnel ni de Trajectoire.
+
+Décision : **un vrai LLM sera branché plus tard, pas maintenant.** C'est un chantier à part entière, pas une extension de l'existant : coût par appel à mesurer et à plafonner, gestion d'erreur et de latence, et surtout l'historique de conversation à construire de zéro — sans lui, un modèle branché aujourd'hui répondrait à chaque message comme au premier.
+
+**Quand ce sera fait, l'intégration visera d'emblée tous les modules Personnel**, par un registre générique sur le modèle de `lib/personal/connectors/registry.ts`, et non le seul module Notes. L'audit a établi que le point d'entrée est déjà centralisé — `buildProjectContext()` est le seul endroit où le contexte s'assemble — donc le coût du générique n'y est pas significativement supérieur à celui du spécifique. C'est ce qui distingue ce cas de [DEC-010](#dec-010---aucun-rattachement-marqueprojet-tant-que-le-concept-nexiste-pas-en-code) : là-bas, différer évitait du scaffolding autour d'entités inexistantes ; ici les deux chemins convergent à coût comparable, et le seul arbitrage qui compte porte sur l'introduction du LLM lui-même.
+
+Conséquences :
+
+- **Ne pas étendre la cascade de mots-clés de `answerConversation`** pour y ajouter la lecture de Notes ou d'un autre module. Ce travail serait entièrement à refaire une fois le LLM branché, et il donnerait au passage l'illusion d'un assistant qui comprend, alors qu'il ne ferait que réciter une branche `if` de plus.
+- L'effort disponible va donc **à la construction des autres modules Personnel** — stores et UI, sur le patron de Notes. Ce sont eux qui constitueront la base de lecture du futur LLM : sans donnée, un assistant intelligent n'a rien à lire.
+- Tout audit ultérieur du pôle Assistant qui redécouvrirait l'absence de LLM doit lire cette entrée avant de la traiter comme un défaut : c'est un état connu et assumé, pas un oubli.
+- Le champ optionnel `trajectoire` de `GlobalAssistantInput`, jamais fourni par aucun appelant, reste en l'état : il ne sert à rien aujourd'hui, et le câbler avant le LLM relèverait du même travail jetable.
+
+Fichiers liés :
+
+- `app/api/assistant/global/route.ts`, `lib/server/assistant/global-assistant.ts`
+- `lib/server/assistant/build-project-context.ts`
+- `knowledge/Documentation-Technique-Code/06_Modules.md` (section Assistant de L'Édifice)
+
 ## Décisions à confirmer
 
 - Politique de rétention des assets et rendus vidéo.

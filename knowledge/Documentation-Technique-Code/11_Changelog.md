@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-05 (module Journal et Humeur)](#2026-08-05-module-journal-et-humeur)
 - [2026-08-04 (pôle Assistant)](#2026-08-04-pôle-assistant)
 - [2026-08-04 (module Notes)](#2026-08-04-module-notes)
 - [2026-08-01 (réévaluation du garde TikTok status)](#2026-08-01-réévaluation-du-garde-tiktok-status)
@@ -39,6 +40,30 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-05 (module Journal et Humeur)
+
+Type : produit, sécurité, documentation  
+Résumé : deuxième module à saisie manuelle du pôle Personnel, construit sur le patron de Notes — table, route API, UI. Les deux cartes statiques de l'onglet Journal (« Entrée du jour », « Décisions du quotidien ») sont remplacées par une liste réelle, un formulaire d'ajout avec sélecteur d'humeur, l'édition en place et la suppression avec confirmation légère. **Deux des onze onglets du pôle portent désormais de la donnée saisie**, contre un seul la veille.
+
+Fichiers liés :
+
+- `supabase/migrations/20260805100000_create_personal_journal_entries.sql`
+- `lib/personal/journal.ts`, `lib/server/personal/journal-store.ts`
+- `app/api/personal/journal/route.ts`, `app/api/personal/journal/[id]/route.ts`
+- `app/interface/personnel/PersonalJournalPanel.tsx`, `PersonalDashboardClient.tsx`
+
+Impact : l'extraction de `PersonalPrimitives.tsx` faite pour Notes a servi exactement comme prévu — **aucun refactor n'a été nécessaire cette fois**. Le panneau vit dans son propre fichier et importe les deux primitives, sans cycle d'import. C'est la première confirmation que le patron tient pour les modules Personnel suivants.
+
+Sécurité identique à Notes, et vérifiée contre le réel : store sur le client de session plutôt que la clé service-role, donc **RLS est le garde réel**. La table n'accorde pas le privilège `DELETE` à `authenticated` et ne porte aucune policy `DELETE` — la suppression est logique. Contrôlé le 2026-08-05 : un appel PostgREST anonyme en `SELECT`, `INSERT` (avec `user_id` forgé) et `DELETE` est refusé avec `42501`, et les quatre routes répondent `401` sans session.
+
+Deux écarts assumés avec Notes. **`mood`** est un entier nullable contraint entre 1 et 5, où le nullable porte l'information « non renseignée » et non la valeur neutre du milieu de l'échelle ; le `PATCH` distingue « champ absent » de « `mood: null` » par un test d'appartenance de clé, `undefined` disparaissant à la sérialisation JSON. Et le **contenu est plafonné à 20 000 caractères** contre 10 000 pour Notes, parce que [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) oppose les deux modules par le poids de ce qu'ils portent.
+
+**Tendance d'humeur : hors périmètre, différée et non oubliée.** La donnée dérivée décrite par `23-modules.md` n'est pas construite — le module de base passait d'abord. Elle se calculera en lecture depuis `mood` et `created_at`, sans migration, et devra exclure les entrées sans humeur plutôt que les compter comme moyennes. L'index partiel existant couvre déjà son chemin d'accès.
+
+Corrigé au passage, omission de la session Notes : `personal_notes` n'avait jamais été ajoutée à [`05_Database.md`](./05_Database.md). Les deux tables y figurent désormais, avec la note qu'elles sont les seules du dépôt dont RLS est le garde réel.
+
+Action de suivi, non traitée : le cycle CRUD complet n'a pas été exercé — il demande une session authentifiée, que l'agent ne peut pas ouvrir.
 
 ## 2026-08-04 (pôle Assistant)
 

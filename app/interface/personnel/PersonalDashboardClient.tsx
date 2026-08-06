@@ -10,6 +10,7 @@ import {
   type PersonalConnectorCapability,
 } from "@/lib/personal/connectors";
 import type { CockpitCalendarTodayState } from "@/types/cockpit";
+import { PersonalJournalPanel } from "./PersonalJournalPanel";
 import { PersonalNotesPanel } from "./PersonalNotesPanel";
 import { PersonalEmptyState, PersonalModuleCard } from "./PersonalPrimitives";
 
@@ -77,10 +78,11 @@ const summaryCards: PersonalCardDefinition[] = [
   },
 ];
 
-// "notes" est exclu : l'onglet Notes n'affiche plus de cartes statiques depuis
-// le 2026-08-04, il rend PersonalNotesPanel avec les donnees reelles.
+// "notes" et "journal" sont exclus : ces deux onglets n'affichent plus de
+// cartes statiques depuis le 2026-08-04 et le 2026-08-05, ils rendent leur
+// panneau avec les donnees reelles.
 const tabCards: Record<
-  Exclude<PersonalTab, "summary" | "sources" | "notes">,
+  Exclude<PersonalTab, "summary" | "sources" | "notes" | "journal">,
   PersonalCardDefinition[]
 > = {
   calendar: [
@@ -110,16 +112,6 @@ const tabCards: Record<
     },
     {
       title: "Décisions liées",
-      source: "Ce bloc sera alimenté par journal / objectifs selon le cas.",
-    },
-  ],
-  journal: [
-    {
-      title: "Entrée du jour",
-      source: "Ce bloc sera alimenté par journal selon le cas.",
-    },
-    {
-      title: "Décisions du quotidien",
       source: "Ce bloc sera alimenté par journal / objectifs selon le cas.",
     },
   ],
@@ -235,9 +227,9 @@ function sourceForActiveTab(tab: PersonalTab) {
     return "Ce bloc sera alimenté par objectifs selon le cas.";
   }
 
-  // "notes" retire le 2026-08-04 : l'onglet Notes ne passe plus par la branche
-  // generique, il rend PersonalNotesPanel avec les donnees reelles.
-  if (tab === "journal" || tab === "routines") {
+  // "notes" et "journal" retires : ces deux onglets ne passent plus par la
+  // branche generique, ils rendent leur panneau avec les donnees reelles.
+  if (tab === "routines") {
     return "Ce bloc sera alimenté par journal / objectifs selon le cas.";
   }
 
@@ -592,6 +584,12 @@ export function PersonalDashboardClient({
         </PersonalSection>
       ) : null}
 
+      {activeTab === "journal" ? (
+        <PersonalSection description={activeCopy.description} title={activeCopy.title}>
+          <PersonalJournalPanel />
+        </PersonalSection>
+      ) : null}
+
       {activeTab === "calendar" ? (
         <PersonalSection description={activeCopy.description} title={activeCopy.title}>
           <div className="grid gap-4 lg:grid-cols-2">
@@ -613,7 +611,8 @@ export function PersonalDashboardClient({
       {activeTab !== "summary" &&
       activeTab !== "sources" &&
       activeTab !== "calendar" &&
-      activeTab !== "notes" ? (
+      activeTab !== "notes" &&
+      activeTab !== "journal" ? (
         <PersonalSection description={activeCopy.description} title={activeCopy.title}>
           <div className="grid gap-4 lg:grid-cols-2">
             {tabCards[activeTab].map((card) => (

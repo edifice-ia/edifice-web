@@ -232,9 +232,9 @@ Le registre `lib/personal/connectors/registry.ts` est conçu pour accueillir plu
 - **Garmin** : connecteur actif en développement. Voir [Décisions](./03_Decisions.md) DEC-005 et DEC-006.
 - **Strava, Notion, Finance, Calendrier** : stubs déclarés pour usage futur, non implémentés. `syncPersonalConnector` renvoie `success: false` tant qu'un connecteur n'est pas branché.
 
-Tables associées : `personal_garmin_daily_stats`, `personal_daily_briefs`, `personal_notes`. Voir [Base de données](./05_Database.md).
+Tables associées : `personal_garmin_daily_stats`, `personal_daily_briefs`, `personal_notes`, `personal_journal_entries`. Voir [Base de données](./05_Database.md).
 
-**Un seul des onze onglets porte de la donnée saisie** : Notes, ci-dessous. Calendrier affiche des événements réels mais en lecture seule, depuis la synchronisation Google. Les neuf autres — Résumé, Énergie, Sommeil, Sport, Objectifs, Tâches, Routines, Journal, Sources — rendent des cartes statiques portant « Ce bloc sera alimenté par … selon le cas ». C'est un écart de couverture assumé, pas une dette masquée : aucune de ces surfaces ne prétend afficher une donnée qu'elle n'a pas.
+**Deux des onze onglets portent de la donnée saisie** : Notes et Journal, ci-dessous. Calendrier affiche des événements réels mais en lecture seule, depuis la synchronisation Google. Les huit autres — Résumé, Énergie, Sommeil, Sport, Objectifs, Tâches, Routines, Sources — rendent des cartes statiques portant « Ce bloc sera alimenté par … selon le cas ». C'est un écart de couverture assumé, pas une dette masquée : aucune de ces surfaces ne prétend afficher une donnée qu'elle n'a pas.
 
 ### Notes
 
@@ -260,6 +260,31 @@ Deux traits de la table méritent d'être connus :
 - **`user_id` est `not null` et référence `auth.users`**, contrairement à `personal_calendar_events` dont le `user_id` est nullable — ce dernier est alimenté par une synchronisation sans contexte utilisateur. Une note est toujours écrite par un humain authentifié.
 
 **Rattachement Marque/Projet : extension différée.** [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) prévoit qu'une note puisse se rattacher à une Marque ou un Projet. Rien de tel n'existe ici, délibérément — voir [Décisions](./03_Decisions.md) DEC-010, commune avec Tâches. Le rattachement se fera par une table de liaison dédiée, sans toucher à `personal_notes` : c'est précisément ce que le modèle en table de liaison de [12-modele-de-donnees.md](../Documentation-Strategique/Markdown/12-modele-de-donnees.md) permet, et la raison de ne pas avoir ajouté une colonne `marque_id` nullable qui serait restée vide indéfiniment.
+
+### Journal et Humeur
+
+Deuxième module à saisie manuelle du pôle, construit le 2026-08-05 sur le patron de Notes : table, route API, UI. Rôle conforme à [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) — garder une trace libre de ce qui se passe et de l'état d'esprit du moment.
+
+Fichiers :
+
+- `supabase/migrations/20260805100000_create_personal_journal_entries.sql` — table `personal_journal_entries`
+- `lib/personal/journal.ts` — types et validation, sans I/O
+- `lib/server/personal/journal-store.ts` — les quatre opérations base
+- `app/api/personal/journal/route.ts` (GET, POST) et `app/api/personal/journal/[id]/route.ts` (PATCH, DELETE)
+- `app/interface/personnel/PersonalJournalPanel.tsx` — liste, ajout, édition en place, suppression avec confirmation légère
+
+**Statut réel : store, API et UI en place.** Migration appliquée et réconciliée en production. Gardes vérifiés contre la base et le serveur réels le 2026-08-05 — les quatre routes répondent `401` sans session, et un appel PostgREST anonyme en `SELECT`, `INSERT` et `DELETE` est refusé avec `42501`. **Le cycle CRUD complet n'a pas été exercé** : il demande une session authentifiée.
+
+Tout ce qui est écrit pour Notes ci-dessus sur le **client de session, RLS comme garde réel, l'absence de second filet applicatif, la suppression logique sans privilège ni policy `DELETE`, et le `user_id` non nullable** vaut identiquement ici. Le store le référence plutôt que de le réécrire.
+
+Deux écarts propres à ce module :
+
+- **`mood`, entier nullable, contrainte de plage 1-5.** Le nullable porte l'information « humeur non renseignée » et **ne doit pas être confondu avec la valeur neutre du milieu de l'échelle** : une entrée peut n'être que du texte. À l'écran, « Non renseignée » est un bouton à part entière du sélecteur, ce qui permet aussi de retirer une humeur déjà notée. Côté `PATCH`, la validation distingue « `mood` absent de la charge utile » (on n'y touche pas) de « `mood: null` » (on efface) par un test d'appartenance de clé, `undefined` disparaissant à la sérialisation JSON.
+- **Contenu plafonné à 20 000 caractères**, contre 10 000 pour Notes. [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) oppose explicitement les deux modules par le poids de ce qu'ils portent — une note est « une information ponctuelle qui ne mérite pas une entrée de journal ». Le plafond suit cette distinction.
+
+**Tendance d'humeur : différée, pas oubliée.** [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) décrit comme donnée dérivée notable « une tendance d'humeur sur une période, lisible par l'Assistant sans jamais être traitée comme un diagnostic ». Elle n'est pas construite. Ce n'est pas un oubli : le module de base (CRUD) passait d'abord. Deux points à connaître le jour où elle sera faite — elle se calcule **en lecture** à partir de `mood` et `created_at`, sans colonne ni table supplémentaire, donc sans migration ; et elle devra **exclure les entrées sans humeur** plutôt que les compter comme des valeurs moyennes. L'index partiel `(user_id, created_at desc)` couvre déjà son chemin d'accès, raison pour laquelle aucun index n'a été créé par anticipation.
+
+**Rattachement Marque/Projet : extension différée**, même raison et même référence que Notes — voir [Décisions](./03_Decisions.md) DEC-010, qui s'applique à tout module de domaine de vie construit avant que le concept n'existe en code.
 
 ## Service renderer
 

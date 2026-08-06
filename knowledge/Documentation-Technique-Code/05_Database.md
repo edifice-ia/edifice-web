@@ -45,6 +45,8 @@ Tables créées ou visibles dans les migrations :
 - `trajectoire_actions`
 - `personal_garmin_daily_stats`
 - `personal_daily_briefs`
+- `personal_notes`
+- `personal_journal_entries`
 - `video_render_jobs`
 - `short_video_schedules`
 - `user_preferences`
@@ -87,6 +89,10 @@ Tables créées ou visibles dans les migrations :
 `personal_garmin_daily_stats` stocke un instantané quotidien par utilisateur des métriques Garmin (sommeil, Body Battery, HRV, fréquence cardiaque au repos, stress, charge d'entraînement, score de préparation à l'entraînement) ainsi que la charge brute (`raw_payload` jsonb) reçue de l'API ou de la fixture mockée.
 
 `personal_daily_briefs` stocke le brief quotidien généré à partir de `personal_garmin_daily_stats` : niveau de récupération calculé (`recovery_level`), focus recommandé (`recommended_focus` jsonb), et si l'utilisateur a accepté la proposition (`accepted`, nullable tant que non tranché). Un brief ne modifie jamais `trajectoire_actions` directement ; il reste une proposition en lecture seule vis-à-vis de Trajectoire. Voir [Décisions](./03_Decisions.md) DEC-005.
+
+`personal_notes` et `personal_journal_entries` sont les tables des deux modules à saisie manuelle du pôle. Elles partagent le même patron, différent des deux précédentes : `user_id` **non nullable** et référençant `auth.users` en cascade, contrainte de contenu non vide, `deleted_at` nullable pour la suppression logique, et un déclencheur `updated_at`. `personal_journal_entries` ajoute `mood` (entier nullable, contrainte de plage 1-5) ; le nullable y porte l'information « humeur non renseignée », qui n'est pas la valeur neutre du milieu de l'échelle.
+
+Ces deux tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet. Ni l'une ni l'autre n'accorde le privilège `DELETE` à `authenticated`, et aucune ne porte de policy `DELETE` — la suppression physique relève du geste RGPD, qui passera par la clé service-role.
 
 ## Règles de sécurité
 

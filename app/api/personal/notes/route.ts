@@ -1,21 +1,42 @@
 import { NextResponse } from "next/server";
 import { parseNoteContent } from "@/lib/personal/notes";
-import { createPersonalNote, listPersonalNotes } from "@/lib/server/personal/notes-store";
+import {
+  countArchivedPersonalNotes,
+  createPersonalNote,
+  listArchivedPersonalNotes,
+  listPersonalNotes,
+} from "@/lib/server/personal/notes-store";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+// ?archived=true bascule sur les notes archivees. Les deux etats ne se
+// melangent jamais dans une meme liste : il n'existe pas de valeur "all", pour
+// qu'aucun affichage ne puisse laisser croire qu'une note archivee est active.
+export async function GET(request: Request) {
   const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
   }
 
-  try {
-    const notes = await listPersonalNotes(user.id);
+  const archived = new URL(request.url).searchParams.get("archived") === "true";
 
-    return NextResponse.json({ ok: true, notes });
+  try {
+    if (archived) {
+      const notes = await listArchivedPersonalNotes(user.id);
+
+      return NextResponse.json({ ok: true, notes });
+    }
+
+    // Le compteur d'archives accompagne la liste active : l'UI affiche
+    // "Voir les archives (N)" sans second aller-retour.
+    const [notes, archivedCount] = await Promise.all([
+      listPersonalNotes(user.id),
+      countArchivedPersonalNotes(user.id),
+    ]);
+
+    return NextResponse.json({ ok: true, notes, archivedCount });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Lecture des notes indisponible.";

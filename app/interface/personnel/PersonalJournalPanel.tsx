@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   JOURNAL_CONTENT_MAX_LENGTH,
   parseJournalContentValue,
+  type ArchivedPersonalJournalEntry,
   type PersonalJournalEntry,
 } from "@/lib/personal/journal";
 import { PersonalEmptyState, PersonalModuleCard } from "./PersonalPrimitives";
@@ -87,25 +88,51 @@ export function PersonalJournalPanel() {
   const [editingMood, setEditingMood] = useState<number | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
+  // Les archives forment une liste separee, jamais melangee a la liste active.
+  const [archivedCount, setArchivedCount] = useState(0);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedEntries, setArchivedEntries] = useState<ArchivedPersonalJournalEntry[]>([]);
+  const [isLoadingArchived, setIsLoadingArchived] = useState(false);
+
+  const fetchActive = useCallback(async () => {
+    const response = await fetch("/api/personal/journal", { cache: "no-store" });
+    const payload = (await response.json()) as {
+      entries?: PersonalJournalEntry[];
+      archivedCount?: number;
+      error?: string;
+    };
+
+    if (!response.ok || !payload.entries) {
+      throw new Error(payload.error ?? "Lecture du journal indisponible.");
+    }
+
+    return { entries: payload.entries, archivedCount: payload.archivedCount ?? 0 };
+  }, []);
+
+  const fetchArchived = useCallback(async () => {
+    const response = await fetch("/api/personal/journal?archived=true", {
+      cache: "no-store",
+    });
+    const payload = (await response.json()) as {
+      entries?: ArchivedPersonalJournalEntry[];
+      error?: string;
+    };
+
+    if (!response.ok || !payload.entries) {
+      throw new Error(payload.error ?? "Lecture des archives indisponible.");
+    }
+
+    return payload.entries;
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
-    fetch("/api/personal/journal", { cache: "no-store" })
-      .then(async (response) => {
-        const payload = (await response.json()) as {
-          entries?: PersonalJournalEntry[];
-          error?: string;
-        };
-
-        if (!response.ok || !payload.entries) {
-          throw new Error(payload.error ?? "Lecture du journal indisponible.");
-        }
-
-        return payload.entries;
-      })
-      .then((nextEntries) => {
+    fetchActive()
+      .then((next) => {
         if (isMounted) {
-          setEntries(nextEntries);
+          setEntries(next.entries);
+          setArchivedCount(next.archivedCount);
           setError(null);
         }
       })
@@ -127,7 +154,57 @@ export function PersonalJournalPanel() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [fetchActive]);
+
+  async function openArchives() {
+    setShowArchived(true);
+    setIsLoadingArchived(true);
+
+    try {
+      setArchivedEntries(await fetchArchived());
+      setError(null);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Lecture des archives indisponible.",
+      );
+    } finally {
+      setIsLoadingArchived(false);
+    }
+  }
+
+  // Restaurer remet l'entree dans la liste active, rechargee plutot que
+  // reconstruite localement pour qu'elle reprenne sa place exacte dans le tri.
+  async function restoreEntry(entryId: string) {
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(`/api/personal/journal/${entryId}/restore`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error ?? "Restauration de l'entree indisponible.");
+      }
+
+      setArchivedEntries((current) => current.filter((entry) => entry.id !== entryId));
+
+      const next = await fetchActive();
+      setEntries(next.entries);
+      setArchivedCount(next.archivedCount);
+      setError(null);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Restauration de l'entree indisponible.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   const draftCheck = parseJournalContentValue(draft);
   const draftTouched = draft.trim().length > 0;
@@ -235,7 +312,12 @@ export function PersonalJournalPanel() {
 
       setEntries((current) => current.filter((entry) => entry.id !== entryId));
       setConfirmingDeleteId(null);
+      setArchivedCount((current) => current + 1);
       setError(null);
+
+      if (showArchived) {
+        setArchivedEntries(await fetchArchived());
+      }
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -398,6 +480,60 @@ export function PersonalJournalPanel() {
           </ul>
         )}
       </PersonalModuleCard>
+
+      {/* Carte separee : aucune entree archivee ne doit pouvoir passer pour
+          active. Seule action possible ici, Restaurer — il n'existe aucune
+          suppression definitive dans ce module. */}
+      {archivedCount > 0 || showArchived ? (
+        <div className="grid gap-3">
+          <button
+            className="justify-self-start rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/40 hover:text-[#F8FAFC]"
+            onClick={() => (showArchived ? setShowArchived(false) : openArchives())}
+            type="button"
+          >
+            {showArchived ? "Masquer les archives" : `Voir les archives (${archivedCount})`}
+          </button>
+
+          {showArchived ? (
+            <PersonalModuleCard title="Archives">
+              {isLoadingArchived ? (
+                <p className="text-sm text-[#A7B0C0]">Chargement...</p>
+              ) : archivedEntries.length === 0 ? (
+                <PersonalEmptyState source="Aucune entrée archivée." />
+              ) : (
+                <ul className="grid gap-3">
+                  {archivedEntries.map((entry) => (
+                    <li
+                      className="rounded-md border border-dashed border-[#1D2A44] bg-[#03070B] p-4"
+                      key={entry.id}
+                    >
+                      <div className="grid gap-3">
+                        <p className="whitespace-pre-wrap text-sm leading-6 text-[#A7B0C0]">
+                          {entry.content}
+                        </p>
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-xs text-[#64748b]">
+                            Archivée le {formatJournalTimestamp(entry.archivedAt)}
+                            {entry.mood !== null ? ` · humeur ${entry.mood}/5` : ""}
+                          </p>
+                          <button
+                            className="rounded-md border border-[#39E6D0]/60 bg-[#39E6D0]/15 px-3 py-1.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={isSubmitting}
+                            onClick={() => restoreEntry(entry.id)}
+                            type="button"
+                          >
+                            Restaurer
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </PersonalModuleCard>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

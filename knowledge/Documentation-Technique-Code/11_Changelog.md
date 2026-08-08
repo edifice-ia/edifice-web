@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-06 (archives et restauration, Notes et Journal)](#2026-08-06-archives-et-restauration-notes-et-journal)
 - [2026-08-05 (module Journal et Humeur)](#2026-08-05-module-journal-et-humeur)
 - [2026-08-04 (pôle Assistant)](#2026-08-04-pôle-assistant)
 - [2026-08-04 (module Notes)](#2026-08-04-module-notes)
@@ -40,6 +41,31 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-06 (archives et restauration, Notes et Journal)
+
+Type : produit, documentation  
+Résumé : les éléments archivés deviennent consultables et restaurables sur Notes et Journal. Jusqu'ici, archiver rendait une note ou une entrée définitivement invisible depuis l'interface, alors que la ligne existait toujours en base — un soft delete sans porte de sortie. `GET ?archived=true` liste les archives, `POST /[id]/restore` restaure, et la liste active renvoie `archivedCount` pour afficher « Voir les archives (N) » sans second appel.
+
+Fichiers liés :
+
+- `lib/personal/notes.ts`, `lib/personal/journal.ts` (types `Archived*`)
+- `lib/server/personal/notes-store.ts`, `journal-store.ts` (liste, compte, restauration)
+- `app/api/personal/notes/route.ts`, `journal/route.ts`
+- `app/api/personal/notes/[id]/restore/route.ts`, `journal/[id]/restore/route.ts`
+- `app/interface/personnel/PersonalNotesPanel.tsx`, `PersonalJournalPanel.tsx`
+
+Impact : le soft delete cesse d'être une impasse. Une note archivée par erreur se récupère, ce qui rend l'archivage moins coûteux à déclencher — et donc plus honnête comme geste par défaut.
+
+**Restaurer et supprimer définitivement ne partagent rien.** [11-modularite-configuration.md](../Documentation-Strategique/Markdown/11-modularite-configuration.md) pose qu'éteindre une capacité et supprimer une donnée « ne doivent jamais partager un seul bouton ni une seule confirmation ». La séparation implémentée dépasse le bouton : deux fichiers de route, deux fonctions de store sans ligne commune, et **aucune suppression physique nulle part dans ces deux modules** — ni route, ni fonction, ni privilège. Vérifié à l'exécution : un `DELETE` sur une route de restauration renvoie `405`. À l'écran, les archives forment une carte séparée en bordure pointillée où le seul geste possible est « Restaurer ».
+
+Aucune policy RLS nouvelle : la restauration est un `UPDATE` de `deleted_at` et emprunte la policy `update` déjà scopée au propriétaire — exactement celle qui couvrait déjà l'archivage, dans l'autre sens.
+
+Deux choix de contrat qui méritent d'être connus. Il **n'existe pas de valeur `?archived=all`** : mélanger les deux états dans une liste laisserait croire qu'un élément archivé est actif. Et la restauration **recharge la liste active** au lieu de la reconstruire localement, pour que l'élément reprenne sa place exacte dans le tri par date de création.
+
+Non traité : **Habitudes**, dont le socle RLS n'est pas confirmé réparé — le bug de création (`new row violates row-level security policy`) reste ouvert, l'hypothèse principale étant que les policies de `personal_habits` n'ont jamais été créées en base. Construire des archives par-dessus un socle non vérifié aurait ajouté du code non testable.
+
+Action de suivi, non traitée : le cycle authentifié n'a pas été exercé — lister des archives, restaurer, voir le compteur bouger demande une session que l'agent ne peut pas ouvrir.
 
 ## 2026-08-05 (module Journal et Humeur)
 

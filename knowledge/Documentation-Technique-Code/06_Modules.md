@@ -261,6 +261,22 @@ Deux traits de la table méritent d'être connus :
 
 **Rattachement Marque/Projet : extension différée.** [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) prévoit qu'une note puisse se rattacher à une Marque ou un Projet. Rien de tel n'existe ici, délibérément — voir [Décisions](./03_Decisions.md) DEC-010, commune avec Tâches. Le rattachement se fera par une table de liaison dédiée, sans toucher à `personal_notes` : c'est précisément ce que le modèle en table de liaison de [12-modele-de-donnees.md](../Documentation-Strategique/Markdown/12-modele-de-donnees.md) permet, et la raison de ne pas avoir ajouté une colonne `marque_id` nullable qui serait restée vide indéfiniment.
 
+#### Archives et restauration
+
+`GET /api/personal/notes?archived=true` liste les notes archivées ; la liste active renvoie en plus `archivedCount`, pour que l'écran affiche « Voir les archives (N) » sans second aller-retour. **Il n'existe pas de valeur `all`** : les deux états ne se mélangent jamais dans une même liste, faute de quoi une note archivée pourrait passer pour active.
+
+La restauration est `POST /api/personal/notes/[id]/restore`. Elle remet `deleted_at` à `null` et ne touche à rien d'autre. Côté base, c'est un `UPDATE` : elle emprunte la policy `update` déjà en place, scopée au propriétaire — **aucune policy nouvelle n'a été nécessaire**, puisque archiver est déjà un `UPDATE` de la même colonne.
+
+**Restaurer et supprimer définitivement ne partagent rien**, et c'est le point structurant de cette extension. [11-modularite-configuration.md](../Documentation-Strategique/Markdown/11-modularite-configuration.md) pose qu'éteindre une capacité et supprimer une donnée sont deux intentions différentes qui « ne doivent jamais partager un seul bouton ni une seule confirmation ». Ici la séparation va plus loin que le bouton :
+
+- deux fichiers de route distincts — `DELETE /[id]` archive, `POST /[id]/restore` restaure. Aucun booléen ne fait basculer de l'un à l'autre ;
+- deux fonctions de store distinctes, sans ligne commune ;
+- **aucune suppression physique n'existe dans ce module** : ni route, ni fonction, ni privilège. La table n'accorde pas `DELETE` à `authenticated` et ne porte aucune policy `DELETE`. Vérifié à l'exécution — un `DELETE` sur la route de restauration renvoie `405`, le verbe n'existant pas.
+
+À l'écran, les archives vivent dans une carte séparée, en bordure pointillée et texte atténué, où **le seul geste possible est « Restaurer »**. Ni modifier, ni supprimer.
+
+Le jour où une suppression physique sera nécessaire, ce sera un chantier distinct, à friction volontairement plus élevée, passant par la clé service-role.
+
 ### Journal et Humeur
 
 Deuxième module à saisie manuelle du pôle, construit le 2026-08-05 sur le patron de Notes : table, route API, UI. Rôle conforme à [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) — garder une trace libre de ce qui se passe et de l'état d'esprit du moment.
@@ -285,6 +301,8 @@ Deux écarts propres à ce module :
 **Tendance d'humeur : différée, pas oubliée.** [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) décrit comme donnée dérivée notable « une tendance d'humeur sur une période, lisible par l'Assistant sans jamais être traitée comme un diagnostic ». Elle n'est pas construite. Ce n'est pas un oubli : le module de base (CRUD) passait d'abord. Deux points à connaître le jour où elle sera faite — elle se calcule **en lecture** à partir de `mood` et `created_at`, sans colonne ni table supplémentaire, donc sans migration ; et elle devra **exclure les entrées sans humeur** plutôt que les compter comme des valeurs moyennes. L'index partiel `(user_id, created_at desc)` couvre déjà son chemin d'accès, raison pour laquelle aucun index n'a été créé par anticipation.
 
 **Rattachement Marque/Projet : extension différée**, même raison et même référence que Notes — voir [Décisions](./03_Decisions.md) DEC-010, qui s'applique à tout module de domaine de vie construit avant que le concept n'existe en code.
+
+**Archives et restauration : contrat identique à Notes**, à la forme de réponse près (`entries` au lieu de `notes`). `GET /api/personal/journal?archived=true` pour la liste, `POST /api/personal/journal/[id]/restore` pour restaurer, `archivedCount` sur la liste active. Les entrées archivées affichent leur humeur si elle était notée, et **le seul geste possible dans les archives reste « Restaurer »** — voir la section Notes ci-dessus pour le raisonnement complet sur la séparation d'avec la suppression physique, qui n'existe pas davantage ici.
 
 ## Service renderer
 

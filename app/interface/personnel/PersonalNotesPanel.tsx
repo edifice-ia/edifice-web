@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   NOTE_CONTENT_MAX_LENGTH,
   parseNoteContentValue,
+  type ArchivedPersonalNote,
   type PersonalNote,
 } from "@/lib/personal/notes";
 import { PersonalEmptyState, PersonalModuleCard } from "./PersonalPrimitives";
@@ -32,25 +33,52 @@ export function PersonalNotesPanel() {
   const [editingValue, setEditingValue] = useState("");
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
+  // Les archives forment une liste separee, jamais melangee a la liste active :
+  // deux etats, deux appels, deux listes.
+  const [archivedCount, setArchivedCount] = useState(0);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedNotes, setArchivedNotes] = useState<ArchivedPersonalNote[]>([]);
+  const [isLoadingArchived, setIsLoadingArchived] = useState(false);
+
+  const fetchActive = useCallback(async () => {
+    const response = await fetch("/api/personal/notes", { cache: "no-store" });
+    const payload = (await response.json()) as {
+      notes?: PersonalNote[];
+      archivedCount?: number;
+      error?: string;
+    };
+
+    if (!response.ok || !payload.notes) {
+      throw new Error(payload.error ?? "Lecture des notes indisponible.");
+    }
+
+    return { notes: payload.notes, archivedCount: payload.archivedCount ?? 0 };
+  }, []);
+
+  const fetchArchived = useCallback(async () => {
+    const response = await fetch("/api/personal/notes?archived=true", {
+      cache: "no-store",
+    });
+    const payload = (await response.json()) as {
+      notes?: ArchivedPersonalNote[];
+      error?: string;
+    };
+
+    if (!response.ok || !payload.notes) {
+      throw new Error(payload.error ?? "Lecture des archives indisponible.");
+    }
+
+    return payload.notes;
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
-    fetch("/api/personal/notes", { cache: "no-store" })
-      .then(async (response) => {
-        const payload = (await response.json()) as {
-          notes?: PersonalNote[];
-          error?: string;
-        };
-
-        if (!response.ok || !payload.notes) {
-          throw new Error(payload.error ?? "Lecture des notes indisponible.");
-        }
-
-        return payload.notes;
-      })
-      .then((nextNotes) => {
+    fetchActive()
+      .then((next) => {
         if (isMounted) {
-          setNotes(nextNotes);
+          setNotes(next.notes);
+          setArchivedCount(next.archivedCount);
           setError(null);
         }
       })
@@ -72,7 +100,58 @@ export function PersonalNotesPanel() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [fetchActive]);
+
+  async function openArchives() {
+    setShowArchived(true);
+    setIsLoadingArchived(true);
+
+    try {
+      setArchivedNotes(await fetchArchived());
+      setError(null);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Lecture des archives indisponible.",
+      );
+    } finally {
+      setIsLoadingArchived(false);
+    }
+  }
+
+  // Restaurer remet la note dans la liste active. Celle-ci est rechargee plutot
+  // que reconstruite localement, pour que la note reprenne sa place exacte dans
+  // le tri par date de creation.
+  async function restoreNote(noteId: string) {
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(`/api/personal/notes/${noteId}/restore`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error ?? "Restauration de la note indisponible.");
+      }
+
+      setArchivedNotes((current) => current.filter((note) => note.id !== noteId));
+
+      const next = await fetchActive();
+      setNotes(next.notes);
+      setArchivedCount(next.archivedCount);
+      setError(null);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Restauration de la note indisponible.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   const draftCheck = parseNoteContentValue(draft);
   const draftTouched = draft.trim().length > 0;
@@ -168,7 +247,14 @@ export function PersonalNotesPanel() {
 
       setNotes((current) => current.filter((note) => note.id !== noteId));
       setConfirmingDeleteId(null);
+      setArchivedCount((current) => current + 1);
       setError(null);
+
+      // La note archivee doit apparaitre immediatement dans les archives si
+      // elles sont ouvertes, sans quoi la liste affichee serait perimee.
+      if (showArchived) {
+        setArchivedNotes(await fetchArchived());
+      }
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -322,6 +408,60 @@ export function PersonalNotesPanel() {
           </ul>
         )}
       </PersonalModuleCard>
+
+      {/* Les archives vivent dans une carte separee, jamais dans la liste
+          active : aucun element ne doit laisser croire qu'il est encore actif.
+          La seule action possible ici est Restaurer — il n'existe aucune
+          suppression definitive dans ce module. */}
+      {archivedCount > 0 || showArchived ? (
+        <div className="grid gap-3">
+          <button
+            className="justify-self-start rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/40 hover:text-[#F8FAFC]"
+            onClick={() => (showArchived ? setShowArchived(false) : openArchives())}
+            type="button"
+          >
+            {showArchived ? "Masquer les archives" : `Voir les archives (${archivedCount})`}
+          </button>
+
+          {showArchived ? (
+            <PersonalModuleCard title="Archives">
+              {isLoadingArchived ? (
+                <p className="text-sm text-[#A7B0C0]">Chargement...</p>
+              ) : archivedNotes.length === 0 ? (
+                <PersonalEmptyState source="Aucune note archivée." />
+              ) : (
+                <ul className="grid gap-3">
+                  {archivedNotes.map((note) => (
+                    <li
+                      className="rounded-md border border-dashed border-[#1D2A44] bg-[#03070B] p-4"
+                      key={note.id}
+                    >
+                      <div className="grid gap-3">
+                        <p className="whitespace-pre-wrap text-sm leading-6 text-[#A7B0C0]">
+                          {note.content}
+                        </p>
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-xs text-[#64748b]">
+                            Archivée le {formatNoteTimestamp(note.archivedAt)}
+                          </p>
+                          <button
+                            className="rounded-md border border-[#39E6D0]/60 bg-[#39E6D0]/15 px-3 py-1.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={isSubmitting}
+                            onClick={() => restoreNote(note.id)}
+                            type="button"
+                          >
+                            Restaurer
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </PersonalModuleCard>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

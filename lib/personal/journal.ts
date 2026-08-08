@@ -14,6 +14,12 @@ export type PersonalJournalEntry = {
   updatedAt: string;
 };
 
+// Type distinct plutot qu'un champ optionnel : archivedAt n'existe que sur le
+// chemin des archives. Meme raisonnement que ArchivedPersonalNote.
+export type ArchivedPersonalJournalEntry = PersonalJournalEntry & {
+  archivedAt: string;
+};
+
 // 20000 la ou les notes plafonnent a 10000 : 23-modules.md oppose les deux
 // modules par le poids de ce qu'ils portent, une note etant "une information
 // ponctuelle qui ne merite pas une entree de journal".

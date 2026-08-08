@@ -1,4 +1,7 @@
-import type { PersonalJournalEntry } from "@/lib/personal/journal";
+import type {
+  ArchivedPersonalJournalEntry,
+  PersonalJournalEntry,
+} from "@/lib/personal/journal";
 import { createClient } from "@/src/lib/supabase/server";
 
 type PersonalJournalEntryRow = {
@@ -7,6 +10,10 @@ type PersonalJournalEntryRow = {
   mood: number | null;
   created_at: string;
   updated_at: string;
+};
+
+type ArchivedPersonalJournalEntryRow = PersonalJournalEntryRow & {
+  deleted_at: string;
 };
 
 // Client de session, pas service-role — meme raisonnement que
@@ -41,9 +48,11 @@ function mapEntry(row: PersonalJournalEntryRow): PersonalJournalEntry {
 }
 
 const JOURNAL_COLUMNS = "id, content, mood, created_at, updated_at";
+const ARCHIVED_JOURNAL_COLUMNS = `${JOURNAL_COLUMNS}, deleted_at`;
 
-// Les entrees supprimees (deleted_at non nul) ne sont jamais renvoyees : la
-// suppression est logique, mais elle est totale du point de vue de la lecture.
+// Les entrees archivees (deleted_at non nul) ne sont jamais renvoyees ici : les
+// deux etats ne se melangent jamais dans une meme liste. Voir
+// listArchivedPersonalJournalEntries pour l'autre chemin.
 export async function listPersonalJournalEntries(
   userId: string,
 ): Promise<PersonalJournalEntry[]> {
@@ -60,6 +69,76 @@ export async function listPersonalJournalEntries(
   }
 
   return ((data ?? []) as PersonalJournalEntryRow[]).map(mapEntry);
+}
+
+// Triees par date d'archivage decroissante : ce qu'on vient d'archiver par
+// erreur est ce qu'on cherche a restaurer en premier.
+export async function listArchivedPersonalJournalEntries(
+  userId: string,
+): Promise<ArchivedPersonalJournalEntry[]> {
+  const supabase = await getJournalClient();
+  const { data, error } = await supabase
+    .from("personal_journal_entries")
+    .select(ARCHIVED_JOURNAL_COLUMNS)
+    .eq("user_id", userId)
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return ((data ?? []) as ArchivedPersonalJournalEntryRow[]).map((row) => ({
+    ...mapEntry(row),
+    archivedAt: row.deleted_at,
+  }));
+}
+
+// Compte seul, sans ramener les lignes : le compteur accompagne la liste active
+// pour que l'UI affiche "Voir les archives (N)" sans second aller-retour.
+export async function countArchivedPersonalJournalEntries(
+  userId: string,
+): Promise<number> {
+  const supabase = await getJournalClient();
+  const { count, error } = await supabase
+    .from("personal_journal_entries")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .not("deleted_at", "is", null);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return count ?? 0;
+}
+
+// Restauration : remet deleted_at a null, et ne touche a rien d'autre. Meme
+// separation stricte que dans notes-store.ts — aucune suppression physique
+// n'existe dans ce module, et ce geste ne partage aucune fonction avec elle,
+// conformement a 11-modularite-configuration.md.
+export async function restorePersonalJournalEntry({
+  userId,
+  entryId,
+}: {
+  userId: string;
+  entryId: string;
+}): Promise<boolean> {
+  const supabase = await getJournalClient();
+  const { data, error } = await supabase
+    .from("personal_journal_entries")
+    .update({ deleted_at: null })
+    .eq("id", entryId)
+    .eq("user_id", userId)
+    .not("deleted_at", "is", null)
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data !== null;
 }
 
 export async function createPersonalJournalEntry({

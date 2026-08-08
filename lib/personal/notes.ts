@@ -14,6 +14,13 @@ export type PersonalNote = {
   updatedAt: string;
 };
 
+// Type distinct plutot qu'un champ optionnel sur PersonalNote : archivedAt
+// n'existe que sur le chemin des archives, et le typage doit empecher de le
+// lire par erreur sur une note active, ou il vaudrait toujours undefined.
+export type ArchivedPersonalNote = PersonalNote & {
+  archivedAt: string;
+};
+
 export const NOTE_CONTENT_MAX_LENGTH = 10000;
 
 export type NoteContentParseResult =

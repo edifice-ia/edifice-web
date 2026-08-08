@@ -1,4 +1,4 @@
-import type { PersonalNote } from "@/lib/personal/notes";
+import type { ArchivedPersonalNote, PersonalNote } from "@/lib/personal/notes";
 import { createClient } from "@/src/lib/supabase/server";
 
 type PersonalNoteRow = {
@@ -6,6 +6,10 @@ type PersonalNoteRow = {
   content: string;
   created_at: string;
   updated_at: string;
+};
+
+type ArchivedPersonalNoteRow = PersonalNoteRow & {
+  deleted_at: string;
 };
 
 // Ce store diverge deliberement des deux autres stores Personnel
@@ -50,9 +54,11 @@ function mapNote(row: PersonalNoteRow): PersonalNote {
 }
 
 const NOTE_COLUMNS = "id, content, created_at, updated_at";
+const ARCHIVED_NOTE_COLUMNS = `${NOTE_COLUMNS}, deleted_at`;
 
-// Les notes supprimees (deleted_at non nul) ne sont jamais renvoyees : la
-// suppression est logique, mais elle est totale du point de vue de la lecture.
+// Les notes archivees (deleted_at non nul) ne sont jamais renvoyees ici : les
+// deux etats ne se melangent jamais dans une meme liste. Voir
+// listArchivedPersonalNotes pour l'autre chemin.
 export async function listPersonalNotes(userId: string): Promise<PersonalNote[]> {
   const supabase = await getNotesClient();
   const { data, error } = await supabase
@@ -67,6 +73,79 @@ export async function listPersonalNotes(userId: string): Promise<PersonalNote[]>
   }
 
   return ((data ?? []) as PersonalNoteRow[]).map(mapNote);
+}
+
+// Triees par date d'archivage decroissante : ce qu'on vient d'archiver par
+// erreur est ce qu'on cherche a restaurer en premier.
+export async function listArchivedPersonalNotes(
+  userId: string,
+): Promise<ArchivedPersonalNote[]> {
+  const supabase = await getNotesClient();
+  const { data, error } = await supabase
+    .from("personal_notes")
+    .select(ARCHIVED_NOTE_COLUMNS)
+    .eq("user_id", userId)
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return ((data ?? []) as ArchivedPersonalNoteRow[]).map((row) => ({
+    ...mapNote(row),
+    archivedAt: row.deleted_at,
+  }));
+}
+
+// Compte seul, sans ramener les lignes : le compteur accompagne la liste active
+// pour que l'UI affiche "Voir les archives (N)" sans second aller-retour.
+export async function countArchivedPersonalNotes(userId: string): Promise<number> {
+  const supabase = await getNotesClient();
+  const { count, error } = await supabase
+    .from("personal_notes")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .not("deleted_at", "is", null);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return count ?? 0;
+}
+
+// Restauration : remet deleted_at a null, et ne touche a rien d'autre.
+//
+// Ce geste est volontairement separe de toute suppression physique — il n'en
+// existe aucune dans ce module, ni ici ni ailleurs. 11-modularite-configuration.md
+// pose qu'archiver et supprimer definitivement ne doivent jamais partager un
+// bouton ni une confirmation ; ils ne partagent ici pas non plus de fonction.
+//
+// Renvoie false si la note n'existe pas, ne lui appartient pas, ou n'est pas
+// archivee — les trois cas restent indistinguables cote appelant.
+export async function restorePersonalNote({
+  userId,
+  noteId,
+}: {
+  userId: string;
+  noteId: string;
+}): Promise<boolean> {
+  const supabase = await getNotesClient();
+  const { data, error } = await supabase
+    .from("personal_notes")
+    .update({ deleted_at: null })
+    .eq("id", noteId)
+    .eq("user_id", userId)
+    .not("deleted_at", "is", null)
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data !== null;
 }
 
 export async function createPersonalNote({

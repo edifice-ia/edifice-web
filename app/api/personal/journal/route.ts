@@ -1,24 +1,39 @@
 import { NextResponse } from "next/server";
 import { parseJournalCreatePayload } from "@/lib/personal/journal";
 import {
+  countArchivedPersonalJournalEntries,
   createPersonalJournalEntry,
+  listArchivedPersonalJournalEntries,
   listPersonalJournalEntries,
 } from "@/lib/server/personal/journal-store";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+// ?archived=true bascule sur les entrees archivees. Meme contrat que les notes :
+// pas de valeur "all", les deux etats ne se melangent jamais.
+export async function GET(request: Request) {
   const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
   }
 
-  try {
-    const entries = await listPersonalJournalEntries(user.id);
+  const archived = new URL(request.url).searchParams.get("archived") === "true";
 
-    return NextResponse.json({ ok: true, entries });
+  try {
+    if (archived) {
+      const entries = await listArchivedPersonalJournalEntries(user.id);
+
+      return NextResponse.json({ ok: true, entries });
+    }
+
+    const [entries, archivedCount] = await Promise.all([
+      listPersonalJournalEntries(user.id),
+      countArchivedPersonalJournalEntries(user.id),
+    ]);
+
+    return NextResponse.json({ ok: true, entries, archivedCount });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Lecture du journal indisponible.";

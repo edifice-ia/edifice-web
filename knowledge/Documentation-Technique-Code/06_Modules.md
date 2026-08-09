@@ -273,6 +273,8 @@ La restauration est `POST /api/personal/notes/[id]/restore`. Elle remet `deleted
 - deux fonctions de store distinctes, sans ligne commune ;
 - **aucune suppression physique n'existe dans ce module** : ni route, ni fonction, ni privilège. La table n'accorde pas `DELETE` à `authenticated` et ne porte aucune policy `DELETE`. Vérifié à l'exécution — un `DELETE` sur la route de restauration renvoie `405`, le verbe n'existant pas.
 
+**Le bouton de la liste active s'appelle « Archiver », pas « Supprimer »** — renommé le 2026-08-09, avec la confirmation qui va avec (« Confirmer l'archivage ? »). Le geste n'a jamais rien supprimé physiquement : il écrit `deleted_at` depuis l'origine. Tant que les archives n'existaient pas, l'écart de vocabulaire était discutable ; depuis qu'un écran montre ce que devient l'élément, appeler « Supprimer » une action réversible serait un mensonge de l'interface. Seuls les libellés affichés ont changé — routes, fonctions de store et variables internes gardent leurs noms (`confirmDelete`, `softDeletePersonalNote`, `DELETE /[id]`).
+
 À l'écran, les archives vivent dans une carte séparée, en bordure pointillée et texte atténué, où **le seul geste possible est « Restaurer »**. Ni modifier, ni supprimer.
 
 Le jour où une suppression physique sera nécessaire, ce sera un chantier distinct, à friction volontairement plus élevée, passant par la clé service-role.
@@ -302,7 +304,7 @@ Deux écarts propres à ce module :
 
 **Rattachement Marque/Projet : extension différée**, même raison et même référence que Notes — voir [Décisions](./03_Decisions.md) DEC-010, qui s'applique à tout module de domaine de vie construit avant que le concept n'existe en code.
 
-**Archives et restauration : contrat identique à Notes**, à la forme de réponse près (`entries` au lieu de `notes`). `GET /api/personal/journal?archived=true` pour la liste, `POST /api/personal/journal/[id]/restore` pour restaurer, `archivedCount` sur la liste active. Les entrées archivées affichent leur humeur si elle était notée, et **le seul geste possible dans les archives reste « Restaurer »** — voir la section Notes ci-dessus pour le raisonnement complet sur la séparation d'avec la suppression physique, qui n'existe pas davantage ici.
+**Archives et restauration : contrat identique à Notes**, libellé « Archiver » compris, à la forme de réponse près (`entries` au lieu de `notes`). `GET /api/personal/journal?archived=true` pour la liste, `POST /api/personal/journal/[id]/restore` pour restaurer, `archivedCount` sur la liste active. Les entrées archivées affichent leur humeur si elle était notée, et **le seul geste possible dans les archives reste « Restaurer »** — voir la section Notes ci-dessus pour le raisonnement complet sur la séparation d'avec la suppression physique, qui n'existe pas davantage ici.
 
 ## Service renderer
 

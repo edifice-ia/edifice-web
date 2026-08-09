@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-09 (libellé « Archiver », et un incident de cache Turbopack)](#2026-08-09-libellé--archiver--et-un-incident-de-cache-turbopack)
 - [2026-08-06 (archives et restauration, Notes et Journal)](#2026-08-06-archives-et-restauration-notes-et-journal)
 - [2026-08-05 (module Journal et Humeur)](#2026-08-05-module-journal-et-humeur)
 - [2026-08-04 (pôle Assistant)](#2026-08-04-pôle-assistant)
@@ -41,6 +42,36 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-09 (libellé « Archiver », et un incident de cache Turbopack)
+
+Type : produit, documentation  
+Résumé : sur Notes et Journal, le bouton « Supprimer » de la liste active devient **« Archiver »**, et sa confirmation « Confirmer l'archivage ? ». Le geste n'a jamais rien supprimé physiquement — il écrit `deleted_at` depuis l'origine. Tant que les archives n'existaient pas, l'écart de vocabulaire était discutable ; depuis que l'écran montre où va l'élément et permet de le récupérer, appeler « Supprimer » une action réversible serait un mensonge de l'interface. Les messages d'erreur affichés sont alignés (« Archivage de la note indisponible »).
+
+Fichiers liés :
+
+- `app/interface/personnel/PersonalNotesPanel.tsx`, `PersonalJournalPanel.tsx`
+- `app/api/personal/notes/[id]/route.ts`, `app/api/personal/journal/[id]/route.ts` (message d'erreur uniquement)
+
+Impact : **textes affichés uniquement**. Le message de repli des deux routes `DELETE` disait encore « Suppression… » ; il est aligné, car il s'affiche à l'utilisateur quand le serveur échoue et aurait rétabli la confusion que le renommage supprime. **Aucun identifiant ne change** — `confirmDelete`, `softDeletePersonalNote`, `DELETE /[id]`, `confirmingDeleteId` gardent leurs noms, et `lib/server/` n'est pas touché.
+
+### Incident : un bouton qui ne répond plus, sans bug dans le code
+
+À retenir pour un symptôme futur du même genre — **une commande qui cesse de répondre juste après l'ajout d'une fonctionnalité, sans erreur affichée**.
+
+Après la livraison des archives, le bouton de confirmation d'archivage de Notes affichait bien son état « Confirmer / Annuler » mais ne réagissait plus au clic. L'hypothèse naturelle — une collision d'état entre la logique de confirmation et celle des archives — **était fausse**, et l'audit du code l'a établi avant toute modification :
+
+- `confirmingDeleteId` n'a que quatre écritures, toutes dans le flux de confirmation ; aucune ne vient du code des archives, et aucun effet ne le réinitialise ;
+- le bouton étant `disabled={isSubmitting}`, un `isSubmitting` bloqué produirait exactement ce symptôme — mais les huit écritures sont appariées, chaque `setIsSubmitting(true)` ayant son `setIsSubmitting(false)` dans un `finally` ;
+- l'arbre de travail était identique au code commité.
+
+La cause était **environnementale** : un serveur de dev orphelin, resté sur le port 3000 hors du gestionnaire qui l'avait lancé, avec un cache Turbopack corrompu de 346 Mo qui journalisait en boucle `Persisting failed / Compaction failed: Another write batch or compaction is already active`. Il servait un bundle client désynchronisé — le balisage à jour, les gestionnaires d'événements périmés.
+
+Tuer le processus, supprimer `.next`, relancer : le bug a disparu, sans une ligne de code modifiée.
+
+**Origine de l'orphelin, et la règle qui en découle** : les vérifications isolées font un `git stash --include-untracked`, qui fait disparaître puis réapparaître des fichiers sous un serveur en cours d'exécution. Répété, cela corrompt le cache. **Arrêter le serveur de dev avant chaque vérification isolée**, ce qui n'avait pas été fait pour les chantiers Habitudes et Archives.
+
+Deux réflexes que cet incident justifie : devant un symptôme d'interface inexplicable, vérifier `preview_list` contre le port réellement occupé — un écart signale un orphelin ; et lire les logs du serveur, où la corruption s'annonçait depuis des heures.
 
 ## 2026-08-06 (archives et restauration, Notes et Journal)
 

@@ -80,7 +80,7 @@ export async function DELETE(
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Suppression de la note indisponible.";
+      error instanceof Error ? error.message : "Archivage de la note indisponible.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -83,7 +83,7 @@ export async function DELETE(
     return NextResponse.json({ ok: true });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Suppression de l'entree indisponible.";
+      error instanceof Error ? error.message : "Archivage de l'entree indisponible.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

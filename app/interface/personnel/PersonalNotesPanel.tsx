@@ -242,7 +242,7 @@ export function PersonalNotesPanel() {
 
       if (!response.ok) {
         const payload = (await response.json()) as { error?: string };
-        throw new Error(payload.error ?? "Suppression de la note indisponible.");
+        throw new Error(payload.error ?? "Archivage de la note indisponible.");
       }
 
       setNotes((current) => current.filter((note) => note.id !== noteId));
@@ -259,7 +259,7 @@ export function PersonalNotesPanel() {
       setError(
         caughtError instanceof Error
           ? caughtError.message
-          : "Suppression de la note indisponible.",
+          : "Archivage de la note indisponible.",
       );
     } finally {
       setIsSubmitting(false);
@@ -357,14 +357,16 @@ export function PersonalNotesPanel() {
                       <div className="flex flex-wrap items-center gap-2">
                         {confirmingDeleteId === note.id ? (
                           <>
-                            <span className="text-sm text-[#fbbf24]">Confirmer ?</span>
+                            <span className="text-sm text-[#fbbf24]">
+                              Confirmer l&apos;archivage ?
+                            </span>
                             <button
                               className="rounded-md border border-[#f87171]/50 bg-[#f87171]/15 px-3 py-1.5 text-sm font-semibold text-[#fecaca] transition hover:bg-[#f87171]/25 disabled:cursor-not-allowed disabled:opacity-40"
                               disabled={isSubmitting}
                               onClick={() => confirmDelete(note.id)}
                               type="button"
                             >
-                              Supprimer
+                              Archiver
                             </button>
                             <button
                               className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
@@ -395,7 +397,7 @@ export function PersonalNotesPanel() {
                               }}
                               type="button"
                             >
-                              Supprimer
+                              Archiver
                             </button>
                           </>
                         )}

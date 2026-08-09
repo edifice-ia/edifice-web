@@ -307,7 +307,7 @@ export function PersonalJournalPanel() {
 
       if (!response.ok) {
         const payload = (await response.json()) as { error?: string };
-        throw new Error(payload.error ?? "Suppression de l'entree indisponible.");
+        throw new Error(payload.error ?? "Archivage de l'entree indisponible.");
       }
 
       setEntries((current) => current.filter((entry) => entry.id !== entryId));
@@ -322,7 +322,7 @@ export function PersonalJournalPanel() {
       setError(
         caughtError instanceof Error
           ? caughtError.message
-          : "Suppression de l'entree indisponible.",
+          : "Archivage de l'entree indisponible.",
       );
     } finally {
       setIsSubmitting(false);
@@ -428,14 +428,16 @@ export function PersonalJournalPanel() {
                       <div className="flex flex-wrap items-center gap-2">
                         {confirmingDeleteId === entry.id ? (
                           <>
-                            <span className="text-sm text-[#fbbf24]">Confirmer ?</span>
+                            <span className="text-sm text-[#fbbf24]">
+                              Confirmer l&apos;archivage ?
+                            </span>
                             <button
                               className="rounded-md border border-[#f87171]/50 bg-[#f87171]/15 px-3 py-1.5 text-sm font-semibold text-[#fecaca] transition hover:bg-[#f87171]/25 disabled:cursor-not-allowed disabled:opacity-40"
                               disabled={isSubmitting}
                               onClick={() => confirmDelete(entry.id)}
                               type="button"
                             >
-                              Supprimer
+                              Archiver
                             </button>
                             <button
                               className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
@@ -467,7 +469,7 @@ export function PersonalJournalPanel() {
                               }}
                               type="button"
                             >
-                              Supprimer
+                              Archiver
                             </button>
                           </>
                         )}

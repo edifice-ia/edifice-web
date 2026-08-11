@@ -232,9 +232,11 @@ Le registre `lib/personal/connectors/registry.ts` est conçu pour accueillir plu
 - **Garmin** : connecteur actif en développement. Voir [Décisions](./03_Decisions.md) DEC-005 et DEC-006.
 - **Strava, Notion, Finance, Calendrier** : stubs déclarés pour usage futur, non implémentés. `syncPersonalConnector` renvoie `success: false` tant qu'un connecteur n'est pas branché.
 
-Tables associées : `personal_garmin_daily_stats`, `personal_daily_briefs`, `personal_notes`, `personal_journal_entries`. Voir [Base de données](./05_Database.md).
+Tables associées : `personal_garmin_daily_stats`, `personal_daily_briefs`, `personal_notes`, `personal_journal_entries`, `personal_habits`, `personal_habit_completions`. Voir [Base de données](./05_Database.md).
 
-**Deux des onze onglets portent de la donnée saisie** : Notes et Journal, ci-dessous. Calendrier affiche des événements réels mais en lecture seule, depuis la synchronisation Google. Les huit autres — Résumé, Énergie, Sommeil, Sport, Objectifs, Tâches, Routines, Sources — rendent des cartes statiques portant « Ce bloc sera alimenté par … selon le cas ». C'est un écart de couverture assumé, pas une dette masquée : aucune de ces surfaces ne prétend afficher une donnée qu'elle n'a pas.
+**Trois des onze onglets portent de la donnée saisie** : Notes, Journal et Habitudes, ci-dessous. Calendrier affiche des événements réels mais en lecture seule, depuis la synchronisation Google. Les sept autres — Résumé, Énergie, Sommeil, Sport, Objectifs, Tâches, Sources — rendent des cartes statiques portant « Ce bloc sera alimenté par … selon le cas ». C'est un écart de couverture assumé, pas une dette masquée : aucune de ces surfaces ne prétend afficher une donnée qu'elle n'a pas.
+
+L'onglet Habitudes s'appelait « Routines » jusqu'au 2026-08-06. Renommé pour suivre le nom du module dans [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) ; l'identifiant interne reste `routines`, comme `links` qui pointe sur Ressources.
 
 ### Notes
 
@@ -305,6 +307,58 @@ Deux écarts propres à ce module :
 **Rattachement Marque/Projet : extension différée**, même raison et même référence que Notes — voir [Décisions](./03_Decisions.md) DEC-010, qui s'applique à tout module de domaine de vie construit avant que le concept n'existe en code.
 
 **Archives et restauration : contrat identique à Notes**, libellé « Archiver » compris, à la forme de réponse près (`entries` au lieu de `notes`). `GET /api/personal/journal?archived=true` pour la liste, `POST /api/personal/journal/[id]/restore` pour restaurer, `archivedCount` sur la liste active. Les entrées archivées affichent leur humeur si elle était notée, et **le seul geste possible dans les archives reste « Restaurer »** — voir la section Notes ci-dessus pour le raisonnement complet sur la séparation d'avec la suppression physique, qui n'existe pas davantage ici.
+
+### Habitudes
+
+Troisième module à saisie manuelle du pôle, et le premier à **deux tables** : une définition qu'on pose une fois (`personal_habits`) et un historique de réalisations au jour le jour (`personal_habit_completions`). Rôle conforme à [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) — suivre des routines répétées que l'on veut maintenir ou installer.
+
+Fichiers :
+
+- `supabase/migrations/20260806100000_create_personal_habits.sql` — les deux tables
+- `lib/personal/habits.ts` — types, validation **et calcul de série et de constance**, sans I/O
+- `lib/server/personal/habits-store.ts` — six opérations base
+- `app/api/personal/habits/route.ts` (GET, POST), `[id]/route.ts` (PATCH, DELETE), `[id]/completions/route.ts` (POST, DELETE)
+- `app/interface/personnel/PersonalHabitsPanel.tsx`
+
+**Statut réel : store, API et UI fonctionnels, vérifiés en conditions réelles.** Création d'habitude, marquage d'une réalisation, affichage de la série et du taux de constance confirmés par test manuel. **RLS confirmée par ce même test** — le rejet `new row violates row-level security policy` rencontré lors de la construction venait de policies absentes en base, la migration n'ayant été appliquée que partiellement ; le rejeu l'a résolu.
+
+#### Deux tables, et pourquoi le DELETE physique y est admis
+
+`personal_habits` suit le patron de Notes et Journal : soft delete par `deleted_at`, aucun privilège `DELETE` accordé à `authenticated`, aucune policy `DELETE`. Archiver une habitude préserve son historique de réalisations.
+
+`personal_habit_completions` **fait exception, et c'est le seul endroit du pôle où `authenticated` obtient `DELETE`**. Une réalisation n'est pas du contenu personnel, c'est un booléen sur un jour : décocher une case mal cochée doit retirer la ligne, pas la marquer supprimée. Un soft delete y aurait en plus obligé à rendre partielle la contrainte d'unicité `(habit_id, completed_on)` et à ressusciter la ligne au lieu d'insérer — plus de code pour aucun bénéfice visible. La policy `DELETE` reste **scopée au propriétaire** ; c'est la différence entière avec l'incident `content_assets` du 2026-07-28, où une policy `using (true)` coexistait avec le privilège.
+
+`user_id` est **dénormalisé** sur les réalisations, pour que les policies restent `user_id = auth.uid()` sans sous-requête. La dérive — une réalisation dont le `user_id` ne correspond pas à celui de son habitude — est fermée par une **clé étrangère composite** `(habit_id, user_id)` vers `personal_habits (id, user_id)`, pas par une convention de code : la base refuse la ligne incohérente.
+
+#### Série et taux de constance
+
+Aucune valeur n'est persistée : les deux sont calculés en lecture par `buildHabitStats`, fonction pure prenant `today` en paramètre — donc testable sur des dates fixes, sans horloge.
+
+**Une règle, deux unités.** Une habitude quotidienne se mesure en jours, une hebdomadaire en semaines, puisque c'est l'unité sur laquelle l'engagement a été pris. Compter en jours une habitude définie « 3× par semaine » mesurerait autre chose que ce qui a été promis. L'étiquette porte donc toujours l'unité — « 12 jours d'affilée » face à « 3 semaines d'affilée ».
+
+**La période en cours ne casse jamais la série.** Ne pas avoir coché aujourd'hui à 9 h du matin ne rompt rien : la journée est en cours. Idem pour la semaine — mercredi avec 1 sur 3, la semaine n'est ni réussie ni ratée, elle est en cours. Elle est donc exclue du décompte et affichée à côté comme progression. Sans cette exclusion, toute série tomberait à zéro chaque lundi matin.
+
+Le **taux de constance** porte sur les 4 dernières semaines **complètes**, la semaine en cours étant exclue pour la même raison. Il vaut `null` — affiché « Pas encore mesurable » — tant qu'aucune semaine complète n'a été vécue.
+
+#### Trois bugs de calcul, trouvés et corrigés avant le premier commit
+
+Ils sont consignés ici parce qu'aucun n'était visible à la lecture du code, et que les trois auraient produit des chiffres faux mais plausibles.
+
+**1. La semaine de création était comptée.** Une habitude créée un jeudi affichait `0 %` dès le lundi suivant : elle était jugée sur l'objectif complet d'une semaine où elle n'avait existé que quatre jours. Le calcul démarre désormais au **lundi suivant la création**.
+
+*Pourquoi exclure plutôt que proratiser* : proratiser — `cible × jours restants ÷ 7` — aurait donné un dénominateur fractionnaire et un pourcentage calculé sur une semaine partielle, exact mais peu comparable d'une habitude à l'autre. Exclure applique au contraire la règle déjà retenue pour la série, *une période incomplète ne compte pas*, et garantit qu'aucun taux affiché ne porte sur une semaine partiellement vécue. Le coût est un « Pas encore mesurable » qui peut durer jusqu'à deux semaines, assumé.
+
+**2. `createdOn` était lu en UTC.** `createdAt.slice(0, 10)` extrait le jour UTC, pas le jour vécu : une habitude créée à 00 h 30 heure de Paris porte un `created_at` de la veille. Si cette veille était un dimanche, elle basculait dans la semaine précédente et déclenchait le bug ci-dessus un jour trop tôt. Remplacé par `parisDayOf()`, à utiliser pour **tout** horodatage venant de la base — le reste du module calculait déjà les jours en Europe/Paris, seul ce point lisait de l'UTC.
+
+**3. Le compte de semaines était surévalué d'une unité.** `effectiveStart` est un lundi et `windowEnd` le dimanche de clôture : l'intervalle est inclusif des deux côtés, donc une semaine y mesure 6 jours d'écart. La formule les arrondissait à 1 puis ajoutait 1, comptant **2 semaines pour une**, et **5 pour la fenêtre pleine de 4**. Le dénominateur était systématiquement trop grand, donc **tous les taux sous-estimés** — d'un facteur 5/4 dans le cas courant. Trouvé en vérifiant le correctif précédent, sur un cas où 3 réalisations sur une cible de 3 affichaient 50 % au lieu de 100 %.
+
+#### Hors périmètre
+
+**Le graphique par habitude n'est pas construit** — différé, pas oublié. La série et le taux de constance suffisaient à rendre le module utile ; un graphique demande un arbitrage de forme qui n'a pas été pris.
+
+**Rattachement Marque/Projet : extension différée**, voir [Décisions](./03_Decisions.md) DEC-010, qui s'applique à tout module de domaine de vie construit avant que le concept n'existe en code.
+
+**Pas d'archives ni de restauration** sur ce module, contrairement à Notes et Journal : l'archivage d'une habitude existe côté base et côté API, mais aucune vue ne les liste ni ne les restaure. À rattraper sur le patron des deux autres.
 
 ## Service renderer
 

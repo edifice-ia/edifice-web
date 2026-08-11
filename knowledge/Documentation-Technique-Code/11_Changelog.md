@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-10 (module Habitudes)](#2026-08-10-module-habitudes)
 - [2026-08-09 (libellé « Archiver », et un incident de cache Turbopack)](#2026-08-09-libellé--archiver--et-un-incident-de-cache-turbopack)
 - [2026-08-06 (archives et restauration, Notes et Journal)](#2026-08-06-archives-et-restauration-notes-et-journal)
 - [2026-08-05 (module Journal et Humeur)](#2026-08-05-module-journal-et-humeur)
@@ -42,6 +43,34 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-10 (module Habitudes)
+
+Type : produit, sécurité, documentation  
+Résumé : troisième module à saisie manuelle du pôle Personnel, et le premier à **deux tables** — une définition d'habitude et un historique de réalisations au jour le jour. L'onglet « Routines » devient « Habitudes » et cesse d'afficher des cartes statiques. **Trois des onze onglets du pôle portent désormais de la donnée saisie.**
+
+Fichiers liés :
+
+- `supabase/migrations/20260806100000_create_personal_habits.sql`
+- `lib/personal/habits.ts`, `lib/server/personal/habits-store.ts`
+- `app/api/personal/habits/` (trois fichiers de route)
+- `app/interface/personnel/PersonalHabitsPanel.tsx`, `PersonalDashboardClient.tsx`
+
+Impact : série en cours et taux de constance sont calculés **en lecture**, sans colonne persistée, par une fonction pure prenant `today` en paramètre — donc testable sur des dates fixes. Vérifié en conditions réelles : création, marquage d'une réalisation, série et constance affichés.
+
+**Le seul `DELETE` accordé à `authenticated` du pôle** est sur `personal_habit_completions`. Une réalisation est un booléen sur un jour, pas du contenu : décocher retire la ligne. Un soft delete aurait obligé à rendre partielle la contrainte d'unicité `(habit_id, completed_on)` et à ressusciter la ligne au lieu d'insérer. La policy `DELETE` reste scopée au propriétaire — c'est la différence entière avec l'incident `content_assets` du 2026-07-28. `user_id` est dénormalisé sur les réalisations, la dérive étant fermée par une clé étrangère composite plutôt que par une convention de code.
+
+**Incident RLS résolu** : la création d'habitude échouait sur `new row violates row-level security policy`. Le code étant prouvé identique à celui de Notes et Journal — mêmes imports, même ordre d'instanciation, même transmission de `user.id` — la cause a été cherchée en base : la migration n'avait été appliquée que partiellement, les policies n'ayant jamais été créées. Le message de Postgres ne distingue pas « `WITH CHECK` faux » de « aucune policy `INSERT` applicable », ce qui rendait la première lecture trompeuse. Le rejeu de la migration a résolu le problème.
+
+### Trois bugs de calcul, corrigés avant le premier commit
+
+Aucun n'était visible à la lecture ; les trois auraient produit des chiffres faux mais plausibles. Ils sont détaillés dans [`06_Modules.md`](./06_Modules.md).
+
+1. **La semaine de création était comptée** — une habitude créée jeudi affichait `0 %` dès le lundi suivant, jugée sur l'objectif complet d'une semaine où elle n'avait existé que quatre jours. Le calcul démarre désormais au lundi suivant la création. Exclure plutôt que proratiser, pour appliquer la règle déjà retenue pour la série : une période incomplète ne compte pas.
+2. **`createdOn` était lu en UTC** — `slice(0, 10)` sur un `timestamptz` donne le jour UTC, pas le jour vécu. Une habitude créée à 00 h 30 heure de Paris était datée de la veille. Remplacé par `parisDayOf()`.
+3. **Le compte de semaines était surévalué d'une unité** — l'intervalle lundi→dimanche étant inclusif des deux côtés, la formule comptait 2 semaines pour une et 5 pour la fenêtre pleine de 4. **Tous les taux étaient sous-estimés**, d'un facteur 5/4 dans le cas courant. Trouvé en vérifiant le correctif précédent, sur un cas où 3 réalisations sur 3 affichaient 50 %.
+
+Actions de suivi, non traitées : le **graphique par habitude** reste hors périmètre, et **Habitudes n'a ni archives ni restauration** contrairement à Notes et Journal — l'archivage existe côté base et API, mais aucune vue ne les liste.
 
 ## 2026-08-09 (libellé « Archiver », et un incident de cache Turbopack)
 

@@ -16,6 +16,16 @@ export type PersonalHabit = {
   updatedAt: string;
 };
 
+// Type distinct, et surtout construit sur PersonalHabit et NON sur
+// PersonalHabitWithStats : une habitude archivee n'a ni serie ni taux de
+// constance. Ces valeurs n'ont pas de sens pour une habitude qu'on ne suit
+// plus, et les afficher figees serait un chiffre perime qui ne se signale pas.
+// L'absence des champs rend l'erreur impossible plutot que de compter sur la
+// vue pour ne pas les lire.
+export type ArchivedPersonalHabit = PersonalHabit & {
+  archivedAt: string;
+};
+
 export type PersonalHabitWithStats = PersonalHabit & {
   completedToday: boolean;
   // Unite differente selon la frequence : une habitude hebdomadaire se mesure

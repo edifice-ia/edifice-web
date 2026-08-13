@@ -1,24 +1,42 @@
 import { NextResponse } from "next/server";
 import { parseHabitPayload } from "@/lib/personal/habits";
 import {
+  countArchivedPersonalHabits,
   createPersonalHabit,
+  listArchivedPersonalHabits,
   listPersonalHabits,
 } from "@/lib/server/personal/habits-store";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+// ?archived=true bascule sur les habitudes archivees. Meme contrat que Notes et
+// Journal : pas de valeur "all", les deux etats ne se melangent jamais.
+//
+// Les habitudes archivees sont renvoyees SANS serie ni taux de constance —
+// listArchivedPersonalHabits n'appelle pas buildHabitStats.
+export async function GET(request: Request) {
   const user = await getCurrentUser();
 
   if (!user) {
     return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
   }
 
-  try {
-    const habits = await listPersonalHabits(user.id);
+  const archived = new URL(request.url).searchParams.get("archived") === "true";
 
-    return NextResponse.json({ ok: true, habits });
+  try {
+    if (archived) {
+      const habits = await listArchivedPersonalHabits(user.id);
+
+      return NextResponse.json({ ok: true, habits });
+    }
+
+    const [habits, archivedCount] = await Promise.all([
+      listPersonalHabits(user.id),
+      countArchivedPersonalHabits(user.id),
+    ]);
+
+    return NextResponse.json({ ok: true, habits, archivedCount });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Lecture des habitudes indisponible.";

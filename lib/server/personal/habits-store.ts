@@ -3,6 +3,7 @@ import {
   buildHabitStats,
   HABIT_COMPLETIONS_WINDOW_DAYS,
   todayInParis,
+  type ArchivedPersonalHabit,
   type HabitFrequencyType,
   type PersonalHabit,
   type PersonalHabitWithStats,
@@ -16,6 +17,10 @@ type PersonalHabitRow = {
   frequency_target: number | null;
   created_at: string;
   updated_at: string;
+};
+
+type ArchivedPersonalHabitRow = PersonalHabitRow & {
+  deleted_at: string;
 };
 
 type CompletionRow = {
@@ -52,6 +57,7 @@ function mapHabit(row: PersonalHabitRow): PersonalHabit {
 
 const HABIT_COLUMNS =
   "id, name, frequency_type, frequency_target, created_at, updated_at";
+const ARCHIVED_HABIT_COLUMNS = `${HABIT_COLUMNS}, deleted_at`;
 
 // Une seule requete pour les habitudes, une seule pour leurs realisations : la
 // serie et le taux de constance sont ensuite calcules en memoire par
@@ -191,6 +197,84 @@ export async function archivePersonalHabit({
     .eq("id", habitId)
     .eq("user_id", userId)
     .is("deleted_at", null)
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data !== null;
+}
+
+// Triees par date d'archivage decroissante : ce qu'on vient d'archiver par
+// erreur est ce qu'on cherche a restaurer en premier.
+//
+// Aucune statistique n'est calculee ici, contrairement a listPersonalHabits :
+// buildHabitStats n'est jamais appele sur ce chemin. Une habitude archivee n'a
+// ni serie ni taux de constance, et le type ArchivedPersonalHabit ne porte pas
+// ces champs.
+export async function listArchivedPersonalHabits(
+  userId: string,
+): Promise<ArchivedPersonalHabit[]> {
+  const supabase = await getHabitsClient();
+  const { data, error } = await supabase
+    .from("personal_habits")
+    .select(ARCHIVED_HABIT_COLUMNS)
+    .eq("user_id", userId)
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return ((data ?? []) as ArchivedPersonalHabitRow[]).map((row) => ({
+    ...mapHabit(row),
+    archivedAt: row.deleted_at,
+  }));
+}
+
+// Compte seul, sans ramener les lignes : le compteur accompagne la liste active
+// pour que l'UI affiche "Voir les archives (N)" sans second aller-retour.
+export async function countArchivedPersonalHabits(userId: string): Promise<number> {
+  const supabase = await getHabitsClient();
+  const { count, error } = await supabase
+    .from("personal_habits")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .not("deleted_at", "is", null);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return count ?? 0;
+}
+
+// Restauration : remet deleted_at a null, et ne touche a rien d'autre.
+//
+// Les realisations de personal_habit_completions n'ont jamais ete touchees par
+// l'archivage — elles ne sont supprimees que par le geste decocher. Restaurer
+// une habitude retrouve donc son historique intact, et sa serie comme son taux
+// de constance sont recalcules a la lecture suivante.
+//
+// Geste separe de toute suppression : il n'existe aucune suppression physique
+// d'habitude, la table n'accordant pas DELETE a authenticated.
+export async function restorePersonalHabit({
+  userId,
+  habitId,
+}: {
+  userId: string;
+  habitId: string;
+}): Promise<boolean> {
+  const supabase = await getHabitsClient();
+  const { data, error } = await supabase
+    .from("personal_habits")
+    .update({ deleted_at: null })
+    .eq("id", habitId)
+    .eq("user_id", userId)
+    .not("deleted_at", "is", null)
     .select("id")
     .maybeSingle<{ id: string }>();
 

@@ -6,7 +6,9 @@ import {
   HABIT_WEEKLY_TARGET_MAX,
   HABIT_WEEKLY_TARGET_MIN,
   parseHabitNameValue,
+  type ArchivedPersonalHabit,
   type HabitFrequencyType,
+  type PersonalHabit,
   type PersonalHabitWithStats,
 } from "@/lib/personal/habits";
 import { PersonalEmptyState, PersonalModuleCard } from "./PersonalPrimitives";
@@ -18,10 +20,22 @@ const WEEKLY_TARGETS = Array.from(
   (_, index) => HABIT_WEEKLY_TARGET_MIN + index,
 );
 
-function frequencyLabel(habit: PersonalHabitWithStats) {
+// Prend PersonalHabit et non PersonalHabitWithStats : la frequence se lit
+// aussi bien sur une habitude archivee, qui n'a pas de statistiques.
+function frequencyLabel(habit: PersonalHabit) {
   return habit.frequencyType === "daily"
     ? "Tous les jours"
     : `${habit.frequencyTarget}× par semaine`;
+}
+
+function formatArchivedAt(value: string) {
+  return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 // La serie se lit dans deux unites selon la frequence : une habitude
@@ -143,15 +157,42 @@ export function PersonalHabitsPanel() {
 
   const [confirmingArchiveId, setConfirmingArchiveId] = useState<string | null>(null);
 
+  // Les archives forment une liste separee, jamais melangee a la liste active :
+  // deux etats, deux appels, deux listes.
+  const [archivedCount, setArchivedCount] = useState(0);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedHabits, setArchivedHabits] = useState<ArchivedPersonalHabit[]>([]);
+  const [isLoadingArchived, setIsLoadingArchived] = useState(false);
+
   const load = useCallback(async () => {
     const response = await fetch("/api/personal/habits", { cache: "no-store" });
     const payload = (await response.json()) as {
       habits?: PersonalHabitWithStats[];
+      archivedCount?: number;
       error?: string;
     };
 
     if (!response.ok || !payload.habits) {
       throw new Error(payload.error ?? "Lecture des habitudes indisponible.");
+    }
+
+    return { habits: payload.habits, archivedCount: payload.archivedCount ?? 0 };
+  }, []);
+
+  // Les archives ne portent ni serie ni taux de constance : le type
+  // ArchivedPersonalHabit ne comporte pas ces champs, et le serveur ne les
+  // calcule pas sur ce chemin.
+  const fetchArchived = useCallback(async () => {
+    const response = await fetch("/api/personal/habits?archived=true", {
+      cache: "no-store",
+    });
+    const payload = (await response.json()) as {
+      habits?: ArchivedPersonalHabit[];
+      error?: string;
+    };
+
+    if (!response.ok || !payload.habits) {
+      throw new Error(payload.error ?? "Lecture des archives indisponible.");
     }
 
     return payload.habits;
@@ -163,7 +204,8 @@ export function PersonalHabitsPanel() {
     load()
       .then((next) => {
         if (isMounted) {
-          setHabits(next);
+          setHabits(next.habits);
+          setArchivedCount(next.archivedCount);
           setError(null);
         }
       })
@@ -187,10 +229,67 @@ export function PersonalHabitsPanel() {
     };
   }, [load]);
 
+  // Rechargee apres chaque mutation. Le compteur d'archives vient de la meme
+  // reponse, donc archiver une habitude le met a jour sans compte local a
+  // maintenir. Si les archives sont ouvertes, elles sont rafraichies aussi,
+  // sans quoi la liste affichee serait perimee.
   async function refresh() {
     const next = await load();
-    setHabits(next);
+    setHabits(next.habits);
+    setArchivedCount(next.archivedCount);
+
+    if (showArchived) {
+      setArchivedHabits(await fetchArchived());
+    }
+
     setError(null);
+  }
+
+  async function openArchives() {
+    setShowArchived(true);
+    setIsLoadingArchived(true);
+
+    try {
+      setArchivedHabits(await fetchArchived());
+      setError(null);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Lecture des archives indisponible.",
+      );
+    } finally {
+      setIsLoadingArchived(false);
+    }
+  }
+
+  // Restaurer remet l'habitude dans la liste active, avec son historique de
+  // realisations intact — l'archivage ne l'avait jamais touche. Serie et taux de
+  // constance sont donc recalcules par le rechargement.
+  async function restoreHabit(habitId: string) {
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(`/api/personal/habits/${habitId}/restore`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error ?? "Restauration de l'habitude indisponible.");
+      }
+
+      setArchivedHabits((current) => current.filter((habit) => habit.id !== habitId));
+      await refresh();
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Restauration de l'habitude indisponible.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   const draftCheck = parseHabitNameValue(draftName);
@@ -506,6 +605,60 @@ export function PersonalHabitsPanel() {
           </ul>
         )}
       </PersonalModuleCard>
+
+      {/* Carte separee : aucune habitude archivee ne doit pouvoir passer pour
+          active. Ni serie ni taux de constance ici — ces valeurs n'ont pas de
+          sens pour une habitude qu'on ne suit plus, et le type
+          ArchivedPersonalHabit ne les porte pas. Seule action possible :
+          Restaurer. */}
+      {archivedCount > 0 || showArchived ? (
+        <div className="grid gap-3">
+          <button
+            className="justify-self-start rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/40 hover:text-[#F8FAFC]"
+            onClick={() => (showArchived ? setShowArchived(false) : openArchives())}
+            type="button"
+          >
+            {showArchived ? "Masquer les archives" : `Voir les archives (${archivedCount})`}
+          </button>
+
+          {showArchived ? (
+            <PersonalModuleCard title="Archives">
+              {isLoadingArchived ? (
+                <p className="text-sm text-[#A7B0C0]">Chargement...</p>
+              ) : archivedHabits.length === 0 ? (
+                <PersonalEmptyState source="Aucune habitude archivée." />
+              ) : (
+                <ul className="grid gap-3">
+                  {archivedHabits.map((habit) => (
+                    <li
+                      className="rounded-md border border-dashed border-[#1D2A44] bg-[#03070B] p-4"
+                      key={habit.id}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[#A7B0C0]">{habit.name}</p>
+                          <p className="mt-1 text-xs text-[#64748b]">
+                            {frequencyLabel(habit)} · archivée le{" "}
+                            {formatArchivedAt(habit.archivedAt)}
+                          </p>
+                        </div>
+                        <button
+                          className="rounded-md border border-[#39E6D0]/60 bg-[#39E6D0]/15 px-3 py-1.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={isSubmitting}
+                          onClick={() => restoreHabit(habit.id)}
+                          type="button"
+                        >
+                          Restaurer
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </PersonalModuleCard>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

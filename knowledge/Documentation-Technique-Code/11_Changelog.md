@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-07-28
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-10 (archives et restauration, Habitudes)](#2026-08-10-archives-et-restauration-habitudes)
 - [2026-08-10 (module Habitudes)](#2026-08-10-module-habitudes)
 - [2026-08-09 (libellé « Archiver », et un incident de cache Turbopack)](#2026-08-09-libellé--archiver--et-un-incident-de-cache-turbopack)
 - [2026-08-06 (archives et restauration, Notes et Journal)](#2026-08-06-archives-et-restauration-notes-et-journal)
@@ -43,6 +44,26 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-10 (archives et restauration, Habitudes)
+
+Type : produit, documentation  
+Résumé : la fonctionnalité Archives est étendue à Habitudes, sur le patron exact de Notes et Journal. **Les trois modules à saisie manuelle du pôle ont désormais le même contrat** — `?archived=true` sur la liste, `archivedCount` sur la liste active, `POST /[id]/restore` pour restaurer. Comble la lacune signalée au commit précédent du module.
+
+Fichiers liés :
+
+- `lib/personal/habits.ts` (type `ArchivedPersonalHabit`)
+- `lib/server/personal/habits-store.ts` (liste, compte, restauration)
+- `app/api/personal/habits/route.ts`, `app/api/personal/habits/[id]/restore/route.ts`
+- `app/interface/personnel/PersonalHabitsPanel.tsx`
+
+Impact : vérifié en conditions réelles — bouton conditionnel au compteur, restauration correcte, aucun chiffre dans les archives. Aucune policy RLS nouvelle : restaurer est un `UPDATE` de `deleted_at`, déjà couvert par la policy `update` scopée au propriétaire.
+
+**Les archives d'Habitudes n'affichent ni série ni taux de constance**, contrairement à la liste active — ces valeurs n'ont pas de sens pour une habitude qu'on ne suit plus, et les figer produirait un chiffre périmé qui ne se signalerait pas. Ce n'est pas une omission de la vue : le type `ArchivedPersonalHabit` est construit sur `PersonalHabit` et non sur `PersonalHabitWithStats`, donc les champs n'existent pas et les lire ne compile pas ; et `listArchivedPersonalHabits` n'appelle jamais `buildHabitStats`. Deux des trois barrières sont tenues par le compilateur.
+
+**Restaurer retrouve l'historique intact** : l'archivage n'a jamais touché `personal_habit_completions`, les réalisations n'étant supprimées que par le geste décocher. Série et constance sont recalculées sur des données complètes, jamais reprises d'un instantané.
+
+Une différence d'implémentation avec Notes et Journal, dans le sens du mieux : le panneau Habitudes rechargeant déjà après chaque mutation — choix fait à sa construction pour que série et constance restent justes — le compteur d'archives vient de la même réponse et se met à jour tout seul. Pas d'incrément local à maintenir, donc pas de dérive possible entre le compteur affiché et la réalité.
 
 ## 2026-08-10 (module Habitudes)
 

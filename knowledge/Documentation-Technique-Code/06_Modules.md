@@ -352,13 +352,25 @@ Ils sont consignés ici parce qu'aucun n'était visible à la lecture du code, e
 
 **3. Le compte de semaines était surévalué d'une unité.** `effectiveStart` est un lundi et `windowEnd` le dimanche de clôture : l'intervalle est inclusif des deux côtés, donc une semaine y mesure 6 jours d'écart. La formule les arrondissait à 1 puis ajoutait 1, comptant **2 semaines pour une**, et **5 pour la fenêtre pleine de 4**. Le dénominateur était systématiquement trop grand, donc **tous les taux sous-estimés** — d'un facteur 5/4 dans le cas courant. Trouvé en vérifiant le correctif précédent, sur un cas où 3 réalisations sur une cible de 3 affichaient 50 % au lieu de 100 %.
 
+#### Archives et restauration
+
+Ajoutées le 2026-08-10, sur le patron exact de Notes et Journal — la lacune signalée au premier commit du module est comblée. `GET /api/personal/habits?archived=true` liste les habitudes archivées, la liste active renvoie `archivedCount`, et `POST /api/personal/habits/[id]/restore` restaure. Vérifié en conditions réelles.
+
+Aucune policy RLS nouvelle : restaurer est un `UPDATE` de `deleted_at`, déjà couvert par la policy `update` scopée au propriétaire — celle qui couvre l'archivage, en sens inverse.
+
+**Les archives n'affichent ni série ni taux de constance.** Ces valeurs n'ont pas de sens pour une habitude qu'on ne suit plus, et les figer en produirait un chiffre périmé qui ne se signalerait pas. Trois barrières le garantissent, dont deux tenues par le compilateur :
+
+- le type `ArchivedPersonalHabit` est construit sur `PersonalHabit` et **non** sur `PersonalHabitWithStats` : les champs n'existent pas, les lire ne compile pas ;
+- `listArchivedPersonalHabits` **n'appelle jamais** `buildHabitStats` — aucun chiffre n'est calculé sur ce chemin ;
+- la vue affiche nom, fréquence, date d'archivage, et un unique bouton « Restaurer ».
+
+**Restaurer retrouve l'historique intact.** L'archivage d'une habitude n'a jamais touché `personal_habit_completions` : les réalisations ne sont supprimées que par le geste décocher. Série et taux de constance sont donc recalculés sur des données complètes à la lecture suivante, et non repris d'un instantané figé.
+
 #### Hors périmètre
 
 **Le graphique par habitude n'est pas construit** — différé, pas oublié. La série et le taux de constance suffisaient à rendre le module utile ; un graphique demande un arbitrage de forme qui n'a pas été pris.
 
 **Rattachement Marque/Projet : extension différée**, voir [Décisions](./03_Decisions.md) DEC-010, qui s'applique à tout module de domaine de vie construit avant que le concept n'existe en code.
-
-**Pas d'archives ni de restauration** sur ce module, contrairement à Notes et Journal : l'archivage d'une habitude existe côté base et côté API, mais aucune vue ne les liste ni ne les restaure. À rattraper sur le patron des deux autres.
 
 ## Service renderer
 

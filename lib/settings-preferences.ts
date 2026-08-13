@@ -13,7 +13,8 @@ export type SettingsTab =
   | "voice"
   | "programming"
   | "connections"
-  | "security";
+  | "security"
+  | "personal";
 
 export type RenderProfile = "web_standard" | "web_high";
 
@@ -81,6 +82,10 @@ export const SETTINGS_TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: "programming", label: "Programmation" },
   { id: "connections", label: "Connexions" },
   { id: "security", label: "Securite" },
+  // En derniere position, deliberement : c'est le seul onglet de cet ecran dont
+  // les actions ont un effet reel et irreversible. Il ne doit pas etre celui
+  // qu'on ouvre par accident en arrivant — l'onglet par defaut reste "general".
+  { id: "personal", label: "Personnel" },
 ];
 
 export const DEFAULT_GLOBAL_SETTINGS: GlobalSettingsPreferences = {

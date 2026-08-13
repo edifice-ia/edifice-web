@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-07-28
+Dernière mise à jour : 2026-08-13
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-13 (« Vider l'historique », Réglages > Personnel)](#2026-08-13--vider-lhistorique--réglages--personnel)
 - [2026-08-10 (archives et restauration, Habitudes)](#2026-08-10-archives-et-restauration-habitudes)
 - [2026-08-10 (module Habitudes)](#2026-08-10-module-habitudes)
 - [2026-08-09 (libellé « Archiver », et un incident de cache Turbopack)](#2026-08-09-libellé--archiver--et-un-incident-de-cache-turbopack)
@@ -44,6 +45,32 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-13 (« Vider l'historique », Réglages > Personnel)
+
+Type : produit, sécurité, base de données, documentation  
+Résumé : ajout du geste « Vider l'historique » dans un nouvel onglet Personnel de Réglages, **seule suppression physique de données du dépôt**. Couvre les trois modules à saisie manuelle du pôle : Notes, Journal et Humeur, Habitudes. Ajoute la table d'audit `personal_data_erasure_log`. Voir [Décisions](./03_Decisions.md) DEC-012.
+
+Fichiers liés :
+
+- `lib/personal/data-erasure.ts`, `lib/server/personal/data-erasure-store.ts`
+- `app/api/personal/settings/erase/route.ts`
+- `app/interface/settings/SettingsPersonalPanel.tsx`, `app/interface/settings/SettingsWorkspaceClient.tsx`, `lib/settings-preferences.ts`
+- `supabase/migrations/20260806200000_create_personal_data_erasure_log.sql`
+
+Impact : **la migration n'est pas appliquée en base.** Tant qu'elle ne l'est pas, l'écriture du journal d'audit échoue et la route renvoie une erreur — voir `MANUAL_ACTIONS.md`. Le geste ne doit pas être exercé avant application.
+
+Quatre gardes sur la route : session obligatoire ; mot de confirmation `SUPPRIMER` revalidé côté serveur, la confirmation de l'interface ne suffisant pas si la route est court-circuitée ; identifiants de module passés par liste blanche, aucun nom de table ne venant du client ; exécution par la clé service-role avec le filtre `.eq("user_id", …)` centralisé dans une fonction unique du store. **La service-role contourne RLS** : ce filtre est le seul garde d'isolation de ce chemin, d'où sa centralisation.
+
+**Habitudes, premier module effaçable à deux tables, ne s'appuie pas sur la cascade.** Ses réalisations sont supprimées explicitement avant ses habitudes, bien qu'une clé étrangère composite `on delete cascade` existe dans la migration du module. Ce module a précisément connu une migration appliquée partiellement en base (incident RLS du 2026-08-10) : une contrainte absente en production ne produirait aucune erreur, seulement des réalisations orphelines qu'aucun écran ne montre plus, après un geste qui promettait de tout effacer.
+
+**Le compte affiché ne dit pas tout, et le dit.** Il reste exprimé en habitudes et non en lignes, parce que c'est l'unité que l'utilisateur reconnaît ; mais annoncer « 3 éléments » pour une suppression qui en détruit des centaines serait un écart de sincérité. L'écran de confirmation nomme donc séparément les réalisations, et l'écran de résultat affiche le volume réellement supprimé par table, renvoyé par le serveur — pas les comptes annoncés à l'étape précédente, ce qui rend tout écart visible.
+
+Le journal d'audit suit le patron de `project_memory_audit_log`, opposé à celui des tables du pôle : `anon` et `authenticated` révoqués, aucune policy, accès service-role seul. Il ne porte **aucune clé étrangère vers `auth.users`** — une suppression de compte cascaderait et effacerait la preuve que l'effacement a eu lieu — et ne stocke **aucun contenu supprimé**, seulement des volumes. Une entrée par table vidée et non par module, sans quoi le volume des réalisations ne serait consigné nulle part.
+
+Point de conception traité explicitement : cet onglet agit réellement dans un écran où **rien d'autre n'agit**. Le bandeau « réglages enregistrés, pas encore appliqués » et le récapitulatif de bas de page y sont masqués — ils seraient faux, et faux au pire endroit. L'onglet est en dernière position et n'est jamais l'onglet par défaut.
+
+Suivi : appliquer la migration, puis tester le geste de bout en bout. La **suppression totale** (compte, autres pôles) et l'**export complet des données** restent absents — les deux capacités de souveraineté que la vision rattache à Réglages ne sont donc que partiellement couvertes.
 
 ## 2026-08-10 (archives et restauration, Habitudes)
 

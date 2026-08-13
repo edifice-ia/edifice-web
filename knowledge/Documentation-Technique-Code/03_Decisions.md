@@ -1,7 +1,7 @@
 # Décisions
 
 Statut : registre initial  
-Dernière mise à jour : 2026-08-01
+Dernière mise à jour : 2026-08-13
 
 ## Sommaire
 
@@ -268,6 +268,34 @@ Fichiers liés :
 - `app/api/assistant/global/route.ts`, `lib/server/assistant/global-assistant.ts`
 - `lib/server/assistant/build-project-context.ts`
 - `knowledge/Documentation-Technique-Code/06_Modules.md` (section Assistant de L'Édifice)
+
+### DEC-012 - La suppression physique de données Personnel passe par un chemin unique, explicite et journalisé
+
+Date : 2026-08-13  
+Statut : actif
+
+Contexte : les trois modules à saisie manuelle du pôle Personnel (Notes, Journal et Humeur, Habitudes) n'implémentent que la suppression **logique** : leurs tables n'accordent pas `DELETE` à `authenticated` et ne portent aucune policy `DELETE`. C'est délibéré et documenté, mais cela laissait le pôle sans aucun moyen d'effacer réellement quoi que ce soit — une lacune de souveraineté que la documentation stratégique rattache explicitement au module Réglages.
+
+Décision : **un seul geste du dépôt supprime physiquement**, « Vider l'historique » dans Réglages > Personnel, et il obéit à quatre règles qui ne se négocient pas séparément.
+
+1. **Clé service-role, filtre `user_id` centralisé.** La service-role est le seul moyen de supprimer ces lignes, et elle contourne RLS : il n'existe aucun garde en base sur ce chemin. Le seul filtre d'isolation est le `.eq("user_id", …)` de `deleteOwnedRows`, fonction unique par laquelle passe toute suppression du store. Aucun `.delete()` direct ailleurs dans ce fichier.
+2. **Liste blanche de tables, jamais un nom venu du client.** Les identifiants de module sont validés puis résolus en noms de tables côté serveur. `isErasableModuleId` est dérivé de `ERASABLE_MODULES` plutôt que réécrit, une énumération parallèle divergeant tôt ou tard — et silencieusement.
+3. **Suppression explicite des tables dépendantes, jamais par cascade.** Habitudes est le premier module effaçable à deux tables. Ses réalisations sont supprimées avant ses habitudes, bien qu'une clé étrangère composite `on delete cascade` existe dans la migration. Raison : ce module a connu une migration appliquée partiellement en base. Une contrainte absente en production ne produirait aucune erreur, seulement des lignes orphelines invisibles, après un geste qui promettait de tout effacer. **La correction d'une suppression annoncée comme totale ne doit jamais reposer sur une contrainte dont l'application en base n'est pas vérifiée.**
+4. **Journal d'audit hors de portée de ce qu'il journalise.** `personal_data_erasure_log` ne porte aucune clé étrangère vers `auth.users` — une suppression de compte cascaderait et effacerait la preuve — et ne stocke aucun contenu supprimé, seulement des volumes. Une entrée par **table** vidée, pas par module, sans quoi le volume des réalisations d'Habitudes ne serait consigné nulle part.
+
+Conséquences :
+
+- **Étendre le geste à un nouveau module se fait en un seul endroit**, `ERASABLE_MODULES` et `MODULE_TABLES` ; un module à plusieurs tables déclare ses dépendantes dans l'ordre de suppression.
+- Le compte annoncé à l'écran reste exprimé dans l'unité que l'utilisateur reconnaît (une habitude, pas une ligne), mais **ce que ce compte n'inclut pas doit être nommé** à la confirmation et chiffré au résultat. Un total qui sous-estime silencieusement l'ampleur d'une suppression irréversible est le type d'écart de sincérité que ce dépôt traite en priorité.
+- L'onglet Personnel masque le bandeau « réglages enregistrés, pas encore appliqués » et le récapitulatif de bas de page. Les afficher à côté d'une suppression définitive serait faux, et faux au pire endroit.
+- **Ce geste n'est pas une suppression de compte** et ne couvre pas les autres pôles. La « suppression totale » de la vision stratégique reste absente, de même que l'export complet des données.
+
+Fichiers liés :
+
+- `lib/personal/data-erasure.ts`, `lib/server/personal/data-erasure-store.ts`
+- `app/api/personal/settings/erase/route.ts`, `app/interface/settings/SettingsPersonalPanel.tsx`
+- `supabase/migrations/20260806200000_create_personal_data_erasure_log.sql`
+- `knowledge/Documentation-Technique-Code/06_Modules.md` (section Paramètres, onglet Personnel)
 
 ## Décisions à confirmer
 

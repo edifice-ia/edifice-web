@@ -53,6 +53,40 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-08-13 — Appliquer la migration `personal_data_erasure_log`, puis tester « Vider l'historique »
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : nécessite un clic dans le SQL Editor Supabase, pas d'accès API direct pour ce type d'opération. Aucun CLI Supabase authentifié n'est configuré sur cette machine, et la clé service-role ne permet pas d'exécuter du DDL par l'API REST.
+
+**Bloque** : tout le geste « Vider l'historique » (Réglages > Personnel). Le code est écrit, typé et compilé, mais `writeErasureAudit` insère dans `personal_data_erasure_log` **après** chaque suppression. Tant que la table n'existe pas, la route renvoie une erreur 500 — et pour Notes ou Journal, la suppression physique aura **déjà eu lieu** quand l'écriture d'audit échoue. **Ne pas exercer le geste avant d'avoir appliqué cette migration.**
+
+**Étapes** :
+
+1. Ouvrir <https://supabase.com/dashboard>, sélectionner le projet de L'Édifice, puis « SQL Editor » dans la barre latérale.
+2. Cliquer « New query ».
+3. Coller l'intégralité du fichier `supabase/migrations/20260806200000_create_personal_data_erasure_log.sql` et cliquer « Run ».
+4. Vérifier ensuite que les révocations sont bien en place — c'est le point qui a été appliqué partiellement lors de l'incident du 2026-08-10 sur `personal_habits`. Coller et exécuter :
+
+```sql
+select grantee, privilege_type
+from information_schema.role_table_grants
+where table_name = 'personal_data_erasure_log';
+```
+
+5. Vérifier aussi que la cascade d'`personal_habit_completions` existe réellement en base, puisque c'est la contrainte que le code refuse délibérément de présumer :
+
+```sql
+select conname, confdeltype
+from pg_constraint
+where conrelid = 'public.personal_habit_completions'::regclass
+  and contype = 'f';
+```
+
+**Vérification** : à l'étape 4, `anon` et `authenticated` **ne doivent apparaître dans aucune ligne** — la table n'est accessible qu'à la clé service-role, et une ligne pour l'un de ces deux rôles signifie que les `revoke` n'ont pas pris. À l'étape 5, `confdeltype` doit valoir `c` (cascade) ; toute autre valeur confirme que la migration `20260806100000` est encore partiellement appliquée, ce qui ne casse pas la suppression (le code supprime les réalisations explicitement) mais doit être corrigé.
+
+Ensuite, tester le geste de bout en bout dans Réglages > Personnel : cocher un module, vérifier que le compte annoncé correspond, taper `SUPPRIMER`, et contrôler qu'une ligne par table vidée apparaît dans `personal_data_erasure_log`. Tester Habitudes sur un jeu de données jetable — la suppression est irréversible et sans sauvegarde.
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`

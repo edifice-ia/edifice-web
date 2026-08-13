@@ -12,6 +12,7 @@ import {
 } from "@/lib/settings-preferences";
 import { SHORTS_SCHEDULE_PLATFORM_LABELS, type ShortsSchedulePlatform } from "@/lib/shorts-scheduling";
 import { subtitleModeLabel } from "@/lib/subtitles";
+import { SettingsPersonalPanel } from "./SettingsPersonalPanel";
 
 type SavePayload = SettingsPreferencesState & {
   error?: string;
@@ -210,6 +211,11 @@ export function SettingsWorkspaceClient({
         ))}
       </div>
 
+      {/* Masque sur l'onglet Personnel : ce bandeau annonce que les reglages ne
+          sont pas appliques, ce qui est faux pour cette section et dangereux a
+          afficher a cote d'une suppression definitive. Le panneau Personnel
+          porte son propre bandeau, qui dit l'inverse. */}
+      {activeTab !== "personal" ? (
       <div className="rounded-md border border-[#f59e0b]/40 bg-[#f59e0b]/10 px-4 py-3 text-sm leading-6 text-[#fbbf24]">
         <p className="font-semibold text-[#F8FAFC]">Reglages enregistres, pas encore appliques</p>
         <p className="mt-1">
@@ -228,6 +234,7 @@ export function SettingsWorkspaceClient({
           repose sur un token reellement present.
         </p>
       </div>
+      ) : null}
 
       <div className="flex flex-col gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] p-4 text-sm text-[#A7B0C0] lg:flex-row lg:items-center lg:justify-between">
         <div>
@@ -389,9 +396,16 @@ export function SettingsWorkspaceClient({
         </section>
       ) : null}
 
-      <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-4 text-sm text-[#A7B0C0]">
-        Reglages globaux enregistres, non encore appliques : fuseau {globalPreferences.defaultTimezone}, sous-titres {subtitleModeLabel(globalPreferences.defaultSubtitleStyle)}, programmation {globalPreferences.weeklyPostingFrequency} post/jour sur {globalPreferences.defaultScheduleDays} jours.
-      </div>
+      {activeTab === "personal" ? <SettingsPersonalPanel /> : null}
+
+      {/* Meme raison que pour le bandeau de tete : ce recapitulatif parle de
+          reglages non appliques, ce qui n'a pas de sens sous une section qui
+          supprime reellement. */}
+      {activeTab !== "personal" ? (
+        <div className="rounded-md border border-[#1D2A44] bg-[#03070B] p-4 text-sm text-[#A7B0C0]">
+          Reglages globaux enregistres, non encore appliques : fuseau {globalPreferences.defaultTimezone}, sous-titres {subtitleModeLabel(globalPreferences.defaultSubtitleStyle)}, programmation {globalPreferences.weeklyPostingFrequency} post/jour sur {globalPreferences.defaultScheduleDays} jours.
+        </div>
+      ) : null}
     </div>
   );
 }

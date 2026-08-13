@@ -69,17 +69,19 @@ Rattachement dans la nouvelle taxonomie : Ressources est une **surface hors taxo
 
 ### Paramètres (Réglages)
 
-Écran de configuration du cockpit, accessible depuis la navigation sous le libellé « Reglages ». Six onglets : Général, Comptes, Shorts, Voix, Programmation, Connexions, Sécurité.
+Écran de configuration du cockpit, accessible depuis la navigation sous le libellé « Reglages ». Huit onglets : Général, Comptes, Shorts, Voix, Programmation, Connexions, Sécurité, Personnel.
 
 Fichiers :
 
 - `app/interface/settings/page.tsx` et `app/interface/settings/SettingsWorkspaceClient.tsx`
 - `app/interface/settings/connections/page.tsx`, `components/cockpit/SettingsConnectionsPanel.tsx` et les contrôles par provider (`MetaConnectionControls`, `OAuthConnectionControls`, `PinterestConnectionControls`, `TikTokConnectionControls`, `YouTubeConnectionControls`)
-- `app/api/settings/preferences/route.ts`
+- `app/interface/settings/SettingsPersonalPanel.tsx` (onglet Personnel)
+- `app/api/settings/preferences/route.ts`, `app/api/personal/settings/erase/route.ts`
 - `lib/settings-preferences.ts` (types, valeurs par défaut, normalisation) et `lib/server/settings-preferences.ts` (lecture/écriture)
-- table `user_preferences` (`supabase/migrations/20260627170000_create_user_preferences.sql`)
+- `lib/personal/data-erasure.ts` (types et validation) et `lib/server/personal/data-erasure-store.ts` (comptes et suppression)
+- tables `user_preferences` (`supabase/migrations/20260627170000_create_user_preferences.sql`) et `personal_data_erasure_log` (`supabase/migrations/20260806200000_create_personal_data_erasure_log.sql`)
 
-**Les préférences sont enregistrées mais jamais relues.** C'est le fait le plus important à connaître sur ce module. Les 18 champs de `GlobalSettingsPreferences` et les overrides par compte sont persistés dans `user_preferences` et rechargés par l'écran de réglages lui-même, mais **aucun autre module ne les lit** : aucun fichier hors `app/interface/settings`, `app/api/settings` et `lib/settings-preferences*` n'importe ce module, n'appelle `readSettingsPreferences` ni ne requête `user_preferences`. L'atelier Shorts, le pipeline voix, la programmation et les garde-fous de publication utilisent leurs propres valeurs par défaut, codées en dur — `defaultVoiceId` par exemple existe aussi comme fonction locale dans `lib/server/voice-pipeline.ts`, qui lit la variable d'environnement `ELEVENLABS_VOICE_ID` et ignore la préférence du même nom. Modifier un réglage ne change donc aucun comportement.
+**Les préférences sont enregistrées mais jamais relues.** C'est le fait le plus important à connaître sur ce module — il vaut pour sept des huit onglets. L'onglet **Personnel** fait exception et agit réellement : voir sa sous-section plus bas. L'onglet Connexions agit lui aussi, mais par ses boutons seulement, pas par ses réglages. Les 18 champs de `GlobalSettingsPreferences` et les overrides par compte sont persistés dans `user_preferences` et rechargés par l'écran de réglages lui-même, mais **aucun autre module ne les lit** : aucun fichier hors `app/interface/settings`, `app/api/settings` et `lib/settings-preferences*` n'importe ce module, n'appelle `readSettingsPreferences` ni ne requête `user_preferences`. L'atelier Shorts, le pipeline voix, la programmation et les garde-fous de publication utilisent leurs propres valeurs par défaut, codées en dur — `defaultVoiceId` par exemple existe aussi comme fonction locale dans `lib/server/voice-pipeline.ts`, qui lit la variable d'environnement `ELEVENLABS_VOICE_ID` et ignore la préférence du même nom. Modifier un réglage ne change donc aucun comportement.
 
 L'écran le dit désormais, plutôt que de câbler 18 réglages à travers le produit — ce serait une refonte, pas une correction :
 
@@ -99,7 +101,27 @@ La fonction contenait un `if (provider.key === "youtube") return "Connecte"` qui
 
 Suite possible, non faite : étendre à tous les providers la lecture réelle du token, sur le modèle de Pinterest, pour que le badge signifie « connecté » plutôt que « configuré ».
 
-Écart de couverture avec la [documentation stratégique v1.0, archivée](../Archive/v1.0-2026-07/L-Edifice-Documentation-Strategique-de-Reference.md) (section 17), non traité : identité et profil, notifications, sessions actives et journaux d'accès n'existent pas. Les deux capacités de souveraineté que la vision rattache explicitement à ce module — **export complet des données** et **suppression ciblée ou totale** — sont également absentes du code.
+Écart de couverture avec la [documentation stratégique v1.0, archivée](../Archive/v1.0-2026-07/L-Edifice-Documentation-Strategique-de-Reference.md) (section 17), non traité : identité et profil, notifications, sessions actives et journaux d'accès n'existent pas. Des deux capacités de souveraineté que la vision rattache explicitement à ce module, **l'export complet des données reste absent du code** ; la **suppression ciblée** existe désormais pour les trois modules à saisie manuelle du pôle Personnel (voir ci-dessous), mais **la suppression totale n'existe pas** — le geste ne couvre ni les autres pôles, ni le compte lui-même.
+
+#### Onglet Personnel : « Vider l'historique »
+
+Le seul onglet de cet écran dont les réglages agissent, et le seul endroit du dépôt qui **supprime physiquement** des données. Il vide l'historique des modules Personnel choisis : Notes, Journal et Humeur, Habitudes. Il ne supprime pas le compte, ne touche ni aux connexions ni aux autres pôles.
+
+Le contraste avec le reste de l'écran est un piège de conception traité explicitement, pas un détail cosmétique : un bouton qui supprime vraiment, dans un écran où rien d'autre n'agit, serait actionné avec la même légèreté que les bascules inertes d'à côté. Trois conséquences dans le code :
+
+- l'onglet est en **dernière position** et n'est jamais l'onglet par défaut, qui reste `general` ;
+- le bandeau « Reglages enregistres, pas encore appliques » et le récapitulatif de bas de page sont **masqués** sur cet onglet — les afficher à côté d'une suppression définitive serait faux et dangereux ;
+- le panneau porte son propre bandeau, qui dit l'inverse : cette section agit réellement.
+
+Quatre gardes, dans cet ordre : session obligatoire ; mot de confirmation `SUPPRIMER` **revalidé côté serveur**, la confirmation de l'interface ne suffisant pas si la route est court-circuitée ; identifiants de module passés par liste blanche, aucun nom de table ne venant jamais du client ; exécution par la clé service-role, avec le filtre `.eq("user_id", …)` centralisé dans une fonction unique du store.
+
+**Ce store est le seul du pôle à utiliser la clé service-role**, et c'est structurel : `personal_notes`, `personal_journal_entries` et `personal_habits` n'accordent pas `DELETE` à `authenticated` et ne portent aucune policy `DELETE`. La suppression physique y est impossible depuis le client de session, par conception. La contrepartie est que **la service-role contourne RLS** : il n'existe ici aucun garde en base, et le seul filtre d'isolation est ce `.eq("user_id", …)`. C'est le point le plus dangereux du chantier, d'où sa centralisation dans `deleteOwnedRows` — aucun appel direct à `.delete()` ne doit être écrit ailleurs dans ce fichier.
+
+**Habitudes est le premier module effaçable à deux tables**, et ses réalisations sont supprimées **explicitement** avant ses habitudes, plutôt que laissées à la cascade de la clé étrangère composite. La cascade existe bien dans la migration, mais ce module a précisément connu une migration appliquée partiellement en base — l'incident RLS documenté plus bas. Si la contrainte manque en production, la cascade ne se produit pas et les réalisations survivent à leur habitude : des lignes orphelines qu'aucun écran ne montre plus, après un geste qui promettait de tout effacer. **Ne jamais dépendre d'une contrainte pour la correction d'une suppression annoncée comme totale.**
+
+Le compte affiché reste exprimé dans l'unité que l'utilisateur reconnaît — une habitude, pas une ligne. Mais le taire ferait annoncer « 3 éléments » pour une suppression qui en détruit des centaines : l'écran de confirmation nomme donc séparément les réalisations, et l'écran de résultat affiche le volume réellement supprimé dans chaque table, renvoyé par le serveur.
+
+`isErasableModuleId` est **dérivé** de `ERASABLE_MODULES` et non réécrit à la main. Une énumération parallèle finirait par diverger, et la divergence dangereuse est silencieuse : un module retiré de la liste affichée mais toujours accepté par le validateur resterait effaçable par un appel direct à la route.
 
 ### Bibliothèque (v1.0) — reprise par Ressources
 

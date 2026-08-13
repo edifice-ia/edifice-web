@@ -49,6 +49,7 @@ Tables créées ou visibles dans les migrations :
 - `personal_journal_entries`
 - `personal_habits`
 - `personal_habit_completions`
+- `personal_data_erasure_log`
 - `video_render_jobs`
 - `short_video_schedules`
 - `user_preferences`
@@ -99,6 +100,15 @@ Tables créées ou visibles dans les migrations :
 Ces quatre tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet.
 
 Aucune n'accorde le privilège `DELETE` à `authenticated`, **sauf `personal_habit_completions`** : décocher un jour retire la ligne, une réalisation étant un booléen sur un jour et non du contenu. Sa policy `DELETE` reste scopée au propriétaire. Partout ailleurs, la suppression physique relève du geste « Vider l'historique », qui passe par la clé service-role.
+
+`personal_data_erasure_log` journalise ce geste. Elle suit un patron **opposé** aux tables ci-dessus, repris de `project_memory_audit_log` : les deux rôles `anon` et `authenticated` sont révoqués et **aucune policy n'est créée**, ce qui la rend accessible à la seule clé service-role. RLS y est une défense en profondeur derrière une révocation totale, là où les tables du pôle en font leur garde réel — un journal d'audit lisible ou modifiable depuis le navigateur ne prouve rien.
+
+Deux choix de conception y sont délibérés :
+
+- **aucune clé étrangère vers `auth.users`**, contrairement à toutes les autres tables du pôle. Une suppression de compte cascaderait et effacerait la preuve que l'effacement a eu lieu ; un journal d'audit ne doit pas pouvoir être effacé par ce qu'il journalise ;
+- **aucun contenu supprimé n'y est stocké**, seulement des volumes (`deleted_count`). Journaliser le contenu d'un effacement le contredirait.
+
+Une entrée est écrite **par table effectivement vidée, et non par module** : un module à deux tables comme Habitudes produit deux entrées portant le même `module` et deux `table_name` distincts. C'est le sens de la colonne `table_name`, et c'est ce qui permet au journal de dire combien de réalisations sont parties avec les habitudes — le plus gros des deux volumes, qu'une entrée unique par module aurait tu.
 
 ## Règles de sécurité
 

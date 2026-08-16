@@ -269,26 +269,29 @@ Fichiers liés :
 - `lib/server/assistant/build-project-context.ts`
 - `knowledge/Documentation-Technique-Code/06_Modules.md` (section Assistant de L'Édifice)
 
-### DEC-012 - La suppression physique de données Personnel passe par un chemin unique, explicite et journalisé
+### DEC-012 - La suppression physique de données Personnel passe par un chemin unique et journalisé
 
 Date : 2026-08-13  
+Révisée : 2026-08-16 — scindée, voir la note de révision en fin d'entrée  
 Statut : actif
 
 Contexte : les trois modules à saisie manuelle du pôle Personnel (Notes, Journal et Humeur, Habitudes) n'implémentent que la suppression **logique** : leurs tables n'accordent pas `DELETE` à `authenticated` et ne portent aucune policy `DELETE`. C'est délibéré et documenté, mais cela laissait le pôle sans aucun moyen d'effacer réellement quoi que ce soit — une lacune de souveraineté que la documentation stratégique rattache explicitement au module Réglages.
 
-Décision : **un seul geste du dépôt supprime physiquement**, « Vider l'historique » dans Réglages > Personnel, et il obéit à quatre règles qui ne se négocient pas séparément.
+Décision : **un seul geste du dépôt supprime physiquement**, « Vider l'historique » dans Réglages > Personnel, et il obéit à trois règles.
 
 1. **Clé service-role, filtre `user_id` centralisé.** La service-role est le seul moyen de supprimer ces lignes, et elle contourne RLS : il n'existe aucun garde en base sur ce chemin. Le seul filtre d'isolation est le `.eq("user_id", …)` de `deleteOwnedRows`, fonction unique par laquelle passe toute suppression du store. Aucun `.delete()` direct ailleurs dans ce fichier.
-2. **Liste blanche de tables, jamais un nom venu du client.** Les identifiants de module sont validés puis résolus en noms de tables côté serveur. `isErasableModuleId` est dérivé de `ERASABLE_MODULES` plutôt que réécrit, une énumération parallèle divergeant tôt ou tard — et silencieusement.
-3. **Suppression explicite des tables dépendantes, jamais par cascade.** Habitudes est le premier module effaçable à deux tables. Ses réalisations sont supprimées avant ses habitudes, bien qu'une clé étrangère composite `on delete cascade` existe dans la migration. Raison : ce module a connu une migration appliquée partiellement en base. Une contrainte absente en production ne produirait aucune erreur, seulement des lignes orphelines invisibles, après un geste qui promettait de tout effacer. **La correction d'une suppression annoncée comme totale ne doit jamais reposer sur une contrainte dont l'application en base n'est pas vérifiée.**
-4. **Journal d'audit hors de portée de ce qu'il journalise.** `personal_data_erasure_log` ne porte aucune clé étrangère vers `auth.users` — une suppression de compte cascaderait et effacerait la preuve — et ne stocke aucun contenu supprimé, seulement des volumes. Une entrée par **table** vidée, pas par module, sans quoi le volume des réalisations d'Habitudes ne serait consigné nulle part.
+2. **Liste blanche de tables, jamais un nom venu du client.** Les identifiants de module sont validés puis résolus en noms de tables côté serveur. `isErasableModuleId` est **dérivé de `ERASABLE_MODULES`** plutôt que réécrit à la main : une énumération parallèle divergerait tôt ou tard, et la divergence dangereuse est silencieuse — un module retiré de la liste affichée mais toujours accepté par le validateur resterait effaçable par appel direct à la route.
+3. **Journal d'audit hors de portée de ce qu'il journalise.** `personal_data_erasure_log` ne porte aucune clé étrangère vers `auth.users` — une suppression de compte cascaderait et effacerait la preuve — et ne stocke aucun contenu supprimé, seulement des volumes. Une entrée est écrite **par table effectivement vidée, et non par module** : `table_name` est une colonne de cette table, et un module étendu sur plusieurs tables produit donc plusieurs entrées portant le même `module`. Une entrée unique par module ne pourrait porter qu'un seul volume, et tairait le plus gros — les réalisations d'Habitudes sont bien plus nombreuses que ses habitudes.
 
 Conséquences :
 
-- **Étendre le geste à un nouveau module se fait en un seul endroit**, `ERASABLE_MODULES` et `MODULE_TABLES` ; un module à plusieurs tables déclare ses dépendantes dans l'ordre de suppression.
+- **Étendre le geste à un nouveau module se fait en un seul endroit**, `ERASABLE_MODULES` et `MODULE_TABLES`.
 - Le compte annoncé à l'écran reste exprimé dans l'unité que l'utilisateur reconnaît (une habitude, pas une ligne), mais **ce que ce compte n'inclut pas doit être nommé** à la confirmation et chiffré au résultat. Un total qui sous-estime silencieusement l'ampleur d'une suppression irréversible est le type d'écart de sincérité que ce dépôt traite en priorité.
 - L'onglet Personnel masque le bandeau « réglages enregistrés, pas encore appliqués » et le récapitulatif de bas de page. Les afficher à côté d'une suppression définitive serait faux, et faux au pire endroit.
 - **Ce geste n'est pas une suppression de compte** et ne couvre pas les autres pôles. La « suppression totale » de la vision stratégique reste absente, de même que l'export complet des données.
+- Le **traitement des tables dépendantes** ne relève pas de cette décision : il est ouvert, voir [DEC-013](#dec-013---traitement-des-tables-dépendantes-lors-dun-effacement--suppression-explicite-ou-cascade-proposé).
+
+Note de révision (2026-08-16) : cette entrée a été rédigée et actée en session autonome, sans validation humaine. Elle portait quatre règles présentées comme non négociables séparément. La troisième — la suppression explicite des tables dépendantes plutôt que la cascade — était un choix d'implémentation pris seul, généralisé en règle à partir d'un unique module. Elle en est retirée et devient DEC-013, au statut `proposé`. Les trois règles conservées sont inchangées sur le fond.
 
 Fichiers liés :
 
@@ -296,6 +299,36 @@ Fichiers liés :
 - `app/api/personal/settings/erase/route.ts`, `app/interface/settings/SettingsPersonalPanel.tsx`
 - `supabase/migrations/20260806200000_create_personal_data_erasure_log.sql`
 - `knowledge/Documentation-Technique-Code/06_Modules.md` (section Paramètres, onglet Personnel)
+
+### DEC-013 - Traitement des tables dépendantes lors d'un effacement : suppression explicite ou cascade (proposé)
+
+Date : 2026-08-16  
+Statut : **proposé** — décrit ce que le code fait aujourd'hui, sans en faire une règle
+
+Contexte : `erasePersonalModules` supprime les lignes des tables dépendantes d'un module **explicitement**, avant celles de sa table principale, au lieu de laisser la clé étrangère `on delete cascade` les emporter. Un seul module est concerné à ce jour : Habitudes, dont `personal_habit_completions` référence `personal_habits (id, user_id)` en cascade.
+
+Argument en faveur de la suppression explicite : le module Habitudes a connu une migration **appliquée partiellement en base** (incident RLS du 2026-08-10, commit `cc281b2`). Si la contrainte de cascade manque en production, Postgres ne lève aucune erreur — les réalisations survivent simplement à leur habitude, en lignes orphelines qu'aucun écran ne montre plus, après un geste qui promettait de tout effacer. Supprimer explicitement ne coûte rien quand la cascade fonctionne, et rattrape le cas où elle manque.
+
+Arguments contre, ou au moins non tranchés :
+
+- **La généralisation repose sur un seul cas.** Un patron déduit d'un unique module n'est pas un patron ; c'est une observation. Rien ne dit encore que le prochain module à table dépendante aura la même forme — dépendance simple, `user_id` dénormalisé sur la dépendante, donc filtrable directement.
+- **Le mécanisme dépend d'une propriété non universelle.** `deleteOwnedRows` filtre sur `user_id`. Cela ne fonctionne que si chaque table dépendante porte `user_id`. Une dépendante qui ne le porterait pas — cas normal en base relationnelle — ne serait pas supprimable par ce chemin, et demanderait soit une jointure, soit un retour à la cascade.
+- **Le coût est un aller-retour réseau par table dépendante**, plus une entrée d'audit par table. Sur un module à plusieurs dépendantes, ce coût croît linéairement là où la cascade est un seul ordre.
+- **La cause racine n'est pas traitée ici.** Le vrai problème est qu'une migration a pu être partiellement appliquée sans que rien ne le signale. Compenser cela dans le code applicatif de chaque suppression est un correctif de symptôme ; vérifier l'état des contraintes en base en serait un de la cause.
+
+Ce qui permettrait de trancher : **un deuxième module effaçable doté d'une table dépendante.** Si son besoin est de même forme, le patron se généralise et cette décision passe en `actif`. Si sa dépendante ne porte pas `user_id`, ou si elle a plusieurs niveaux de dépendance, il faudra soit un mécanisme générique, soit revenir à la cascade avec une vérification de contrainte au déploiement.
+
+Conséquences tant que le statut reste `proposé` :
+
+- Le code actuel **reste en l'état**, la suppression explicite étant la plus conservative des deux : elle donne le bon résultat que la cascade existe ou non.
+- **Ne pas invoquer cette entrée comme règle** pour justifier un choix d'implémentation ailleurs, et ne pas la citer dans une revue comme précédent établi.
+- La formule « ne jamais dépendre d'une contrainte pour la correction d'une suppression annoncée comme totale », qui figurait dans DEC-012 comme règle générale, n'a pas ce statut. Elle reste ici comme argument, pas comme principe du dépôt.
+
+Fichiers liés :
+
+- `lib/server/personal/data-erasure-store.ts` (`MODULE_TABLES`, `erasePersonalModules`)
+- `supabase/migrations/20260806100000_create_personal_habits.sql` (la clé étrangère composite en cascade)
+- `MANUAL_ACTIONS.md` (entrée du 2026-08-13, requête de contrôle de `confdeltype`)
 
 ## Décisions à confirmer
 

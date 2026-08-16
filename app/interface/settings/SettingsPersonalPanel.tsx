@@ -24,7 +24,11 @@ type Step = "select" | "confirm" | "done";
 export function SettingsPersonalPanel() {
   const [step, setStep] = useState<Step>("select");
   const [modules, setModules] = useState<ErasableModuleSummary[]>([]);
-  const [selected, setSelected] = useState<ErasableModuleId[]>([]);
+  // Une seule cible a la fois. Remplace la selection multiple : un geste
+  // d'effacement vise un module et un seul, et la confirmation qui suit ne
+  // parle que de lui. Il n'y a donc plus de selection a deduire ni a
+  // dedupliquer — l'identifiant est soit nul, soit exactement un.
+  const [targetId, setTargetId] = useState<ErasableModuleId | null>(null);
   const [confirmationInput, setConfirmationInput] = useState("");
   const [results, setResults] = useState<ErasureModuleResult[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -73,24 +77,31 @@ export function SettingsPersonalPanel() {
     };
   }, []);
 
-  const selectedSummaries = modules.filter((module) => selected.includes(module.id));
-  const totalSelected = selectedSummaries.reduce((sum, module) => sum + module.count, 0);
-  const cascadingSummaries = selectedSummaries.filter((module) => module.cascadeLabel);
+  const target = modules.find((module) => module.id === targetId) ?? null;
   const canConfirm = confirmationInput === ERASURE_CONFIRMATION_WORD && !isErasing;
 
-  function toggleModule(id: ErasableModuleId) {
-    setSelected((current) =>
-      current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id],
-    );
+  // Le mot de confirmation est vide a chaque ouverture : sans cela, confirmer un
+  // module puis en viser un autre trouverait le champ deja rempli, et le second
+  // effacement se ferait sans avoir rien retape.
+  function startErase(id: ErasableModuleId) {
+    setTargetId(id);
+    setConfirmationInput("");
+    setStep("confirm");
+    setError(null);
   }
 
   function backToSelection() {
     setStep("select");
+    setTargetId(null);
     setConfirmationInput("");
     setError(null);
   }
 
   async function erase() {
+    if (!targetId) {
+      return;
+    }
+
     setIsErasing(true);
 
     try {
@@ -98,7 +109,9 @@ export function SettingsPersonalPanel() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          modules: selected,
+          // Forme de requete inchangee a ce stade : la route attend encore une
+          // liste. Elle passe a `module` unique au checkpoint suivant.
+          modules: [targetId],
           confirmation: confirmationInput,
         }),
       });
@@ -113,7 +126,7 @@ export function SettingsPersonalPanel() {
 
       setResults(payload.results);
       setStep("done");
-      setSelected([]);
+      setTargetId(null);
       setConfirmationInput("");
       setModules((current) =>
         current.map((module) =>
@@ -167,80 +180,83 @@ export function SettingsPersonalPanel() {
         <p className="text-sm text-[#A7B0C0]">Chargement des volumes...</p>
       ) : step === "select" ? (
         <div className="grid gap-3">
+          {/* Une ligne, un bouton, un module. Plus de case a cocher ni de bouton
+              "Continuer" commun : il n'existe aucun geste capable d'emporter
+              plusieurs modules a la fois, et chaque bouton nomme sa cible. */}
           <ul className="grid gap-2">
             {modules.map((module) => (
-              <li key={module.id}>
-                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3">
-                  <span className="flex items-center gap-3">
-                    <input
-                      checked={selected.includes(module.id)}
-                      className="h-4 w-4 accent-[#f59e0b]"
-                      onChange={() => toggleModule(module.id)}
-                      type="checkbox"
-                    />
-                    <span className="text-sm font-semibold text-[#F8FAFC]">{module.label}</span>
-                  </span>
-                  <span className="text-sm text-[#A7B0C0]">
+              <li
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-3"
+                key={module.id}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[#F8FAFC]">{module.label}</p>
+                  <p className="mt-1 text-sm text-[#A7B0C0]">
                     {module.count} élément{module.count > 1 ? "s" : ""}
                     {module.cascadeLabel ? (
                       <span className="text-[#64748b]"> + {module.cascadeLabel}</span>
                     ) : null}
-                  </span>
-                </label>
+                  </p>
+                </div>
+
+                {/* Jamais desactive, meme a zero element. Un module annonce a 0
+                    peut conserver des lignes dependantes orphelines si la
+                    cascade a manque en base (voir DEC-013) — desactiver le
+                    bouton fermerait le seul chemin qui les nettoie. */}
+                <button
+                  className="rounded-md border border-[#f59e0b]/50 bg-[#f59e0b]/15 px-4 py-2 text-sm font-semibold text-[#fbbf24] transition hover:bg-[#f59e0b]/25"
+                  onClick={() => startErase(module.id)}
+                  type="button"
+                >
+                  Vider {module.label}
+                </button>
               </li>
             ))}
           </ul>
-
-          <button
-            className="justify-self-start rounded-md border border-[#f59e0b]/50 bg-[#f59e0b]/15 px-4 py-2 text-sm font-semibold text-[#fbbf24] transition hover:bg-[#f59e0b]/25 disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={selected.length === 0}
-            onClick={() => setStep("confirm")}
-            type="button"
-          >
-            Continuer
-          </button>
         </div>
-      ) : step === "confirm" ? (
+      ) : step === "confirm" && target ? (
         <div className="grid gap-3">
           <div className="rounded-md border border-[#f87171]/40 bg-[#f87171]/10 p-4">
-            <p className="text-sm font-semibold text-[#fecaca]">
-              Vous allez supprimer définitivement :
+            {/* Le nom du module est le point de lecture obligatoire de cet
+                ecran. Il est sorti du corps du texte et rendu en grand, sur sa
+                propre ligne : le mot a taper etant generique, c'est le seul
+                element qui distingue cette confirmation d'une autre. */}
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#fecaca]/70">
+              Module ciblé
             </p>
-            <ul className="mt-2 grid gap-1">
-              {selectedSummaries.map((module) => (
-                <li className="text-sm text-[#fecaca]" key={module.id}>
-                  — {module.label} : {module.count} élément{module.count > 1 ? "s" : ""}
-                  {module.cascadeLabel
-                    ? `, et toutes les ${module.cascadeLabel} associées`
-                    : null}
-                </li>
-              ))}
-            </ul>
+            <p className="mt-1 text-xl font-semibold text-[#fecaca]">{target.label}</p>
+
             <p className="mt-3 text-sm leading-6 text-[#fecaca]">
-              <strong>{totalSelected} élément{totalSelected > 1 ? "s" : ""} au total.</strong>{" "}
+              Vous allez supprimer définitivement{" "}
+              <strong>
+                {target.count} élément{target.count > 1 ? "s" : ""}
+              </strong>{" "}
+              de {target.label}
+              {target.cascadeLabel ? `, et toutes les ${target.cascadeLabel} associées` : null}.
               Cette action est irréversible. Les éléments archivés sont inclus. Aucune
               sauvegarde n&apos;existe.
             </p>
 
-            {/* Le total ci-dessus compte les elements dans l'unite affichee —
-                des habitudes, pas des lignes. Les realisations partent avec
-                elles sans y figurer, et elles sont de loin les plus nombreuses.
-                Le taire ferait passer une suppression de plusieurs centaines de
+            {/* Le compte ci-dessus est exprime dans l'unite affichee — des
+                habitudes, pas des lignes. Les realisations partent avec elles
+                sans y figurer, et elles sont de loin les plus nombreuses. Le
+                taire ferait passer une suppression de plusieurs centaines de
                 lignes pour une suppression de trois. */}
-            {cascadingSummaries.length > 0 ? (
+            {target.cascadeLabel ? (
               <p className="mt-2 text-sm leading-6 text-[#fecaca]">
-                Ce total ne compte pas les{" "}
-                {cascadingSummaries
-                  .map((module) => `${module.cascadeLabel} de ${module.label}`)
-                  .join(", ")}{" "}
-                : elles sont supprimées aussi, et elles sont bien plus nombreuses.
+                Ce compte ne comprend pas les {target.cascadeLabel} : elles sont supprimées
+                aussi, et elles sont bien plus nombreuses.
               </p>
             ) : null}
+
+            <p className="mt-3 text-sm leading-6 text-[#fecaca]">
+              Les autres modules du pôle ne sont pas touchés.
+            </p>
           </div>
 
           <label className="grid gap-2">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[#A7B0C0]">
-              Tapez {ERASURE_CONFIRMATION_WORD} pour confirmer
+              Tapez {ERASURE_CONFIRMATION_WORD} pour vider {target.label}
             </span>
             <input
               autoComplete="off"
@@ -258,7 +274,7 @@ export function SettingsPersonalPanel() {
               onClick={erase}
               type="button"
             >
-              {isErasing ? "Suppression..." : "Supprimer définitivement"}
+              {isErasing ? "Suppression..." : `Supprimer définitivement ${target.label}`}
             </button>
             <button
               className="rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
@@ -270,7 +286,7 @@ export function SettingsPersonalPanel() {
             </button>
           </div>
         </div>
-      ) : (
+      ) : step === "done" ? (
         <div className="grid gap-3">
           {/* Comptes reellement supprimes, renvoyes par le serveur — pas les
               comptes annonces a l'etape de confirmation. Un ecart entre les deux
@@ -308,7 +324,7 @@ export function SettingsPersonalPanel() {
             Retour
           </button>
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

@@ -60,26 +60,52 @@ function getErasureClient() {
 //
 // Habitudes est le premier module a deux tables. Ses realisations sont
 // supprimees EXPLICITEMENT avant les habitudes plutot que laissees a la cascade
-// de la cle etrangere composite. La cascade existe bien dans la migration
-// 20260806100000, mais ce module a precisement connu une migration appliquee
-// partiellement en base — l'incident RLS documente dans cc281b2. Si la
-// contrainte manque en production, la cascade ne se produit pas et les
-// realisations survivent a leur habitude : des lignes orphelines qu'aucun ecran
-// ne montre plus, apres un geste qui promettait de tout effacer. Supprimer
-// explicitement ne coute rien quand la cascade fonctionne, et rattrape le cas
-// ou elle manque. Ne jamais dependre d'une contrainte pour la correction d'une
-// suppression qu'on annonce comme totale.
-const MODULE_TABLES: Record<
-  ErasableModuleId,
-  { countedTable: string; dependents: string[] }
-> = {
+// de la cle etrangere composite.
+//
+// CE N'EST PAS UNE REGLE DU DEPOT — voir DEC-013, au statut `propose`. C'est ce
+// que le code fait aujourd'hui, sur un argument qui tient mais ne suffit pas a
+// generaliser : la cascade existe bien dans la migration 20260806100000, mais ce
+// module a precisement connu une migration appliquee partiellement en base
+// (l'incident RLS documente dans cc281b2), et une contrainte absente en
+// production ne leve aucune erreur — les realisations survivraient a leur
+// habitude en lignes orphelines qu'aucun ecran ne montre plus.
+//
+// Ce que l'argument ne couvre pas, et qui reste a trancher : le patron est
+// deduit d'un seul module, et il suppose que chaque table dependante porte
+// `user_id`, faute de quoi deleteOwnedRows ne peut pas la filtrer. Un deuxieme
+// module effacable a table dependante tranchera. D'ici la, ne pas invoquer ce
+// choix comme precedent etabli ailleurs dans le depot.
+//
+// `as const satisfies Record<...>` plutot qu'une annotation de type : l'annotation
+// elargissait les noms de tables en `string`, et la liste blanche ne tenait plus
+// que par convention. `satisfies` verifie toujours que les trois modules sont
+// couverts et que la forme est la bonne, mais laisse TypeScript conserver les
+// litteraux — c'est d'eux qu'est derive ErasableTableName ci-dessous.
+const MODULE_TABLES = {
   notes: { countedTable: "personal_notes", dependents: [] },
   journal: { countedTable: "personal_journal_entries", dependents: [] },
   habits: {
     countedTable: "personal_habits",
     dependents: ["personal_habit_completions"],
   },
-};
+} as const satisfies Record<
+  ErasableModuleId,
+  { countedTable: string; dependents: readonly string[] }
+>;
+
+// Union des noms de tables reellement effacables, derivee de MODULE_TABLES et
+// jamais reecrite a la main — meme raison que pour isErasableModuleId : deux
+// listes paralleles divergent, et cette divergence-la serait silencieuse.
+//
+// C'est ce type qui porte la garantie de liste blanche au compilateur. Passer a
+// deleteOwnedRows un nom de table absent de MODULE_TABLES ne compile pas, et
+// aucune valeur venue du client ne peut satisfaire ce type.
+//
+// `dependents[number]` vaut `never` pour un module sans dependante, ce qui
+// disparait de l'union sans avoir a traiter le cas.
+type ErasableTableName =
+  | (typeof MODULE_TABLES)[ErasableModuleId]["countedTable"]
+  | (typeof MODULE_TABLES)[ErasableModuleId]["dependents"][number];
 
 // Compte TOUTES les lignes du module, archivees comprises. "Vider l'historique"
 // ne fait pas de distinction entre actif et archive ; annoncer un compte qui en
@@ -102,10 +128,10 @@ async function countOwnedRows(userId: string, moduleId: ErasableModuleId) {
 // Le filtre sur user_id est applique ici et nulle part ailleurs.
 //
 // Prend un nom de table et non un identifiant de module, un module pouvant
-// desormais s'etendre sur plusieurs tables. Ce nom ne peut venir que de
-// MODULE_TABLES : aucun appelant de ce fichier ne doit lui passer autre chose,
-// et rien de ce qui vient du client n'atteint ce parametre.
-async function deleteOwnedRows(userId: string, tableName: string) {
+// desormais s'etendre sur plusieurs tables. Le type ErasableTableName restreint
+// ce parametre aux seules tables declarees dans MODULE_TABLES : la garantie de
+// liste blanche est tenue par le compilateur, pas par ce commentaire.
+async function deleteOwnedRows(userId: string, tableName: ErasableTableName) {
   const supabase = getErasureClient();
   const { count, error } = await supabase
     .from(tableName)

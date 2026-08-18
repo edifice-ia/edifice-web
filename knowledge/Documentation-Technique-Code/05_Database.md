@@ -1,7 +1,7 @@
 # Base de données
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-07-11
+Dernière mise à jour : 2026-08-16
 
 ## Sommaire
 
@@ -109,6 +109,8 @@ Deux choix de conception y sont délibérés :
 - **aucun contenu supprimé n'y est stocké**, seulement des volumes (`deleted_count`). Journaliser le contenu d'un effacement le contredirait.
 
 Une entrée est écrite **par table effectivement vidée, et non par module** : un module à deux tables comme Habitudes produit deux entrées portant le même `module` et deux `table_name` distincts. C'est le sens de la colonne `table_name`, et c'est ce qui permet au journal de dire combien de réalisations sont parties avec les habitudes — le plus gros des deux volumes, qu'une entrée unique par module aurait tu.
+
+Le geste qui écrit ces entrées vise **un module à la fois** : `POST /api/personal/settings/erase` accepte `module` et non `modules`. Un effacement ne peut donc jamais produire d'entrées pour deux modules différents dans la même requête, et l'ordre d'écriture au sein d'un module est celui de la suppression — les tables dépendantes d'abord, la principale ensuite.
 
 ## Règles de sécurité
 

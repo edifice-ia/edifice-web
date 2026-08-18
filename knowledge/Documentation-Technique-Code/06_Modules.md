@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-07-28
+Dernière mise à jour : 2026-08-16
 
 ## Sommaire
 
@@ -105,7 +105,15 @@ Suite possible, non faite : étendre à tous les providers la lecture réelle du
 
 #### Onglet Personnel : « Vider l'historique »
 
-Le seul onglet de cet écran dont les réglages agissent, et le seul endroit du dépôt qui **supprime physiquement** des données. Il vide l'historique des modules Personnel choisis : Notes, Journal et Humeur, Habitudes. Il ne supprime pas le compte, ne touche ni aux connexions ni aux autres pôles.
+Le seul onglet de cet écran dont les réglages agissent, et le seul endroit du dépôt qui **supprime physiquement** des données. Il vide l'historique d'un module Personnel — Notes, Journal et Humeur, ou Habitudes. Il ne supprime pas le compte, ne touche ni aux connexions, ni aux autres modules du pôle, ni aux autres pôles.
+
+**Un module à la fois, jamais plusieurs.** C'est la propriété structurante de cet écran, et elle descend jusqu'au contrat de la route. La liste de sélection propose une ligne par module, chacune avec son propre bouton nommé — « Vider Notes », « Vider Habitudes ». Il n'existe ni case à cocher, ni bouton commun, ni requête capable d'emporter deux modules.
+
+Le flux est en trois écrans : la liste, une confirmation dédiée au module visé, puis le résultat. **Le nom du module apparaît explicitement sur chacun des trois** — c'est le seul élément qui distingue une confirmation d'une autre, le mot à taper étant générique. À la confirmation, il est sorti du corps du texte : un sur-titre « Module ciblé » puis le libellé en `text-xl`, sur sa propre ligne, puis repris dans la phrase de conséquence, dans le libellé du champ de saisie et sur le bouton final. La confirmation dit aussi ce qui **reste** — « Les autres modules du pôle ne sont pas touchés » — et l'écran de résultat le confirme au passé.
+
+Le mot à taper est `SUPPRIMER`, **générique et identique pour les trois modules**. Il n'est volontairement pas dérivé du nom du module : c'est le nom affiché qui porte la désignation de la cible, pas le mot tapé. Le champ est vidé à chaque ouverture, sans quoi confirmer un module puis en viser un autre trouverait la saisie déjà faite et le second effacement partirait sans rien retaper.
+
+Le bouton « Vider » n'est **jamais désactivé, même à zéro élément** : un module annoncé à 0 peut conserver des lignes dépendantes orphelines si la cascade a manqué en base (voir DEC-013), et le désactiver fermerait le seul chemin qui les nettoie.
 
 Le contraste avec le reste de l'écran est un piège de conception traité explicitement, pas un détail cosmétique : un bouton qui supprime vraiment, dans un écran où rien d'autre n'agit, serait actionné avec la même légèreté que les bascules inertes d'à côté. Trois conséquences dans le code :
 
@@ -113,7 +121,9 @@ Le contraste avec le reste de l'écran est un piège de conception traité expli
 - le bandeau « Reglages enregistres, pas encore appliques » et le récapitulatif de bas de page sont **masqués** sur cet onglet — les afficher à côté d'une suppression définitive serait faux et dangereux ;
 - le panneau porte son propre bandeau, qui dit l'inverse : cette section agit réellement.
 
-Quatre gardes, dans cet ordre : session obligatoire ; mot de confirmation `SUPPRIMER` **revalidé côté serveur**, la confirmation de l'interface ne suffisant pas si la route est court-circuitée ; identifiants de module passés par liste blanche, aucun nom de table ne venant jamais du client ; exécution par la clé service-role, avec le filtre `.eq("user_id", …)` centralisé dans une fonction unique du store.
+Quatre gardes, dans cet ordre : session obligatoire ; mot de confirmation `SUPPRIMER` **revalidé côté serveur**, la confirmation de l'interface ne suffisant pas si la route est court-circuitée ; identifiant de module passé par liste blanche, aucun nom de table ne venant jamais du client ; exécution par la clé service-role, avec le filtre `.eq("user_id", …)` centralisé dans une fonction unique du store, dont le paramètre est contraint au type `ErasableTableName` dérivé de `MODULE_TABLES`.
+
+**L'échec partiel entre modules n'existe pas**, et ce n'est pas une précaution mais une conséquence du contrat : `POST` accepte `module`, jamais `modules`, donc une requête ne peut décrire qu'un seul effacement et il n'y a pas d'état où un module serait supprimé et un autre non. Un appelant resté sur l'ancienne forme `{ modules: [...] }` reçoit une erreur de validation, jamais un effacement partiel. **L'échec partiel à l'intérieur d'un module reste possible** en revanche : sur un module à table dépendante, les dépendantes partent avant la principale, et une erreur entre les deux laisse la principale intacte pour des dépendantes déjà supprimées. Rendre l'ensemble atomique demanderait une fonction Postgres `security definer` — arbitrage non pris.
 
 **Ce store est le seul du pôle à utiliser la clé service-role**, et c'est structurel : `personal_notes`, `personal_journal_entries` et `personal_habits` n'accordent pas `DELETE` à `authenticated` et ne portent aucune policy `DELETE`. La suppression physique y est impossible depuis le client de session, par conception. La contrepartie est que **la service-role contourne RLS** : il n'existe ici aucun garde en base, et le seul filtre d'isolation est ce `.eq("user_id", …)`. C'est le point le plus dangereux du chantier, d'où sa centralisation dans `deleteOwnedRows` — aucun appel direct à `.delete()` ne doit être écrit ailleurs dans ce fichier.
 
@@ -121,7 +131,12 @@ Quatre gardes, dans cet ordre : session obligatoire ; mot de confirmation `SUPPR
 
 **Ce n'est pas une règle du dépôt, seulement ce que le code fait aujourd'hui.** Le patron est déduit d'un unique module, et il dépend d'une propriété qui n'a rien d'universel : `deleteOwnedRows` filtre sur `user_id`, ce qui suppose que chaque table dépendante porte cette colonne. Le choix reste ouvert jusqu'à ce qu'un deuxième module à table dépendante confirme qu'il se généralise — voir [Décisions](./03_Decisions.md) DEC-013, au statut `proposé`. Ne pas l'invoquer comme précédent établi.
 
-Le compte affiché reste exprimé dans l'unité que l'utilisateur reconnaît — une habitude, pas une ligne. Mais le taire ferait annoncer « 3 éléments » pour une suppression qui en détruit des centaines : l'écran de confirmation nomme donc séparément les réalisations, et l'écran de résultat affiche le volume réellement supprimé dans chaque table, renvoyé par le serveur.
+Le compte affiché reste exprimé dans l'unité que l'utilisateur reconnaît — une habitude, pas une ligne. Mais le taire ferait annoncer « 3 éléments » pour une suppression qui en détruit des centaines. Deux champs portent cette nuance de bout en bout :
+
+- **`cascadeLabel`**, déclaré sur le module dans `ERASABLE_MODULES` et repropagé par le résumé serveur. Renseigné pour Habitudes seul (`"réalisations"`), les deux autres modules tenant dans une table. Il produit la mention `+ réalisations` à côté du compte dans la liste, la phrase « et toutes les réalisations associées » à la confirmation, et l'avertissement qui suit le compte : ce compte ne comprend pas les réalisations, elles sont supprimées aussi, et elles sont bien plus nombreuses.
+- **`relatedDeletedCount`**, renvoyé par le serveur après coup, qui chiffre les lignes réellement supprimées dans les tables dépendantes. Il est omis pour un module à table unique plutôt que forcé à zéro — « et 0 réalisations » sur une note n'aurait aucun sens à l'écran.
+
+L'écran de résultat affiche les volumes **renvoyés par le serveur**, pas ceux annoncés à la confirmation. Un écart entre les deux est donc visible plutôt que masqué.
 
 `isErasableModuleId` est **dérivé** de `ERASABLE_MODULES` et non réécrit à la main. Une énumération parallèle finirait par diverger, et la divergence dangereuse est silencieuse : un module retiré de la liste affichée mais toujours accepté par le validateur resterait effaçable par un appel direct à la route.
 

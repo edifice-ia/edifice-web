@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-08-13
+Dernière mise à jour : 2026-08-16
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-16 (un module à la fois, et révision de DEC-012)](#2026-08-16-un-module-à-la-fois-et-révision-de-dec-012)
 - [2026-08-13 (« Vider l'historique », Réglages > Personnel)](#2026-08-13--vider-lhistorique--réglages--personnel)
 - [2026-08-10 (archives et restauration, Habitudes)](#2026-08-10-archives-et-restauration-habitudes)
 - [2026-08-10 (module Habitudes)](#2026-08-10-module-habitudes)
@@ -46,10 +47,38 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
+## 2026-08-16 (un module à la fois, et révision de DEC-012)
+
+Type : produit, sécurité, documentation  
+Résumé : le geste « Vider l'historique » passe d'une sélection multiple à **un module à la fois, avec confirmation dédiée**. `POST /api/personal/settings/erase` accepte désormais `module` et non `modules`. DEC-012 est par ailleurs scindée : la suppression explicite des tables dépendantes en sort et devient DEC-013, au statut `proposé`.
+
+Fichiers liés :
+
+- `app/interface/settings/SettingsPersonalPanel.tsx`
+- `app/api/personal/settings/erase/route.ts`, `lib/personal/data-erasure.ts`
+- `lib/server/personal/data-erasure-store.ts`
+- `03_Decisions.md` (DEC-012 révisée, DEC-013 nouvelle)
+
+Impact : **la migration `personal_data_erasure_log` n'est toujours pas appliquée en base**, et le geste n'a donc jamais été exercé de bout en bout. Voir `MANUAL_ACTIONS.md`.
+
+**Ce qui disparaît.** Le flux précédent partageait une seule saisie de `SUPPRIMER` entre tous les modules cochés : trois cases et le mot tapé une fois vidaient les trois. Cases à cocher, bouton « Continuer » commun, totaux agrégés et déduplication de liste sont retirés. Il n'existe plus aucun geste, ni aucune requête, capable d'emporter deux modules.
+
+**Ce qui le remplace.** Une ligne et un bouton nommé par module (« Vider Habitudes »), puis une confirmation dédiée où le nom du module est sorti du corps du texte — sur-titre « Module ciblé », libellé en `text-xl`, puis repris dans la phrase de conséquence, le libellé du champ et le bouton final. Le mot à taper reste `SUPPRIMER`, générique : c'est le nom affiché qui désigne la cible, pas le mot tapé. La confirmation et l'écran de résultat disent aussi ce qui **reste** — « Les autres modules du pôle ne sont pas touchés ».
+
+**L'échec partiel entre modules disparaît par construction**, et non par précaution : une requête ne pouvant décrire qu'un seul effacement, il n'existe plus d'état où un module serait supprimé et un autre non. Un appelant resté sur `{ modules: [...] }` reçoit une erreur de validation, jamais un effacement partiel. **L'échec partiel à l'intérieur d'un module subsiste** : les tables dépendantes partent avant la principale, et une erreur entre les deux laisse la principale intacte pour des dépendantes déjà supprimées. Rendre l'ensemble atomique demanderait une fonction Postgres `security definer` — non fait.
+
+Deux détails de sûreté hérités du passage à la cible unique : le champ de confirmation est **vidé à chaque ouverture**, sans quoi confirmer un module puis en viser un autre trouverait la saisie déjà faite ; et le bouton « Vider » n'est **jamais désactivé, même à zéro élément**, un module annoncé à 0 pouvant conserver des dépendantes orphelines si la cascade a manqué en base.
+
+`deleteOwnedRows` a par ailleurs été contraint au type `ErasableTableName`, dérivé des littéraux de `MODULE_TABLES` via `as const satisfies`. Le paramètre était une `string` libre depuis l'extension à Habitudes : la liste blanche ne tenait plus que par convention sur la seule fonction du dépôt qui supprime physiquement. Rejet vérifié par test négatif — `deleteOwnedRows(userId, "auth.users")` ne compile pas.
+
+**Révision de DEC-012.** L'entrée avait été rédigée et actée en session autonome, sans validation humaine, et présentait quatre règles comme non négociables séparément. La suppression explicite des tables dépendantes n'était pas une règle mais un choix d'implémentation généralisé depuis un unique module : elle devient DEC-013, statut `proposé`, avec ses arguments contre et son critère de sortie — un deuxième module effaçable doté d'une table dépendante. La formule « ne jamais dépendre d'une contrainte… », qui figurait en gras dans `06_Modules.md` comme principe du dépôt, y est requalifiée en argument rattaché à cette décision proposée.
+
 ## 2026-08-13 (« Vider l'historique », Réglages > Personnel)
 
 Type : produit, sécurité, base de données, documentation  
 Résumé : ajout du geste « Vider l'historique » dans un nouvel onglet Personnel de Réglages, **seule suppression physique de données du dépôt**. Couvre les trois modules à saisie manuelle du pôle : Notes, Journal et Humeur, Habitudes. Ajoute la table d'audit `personal_data_erasure_log`. Voir [Décisions](./03_Decisions.md) DEC-012.
+
+> ⚠️ **Le flux de confirmation décrit dans cette entrée est dépassé depuis le 2026-08-16.** Il reposait sur une sélection multiple par cases à cocher et un mot `SUPPRIMER` tapé une fois pour tous les modules cochés. Il est remplacé par un module à la fois avec confirmation dédiée — voir l'entrée du 2026-08-16. Le reste de cette entrée (gardes, service-role, journal d'audit, tables) reste exact.
 
 Fichiers liés :
 

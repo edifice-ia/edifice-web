@@ -65,7 +65,35 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 1. Ouvrir <https://supabase.com/dashboard>, sélectionner le projet de L'Édifice, puis « SQL Editor » dans la barre latérale.
 2. Cliquer « New query ».
-3. Coller l'intégralité du fichier `supabase/migrations/20260806200000_create_personal_data_erasure_log.sql` et cliquer « Run ».
+3. Coller ce script **tel quel** et cliquer « Run ». C'est le contenu exact de `supabase/migrations/20260806200000_create_personal_data_erasure_log.sql` ; en cas de doute, c'est le fichier qui fait foi.
+
+```sql
+create table if not exists public.personal_data_erasure_log (
+  id uuid primary key default gen_random_uuid(),
+  -- Pas de cle etrangere vers auth.users, deliberement : une suppression de
+  -- compte cascaderait et effacerait la preuve que l'effacement a eu lieu.
+  user_id uuid not null,
+  module text not null,
+  table_name text not null,
+  deleted_count integer not null,
+  requested_at timestamptz not null default now(),
+  source text not null default 'settings_personal',
+  constraint personal_data_erasure_log_deleted_count_positive
+    check (deleted_count >= 0)
+);
+
+alter table public.personal_data_erasure_log enable row level security;
+
+-- Patron repris de project_memory_audit_log : les DEUX roles sont revoques, et
+-- aucune policy n'est creee. La table n'est accessible que par la service-role.
+revoke all on table public.personal_data_erasure_log from anon;
+revoke all on table public.personal_data_erasure_log from authenticated;
+
+create index if not exists personal_data_erasure_log_user_id_requested_at_idx
+on public.personal_data_erasure_log (user_id, requested_at desc);
+```
+
+Le script est **idempotent sur la table et l'index** (`create ... if not exists`) et les `revoke` sont sans effet s'ils ont déjà été appliqués : le rejouer ne casse rien. Il ne l'est pas sur `alter table ... enable row level security`, qui est simplement sans effet si RLS est déjà actif.
 4. Vérifier ensuite que les révocations sont bien en place — c'est le point qui a été appliqué partiellement lors de l'incident du 2026-08-10 sur `personal_habits`. Coller et exécuter :
 
 ```sql
@@ -85,7 +113,27 @@ where conrelid = 'public.personal_habit_completions'::regclass
 
 **Vérification** : à l'étape 4, `anon` et `authenticated` **ne doivent apparaître dans aucune ligne** — la table n'est accessible qu'à la clé service-role, et une ligne pour l'un de ces deux rôles signifie que les `revoke` n'ont pas pris. À l'étape 5, `confdeltype` doit valoir `c` (cascade) ; toute autre valeur confirme que la migration `20260806100000` est encore partiellement appliquée, ce qui ne casse pas la suppression (le code supprime les réalisations explicitement) mais doit être corrigé.
 
-Ensuite, tester le geste de bout en bout dans Réglages > Personnel : cocher un module, vérifier que le compte annoncé correspond, taper `SUPPRIMER`, et contrôler qu'une ligne par table vidée apparaît dans `personal_data_erasure_log`. Tester Habitudes sur un jeu de données jetable — la suppression est irréversible et sans sauvegarde.
+Ensuite, tester le geste de bout en bout dans Réglages > Personnel. Le flux est **un module à la fois** depuis le 2026-08-16 : chaque module a sa propre ligne et son propre bouton « Vider <module> », et le mot `SUPPRIMER` est retapé à chaque fois. Pour chacun des trois modules, séparément :
+
+1. cliquer « Vider <module> », vérifier que l'écran de confirmation nomme **le bon module** et que le compte annoncé correspond ;
+2. taper `SUPPRIMER`, confirmer ;
+3. vérifier que **les deux autres modules ont gardé leur compte** — c'est la propriété que ce flux existe pour garantir ;
+4. contrôler le journal d'audit, une ligne par table effectivement vidée :
+
+```sql
+select module, table_name, deleted_count, requested_at
+from public.personal_data_erasure_log
+order by requested_at desc
+limit 20;
+```
+
+Pour **Habitudes**, deux lignes doivent apparaître pour un seul geste — `personal_habit_completions` puis `personal_habits` — et l'écran de résultat doit annoncer les réalisations en plus des habitudes. Vérifier qu'aucune réalisation orpheline ne subsiste :
+
+```sql
+select count(*) from public.personal_habit_completions;
+```
+
+Tester sur un jeu de données jetable : la suppression est irréversible et sans sauvegarde.
 
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 

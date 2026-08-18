@@ -7,18 +7,46 @@ import {
   erasePersonalModule,
   summarizePersonalErasure,
 } from "@/lib/server/personal/data-erasure-store";
+import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";
 import { getCurrentUser } from "@/src/lib/supabase/server";
 
 export const runtime = "nodejs";
+
+// Garde commun aux deux verbes. DEC-007 pose getCurrentUser() +
+// canAccessPrivateCockpit comme garde par defaut du cockpit prive ; cette route
+// ne posait que le premier, alors qu'elle est la seule du depot a supprimer
+// physiquement des donnees.
+//
+// Les deux cas sont distingues plutot que fondus dans un 403 unique : 401 dit
+// "authentifie-toi", 403 dit "ce compte n'a pas le droit". Les confondre
+// enverrait un reviewer deja connecte sur un ecran de connexion.
+//
+// Le rang reviewer est le seul refuse aujourd'hui (canAccessPrivateCockpit vaut
+// getUserRole(user) !== "reviewer"). Le middleware bloque deja /interface pour
+// ce role, mais pas /api/personal — sans ce garde, la route restait joignable
+// par appel direct.
+async function authorizeErasureAccess() {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return { user: null, response: NextResponse.json({ error: "Acces refuse." }, { status: 401 }) };
+  }
+
+  if (!canAccessPrivateCockpit(user)) {
+    return { user: null, response: NextResponse.json({ error: "Acces refuse." }, { status: 403 }) };
+  }
+
+  return { user, response: null };
+}
 
 // GET decrit ce que la suppression effacerait : un compte par module, archives
 // comprises. POST l'execute. La ressource est l'operation d'effacement, ce qui
 // rend les deux verbes coherents sur le meme chemin.
 export async function GET() {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeErasureAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   try {
@@ -34,14 +62,15 @@ export async function GET() {
 
 // SUPPRESSION PHYSIQUE ET IRREVERSIBLE. Seule route du depot dans ce cas.
 //
-// Quatre gardes, dans cet ordre :
-//   1. session obligatoire ;
-//   2. mot de confirmation revalide cote serveur — la confirmation de
+// Cinq gardes, dans cet ordre :
+//   1. session obligatoire (401 sans session) ;
+//   2. role autorise sur le cockpit prive (403 pour un reviewer) ;
+//   3. mot de confirmation revalide cote serveur — la confirmation de
 //      l'interface ne suffit pas, la route doit rester infranchissable si on
 //      la court-circuite ;
-//   3. identifiant de module passe par liste blanche, aucun nom de table ne
+//   4. identifiant de module passe par liste blanche, aucun nom de table ne
 //      venant du client ;
-//   4. l'execution passe par la cle service-role, seule capable de supprimer,
+//   5. l'execution passe par la cle service-role, seule capable de supprimer,
 //      et le filtre .eq("user_id", ...) y est centralise dans une fonction
 //      unique du store.
 //
@@ -53,10 +82,10 @@ export async function GET() {
 // vise et ne touche ni au compte, ni aux connexions, ni aux autres modules du
 // pole, ni aux autres poles.
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeErasureAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   let payload: unknown;

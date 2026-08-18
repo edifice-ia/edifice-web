@@ -4,7 +4,7 @@ import {
   parseErasureRequest,
 } from "@/lib/personal/data-erasure";
 import {
-  erasePersonalModules,
+  erasePersonalModule,
   summarizePersonalErasure,
 } from "@/lib/server/personal/data-erasure-store";
 import { getCurrentUser } from "@/src/lib/supabase/server";
@@ -39,15 +39,19 @@ export async function GET() {
 //   2. mot de confirmation revalide cote serveur — la confirmation de
 //      l'interface ne suffit pas, la route doit rester infranchissable si on
 //      la court-circuite ;
-//   3. identifiants de module passes par liste blanche, aucun nom de table ne
+//   3. identifiant de module passe par liste blanche, aucun nom de table ne
 //      venant du client ;
 //   4. l'execution passe par la cle service-role, seule capable de supprimer,
 //      et le filtre .eq("user_id", ...) y est centralise dans une fonction
 //      unique du store.
 //
-// Ce geste n'est PAS une suppression de compte : il vide l'historique des
-// modules selectionnes et ne touche ni au compte, ni aux connexions, ni aux
-// autres poles.
+// UN module par requete, jamais une liste. Une requete ne peut donc decrire
+// qu'un seul effacement : il n'existe plus d'etat ou un module serait supprime
+// et un autre non, ni de reponse composite a interpreter.
+//
+// Ce geste n'est PAS une suppression de compte : il vide l'historique du module
+// vise et ne touche ni au compte, ni aux connexions, ni aux autres modules du
+// pole, ni aux autres poles.
 export async function POST(request: Request) {
   const user = await getCurrentUser();
 
@@ -70,17 +74,19 @@ export async function POST(request: Request) {
   }
 
   try {
-    const results = await erasePersonalModules({
+    const result = await erasePersonalModule({
       userId: user.id,
-      modules: parsed.modules,
+      moduleId: parsed.module,
     });
 
-    console.info("[Personal Erasure] modules vides", {
+    console.info("[Personal Erasure] module vide", {
       userId: user.id,
-      modules: results.map((result) => `${result.id}:${result.deletedCount}`).join(","),
+      module: result.id,
+      deletedCount: result.deletedCount,
+      relatedDeletedCount: result.relatedDeletedCount,
     });
 
-    return NextResponse.json({ ok: true, results, confirmation: ERASURE_CONFIRMATION_WORD });
+    return NextResponse.json({ ok: true, result, confirmation: ERASURE_CONFIRMATION_WORD });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Suppression definitive indisponible.";

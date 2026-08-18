@@ -60,21 +60,25 @@ export function labelForErasableModule(id: ErasableModuleId) {
 }
 
 export type ErasureRequestParseResult =
-  | { ok: true; modules: ErasableModuleId[] }
+  | { ok: true; module: ErasableModuleId }
   | { ok: false; error: string };
 
 // Valide la charge utile de POST /api/personal/settings/erase.
+//
+// Un module par requete, jamais une liste. Une requete ne peut donc plus decrire
+// qu'un seul effacement, et la question de l'echec partiel entre modules ne se
+// pose plus : elle n'a pas de representation possible dans ce contrat.
 //
 // Le mot de confirmation est revalide ici, cote serveur : la confirmation de
 // l'interface ne suffit pas, la route doit rester infranchissable si on la
 // court-circuite.
 //
-// Les identifiants de module passent par une liste blanche. Aucun nom de table
-// ne vient jamais du client.
+// L'identifiant de module passe par une liste blanche. Aucun nom de table ne
+// vient jamais du client.
 export function parseErasureRequest(payload: unknown): ErasureRequestParseResult {
   const record =
     payload && typeof payload === "object"
-      ? (payload as { modules?: unknown; confirmation?: unknown })
+      ? (payload as { module?: unknown; confirmation?: unknown })
       : null;
 
   if (!record) {
@@ -88,21 +92,13 @@ export function parseErasureRequest(payload: unknown): ErasureRequestParseResult
     };
   }
 
-  if (!Array.isArray(record.modules) || record.modules.length === 0) {
-    return { ok: false, error: "modules doit etre une liste non vide." };
+  // Un tableau ne satisfait pas isErasableModuleId, donc l'ancienne forme
+  // `modules: [...]` est rejetee ici sans traitement particulier : un appelant
+  // reste sur l'ancien contrat recoit une erreur de validation, jamais un
+  // effacement partiel ou silencieux.
+  if (!isErasableModuleId(record.module)) {
+    return { ok: false, error: "module doit etre un identifiant de module connu." };
   }
 
-  const modules: ErasableModuleId[] = [];
-
-  for (const candidate of record.modules) {
-    if (!isErasableModuleId(candidate)) {
-      return { ok: false, error: "modules contient un identifiant inconnu." };
-    }
-
-    if (!modules.includes(candidate)) {
-      modules.push(candidate);
-    }
-  }
-
-  return { ok: true, modules };
+  return { ok: true, module: record.module };
 }

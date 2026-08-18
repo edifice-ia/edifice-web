@@ -30,7 +30,7 @@ export function SettingsPersonalPanel() {
   // dedupliquer — l'identifiant est soit nul, soit exactement un.
   const [targetId, setTargetId] = useState<ErasableModuleId | null>(null);
   const [confirmationInput, setConfirmationInput] = useState("");
-  const [results, setResults] = useState<ErasureModuleResult[]>([]);
+  const [result, setResult] = useState<ErasureModuleResult | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isErasing, setIsErasing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -109,30 +109,30 @@ export function SettingsPersonalPanel() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          // Forme de requete inchangee a ce stade : la route attend encore une
-          // liste. Elle passe a `module` unique au checkpoint suivant.
-          modules: [targetId],
+          module: targetId,
           confirmation: confirmationInput,
         }),
       });
       const payload = (await response.json()) as {
-        results?: ErasureModuleResult[];
+        result?: ErasureModuleResult;
         error?: string;
       };
 
-      if (!response.ok || !payload.results) {
+      if (!response.ok || !payload.result) {
         throw new Error(payload.error ?? "Suppression definitive indisponible.");
       }
 
-      setResults(payload.results);
+      const result = payload.result;
+
+      setResult(result);
       setStep("done");
       setTargetId(null);
       setConfirmationInput("");
+      // Seul le module vise retombe a zero. Les autres gardent leur compte :
+      // c'est ce que l'ecran de confirmation vient de promettre.
       setModules((current) =>
         current.map((module) =>
-          payload.results?.some((result) => result.id === module.id)
-            ? { ...module, count: 0 }
-            : module,
+          module.id === result.id ? { ...module, count: 0 } : module,
         ),
       );
       setError(null);
@@ -286,37 +286,38 @@ export function SettingsPersonalPanel() {
             </button>
           </div>
         </div>
-      ) : step === "done" ? (
+      ) : step === "done" && result ? (
         <div className="grid gap-3">
           {/* Comptes reellement supprimes, renvoyes par le serveur — pas les
               comptes annonces a l'etape de confirmation. Un ecart entre les deux
               est donc visible. */}
           <div className="rounded-md border border-[#1D2A44] bg-[#08111A] p-4">
-            <p className="text-sm font-semibold text-[#F8FAFC]">Suppression effectuée.</p>
-            <ul className="mt-2 grid gap-1">
-              {results.map((result) => (
-                <li className="text-sm text-[#A7B0C0]" key={result.id}>
-                  — {result.label} : {result.deletedCount} élément
-                  {result.deletedCount > 1 ? "s" : ""} supprimé
-                  {result.deletedCount > 1 ? "s" : ""}
-                  {/* Volume reellement supprime dans les tables dependantes,
-                      renvoye par le serveur. Affiche meme a zero une fois le
-                      module concerne : "0 realisation" apres suppression est
-                      une information, pas du bruit. */}
-                  {result.relatedDeletedCount !== undefined
-                    ? `, et ${result.relatedDeletedCount} réalisation${
-                        result.relatedDeletedCount > 1 ? "s" : ""
-                      }`
-                    : null}
-                </li>
-              ))}
-            </ul>
+            <p className="text-sm font-semibold text-[#F8FAFC]">
+              {result.label} : suppression effectuée.
+            </p>
+            <p className="mt-2 text-sm text-[#A7B0C0]">
+              {result.deletedCount} élément{result.deletedCount > 1 ? "s" : ""} supprimé
+              {result.deletedCount > 1 ? "s" : ""}
+              {/* Volume reellement supprime dans les tables dependantes,
+                  renvoye par le serveur. Affiche meme a zero une fois le
+                  module concerne : "0 realisation" apres suppression est
+                  une information, pas du bruit. */}
+              {result.relatedDeletedCount !== undefined
+                ? `, et ${result.relatedDeletedCount} réalisation${
+                    result.relatedDeletedCount > 1 ? "s" : ""
+                  }`
+                : null}
+              .
+            </p>
+            <p className="mt-2 text-sm text-[#A7B0C0]">
+              Les autres modules du pôle n&apos;ont pas été touchés.
+            </p>
           </div>
 
           <button
             className="justify-self-start rounded-md border border-[#1D2A44] bg-[#08111A] px-4 py-2 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
             onClick={() => {
-              setResults([]);
+              setResult(null);
               setStep("select");
             }}
             type="button"

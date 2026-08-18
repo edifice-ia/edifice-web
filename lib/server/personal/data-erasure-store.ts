@@ -195,58 +195,58 @@ export async function summarizePersonalErasure(
   return counts;
 }
 
-// Traite les modules en sequence, pas en parallele : chaque suppression est
-// suivie de son entree d'audit, et un echec sur le second module ne doit pas
-// laisser le premier sans trace.
+// Efface un module, et un seul.
 //
-// En cas d'echec partiel, les modules deja traites restent supprimes et
-// journalises ; l'erreur remonte a l'appelant, qui renvoie ce qui a ete fait.
-export async function erasePersonalModules({
+// L'echec partiel ENTRE modules n'existe plus : il n'y a plus de boucle externe,
+// donc plus d'etat ou un module serait supprime et le suivant non. Chaque appel
+// vise une cible unique, et l'appelant ne peut plus decrire qu'un seul resultat.
+//
+// L'echec partiel A L'INTERIEUR d'un module reste possible, et n'est pas traite
+// ici : sur un module a table dependante, les dependantes sont supprimees avant
+// la principale, et une erreur entre les deux laisse la principale intacte pour
+// des dependantes deja parties. Rendre l'ensemble atomique demanderait une
+// fonction Postgres `security definer` — arbitrage non pris, voir le suivi de
+// chantier.
+export async function erasePersonalModule({
   userId,
-  modules,
+  moduleId,
 }: {
   userId: string;
-  modules: ErasableModuleId[];
-}): Promise<ErasureModuleResult[]> {
-  const results: ErasureModuleResult[] = [];
+  moduleId: ErasableModuleId;
+}): Promise<ErasureModuleResult> {
+  const { countedTable, dependents } = MODULE_TABLES[moduleId];
 
-  for (const moduleId of modules) {
-    const { countedTable, dependents } = MODULE_TABLES[moduleId];
+  // Les dependantes d'abord, la principale ensuite. L'ordre inverse
+  // s'appuierait sur la cascade pour emporter les dependantes, ce que ce
+  // store refuse de faire — voir MODULE_TABLES.
+  let relatedDeletedCount = 0;
 
-    // Les dependantes d'abord, la principale ensuite. L'ordre inverse
-    // s'appuierait sur la cascade pour emporter les dependantes, ce que ce
-    // store refuse de faire — voir MODULE_TABLES.
-    let relatedDeletedCount = 0;
-
-    for (const dependentTable of dependents) {
-      const dependentCount = await deleteOwnedRows(userId, dependentTable);
-      await writeErasureAudit({
-        userId,
-        moduleId,
-        tableName: dependentTable,
-        deletedCount: dependentCount,
-      });
-
-      relatedDeletedCount += dependentCount;
-    }
-
-    const deletedCount = await deleteOwnedRows(userId, countedTable);
+  for (const dependentTable of dependents) {
+    const dependentCount = await deleteOwnedRows(userId, dependentTable);
     await writeErasureAudit({
       userId,
       moduleId,
-      tableName: countedTable,
-      deletedCount,
+      tableName: dependentTable,
+      deletedCount: dependentCount,
     });
 
-    results.push({
-      id: moduleId,
-      label: labelForErasableModule(moduleId),
-      deletedCount,
-      // Omis pour un module a table unique, plutot que force a 0 : "et 0
-      // realisations" sur une note n'aurait aucun sens a l'ecran.
-      ...(dependents.length > 0 ? { relatedDeletedCount } : {}),
-    });
+    relatedDeletedCount += dependentCount;
   }
 
-  return results;
+  const deletedCount = await deleteOwnedRows(userId, countedTable);
+  await writeErasureAudit({
+    userId,
+    moduleId,
+    tableName: countedTable,
+    deletedCount,
+  });
+
+  return {
+    id: moduleId,
+    label: labelForErasableModule(moduleId),
+    deletedCount,
+    // Omis pour un module a table unique, plutot que force a 0 : "et 0
+    // realisations" sur une note n'aurait aucun sens a l'ecran.
+    ...(dependents.length > 0 ? { relatedDeletedCount } : {}),
+  };
 }

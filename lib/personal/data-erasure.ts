@@ -59,6 +59,20 @@ export function labelForErasableModule(id: ErasableModuleId) {
   return ERASABLE_MODULES.find((module) => module.id === id)?.label ?? id;
 }
 
+// Resultat de la suppression physique d'UN element archive, geste distinct de
+// "Vider l'historique" — voir 11-modularite-configuration.md, sous-cas du
+// troisieme geste canonique.
+//
+// relatedDeletedCount porte les lignes dependantes emportees avec l'element :
+// les realisations d'une habitude. Vaut 0 pour un module a table unique, et
+// non undefined comme sur ErasureModuleResult — ici une seule entree d'audit
+// est ecrite, et sa colonne related_deleted_count est not null default 0.
+export type PersonalItemErasureResult = {
+  module: ErasableModuleId;
+  itemId: string;
+  relatedDeletedCount: number;
+};
+
 export type ErasureRequestParseResult =
   | { ok: true; module: ErasableModuleId }
   | { ok: false; error: string };

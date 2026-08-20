@@ -5,6 +5,7 @@ import {
   type ErasableModuleId,
   type ErasableModuleSummary,
   type ErasureModuleResult,
+  type PersonalItemErasureResult,
 } from "@/lib/personal/data-erasure";
 
 // Ce store est le SEUL du pole Personnel a utiliser la cle service-role, et il
@@ -86,11 +87,16 @@ const MODULE_TABLES = {
   journal: { countedTable: "personal_journal_entries", dependents: [] },
   habits: {
     countedTable: "personal_habits",
-    dependents: ["personal_habit_completions"],
+    // parentKey : la colonne par laquelle la dependante reference sa principale.
+    // Le geste module n'en a pas besoin (il vide tout par user_id), mais la
+    // suppression d'UN element doit cibler les seules dependantes de cet
+    // element. Les deux granularites lisent la meme declaration, ce qui evite
+    // une seconde table de correspondance qui divergerait.
+    dependents: [{ table: "personal_habit_completions", parentKey: "habit_id" }],
   },
 } as const satisfies Record<
   ErasableModuleId,
-  { countedTable: string; dependents: readonly string[] }
+  { countedTable: string; dependents: readonly { table: string; parentKey: string }[] }
 >;
 
 // Union des noms de tables reellement effacables, derivee de MODULE_TABLES et
@@ -105,7 +111,7 @@ const MODULE_TABLES = {
 // disparait de l'union sans avoir a traiter le cas.
 type ErasableTableName =
   | (typeof MODULE_TABLES)[ErasableModuleId]["countedTable"]
-  | (typeof MODULE_TABLES)[ErasableModuleId]["dependents"][number];
+  | (typeof MODULE_TABLES)[ErasableModuleId]["dependents"][number]["table"];
 
 // Compte TOUTES les lignes du module, archivees comprises. "Vider l'historique"
 // ne fait pas de distinction entre actif et archive ; annoncer un compte qui en
@@ -221,12 +227,12 @@ export async function erasePersonalModule({
   // store refuse de faire — voir MODULE_TABLES.
   let relatedDeletedCount = 0;
 
-  for (const dependentTable of dependents) {
-    const dependentCount = await deleteOwnedRows(userId, dependentTable);
+  for (const dependent of dependents) {
+    const dependentCount = await deleteOwnedRows(userId, dependent.table);
     await writeErasureAudit({
       userId,
       moduleId,
-      tableName: dependentTable,
+      tableName: dependent.table,
       deletedCount: dependentCount,
     });
 
@@ -249,4 +255,182 @@ export async function erasePersonalModule({
     // realisations" sur une note n'aurait aucun sens a l'ecran.
     ...(dependents.length > 0 ? { relatedDeletedCount } : {}),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Suppression physique d'UN element archive
+//
+// Geste distinct de "Vider l'historique" : autre granularite, autre journal
+// d'audit (personal_item_erasure_log), autre friction cote interface — une
+// confirmation binaire, pas un mot a taper, parce que l'archivage prealable
+// fait deja office de premiere barriere.
+//
+// Il vit dans CE fichier et non dans notes-store / journal-store /
+// habits-store, pour tenir l'invariant annonce en tete : un seul fichier du
+// depot supprime physiquement des donnees Personnel. L'eparpiller dans les
+// trois stores de module le romprait, et ces stores utilisent le client de
+// session, qui n'a de toute facon pas le privilege DELETE.
+// ---------------------------------------------------------------------------
+
+// Supprime UNE ligne, sous filtre triple : identifiant, proprietaire, et
+// deleted_at non nul.
+//
+// La troisieme condition est ce qui rend impossible la suppression d'un element
+// ACTIF par appel direct a la route. Elle n'est pas une commodite d'affichage :
+// l'interface n'expose le bouton que dans les archives, mais l'interface n'est
+// pas un garde. Sans ce filtre, un id d'element actif poste a la route le
+// detruirait sans passer par l'archivage.
+async function deleteOwnedArchivedRow(
+  userId: string,
+  tableName: ErasableTableName,
+  itemId: string,
+) {
+  const supabase = getErasureClient();
+  const { data, error } = await supabase
+    .from(tableName)
+    .delete()
+    .eq("id", itemId)
+    .eq("user_id", userId)
+    .not("deleted_at", "is", null)
+    .select("id")
+    .maybeSingle<{ id: string }>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data !== null;
+}
+
+// Supprime les dependantes d'UN element : filtre sur la colonne parente ET sur
+// user_id. Le second est redondant avec la cle etrangere composite, et c'est
+// voulu — c'est precisement la contrainte que DEC-013 refuse de presumer
+// appliquee en base.
+async function deleteOwnedDependents(
+  userId: string,
+  tableName: ErasableTableName,
+  parentKey: string,
+  itemId: string,
+) {
+  const supabase = getErasureClient();
+  const { count, error } = await supabase
+    .from(tableName)
+    .delete({ count: "exact" })
+    .eq(parentKey, itemId)
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return count ?? 0;
+}
+
+// UNE entree par element supprime, y compris pour un module a plusieurs tables.
+// Le volume dependant vit dans related_deleted_count.
+//
+// Asymetrie assumee avec writeErasureAudit, qui ecrit une entree par TABLE
+// videe : ici l'unite auditee est l'element, pas la table. Les deux journaux
+// repondent a des questions differentes, d'ou deux tables distinctes.
+//
+// Aucun contenu n'est journalise : ni le texte de la note, ni l'humeur, ni le
+// nom de l'habitude. item_id est un uuid technique, qui ne reconstitue rien.
+async function writeItemErasureAudit({
+  userId,
+  moduleId,
+  tableName,
+  itemId,
+  relatedDeletedCount,
+}: {
+  userId: string;
+  moduleId: ErasableModuleId;
+  tableName: string;
+  itemId: string;
+  relatedDeletedCount: number;
+}) {
+  const supabase = getErasureClient();
+  const { error } = await supabase.from("personal_item_erasure_log").insert({
+    user_id: userId,
+    module: moduleId,
+    table_name: tableName,
+    item_id: itemId,
+    related_deleted_count: relatedDeletedCount,
+    source: "archives_panel",
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+// Renvoie null si l'element n'existe pas, n'appartient pas a l'appelant, ou
+// n'est pas archive. L'appelant repond 404 dans les trois cas, sans les
+// distinguer : les separer transformerait la route en oracle d'existence.
+export async function permanentlyDeletePersonalItem({
+  userId,
+  moduleId,
+  itemId,
+}: {
+  userId: string;
+  moduleId: ErasableModuleId;
+  itemId: string;
+}): Promise<PersonalItemErasureResult | null> {
+  const { countedTable, dependents } = MODULE_TABLES[moduleId];
+
+  // Sur un module a dependantes, l'eligibilite est verifiee AVANT de toucher
+  // quoi que ce soit. Supprimer les realisations d'abord puis decouvrir que
+  // l'habitude n'etait pas archivee detruirait des donnees sur un geste qui
+  // aurait du repondre 404 sans rien faire.
+  //
+  // Sur un module a table unique, cette verification est inutile : le filtre
+  // triple du DELETE fait office de controle, et une lecture prealable
+  // n'ajouterait qu'un aller-retour et une fenetre de course.
+  if (dependents.length > 0) {
+    const supabase = getErasureClient();
+    const { data, error } = await supabase
+      .from(countedTable)
+      .select("id")
+      .eq("id", itemId)
+      .eq("user_id", userId)
+      .not("deleted_at", "is", null)
+      .maybeSingle<{ id: string }>();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (data === null) {
+      return null;
+    }
+  }
+
+  // Les dependantes d'abord, la principale ensuite — meme ordre que le geste
+  // module, et meme raison : ne pas dependre d'une cascade dont l'application
+  // en base n'est pas verifiee (DEC-013).
+  let relatedDeletedCount = 0;
+
+  for (const dependent of dependents) {
+    relatedDeletedCount += await deleteOwnedDependents(
+      userId,
+      dependent.table,
+      dependent.parentKey,
+      itemId,
+    );
+  }
+
+  const deleted = await deleteOwnedArchivedRow(userId, countedTable, itemId);
+
+  if (!deleted) {
+    return null;
+  }
+
+  await writeItemErasureAudit({
+    userId,
+    moduleId,
+    tableName: countedTable,
+    itemId,
+    relatedDeletedCount,
+  });
+
+  return { module: moduleId, itemId, relatedDeletedCount };
 }

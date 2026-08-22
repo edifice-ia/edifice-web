@@ -43,6 +43,8 @@ Activer et désactiver une capacité ne suffit pas à décrire ce qui arrive aux
 
 **Supprimer l'historique d'un module.** Suppression physique, ciblée à ce module précisément, volontairement dotée de friction — une confirmation explicite est requise, jamais un simple interrupteur. Efface les données produites par ce module ; les autres modules n'en sont pas affectés.
 
+**Ce troisième geste se décline à deux granularités.** Supprimer l'historique d'un module se décline à deux granularités — le module entier, ou un élément archivé pris individuellement. La seconde exige que l'élément ait d'abord été archivé : c'est cette étape préalable qui remplace le mot de confirmation. Ce n'est pas un sixième geste : l'intention et la conséquence sont les mêmes, seule l'échelle change, et la friction reste proportionnée parce qu'archiver puis supprimer demande déjà deux décisions séparées.
+
 **Supprimer le compte.** Suppression physique et totale : toutes les données, sans exception. Ce geste se propage aux tiers connectés — révocation des accès et jetons externes — et reste journalisé : une trace de l'action de suppression elle-même subsiste, pas les données supprimées.
 
 **Exporter.** Sortie des données dans un format exploitable. Ce geste est indépendant des quatre autres et peut précéder n'importe lequel d'entre eux — désactiver, masquer, supprimer un historique ou supprimer le compte n'empêchent jamais d'avoir d'abord exporté.

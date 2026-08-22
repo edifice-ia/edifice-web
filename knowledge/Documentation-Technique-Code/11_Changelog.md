@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-08-16
+Dernière mise à jour : 2026-08-18
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-18 (suppression définitive d'un élément archivé)](#2026-08-18-suppression-définitive-dun-élément-archivé)
 - [2026-08-16 (un module à la fois, et révision de DEC-012)](#2026-08-16-un-module-à-la-fois-et-révision-de-dec-012)
 - [2026-08-13 (« Vider l'historique », Réglages > Personnel)](#2026-08-13--vider-lhistorique--réglages--personnel)
 - [2026-08-10 (archives et restauration, Habitudes)](#2026-08-10-archives-et-restauration-habitudes)
@@ -46,6 +47,42 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-18 (suppression définitive d'un élément archivé)
+
+Type : produit, sécurité, base de données, documentation  
+Résumé : ajout d'un geste **« Supprimer définitivement »** dans la carte Archives de Notes, Journal et Humeur, et Habitudes. Il supprime physiquement **un élément**, là où « Vider l'historique » vide un module entier. Ajoute la table d'audit `personal_item_erasure_log` et le helper d'autorisation partagé `authorizeCockpitApiAccess`.
+
+Fichiers liés :
+
+- `src/lib/auth/api-guards.ts` (nouveau)
+- `app/api/personal/{notes,journal,habits}/[id]/permanent/route.ts` (nouveaux)
+- `lib/server/personal/data-erasure-store.ts`, `lib/personal/data-erasure.ts`
+- `lib/personal/habits.ts`, `lib/server/personal/habits-store.ts`
+- `app/interface/personnel/Personal{Notes,Journal,Habits}Panel.tsx`
+- `supabase/migrations/20260818100000_create_personal_item_erasure_log.sql`
+
+Impact : migration appliquée et vérifiée en base le 2026-08-18. **Le geste n'a pas encore été testé de bout en bout dans le navigateur** — le socle serveur et l'interface compilent, la vérification isolée passe, mais aucun test réel n'a été mené.
+
+**Le geste n'existe que dans les archives, et le serveur le revalide.** La fonction de store filtre sur `id` + `user_id` + `deleted_at is not null` : l'identifiant d'un élément **actif** posté à la route renvoie `404` sans rien détruire. L'interface n'expose le bouton que dans la carte Archives, mais l'interface n'est pas un garde.
+
+**La friction est une confirmation binaire, sans mot à taper**, contrairement au geste module. Ce n'est pas un relâchement : l'archivage préalable impose déjà deux gestes séparés par un retour à la liste. La confirmation affiche en revanche un **aperçu identifiable** — début du contenu pour une note, contenu plus date et humeur pour une entrée de journal, nom pour une habitude. Une confirmation générique ne protégerait de rien entre deux éléments archivés qui se ressemblent.
+
+**Habitudes annonce ses réalisations.** `ArchivedPersonalHabit` gagne `completionCount`, alimenté par une seconde requête dans `listArchivedPersonalHabits` — le patron déjà en place pour la liste active, une requête pour les habitudes et une pour leurs réalisations. La jointure imbriquée PostgREST a été écartée : la clé étrangère est composite, et faire dépendre l'affichage de la résolution de cette relation ajouterait une dépendance à la contrainte que DEC-013 refuse déjà de présumer appliquée. `buildHabitStats` n'est toujours pas appelé sur ce chemin — un volume brut n'est ni une série ni un taux de constance, et ne se périme pas.
+
+**Un seul fichier du dépôt supprime physiquement des données Personnel.** `permanentlyDeletePersonalItem` vit dans `data-erasure-store.ts` et non dans les stores de module : l'invariant annoncé en tête de ce fichier ne survivrait pas à l'éparpillement. Ces stores utilisent de toute façon le client de session, qui n'a pas le privilège `DELETE`.
+
+**Vérification d'éligibilité préalable pour Habitudes seulement.** Supprimer les réalisations puis découvrir que l'habitude n'était pas archivée détruirait des données sur un geste qui aurait dû répondre `404` sans rien faire. Pour Notes et Journal cette lecture serait inutile : le filtre triple du `DELETE` fait office de contrôle.
+
+**Le journal d'audit est une table distincte**, `personal_item_erasure_log`. Granularité différente de `personal_data_erasure_log` : celle-ci compte des lignes par table, celle-là désigne une ligne précise. Les fusionner aurait rendu `deleted_count` et `item_id` tous deux nullables, chacun dépendant de la valeur de l'autre. **Une** entrée par élément, y compris pour un module à plusieurs tables — asymétrie assumée avec l'autre journal, qui écrit une entrée par table vidée. Aucun contenu n'y est stocké : `item_id` est un uuid technique qui ne reconstitue rien, et il ne porte aucune clé étrangère, la ligne référencée n'existant plus à l'écriture.
+
+**Le garde d'autorisation est posé dès la conception**, pas en correctif : `authorizeCockpitApiAccess` applique `getCurrentUser()` **et** `canAccessPrivateCockpit`, avec `401` et `403` distingués. C'est la leçon de `d6d0108`, où `/api/personal/settings/erase` avait vécu sans filtre de rôle parce que le contrôle avait été réécrit inline. Le helper vit dans un fichier neuf, séparé de `guards.ts` qui garde les **pages** par `redirect()`. Il est nommé « cockpit » et non « personal » : il servira tel quel à la mise en conformité DEC-007 des onze routes `/api/personal` restantes.
+
+**Piège de nommage relevé, non corrigé.** Les trois panneaux portaient déjà un état `confirmingDeleteId` qui désigne la confirmation d'**archivage** — nom hérité du renommage « Supprimer » → « Archiver » du 2026-08-09, où seuls les libellés affichés avaient changé. Le nouvel état s'appelle donc `confirmingPermanentId`, et un commentaire signale le piège dans chaque fichier. Deux états voisins dont l'un s'appelle « delete » sans rien supprimer restent une ambiguïté à traiter : `PersonalHabitsPanel` utilise déjà `confirmingArchiveId`, donc l'incohérence est aussi **entre** les fichiers.
+
+**Limites connues, non corrigées.** L'échec partiel intra-élément subsiste : si le `DELETE` de l'habitude échoue après celui de ses réalisations, la fonction renvoie `null` et la route répond `404` — trompeur, puisque des données ont été détruites. L'audit est par ailleurs écrit **après** la suppression, donc une panne entre les deux laisse la suppression sans trace. Les deux demanderaient une fonction Postgres `security definer` ; c'est le même arbitrage non pris que pour le geste module.
+
+Suivi : tester le geste de bout en bout dans le navigateur, sur un compte jetable dont les éléments auront été archivés au préalable — le bouton n'apparaît pas ailleurs.
 
 ## 2026-08-16 (un module à la fois, et révision de DEC-012)
 
@@ -195,6 +232,8 @@ Fichiers liés :
 Impact : le soft delete cesse d'être une impasse. Une note archivée par erreur se récupère, ce qui rend l'archivage moins coûteux à déclencher — et donc plus honnête comme geste par défaut.
 
 **Restaurer et supprimer définitivement ne partagent rien.** [11-modularite-configuration.md](../Documentation-Strategique/Markdown/11-modularite-configuration.md) pose qu'éteindre une capacité et supprimer une donnée « ne doivent jamais partager un seul bouton ni une seule confirmation ». La séparation implémentée dépasse le bouton : deux fichiers de route, deux fonctions de store sans ligne commune, et **aucune suppression physique nulle part dans ces deux modules** — ni route, ni fonction, ni privilège. Vérifié à l'exécution : un `DELETE` sur une route de restauration renvoie `405`. À l'écran, les archives forment une carte séparée en bordure pointillée où le seul geste possible est « Restaurer ».
+
+> ⚠️ **Deux affirmations de ce paragraphe sont dépassées depuis le 2026-08-18** : les archives portent désormais un second geste, « Supprimer définitivement », et la suppression physique existe — route `DELETE /[id]/permanent` et fonction `permanentlyDeletePersonalItem`. Le **privilège**, lui, n'a pas changé : `authenticated` ne peut toujours rien supprimer, la suppression passant par la clé service-role. Voir l'entrée du 2026-08-18. Le reste de cette entrée reste exact.
 
 Aucune policy RLS nouvelle : la restauration est un `UPDATE` de `deleted_at` et emprunte la policy `update` déjà scopée au propriétaire — exactement celle qui couvrait déjà l'archivage, dans l'autre sens.
 

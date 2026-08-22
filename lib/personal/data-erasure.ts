@@ -73,6 +73,24 @@ export type PersonalItemErasureResult = {
   relatedDeletedCount: number;
 };
 
+// Aperçu affiche dans la confirmation de suppression definitive d'un element.
+//
+// La confirmation est binaire — pas de mot a taper, l'archivage prealable
+// faisant office de premiere barriere. Elle doit donc rendre la cible
+// identifiable par elle-meme : une confirmation generique ne protege de rien
+// quand plusieurs elements archives se ressemblent.
+//
+// Les sauts de ligne sont remplaces par des espaces : dans une confirmation
+// tenant sur une ligne, un texte multiligne tronque au premier retour donnerait
+// un apercu vide pour une note commencant par une ligne blanche.
+export const ERASURE_PREVIEW_MAX_LENGTH = 80;
+
+export function erasurePreview(content: string, maxLength = ERASURE_PREVIEW_MAX_LENGTH) {
+  const flat = content.replace(/\s+/g, " ").trim();
+
+  return flat.length > maxLength ? `${flat.slice(0, maxLength)}…` : flat;
+}
+
 export type ErasureRequestParseResult =
   | { ok: true; module: ErasableModuleId }
   | { ok: false; error: string };

@@ -162,6 +162,10 @@ export function PersonalHabitsPanel() {
   const [archivedCount, setArchivedCount] = useState(0);
   const [showArchived, setShowArchived] = useState(false);
   const [archivedHabits, setArchivedHabits] = useState<ArchivedPersonalHabit[]>([]);
+  // Un seul element en confirmation a la fois. Nom distinct de
+  // confirmingArchiveId, qui porte la confirmation d'archivage : l'une est
+  // reversible, l'autre non.
+  const [confirmingPermanentId, setConfirmingPermanentId] = useState<string | null>(null);
   const [isLoadingArchived, setIsLoadingArchived] = useState(false);
 
   const load = useCallback(async () => {
@@ -260,6 +264,39 @@ export function PersonalHabitsPanel() {
       );
     } finally {
       setIsLoadingArchived(false);
+    }
+  }
+
+  // SUPPRESSION PHYSIQUE ET IRREVERSIBLE, realisations comprises. Le serveur
+  // supprime les realisations AVANT l'habitude, explicitement, plutot que de
+  // s'en remettre a la cascade de la cle etrangere composite — voir DEC-013.
+  //
+  // Le rechargement complet qui suit remet aussi le compteur d'archives a jour,
+  // le panneau rechargeant deja apres chaque mutation.
+  async function permanentlyDeleteHabit(habitId: string) {
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(`/api/personal/habits/${habitId}/permanent`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error ?? "Suppression definitive indisponible.");
+      }
+
+      setConfirmingPermanentId(null);
+      setArchivedHabits((current) => current.filter((habit) => habit.id !== habitId));
+      await refresh();
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Suppression definitive indisponible.",
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -609,8 +646,13 @@ export function PersonalHabitsPanel() {
       {/* Carte separee : aucune habitude archivee ne doit pouvoir passer pour
           active. Ni serie ni taux de constance ici — ces valeurs n'ont pas de
           sens pour une habitude qu'on ne suit plus, et le type
-          ArchivedPersonalHabit ne les porte pas. Seule action possible :
-          Restaurer. */}
+          ArchivedPersonalHabit ne les porte pas. Le compte de realisations
+          affiche ici est un volume brut, pas une statistique : il ne se perime
+          pas, et il sert la confirmation de suppression definitive.
+
+          Deux actions y sont possibles : Restaurer, et Supprimer
+          definitivement. La seconde n'existe QUE dans cette carte, et le
+          serveur le revalide. */}
       {archivedCount > 0 || showArchived ? (
         <div className="grid gap-3">
           <button
@@ -634,22 +676,86 @@ export function PersonalHabitsPanel() {
                       className="rounded-md border border-dashed border-[#1D2A44] bg-[#03070B] p-4"
                       key={habit.id}
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-[#A7B0C0]">{habit.name}</p>
-                          <p className="mt-1 text-xs text-[#64748b]">
-                            {frequencyLabel(habit)} · archivée le{" "}
-                            {formatArchivedAt(habit.archivedAt)}
-                          </p>
+                      <div className="grid gap-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-[#A7B0C0]">{habit.name}</p>
+                            <p className="mt-1 text-xs text-[#64748b]">
+                              {frequencyLabel(habit)} · archivée le{" "}
+                              {formatArchivedAt(habit.archivedAt)} ·{" "}
+                              {habit.completionCount} réalisation
+                              {habit.completionCount > 1 ? "s" : ""} conservée
+                              {habit.completionCount > 1 ? "s" : ""}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              className="rounded-md border border-[#39E6D0]/60 bg-[#39E6D0]/15 px-3 py-1.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={isSubmitting}
+                              onClick={() => restoreHabit(habit.id)}
+                              type="button"
+                            >
+                              Restaurer
+                            </button>
+                            <button
+                              className="rounded-md border border-[#f87171]/50 bg-[#f87171]/10 px-3 py-1.5 text-sm font-semibold text-[#fecaca] transition hover:bg-[#f87171]/20 disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={isSubmitting}
+                              onClick={() => setConfirmingPermanentId(habit.id)}
+                              type="button"
+                            >
+                              Supprimer définitivement
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          className="rounded-md border border-[#39E6D0]/60 bg-[#39E6D0]/15 px-3 py-1.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/25 disabled:cursor-not-allowed disabled:opacity-40"
-                          disabled={isSubmitting}
-                          onClick={() => restoreHabit(habit.id)}
-                          type="button"
-                        >
-                          Restaurer
-                        </button>
+
+                        {/* Seul module a table dependante : la confirmation
+                            chiffre les realisations qui partent avec
+                            l'habitude. Les taire ferait annoncer "supprimer
+                            cette habitude" pour un geste qui detruit aussi des
+                            centaines de lignes. Ce compte est un volume brut,
+                            pas une serie ni un taux de constance — le type
+                            ArchivedPersonalHabit continue de ne porter aucune
+                            statistique. */}
+                        {confirmingPermanentId === habit.id ? (
+                          <div className="grid gap-3 rounded-md border border-[#f87171]/40 bg-[#f87171]/10 p-3">
+                            <div>
+                              <p className="text-sm font-semibold text-[#fecaca]">
+                                Supprimer définitivement cette habitude ?
+                              </p>
+                              <p className="mt-1 text-sm italic leading-6 text-[#fecaca]">
+                                « {habit.name} »
+                              </p>
+                            </div>
+                            <p className="text-sm leading-6 text-[#fecaca]">
+                              Cette habitude sera définitivement supprimée
+                              {habit.completionCount > 0
+                                ? `, ainsi que ses ${habit.completionCount} réalisation${
+                                    habit.completionCount > 1 ? "s" : ""
+                                  }`
+                                : ""}
+                              . Il n&apos;y a pas de corbeille et aucune sauvegarde
+                              n&apos;existe. Les autres éléments archivés ne sont pas touchés.
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                className="rounded-md border border-[#f87171]/50 bg-[#f87171]/15 px-3 py-1.5 text-sm font-semibold text-[#fecaca] transition hover:bg-[#f87171]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                                disabled={isSubmitting}
+                                onClick={() => permanentlyDeleteHabit(habit.id)}
+                                type="button"
+                              >
+                                {isSubmitting ? "Suppression..." : "Confirmer"}
+                              </button>
+                              <button
+                                className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
+                                disabled={isSubmitting}
+                                onClick={() => setConfirmingPermanentId(null)}
+                                type="button"
+                              >
+                                Annuler
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </li>
                   ))}

@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-08-16
+Dernière mise à jour : 2026-08-18
 
 ## Sommaire
 
@@ -312,15 +312,23 @@ La restauration est `POST /api/personal/notes/[id]/restore`. Elle remet `deleted
 
 **Restaurer et supprimer définitivement ne partagent rien**, et c'est le point structurant de cette extension. [11-modularite-configuration.md](../Documentation-Strategique/Markdown/11-modularite-configuration.md) pose qu'éteindre une capacité et supprimer une donnée sont deux intentions différentes qui « ne doivent jamais partager un seul bouton ni une seule confirmation ». Ici la séparation va plus loin que le bouton :
 
-- deux fichiers de route distincts — `DELETE /[id]` archive, `POST /[id]/restore` restaure. Aucun booléen ne fait basculer de l'un à l'autre ;
-- deux fonctions de store distinctes, sans ligne commune ;
-- **aucune suppression physique n'existe dans ce module** : ni route, ni fonction, ni privilège. La table n'accorde pas `DELETE` à `authenticated` et ne porte aucune policy `DELETE`. Vérifié à l'exécution — un `DELETE` sur la route de restauration renvoie `405`, le verbe n'existant pas.
+- **trois** fichiers de route distincts depuis le 2026-08-18 — `DELETE /[id]` archive, `POST /[id]/restore` restaure, `DELETE /[id]/permanent` supprime physiquement. Aucun booléen ne fait basculer de l'un à l'autre, et le segment `/permanent` porte l'irréversibilité dans le chemin lui-même ;
+- trois fonctions de store distinctes, sans ligne commune ;
+- **la suppression physique existe désormais, et à un seul endroit** : `permanentlyDeletePersonalItem`, dans `lib/server/personal/data-erasure-store.ts`. Elle n'est **pas** dans le store du module, et c'est délibéré — ce fichier est le seul du dépôt à supprimer physiquement des données Personnel, invariant qui ne survivrait pas à un éparpillement dans les trois stores. La table n'accorde toujours pas `DELETE` à `authenticated` et ne porte toujours aucune policy `DELETE` : la suppression passe par la clé service-role, qui contourne RLS, d'où le filtre triple applicatif.
+
+Ce que cette section affirmait jusqu'au 2026-08-18 — « aucune suppression physique n'existe dans ce module, ni route, ni fonction, ni privilège » — n'est donc plus vrai des deux premiers termes. **Le privilège, lui, n'a pas bougé** : `authenticated` ne peut toujours rien supprimer, et c'est ce qui rend la clé service-role nécessaire.
 
 **Le bouton de la liste active s'appelle « Archiver », pas « Supprimer »** — renommé le 2026-08-09, avec la confirmation qui va avec (« Confirmer l'archivage ? »). Le geste n'a jamais rien supprimé physiquement : il écrit `deleted_at` depuis l'origine. Tant que les archives n'existaient pas, l'écart de vocabulaire était discutable ; depuis qu'un écran montre ce que devient l'élément, appeler « Supprimer » une action réversible serait un mensonge de l'interface. Seuls les libellés affichés ont changé — routes, fonctions de store et variables internes gardent leurs noms (`confirmDelete`, `softDeletePersonalNote`, `DELETE /[id]`).
 
-À l'écran, les archives vivent dans une carte séparée, en bordure pointillée et texte atténué, où **le seul geste possible est « Restaurer »**. Ni modifier, ni supprimer.
+À l'écran, les archives vivent dans une carte séparée, en bordure pointillée et texte atténué. **Deux gestes y sont possibles depuis le 2026-08-18 : « Restaurer » et « Supprimer définitivement ».** Ni modifier, ni rien d'autre.
 
-Le jour où une suppression physique sera nécessaire, ce sera un chantier distinct, à friction volontairement plus élevée, passant par la clé service-role.
+**« Supprimer définitivement » n'existe que dans cette carte**, et le serveur le revalide : la fonction de store filtre sur `id` + `user_id` + `deleted_at is not null`, donc l'identifiant d'un élément **actif** posté à la route renvoie `404` sans rien détruire. L'interface n'expose le bouton que dans les archives, mais l'interface n'est pas un garde.
+
+La friction est une **confirmation binaire**, sans mot à taper — contrairement au geste à l'échelle du module. Ce n'est pas un relâchement : l'archivage préalable est la première barrière, et il impose déjà deux gestes séparés par un retour à la liste. La confirmation affiche en revanche un **aperçu identifiable** de la cible (début du contenu pour une note, contenu + date + humeur pour une entrée de journal, nom pour une habitude) — une confirmation générique ne protégerait de rien entre deux éléments archivés qui se ressemblent.
+
+Voir [Décisions](./03_Decisions.md) DEC-012, et [11-modularite-configuration.md](../Documentation-Strategique/Markdown/11-modularite-configuration.md), qui range ce geste comme **sous-cas du troisième geste canonique** plutôt que comme un sixième geste.
+
+Ce chantier distinct annoncé ici a bien eu lieu, en deux temps : « Vider l'historique » à l'échelle du module le 2026-08-13, puis la suppression d'un élément archivé le 2026-08-18. Les deux passent par la clé service-role, comme prévu.
 
 ### Journal et Humeur
 
@@ -347,7 +355,7 @@ Deux écarts propres à ce module :
 
 **Rattachement Marque/Projet : extension différée**, même raison et même référence que Notes — voir [Décisions](./03_Decisions.md) DEC-010, qui s'applique à tout module de domaine de vie construit avant que le concept n'existe en code.
 
-**Archives et restauration : contrat identique à Notes**, libellé « Archiver » compris, à la forme de réponse près (`entries` au lieu de `notes`). `GET /api/personal/journal?archived=true` pour la liste, `POST /api/personal/journal/[id]/restore` pour restaurer, `archivedCount` sur la liste active. Les entrées archivées affichent leur humeur si elle était notée, et **le seul geste possible dans les archives reste « Restaurer »** — voir la section Notes ci-dessus pour le raisonnement complet sur la séparation d'avec la suppression physique, qui n'existe pas davantage ici.
+**Archives et restauration : contrat identique à Notes**, libellé « Archiver » compris, à la forme de réponse près (`entries` au lieu de `notes`). `GET /api/personal/journal?archived=true` pour la liste, `POST /api/personal/journal/[id]/restore` pour restaurer, `archivedCount` sur la liste active. Les entrées archivées affichent leur humeur si elle était notée. **Deux gestes y sont possibles depuis le 2026-08-18, comme sur Notes : « Restaurer » et « Supprimer définitivement »** (`DELETE /api/personal/journal/[id]/permanent`) — voir la section Notes ci-dessus pour le raisonnement complet sur la séparation entre les trois gestes. Une différence propre à ce module : l'aperçu de confirmation reprend le début du texte **plus la date d'archivage et l'humeur**, deux entrées de journal commençant souvent de la même façon.
 
 ### Habitudes
 
@@ -403,9 +411,11 @@ Aucune policy RLS nouvelle : restaurer est un `UPDATE` de `deleted_at`, déjà c
 
 - le type `ArchivedPersonalHabit` est construit sur `PersonalHabit` et **non** sur `PersonalHabitWithStats` : les champs n'existent pas, les lire ne compile pas ;
 - `listArchivedPersonalHabits` **n'appelle jamais** `buildHabitStats` — aucun chiffre n'est calculé sur ce chemin ;
-- la vue affiche nom, fréquence, date d'archivage, et un unique bouton « Restaurer ».
+- la vue affiche nom, fréquence, date d'archivage, et **le volume brut de réalisations conservées** — un décompte de lignes, qui ne se périme pas et ne suppose aucune fenêtre de calcul, à ne pas confondre avec les statistiques absentes ci-dessus.
 
-**Restaurer retrouve l'historique intact.** L'archivage d'une habitude n'a jamais touché `personal_habit_completions` : les réalisations ne sont supprimées que par le geste décocher. Série et taux de constance sont donc recalculés sur des données complètes à la lecture suivante, et non repris d'un instantané figé.
+Deux boutons y figurent depuis le 2026-08-18 : « Restaurer » et « Supprimer définitivement » (`DELETE /api/personal/habits/[id]/permanent`). Habitudes est le seul des trois modules à porter une table dépendante, donc le seul dont la confirmation **chiffre ce qui part avec l'élément** : les réalisations sont supprimées explicitement avant l'habitude, et leur nombre est annoncé avant confirmation. C'est ce que `completionCount` sert, et rien d'autre.
+
+**Restaurer retrouve l'historique intact.** L'archivage d'une habitude n'a jamais touché `personal_habit_completions` : les réalisations ne sont supprimées que par le geste décocher, ou par « Supprimer définitivement », qui les emporte avec l'habitude. Série et taux de constance sont donc recalculés sur des données complètes à la lecture suivante, et non repris d'un instantané figé.
 
 #### Hors périmètre
 

@@ -7,6 +7,7 @@ import {
   type ArchivedPersonalJournalEntry,
   type PersonalJournalEntry,
 } from "@/lib/personal/journal";
+import { erasurePreview } from "@/lib/personal/data-erasure";
 import { PersonalEmptyState, PersonalModuleCard } from "./PersonalPrimitives";
 
 function formatJournalTimestamp(value: string) {
@@ -92,6 +93,11 @@ export function PersonalJournalPanel() {
   const [archivedCount, setArchivedCount] = useState(0);
   const [showArchived, setShowArchived] = useState(false);
   const [archivedEntries, setArchivedEntries] = useState<ArchivedPersonalJournalEntry[]>([]);
+  // Un seul element en confirmation a la fois. Nom distinct de
+  // confirmingDeleteId, qui porte la confirmation d'ARCHIVAGE — nom herite
+  // d'avant le renommage "Supprimer" -> "Archiver" du 2026-08-09. Les deux
+  // confirmations coexistent desormais, l'une reversible et l'autre non.
+  const [confirmingPermanentId, setConfirmingPermanentId] = useState<string | null>(null);
   const [isLoadingArchived, setIsLoadingArchived] = useState(false);
 
   const fetchActive = useCallback(async () => {
@@ -171,6 +177,43 @@ export function PersonalJournalPanel() {
       );
     } finally {
       setIsLoadingArchived(false);
+    }
+  }
+
+  // SUPPRESSION PHYSIQUE ET IRREVERSIBLE. Geste distinct de l'archivage : ni
+  // route, ni fonction de store, ni bouton en commun, et atteignable depuis les
+  // seules archives.
+  //
+  // Le serveur revalide que l'entree est archivee — filtre triple id + user_id
+  // + deleted_at non nul. L'interface n'est pas un garde.
+  async function permanentlyDeleteEntry(entryId: string) {
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(`/api/personal/journal/${entryId}/permanent`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error ?? "Suppression definitive indisponible.");
+      }
+
+      setConfirmingPermanentId(null);
+      setArchivedEntries((current) => current.filter((entry) => entry.id !== entryId));
+
+      const next = await fetchActive();
+      setEntries(next.entries);
+      setArchivedCount(next.archivedCount);
+      setError(null);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Suppression definitive indisponible.",
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -484,8 +527,10 @@ export function PersonalJournalPanel() {
       </PersonalModuleCard>
 
       {/* Carte separee : aucune entree archivee ne doit pouvoir passer pour
-          active. Seule action possible ici, Restaurer — il n'existe aucune
-          suppression definitive dans ce module. */}
+          active. Deux actions y sont possibles : Restaurer, et Supprimer
+          definitivement. La seconde n'existe QUE dans cette carte, et le
+          serveur le revalide — une entree active ne peut etre supprimee
+          physiquement ni depuis l'interface, ni par appel direct. */}
       {archivedCount > 0 || showArchived ? (
         <div className="grid gap-3">
           <button
@@ -518,15 +563,69 @@ export function PersonalJournalPanel() {
                             Archivée le {formatJournalTimestamp(entry.archivedAt)}
                             {entry.mood !== null ? ` · humeur ${entry.mood}/5` : ""}
                           </p>
-                          <button
-                            className="rounded-md border border-[#39E6D0]/60 bg-[#39E6D0]/15 px-3 py-1.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/25 disabled:cursor-not-allowed disabled:opacity-40"
-                            disabled={isSubmitting}
-                            onClick={() => restoreEntry(entry.id)}
-                            type="button"
-                          >
-                            Restaurer
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              className="rounded-md border border-[#39E6D0]/60 bg-[#39E6D0]/15 px-3 py-1.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={isSubmitting}
+                              onClick={() => restoreEntry(entry.id)}
+                              type="button"
+                            >
+                              Restaurer
+                            </button>
+                            <button
+                              className="rounded-md border border-[#f87171]/50 bg-[#f87171]/10 px-3 py-1.5 text-sm font-semibold text-[#fecaca] transition hover:bg-[#f87171]/20 disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={isSubmitting}
+                              onClick={() => setConfirmingPermanentId(entry.id)}
+                              type="button"
+                            >
+                              Supprimer définitivement
+                            </button>
+                          </div>
                         </div>
+
+                        {/* L'apercu reprend le debut du texte ET la date
+                            d'archivage : deux entrees de journal commencent
+                            souvent pareil, le texte seul ne suffit pas a
+                            identifier la cible. */}
+                        {confirmingPermanentId === entry.id ? (
+                          <div className="grid gap-3 rounded-md border border-[#f87171]/40 bg-[#f87171]/10 p-3">
+                            <div>
+                              <p className="text-sm font-semibold text-[#fecaca]">
+                                Supprimer définitivement cette entrée ?
+                              </p>
+                              <p className="mt-1 text-sm italic leading-6 text-[#fecaca]">
+                                « {erasurePreview(entry.content)} »
+                              </p>
+                              <p className="mt-1 text-xs text-[#fecaca]/80">
+                                Archivée le {formatJournalTimestamp(entry.archivedAt)}
+                                {entry.mood !== null ? ` · humeur ${entry.mood}/5` : ""}
+                              </p>
+                            </div>
+                            <p className="text-sm leading-6 text-[#fecaca]">
+                              Cette entrée sera définitivement supprimée. Il n&apos;y a pas de
+                              corbeille et aucune sauvegarde n&apos;existe. Les autres
+                              éléments archivés ne sont pas touchés.
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                className="rounded-md border border-[#f87171]/50 bg-[#f87171]/15 px-3 py-1.5 text-sm font-semibold text-[#fecaca] transition hover:bg-[#f87171]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                                disabled={isSubmitting}
+                                onClick={() => permanentlyDeleteEntry(entry.id)}
+                                type="button"
+                              >
+                                {isSubmitting ? "Suppression..." : "Confirmer"}
+                              </button>
+                              <button
+                                className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
+                                disabled={isSubmitting}
+                                onClick={() => setConfirmingPermanentId(null)}
+                                type="button"
+                              >
+                                Annuler
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </li>
                   ))}

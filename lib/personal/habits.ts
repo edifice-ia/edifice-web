@@ -24,6 +24,14 @@ export type PersonalHabit = {
 // vue pour ne pas les lire.
 export type ArchivedPersonalHabit = PersonalHabit & {
   archivedAt: string;
+  // Volume brut des realisations conservees, et RIEN d'autre. Ce n'est ni une
+  // serie ni un taux de constance : c'est un decompte de lignes, qui ne se
+  // perime pas et ne suppose aucune fenetre de calcul.
+  //
+  // Il sert la confirmation de suppression definitive, qui doit annoncer ce qui
+  // part avec l'habitude. Sans lui, l'ecran dirait "supprimer cette habitude"
+  // pour un geste qui detruit aussi des centaines de realisations.
+  completionCount: number;
 };
 
 export type PersonalHabitWithStats = PersonalHabit & {

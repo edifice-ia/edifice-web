@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { erasurePreview } from "@/lib/personal/data-erasure";
 import {
   NOTE_CONTENT_MAX_LENGTH,
   parseNoteContentValue,
@@ -38,6 +39,16 @@ export function PersonalNotesPanel() {
   const [archivedCount, setArchivedCount] = useState(0);
   const [showArchived, setShowArchived] = useState(false);
   const [archivedNotes, setArchivedNotes] = useState<ArchivedPersonalNote[]>([]);
+  // Un seul element en confirmation a la fois : ouvrir la confirmation sur une
+  // ligne ferme celle d'une autre. Deux confirmations ouvertes cote a cote
+  // inviteraient au clic sur la mauvaise, et le geste est irreversible.
+  //
+  // Nom distinct de confirmingDeleteId ci-dessus, qui porte la confirmation
+  // d'ARCHIVAGE — nom herite d'avant le renommage "Supprimer" -> "Archiver" du
+  // 2026-08-09, ou seuls les libelles affiches avaient change. Les deux
+  // confirmations coexistent maintenant dans ce fichier, l'une reversible et
+  // l'autre non : elles ne doivent pas pouvoir etre confondues a la lecture.
+  const [confirmingPermanentId, setConfirmingPermanentId] = useState<string | null>(null);
   const [isLoadingArchived, setIsLoadingArchived] = useState(false);
 
   const fetchActive = useCallback(async () => {
@@ -117,6 +128,46 @@ export function PersonalNotesPanel() {
       );
     } finally {
       setIsLoadingArchived(false);
+    }
+  }
+
+  // SUPPRESSION PHYSIQUE ET IRREVERSIBLE. Geste distinct de l'archivage : il ne
+  // partage ni route, ni fonction de store, ni bouton avec lui, et il n'est
+  // atteignable que depuis les archives.
+  //
+  // Le serveur revalide que la note est archivee — filtre triple id + user_id +
+  // deleted_at non nul. L'interface n'expose ce bouton que dans les archives,
+  // mais l'interface n'est pas un garde.
+  async function permanentlyDeleteNote(noteId: string) {
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(`/api/personal/notes/${noteId}/permanent`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error ?? "Suppression definitive indisponible.");
+      }
+
+      setConfirmingPermanentId(null);
+      setArchivedNotes((current) => current.filter((note) => note.id !== noteId));
+
+      // Le compteur d'archives vient de la liste active : la recharger evite de
+      // maintenir un decompte local qui deriverait.
+      const next = await fetchActive();
+      setNotes(next.notes);
+      setArchivedCount(next.archivedCount);
+      setError(null);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Suppression definitive indisponible.",
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -413,8 +464,10 @@ export function PersonalNotesPanel() {
 
       {/* Les archives vivent dans une carte separee, jamais dans la liste
           active : aucun element ne doit laisser croire qu'il est encore actif.
-          La seule action possible ici est Restaurer — il n'existe aucune
-          suppression definitive dans ce module. */}
+          Deux actions y sont possibles, et deux seulement : Restaurer, et
+          Supprimer definitivement. La seconde n'existe QUE dans cette carte, et
+          le serveur le revalide : un element actif ne peut etre supprime
+          physiquement ni depuis l'interface, ni par appel direct. */}
       {archivedCount > 0 || showArchived ? (
         <div className="grid gap-3">
           <button
@@ -446,15 +499,66 @@ export function PersonalNotesPanel() {
                           <p className="text-xs text-[#64748b]">
                             Archivée le {formatNoteTimestamp(note.archivedAt)}
                           </p>
-                          <button
-                            className="rounded-md border border-[#39E6D0]/60 bg-[#39E6D0]/15 px-3 py-1.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/25 disabled:cursor-not-allowed disabled:opacity-40"
-                            disabled={isSubmitting}
-                            onClick={() => restoreNote(note.id)}
-                            type="button"
-                          >
-                            Restaurer
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              className="rounded-md border border-[#39E6D0]/60 bg-[#39E6D0]/15 px-3 py-1.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={isSubmitting}
+                              onClick={() => restoreNote(note.id)}
+                              type="button"
+                            >
+                              Restaurer
+                            </button>
+                            <button
+                              className="rounded-md border border-[#f87171]/50 bg-[#f87171]/10 px-3 py-1.5 text-sm font-semibold text-[#fecaca] transition hover:bg-[#f87171]/20 disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={isSubmitting}
+                              onClick={() => setConfirmingPermanentId(note.id)}
+                              type="button"
+                            >
+                              Supprimer définitivement
+                            </button>
+                          </div>
                         </div>
+
+                        {/* Confirmation binaire, sans mot a taper : l'archivage
+                            prealable tient lieu de premiere barriere. Elle
+                            affiche un apercu du contenu vise — une confirmation
+                            generique ne protegerait de rien entre deux notes
+                            archivees qui se ressemblent. */}
+                        {confirmingPermanentId === note.id ? (
+                          <div className="grid gap-3 rounded-md border border-[#f87171]/40 bg-[#f87171]/10 p-3">
+                            <div>
+                              <p className="text-sm font-semibold text-[#fecaca]">
+                                Supprimer définitivement cette note ?
+                              </p>
+                              <p className="mt-1 text-sm italic leading-6 text-[#fecaca]">
+                                « {erasurePreview(note.content)} »
+                              </p>
+                            </div>
+                            <p className="text-sm leading-6 text-[#fecaca]">
+                              Cette note sera définitivement supprimée. Il n&apos;y a pas de
+                              corbeille et aucune sauvegarde n&apos;existe. Les autres
+                              éléments archivés ne sont pas touchés.
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                className="rounded-md border border-[#f87171]/50 bg-[#f87171]/15 px-3 py-1.5 text-sm font-semibold text-[#fecaca] transition hover:bg-[#f87171]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                                disabled={isSubmitting}
+                                onClick={() => permanentlyDeleteNote(note.id)}
+                                type="button"
+                              >
+                                {isSubmitting ? "Suppression..." : "Confirmer"}
+                              </button>
+                              <button
+                                className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
+                                disabled={isSubmitting}
+                                onClick={() => setConfirmingPermanentId(null)}
+                                type="button"
+                              >
+                                Annuler
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </li>
                   ))}

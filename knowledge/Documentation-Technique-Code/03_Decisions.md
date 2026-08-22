@@ -1,7 +1,7 @@
 # Décisions
 
 Statut : registre initial  
-Dernière mise à jour : 2026-08-16
+Dernière mise à jour : 2026-08-18
 
 ## Sommaire
 
@@ -292,6 +292,7 @@ Conséquences :
 - L'onglet Personnel masque le bandeau « réglages enregistrés, pas encore appliqués » et le récapitulatif de bas de page. Les afficher à côté d'une suppression définitive serait faux, et faux au pire endroit.
 - **Ce geste n'est pas une suppression de compte** et ne couvre pas les autres pôles. La « suppression totale » de la vision stratégique reste absente, de même que l'export complet des données.
 - La route porte le **garde par défaut de [DEC-007](#dec-007---toute-route-api-porte-un-garde-dauthentification-sauf-exception-documentée)** — `getCurrentUser()` **et** `canAccessPrivateCockpit`, ajouté le 2026-08-18. Elle ne posait que le premier à sa création, ce qui la laissait joignable par appel direct depuis un compte reviewer : le middleware bloque `/interface` pour ce rôle, mais pas `/api/personal`. C'est la seule route du dépôt à supprimer physiquement, et la seule du pôle à passer par la service-role, donc sans RLS pour rattraper un garde manquant.
+- **Une seconde granularité existe depuis le 2026-08-18** : « Supprimer définitivement » un élément archivé, dans la carte Archives de chaque module. Elle réutilise le même store, la même clé service-role et le même principe de liste blanche, mais avec son propre journal d'audit (`personal_item_erasure_log`), sa propre route par module (`DELETE /[id]/permanent`) et une friction différente — confirmation binaire, l'archivage préalable tenant lieu de première barrière. La règle 1 ci-dessus vaut aussi pour elle : **un élément par requête**. La documentation stratégique la range en **sous-cas du troisième geste canonique**, pas en sixième geste.
 - Le **traitement des tables dépendantes** ne relève pas de cette décision : il est ouvert, voir [DEC-013](#dec-013---traitement-des-tables-dépendantes-lors-dun-effacement--suppression-explicite-ou-cascade-proposé).
 
 Note de révision (2026-08-16), deux passes le même jour :
@@ -321,6 +322,10 @@ Arguments contre, ou au moins non tranchés :
 - **Le mécanisme dépend d'une propriété non universelle.** `deleteOwnedRows` filtre sur `user_id`. Cela ne fonctionne que si chaque table dépendante porte `user_id`. Une dépendante qui ne le porterait pas — cas normal en base relationnelle — ne serait pas supprimable par ce chemin, et demanderait soit une jointure, soit un retour à la cascade.
 - **Le coût est un aller-retour réseau par table dépendante**, plus une entrée d'audit par table. Sur un module à plusieurs dépendantes, ce coût croît linéairement là où la cascade est un seul ordre.
 - **La cause racine n'est pas traitée ici.** Le vrai problème est qu'une migration a pu être partiellement appliquée sans que rien ne le signale. Compenser cela dans le code applicatif de chaque suppression est un correctif de symptôme ; vérifier l'état des contraintes en base en serait un de la cause.
+
+**Deuxième observation, qui ne satisfait pas le critère de sortie.** La suppression définitive d'un élément archivé (2026-08-18) applique le même patron : les réalisations d'une habitude sont supprimées explicitement avant l'habitude, et le filtre `user_id` y est répété en plus de `habit_id`. Cela conforte le choix sans le valider — c'est un deuxième **geste** sur le même module, pas un deuxième module. Satisfaire le critère à la lettre en le trahissant ferait passer cette décision en `actif` sur une base d'un seul cas réel. Elle **reste donc `proposé`**.
+
+Un fait relevé au passage, en faveur du choix : le déplacement des données de test du 2026-08-18 a buté sur cette clé étrangère composite, faute d'`on update cascade`. La contrainte est donc bien réelle en base aujourd'hui — ce qui ne dit rien de sa présence demain, ni sur un autre environnement, et ne change pas le raisonnement.
 
 Ce qui permettrait de trancher : **un deuxième module effaçable doté d'une table dépendante.** Si son besoin est de même forme, le patron se généralise et cette décision passe en `actif`. Si sa dépendante ne porte pas `user_id`, ou si elle a plusieurs niveaux de dépendance, il faudra soit un mécanisme générique, soit revenir à la cascade avec une vérification de contrainte au déploiement.
 

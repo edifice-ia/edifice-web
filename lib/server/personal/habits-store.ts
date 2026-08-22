@@ -229,9 +229,43 @@ export async function listArchivedPersonalHabits(
     throw new Error(error.message);
   }
 
-  return ((data ?? []) as ArchivedPersonalHabitRow[]).map((row) => ({
+  const rows = (data ?? []) as ArchivedPersonalHabitRow[];
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  // Deuxieme requete, comme pour la liste active : une pour les habitudes, une
+  // pour leurs realisations. Pas de jointure imbriquee PostgREST — la cle
+  // etrangere est composite (habit_id, user_id), et faire dependre l'affichage
+  // de la resolution de cette relation ajouterait une dependance de plus a une
+  // contrainte que DEC-013 refuse deja de presumer appliquee en base.
+  //
+  // Le comptage se fait en memoire. buildHabitStats n'est toujours PAS appele
+  // sur ce chemin : un volume n'est ni une serie ni un taux de constance.
+  const { data: completions, error: completionsError } = await supabase
+    .from("personal_habit_completions")
+    .select("habit_id")
+    .eq("user_id", userId)
+    .in(
+      "habit_id",
+      rows.map((row) => row.id),
+    );
+
+  if (completionsError) {
+    throw new Error(completionsError.message);
+  }
+
+  const countByHabit = new Map<string, number>();
+
+  for (const row of (completions ?? []) as { habit_id: string }[]) {
+    countByHabit.set(row.habit_id, (countByHabit.get(row.habit_id) ?? 0) + 1);
+  }
+
+  return rows.map((row) => ({
     ...mapHabit(row),
     archivedAt: row.deleted_at,
+    completionCount: countByHabit.get(row.id) ?? 0,
   }));
 }
 

@@ -6,7 +6,8 @@
 
 1. **Chantier 2 — Audit de sécurité.** Des failles réelles restent ouvertes en production (routes OAuth Instagram/Pinterest sans authentification, table `content_assets` sans isolation utilisateur, modes debug non gatés sur plusieurs providers). Le Lot 1 est poussé, mais tant que les Lots 2 et 3 ne sont pas traités, l'exposition est active et en prod.
 2. **Chantier 1 — Module Vitals (étape 6, UI).** L'étape 5 (cron quotidien) est committée et poussée (`195aced`). Ce qui reste non committé est le volet suivant — le store de brief quotidien et sa route API — délibérément laissé de côté (voir Chantier 1).
-3. ~~**Chantier 3 — Audit Observatoire.**~~ **Terminé** le 22 juillet 2026 (`4280a8d`), vérifié dans le code le 28 juillet. Voir plus bas.
+3. **Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/`.** Dette, non urgente : les onze routes concernées passent par le client de session, donc RLS limite déjà les dégâts. Inscrite ici pour ne pas être perdue, pas pour passer devant les deux précédentes.
+4. ~~**Chantier 3 — Audit Observatoire.**~~ **Terminé** le 22 juillet 2026 (`4280a8d`), vérifié dans le code le 28 juillet. Voir plus bas.
 
 ---
 
@@ -57,6 +58,26 @@
 - Re-audit du 28 juillet (`2cf9316`, **local, non poussé**) : six routes API répondaient encore sans session, dont `/api/oauth/youtube/status` et `/api/oauth/calendar/status` qui rafraîchissaient le token stocké et renvoyaient l'identité de la chaîne YouTube / de l'agenda principal. Plus l'OAuth Garmin, oublié du Lot 1 : `start` sans authentification et état PKCE non lié à un utilisateur. Corrigés, documentés en DEC-007.
 
 **Prochaine action concrète** : relire `2cf9316` puis pousser. Ensuite, vérifier dans le SQL Editor Supabase que les policies RLS `content_assets` sont réellement appliquées — c'est le dernier point du Lot 2 qui ne peut pas être clos depuis le dépôt, et tant qu'il ne l'est pas, la table peut encore être en `using(true)` en production.
+
+---
+
+## Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/` (dette)
+
+**Objectif** : poser `canAccessPrivateCockpit` sur les onze routes du pôle Personnel qui ne portent que `getCurrentUser()`. DEC-007 pose ce garde comme défaut, pas comme option.
+
+**Origine** : relevé le 2026-08-18 en corrigeant `/api/personal/settings/erase` (`d6d0108`). Cette route-là est traitée ; les onze autres ne le sont pas.
+
+**Périmètre** : `notes/route.ts`, `notes/[id]/route.ts`, `notes/[id]/restore/route.ts`, `journal/route.ts`, `journal/[id]/route.ts`, `journal/[id]/restore/route.ts`, `habits/route.ts`, `habits/[id]/route.ts`, `habits/[id]/completions/route.ts`, `habits/[id]/restore/route.ts`, et `daily-brief/route.ts` (non suivi par git, Vitals en pause — à traiter avec ce volet plutôt qu'ici).
+
+Les trois routes `[id]/permanent` ajoutées le 2026-08-18 **ne sont pas concernées** : elles portent le garde depuis leur conception.
+
+**Le helper existe déjà et est directement réutilisable.** `authorizeCockpitApiAccess()` (`src/lib/auth/api-guards.ts`, ajouté par `cc76f38`) applique `getCurrentUser()` **et** `canAccessPrivateCockpit`, avec `401` et `403` distingués. Il est nommé « cockpit » et non « personal » précisément pour servir cette passe sans être réécrit. Il n'y a donc plus rien à concevoir : la mise en conformité se réduit à remplacer, dans chaque handler, le contrôle inline par un appel à ce helper.
+
+**Gravité : réelle mais contenue, et c'est le critère qui a servi à prioriser.** Ces routes passent par le client de session, donc RLS s'applique : un reviewer qui les appellerait ne verrait et n'écrirait que ses propres lignes, lesquelles sont vides. Ce n'est pas une fuite de données d'autrui, c'est un écart avec le garde par défaut. La route d'effacement était différente sur le point qui compte — service-role, donc RLS contournée, donc aucun filet sous un garde manquant.
+
+**Point de vigilance** : ces routes répondent aujourd'hui `401` sans session. Le helper conserve ce comportement et ajoute `403` pour le rôle reviewer. Aucun appelant existant ne devrait changer de réponse, mais c'est à vérifier plutôt qu'à supposer.
+
+**Prochaine action concrète** : rien d'urgent. À traiter en une passe unique, avec vérification isolée, et **sans push automatique** — c'est du code d'authentification, la règle de surclassement de `CLAUDE.md` s'applique.
 
 ---
 

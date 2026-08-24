@@ -53,6 +53,75 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-08-24 — Appliquer la migration `personal_tasks` (module Tâches du pôle Personnel)
+
+**Statut** : `pending`
+
+**Fichier** : `supabase/migrations/20260824100000_create_personal_tasks.sql`
+
+**Pourquoi c'est manuel** : nécessite un clic dans le SQL Editor Supabase, pas d'accès API direct pour ce type d'opération. Aucun CLI Supabase authentifié n'est configuré sur cette machine, et la clé service-role ne permet pas d'exécuter du DDL par l'API REST.
+
+**Bloque** : tout le module Tâches. Sans cette table, le store et les routes `/api/personal/tasks` échouent et l'onglet ne peut rien afficher ni enregistrer.
+
+**Particularité de sécurité, à lire avant d'exécuter** : comme pour Notes, Journal et Habitudes, **RLS est ici le garde réel et non une défense en profondeur**. Le store utilisera le client de session (clé `anon` + cookies), pas la clé service-role qui contourne RLS. Si les policies ne sont pas appliquées correctement, **il n'y a pas de second filet côté application**. Les étapes de vérification ci-dessous ne sont donc pas optionnelles — et l'incident du 2026-08-10 sur `personal_habits`, où la migration n'avait été appliquée que partiellement, montre que ce n'est pas théorique.
+
+**Étapes** :
+
+1. Ouvrir <https://supabase.com/dashboard>, sélectionner le projet de L'Édifice, puis « SQL Editor » dans la barre latérale.
+2. Cliquer « New query ».
+3. Coller le contenu intégral de `supabase/migrations/20260824100000_create_personal_tasks.sql` et cliquer « Run ». Le fichier est idempotent (`if not exists`, `drop policy if exists`, `drop trigger if exists`, `create or replace function`) : le relancer ne casse rien.
+4. Vérifier que la table et ses colonnes existent :
+
+```sql
+select column_name, data_type, is_nullable
+from information_schema.columns
+where table_schema = 'public' and table_name = 'personal_tasks'
+order by ordinal_position;
+```
+
+5. Vérifier que **RLS est activée** — sans cela les policies ne s'appliquent pas, quoi qu'il arrive :
+
+```sql
+select relrowsecurity from pg_class where relname = 'personal_tasks';
+```
+
+6. Vérifier les **grants** — c'est le point qui avait été appliqué partiellement lors de l'incident du 2026-08-10 :
+
+```sql
+select grantee, privilege_type
+from information_schema.role_table_grants
+where table_name = 'personal_tasks'
+order by grantee, privilege_type;
+```
+
+7. Vérifier les **policies**, leur nombre et leur expression :
+
+```sql
+select policyname, cmd, qual, with_check
+from pg_policies
+where schemaname = 'public' and tablename = 'personal_tasks'
+order by policyname;
+```
+
+8. Vérifier les **contraintes de validation** :
+
+```sql
+select conname, pg_get_constraintdef(oid)
+from pg_constraint
+where conrelid = 'public.personal_tasks'::regclass and contype = 'c'
+order by conname;
+```
+
+**Vérification** :
+
+- étape 4 : `id`, `user_id` (`NO`), `title` (`NO`), `due_on` (`YES`), `status` (`NO`), `context_label` (`YES`), `created_at` (`NO`), `updated_at` (`NO`), `deleted_at` (`YES`).
+- étape 5 : doit renvoyer `true`.
+- étape 6 : `authenticated` doit avoir **exactement** `SELECT`, `INSERT`, `UPDATE` — **jamais `DELETE`**. `anon` ne doit apparaître dans **aucune ligne**. Un `DELETE` accordé ici rendrait la suppression physique possible depuis le navigateur, ce que ce module refuse par conception.
+- étape 7 : **trois** policies, `personal_tasks_select_own` / `insert_own` / `update_own`, et **aucune policy `DELETE`**. Chaque `qual` et `with_check` doit être `(user_id = auth.uid())` — une expression à `true` serait exactement la faille `content_assets` du 2026-07-28.
+- étape 8 : cinq contraintes `CHECK` — `title_not_blank`, `title_max_length`, `status_known` (`status in ('todo','done')`), `context_label_not_blank`, `context_label_max_length`.
+
+Une fois appliquée, le cycle CRUD complet reste à valider par test manuel une fois l'interface construite (checkpoint 3).
+
 ### 2026-08-18 — Appliquer la migration `personal_item_erasure_log`
 
 **Statut** : `pending`

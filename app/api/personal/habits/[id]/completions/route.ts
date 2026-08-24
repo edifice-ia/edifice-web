@@ -4,7 +4,7 @@ import {
   markHabitCompletion,
   unmarkHabitCompletion,
 } from "@/lib/server/personal/habits-store";
-import { getCurrentUser } from "@/src/lib/supabase/server";
+import { authorizeCockpitApiAccess } from "@/src/lib/auth/api-guards";
 
 export const runtime = "nodejs";
 
@@ -15,10 +15,10 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeCockpitApiAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   const { id } = await context.params;
@@ -66,10 +66,10 @@ export async function DELETE(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeCockpitApiAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   const { id } = await context.params;

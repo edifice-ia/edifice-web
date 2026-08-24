@@ -6,7 +6,7 @@ import {
   listArchivedPersonalHabits,
   listPersonalHabits,
 } from "@/lib/server/personal/habits-store";
-import { getCurrentUser } from "@/src/lib/supabase/server";
+import { authorizeCockpitApiAccess } from "@/src/lib/auth/api-guards";
 
 export const runtime = "nodejs";
 
@@ -16,10 +16,10 @@ export const runtime = "nodejs";
 // Les habitudes archivees sont renvoyees SANS serie ni taux de constance —
 // listArchivedPersonalHabits n'appelle pas buildHabitStats.
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeCockpitApiAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   const archived = new URL(request.url).searchParams.get("archived") === "true";
@@ -45,10 +45,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeCockpitApiAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   let payload: unknown;

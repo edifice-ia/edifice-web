@@ -4,7 +4,7 @@ import {
   softDeletePersonalNote,
   updatePersonalNoteContent,
 } from "@/lib/server/personal/notes-store";
-import { getCurrentUser } from "@/src/lib/supabase/server";
+import { authorizeCockpitApiAccess } from "@/src/lib/auth/api-guards";
 
 export const runtime = "nodejs";
 
@@ -12,10 +12,10 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeCockpitApiAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   const { id } = await context.params;
@@ -62,10 +62,10 @@ export async function DELETE(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeCockpitApiAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   const { id } = await context.params;

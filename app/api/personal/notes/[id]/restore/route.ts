@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { restorePersonalNote } from "@/lib/server/personal/notes-store";
-import { getCurrentUser } from "@/src/lib/supabase/server";
+import { authorizeCockpitApiAccess } from "@/src/lib/auth/api-guards";
 
 export const runtime = "nodejs";
 
@@ -21,10 +21,10 @@ export async function POST(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeCockpitApiAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   const { id } = await context.params;

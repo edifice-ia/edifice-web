@@ -6,17 +6,17 @@ import {
   listArchivedPersonalJournalEntries,
   listPersonalJournalEntries,
 } from "@/lib/server/personal/journal-store";
-import { getCurrentUser } from "@/src/lib/supabase/server";
+import { authorizeCockpitApiAccess } from "@/src/lib/auth/api-guards";
 
 export const runtime = "nodejs";
 
 // ?archived=true bascule sur les entrees archivees. Meme contrat que les notes :
 // pas de valeur "all", les deux etats ne se melangent jamais.
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeCockpitApiAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   const archived = new URL(request.url).searchParams.get("archived") === "true";
@@ -42,10 +42,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeCockpitApiAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   let payload: unknown;

@@ -8,7 +8,7 @@
 
 1. **Chantier 2 — Audit de sécurité.** Des failles réelles restent ouvertes en production (routes OAuth Instagram/Pinterest sans authentification, table `content_assets` sans isolation utilisateur, modes debug non gatés sur plusieurs providers). Le Lot 1 est poussé, mais tant que les Lots 2 et 3 ne sont pas traités, l'exposition est active et en prod.
 2. **Chantier 1 — Module Vitals (étape 6, UI).** L'étape 5 (cron quotidien) est committée et poussée (`195aced`). Ce qui reste non committé est le volet suivant — le store de brief quotidien et sa route API — délibérément laissé de côté (voir Chantier 1).
-3. **Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/`.** Dette, non urgente : les onze routes concernées passent par le client de session, donc RLS limite déjà les dégâts. Inscrite ici pour ne pas être perdue, pas pour passer devant les deux précédentes.
+3. ~~**Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/`.**~~ **Terminé** le 24 août 2026 : dix routes converties, quatorze fichiers désormais conformes sous ce chemin. Voir plus bas.
 4. ~~**Chantier 3 — Audit Observatoire.**~~ **Terminé** le 22 juillet 2026 (`4280a8d`), vérifié dans le code le 28 juillet. Voir plus bas.
 
 ---
@@ -84,23 +84,34 @@ Rendre l'un ou l'autre atomique demanderait une fonction Postgres `security defi
 
 ---
 
-## Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/` (dette)
+## Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/` — TERMINÉ
 
-**Objectif** : poser `canAccessPrivateCockpit` sur les onze routes du pôle Personnel qui ne portent que `getCurrentUser()`. DEC-007 pose ce garde comme défaut, pas comme option.
+**Objectif** : poser `canAccessPrivateCockpit` sur les routes du pôle Personnel qui ne portaient que `getCurrentUser()`. DEC-007 pose ce garde comme défaut, pas comme option.
 
-**Origine** : relevé le 2026-08-18 en corrigeant `/api/personal/settings/erase` (`d6d0108`). Cette route-là est traitée ; les onze autres ne le sont pas.
+**État** : **fait le 2026-08-24.** Les dix routes du périmètre sont converties, soit **17 handlers**. Avec les quatre routes déjà conformes (`settings/erase` et les trois `[id]/permanent`), **les quatorze fichiers de route sous `/api/personal/` passent désormais par `authorizeCockpitApiAccess()`** — vérifié par grep : plus aucun appel à `getCurrentUser()` ne subsiste sous ce chemin, hors Vitals.
 
-**Périmètre** : `notes/route.ts`, `notes/[id]/route.ts`, `notes/[id]/restore/route.ts`, `journal/route.ts`, `journal/[id]/route.ts`, `journal/[id]/restore/route.ts`, `habits/route.ts`, `habits/[id]/route.ts`, `habits/[id]/completions/route.ts`, `habits/[id]/restore/route.ts`, et `daily-brief/route.ts` (non suivi par git, Vitals en pause — à traiter avec ce volet plutôt qu'ici).
+Détail des dix routes converties :
 
-Les trois routes `[id]/permanent` ajoutées le 2026-08-18 **ne sont pas concernées** : elles portent le garde depuis leur conception.
+| Route | Handlers |
+| --- | --- |
+| `notes/route.ts` | GET, POST |
+| `notes/[id]/route.ts` | PATCH, DELETE |
+| `notes/[id]/restore/route.ts` | POST |
+| `journal/route.ts` | GET, POST |
+| `journal/[id]/route.ts` | PATCH, DELETE |
+| `journal/[id]/restore/route.ts` | POST |
+| `habits/route.ts` | GET, POST |
+| `habits/[id]/route.ts` | PATCH, DELETE |
+| `habits/[id]/completions/route.ts` | POST, DELETE |
+| `habits/[id]/restore/route.ts` | POST |
 
-**Le helper existe déjà et est directement réutilisable.** `authorizeCockpitApiAccess()` (`src/lib/auth/api-guards.ts`, ajouté par `cc76f38`) applique `getCurrentUser()` **et** `canAccessPrivateCockpit`, avec `401` et `403` distingués. Il est nommé « cockpit » et non « personal » précisément pour servir cette passe sans être réécrit. Il n'y a donc plus rien à concevoir : la mise en conformité se réduit à remplacer, dans chaque handler, le contrôle inline par un appel à ce helper.
+**Le point de vigilance est levé, et il l'est par constat, pas par confiance.** Les dix routes portaient un garde rigoureusement identique — `getCurrentUser()`, puis `if (!user)` renvoyant `NextResponse.json({ error: "Acces refuse." }, { status: 401 })`. Le helper renvoie la même charge utile et le même statut, au caractère près. **Aucun appelant non authentifié ne voit son comportement changer sur aucune des dix routes.** Le seul changement observable est l'ajout du `403` pour le rôle reviewer, qui est l'objet même de la mise en conformité.
 
-**Gravité : réelle mais contenue, et c'est le critère qui a servi à prioriser.** Ces routes passent par le client de session, donc RLS s'applique : un reviewer qui les appellerait ne verrait et n'écrirait que ses propres lignes, lesquelles sont vides. Ce n'est pas une fuite de données d'autrui, c'est un écart avec le garde par défaut. La route d'effacement était différente sur le point qui compte — service-role, donc RLS contournée, donc aucun filet sous un garde manquant.
+Aucune divergence n'a été trouvée entre les dix routes : ni message différent, ni statut différent, ni logique intercalée entre l'appel et le test. Chaque fichier n'importait `getCurrentUser` que pour ce garde, ce qui a rendu la substitution mécanique.
 
-**Point de vigilance** : ces routes répondent aujourd'hui `401` sans session. Le helper conserve ce comportement et ajoute `403` pour le rôle reviewer. Aucun appelant existant ne devrait changer de réponse, mais c'est à vérifier plutôt qu'à supposer.
+**Hors périmètre, inchangé** : `daily-brief/route.ts` (Vitals en pause, non suivi par git) n'est pas touché. Le corriger reviendrait à modifier du travail délibérément laissé hors de l'index — à traiter avec le volet Vitals.
 
-**Prochaine action concrète** : rien d'urgent. À traiter en une passe unique, avec vérification isolée, et **sans push automatique** — c'est du code d'authentification, la règle de surclassement de `CLAUDE.md` s'applique.
+**Reste ouvert, hors de ce chantier** : le middleware ne couvre toujours pas `/api/personal` dans `reviewerBlockedPrefixes`. Ajouter ce préfixe serait une défense en profondeur, non un remplacement du garde en route, qui est désormais posé partout. C'est une modification du middleware, donc une décision distincte.
 
 ---
 

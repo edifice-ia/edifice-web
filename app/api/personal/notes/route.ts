@@ -6,7 +6,7 @@ import {
   listArchivedPersonalNotes,
   listPersonalNotes,
 } from "@/lib/server/personal/notes-store";
-import { getCurrentUser } from "@/src/lib/supabase/server";
+import { authorizeCockpitApiAccess } from "@/src/lib/auth/api-guards";
 
 export const runtime = "nodejs";
 
@@ -14,10 +14,10 @@ export const runtime = "nodejs";
 // melangent jamais dans une meme liste : il n'existe pas de valeur "all", pour
 // qu'aucun affichage ne puisse laisser croire qu'une note archivee est active.
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeCockpitApiAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   const archived = new URL(request.url).searchParams.get("archived") === "true";
@@ -45,10 +45,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
+  const { user, response } = await authorizeCockpitApiAccess();
 
   if (!user) {
-    return NextResponse.json({ error: "Acces refuse." }, { status: 401 });
+    return response;
   }
 
   let payload: unknown;

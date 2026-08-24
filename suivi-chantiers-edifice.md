@@ -1,6 +1,8 @@
 # Suivi des chantiers — L'Édifice
 
-*Mis à jour le 28 juillet 2026 — état vérifié contre le code et l'historique git, pas contre la version précédente de ce document.*
+*Chantiers 4 et 5 mis à jour le 24 août 2026, vérifiés contre le code, l'historique git et la base. Les chantiers 1, 2 et 3 datent du 28 juillet 2026 et n'ont pas été re-vérifiés depuis.*
+
+*Principe de ce document, inchangé : chaque état est vérifié contre le code et l'historique git, jamais contre la version précédente de ce fichier.*
 
 ## Priorités (par urgence réelle)
 
@@ -15,19 +17,40 @@
 
 **Objectif** : donner au pôle Personnel un moyen d'effacer réellement des données. Ses trois modules à saisie manuelle n'implémentent que la suppression logique, par conception — c'est une lacune de souveraineté que la documentation stratégique rattache explicitement à Réglages.
 
-**État actuel** (13 août 2026) :
-- Livré dans `6383597` : validation partagée client/serveur, store service-role, route API à quatre gardes, onglet Personnel dans Réglages, migration du journal d'audit écrite.
+**État actuel** (24 août 2026) — **les deux volets sont livrés et testés en conditions réelles.**
+
+### Volet 1 — « Vider l'historique », à l'échelle du module
+
+- Livré dans `6383597` : validation partagée client/serveur, store service-role, route API gardée, onglet Personnel dans Réglages, migration du journal d'audit écrite.
 - Extension à Habitudes faite : les trois modules du pôle sont couverts. `ERASURE_EXCLUDED_NOTICE`, qui annonçait l'exclusion d'Habitudes, est retiré — il serait devenu faux à l'écran.
-- Documentation : `6383597` a modifié `03_Decisions.md` (DEC-012), `05_Database.md`, `06_Modules.md` et `11_Changelog.md`. **Cette documentation est partiellement obsolète** : elle décrit le flux de confirmation partagée — une sélection multiple par cases à cocher, un seul mot `SUPPRIMER` tapé une fois pour tous les modules cochés — abandonné depuis le passage à l'Option A (un module à la fois, confirmation dédiée). Elle sera reprise une fois le code stabilisé, pas avant.
 - `261c042` a scindé DEC-012 : la suppression explicite des tables dépendantes en est retirée et devient DEC-013, au statut `proposé`. `59bf997` a contraint `deleteOwnedRows` au type des tables effaçables.
+- **Passage à un module à la fois** (`a014030` interface, `4fd5dc5` API) : la sélection multiple par cases à cocher est abandonnée. Une ligne et un bouton nommé par module, une confirmation dédiée, et `POST /api/personal/settings/erase` accepte `module` et non `modules`. L'échec partiel entre modules disparaît par construction.
+- Documentation alignée sur ce flux dans `22299e3`.
+- **Migration `20260806200000_create_personal_data_erasure_log.sql` appliquée et vérifiée en base le 2026-08-18** : grants propres (ni `anon` ni `authenticated`), et `confdeltype = c` confirmé sur `personal_habit_completions_habit_fk`.
+- **Test de bout en bout fait le 2026-08-18**, par pilotage navigateur humain et non par script, sur `test-erase@edificeia.com`. Les trois modules testés séparément : suppression ciblée confirmée à chaque fois, les deux autres modules restés intacts ; journal d'audit conforme pour Habitudes (deux entrées, `personal_habit_completions` = 8 puis `personal_habits` = 2) ; zéro réalisation orpheline.
 
-  *Note : il n'a jamais existé de plan en quatre étapes pour ce chantier. La formulation « étapes 1-3 faites / étape 4 (documentation) » qui figurait ici reprenait un message de reprise de session, sans source dans le dépôt — aucun fichier, aucun commit ne définit un tel découpage, et aucune trace n'indique qu'une étape de documentation ait été validée. Retirée le 2026-08-16.*
-- **Migration `20260806200000_create_personal_data_erasure_log.sql` non appliquée en base.** Voir `MANUAL_ACTIONS.md`, entrée du 2026-08-13.
-- Test de bout en bout **pas fait** — il dépend de l'application de la migration.
+### Volet 2 — Suppression individuelle d'un élément archivé
 
-**Point de vigilance connu, non corrigé** : `erasePersonalModules` supprime puis journalise. Si l'écriture d'audit échoue, la suppression a déjà eu lieu et l'entrée manque. Le code le documente et remonte l'erreur à l'appelant, qui renvoie ce qui a été fait. Rendre les deux atomiques demanderait une fonction Postgres `security definer`, donc un arbitrage qui n'a pas été pris.
+Geste distinct, rangé en **sous-cas du troisième geste canonique** dans `11-modularite-configuration.md` — pas un sixième geste.
 
-**Prochaine action concrète** : appliquer la migration via le SQL Editor Supabase (étapes exactes dans `MANUAL_ACTIONS.md`), vérifier les révocations, puis tester le geste sur un jeu de données jetable. La suppression est irréversible et sans sauvegarde.
+- `d6d0108` : garde DEC-007 posé sur la route d'effacement, qui ne portait que `getCurrentUser()`.
+- `cc76f38` : socle serveur — helper partagé `authorizeCockpitApiAccess()`, table `personal_item_erasure_log`, `permanentlyDeletePersonalItem` sous filtre triple (`id` + `user_id` + `deleted_at is not null`), et les trois routes `DELETE /api/personal/{notes,journal,habits}/[id]/permanent`.
+- `a137fc0` : interface et documentation — bouton « Supprimer définitivement » dans les trois cartes Archives, confirmation binaire avec aperçu identifiable, `completionCount` sur `ArchivedPersonalHabit`.
+- Migration `20260818100000_create_personal_item_erasure_log.sql` appliquée et vérifiée en base le 2026-08-18.
+- **Test de bout en bout validé le 2026-08-24** sur `test-erase@edificeia.com`, par pilotage navigateur humain. Les trois modules testés séparément, et les trois cas limites du jeu de test confirmés : troncature de l'aperçu à 80 caractères sur une note longue, désambiguïsation par date et humeur entre deux entrées de journal commençant à l'identique, et compte de réalisations propre à l'habitude visée.
+
+  Corroboré en base : `personal_item_erasure_log` porte **trois entrées** le 2026-08-24, une par module, avec `related_deleted_count` à 0 pour Notes et Journal et à **3** pour Habitudes — soit le compte de l'habitude supprimée, et non le total de 8 réalisations du compte. Zéro réalisation orpheline après coup.
+
+**Points de vigilance connus, non corrigés** — identiques sur les deux volets, même cause, même arbitrage non pris :
+
+- **suppression puis journalisation, sans atomicité.** Si l'écriture d'audit échoue, la suppression a déjà eu lieu et l'entrée manque.
+- **échec partiel à l'intérieur d'un élément à table dépendante.** Si le `DELETE` de l'habitude échoue après celui de ses réalisations, `permanentlyDeletePersonalItem` renvoie `null` et la route répond `404` — trompeur, puisque des données ont été détruites.
+
+Rendre l'un ou l'autre atomique demanderait une fonction Postgres `security definer`.
+
+**Piège de nommage relevé, non corrigé** : les trois panneaux portent un état `confirmingDeleteId` qui désigne la confirmation d'**archivage**, hérité du renommage « Supprimer » → « Archiver » du 2026-08-09. Le nouvel état s'appelle `confirmingPermanentId`, et `PersonalHabitsPanel` utilise déjà `confirmingArchiveId` — l'incohérence est donc aussi entre les fichiers.
+
+**Prochaine action concrète** : aucune sur le périmètre livré. Restent ouverts, hors de ce chantier : l'**export complet des données** et la **suppression totale** (compte, autres pôles), les deux capacités de souveraineté que la vision rattache à Réglages et qui ne sont toujours pas couvertes.
 
 ---
 

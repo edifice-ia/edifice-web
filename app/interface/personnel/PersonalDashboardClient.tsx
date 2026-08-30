@@ -13,6 +13,7 @@ import type { CockpitCalendarTodayState } from "@/types/cockpit";
 import { PersonalHabitsPanel } from "./PersonalHabitsPanel";
 import { PersonalJournalPanel } from "./PersonalJournalPanel";
 import { PersonalNotesPanel } from "./PersonalNotesPanel";
+import { PersonalTasksPanel } from "./PersonalTasksPanel";
 import { PersonalEmptyState, PersonalModuleCard } from "./PersonalPrimitives";
 
 type PersonalTab =
@@ -84,7 +85,7 @@ const summaryCards: PersonalCardDefinition[] = [
 // "notes", "journal" et "routines" sont exclus : ces trois onglets n'affichent
 // plus de cartes statiques, ils rendent leur panneau avec les donnees reelles.
 const tabCards: Record<
-  Exclude<PersonalTab, "summary" | "sources" | "notes" | "journal" | "routines">,
+  Exclude<PersonalTab, "summary" | "sources" | "notes" | "journal" | "routines" | "tasks">,
   PersonalCardDefinition[]
 > = {
   calendar: [
@@ -135,16 +136,6 @@ const tabCards: Record<
     {
       title: "Récupération",
       source: "Ce bloc sera alimenté par Garmin / journal selon le cas.",
-    },
-  ],
-  tasks: [
-    {
-      title: "Tâches prioritaires",
-      source: "Ce bloc sera alimenté par objectifs / calendrier selon le cas.",
-    },
-    {
-      title: "Actions à clarifier",
-      source: "Ce bloc sera alimenté par journal / objectifs selon le cas.",
     },
   ],
 };
@@ -215,11 +206,12 @@ function sourceForActiveTab(tab: PersonalTab) {
     return "Ce bloc sera alimenté par calendrier selon le cas.";
   }
 
-  if (tab === "goals" || tab === "tasks") {
+  if (tab === "goals") {
     return "Ce bloc sera alimenté par objectifs selon le cas.";
   }
 
-  // "notes", "journal" et "routines" ne passent plus par la branche generique :
+  // "notes", "journal", "routines" et "tasks" ne passent plus par la branche
+  // generique :
   // ils rendent leur panneau avec les donnees reelles.
   return "Ce bloc sera alimenté par Garmin / journal selon le cas.";
 }
@@ -584,6 +576,12 @@ export function PersonalDashboardClient({
         </PersonalSection>
       ) : null}
 
+      {activeTab === "tasks" ? (
+        <PersonalSection description={activeCopy.description} title={activeCopy.title}>
+          <PersonalTasksPanel />
+        </PersonalSection>
+      ) : null}
+
       {activeTab === "calendar" ? (
         <PersonalSection description={activeCopy.description} title={activeCopy.title}>
           <div className="grid gap-4 lg:grid-cols-2">
@@ -607,7 +605,8 @@ export function PersonalDashboardClient({
       activeTab !== "calendar" &&
       activeTab !== "notes" &&
       activeTab !== "journal" &&
-      activeTab !== "routines" ? (
+      activeTab !== "routines" &&
+      activeTab !== "tasks" ? (
         <PersonalSection description={activeCopy.description} title={activeCopy.title}>
           <div className="grid gap-4 lg:grid-cols-2">
             {tabCards[activeTab].map((card) => (

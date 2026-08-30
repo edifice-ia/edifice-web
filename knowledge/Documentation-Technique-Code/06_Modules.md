@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-08-18
+Dernière mise à jour : 2026-08-24
 
 ## Sommaire
 
@@ -264,7 +264,7 @@ Fichiers clés :
 
 Le style UI est volontairement distinct des conventions `components/cockpit` (primitives locales, palette propre). Ce n'est pas une dette à corriger : le module Personnel n'est pas un module cockpit et ne doit pas être harmonisé avec lui.
 
-`PersonalModuleCard` et `PersonalEmptyState` vivent depuis le 2026-08-04 dans `app/interface/personnel/PersonalPrimitives.tsx`. Elles étaient définies dans `PersonalDashboardClient.tsx`, ce qui empêchait un panneau de module de vivre dans son propre fichier : le panneau aurait importé ses primitives depuis le dashboard, lequel importe le panneau — cycle. L'extraction a été faite en construisant Notes, et elle est la **préparation des modules suivants** du pôle : Journal, Habitudes, Nutrition et Tâches suivront le même patron — un fichier par module, important les deux primitives, enveloppé par `PersonalSection` côté aiguillage. `PersonalSection` est resté dans le dashboard : c'est le parent qui l'applique, un panneau n'en a pas besoin.
+`PersonalModuleCard` et `PersonalEmptyState` vivent depuis le 2026-08-04 dans `app/interface/personnel/PersonalPrimitives.tsx`. Elles étaient définies dans `PersonalDashboardClient.tsx`, ce qui empêchait un panneau de module de vivre dans son propre fichier : le panneau aurait importé ses primitives depuis le dashboard, lequel importe le panneau — cycle. L'extraction a été faite en construisant Notes, et elle est la **préparation des modules suivants** du pôle : Journal, Habitudes et Tâches ont depuis suivi le même patron, Nutrition reste à faire — un fichier par module, important les deux primitives, enveloppé par `PersonalSection` côté aiguillage. `PersonalSection` est resté dans le dashboard : c'est le parent qui l'applique, un panneau n'en a pas besoin.
 
 **Onglet actif et hydratation.** L'onglet courant est mémorisé dans `sessionStorage` et lu par `useSyncExternalStore`, dont l'instantané serveur renvoie toujours `"summary"`. Ce détour est nécessaire : la valeur était auparavant lue dans l'initialiseur de `useState`, si bien que le rendu serveur (sans `window`) et le premier rendu client divergeaient sur la `className` des boutons d'onglet et sur le titre de section — erreur d'hydratation React à chaque rechargement suivant la visite d'un onglet autre que Résumé. Corrigé le 2026-08-04. Conséquence assumée : Résumé s'affiche brièvement avant la bascule sur l'onglet mémorisé. Porter l'onglet dans l'URL supprimerait ce clignotement et reste possible ; ce serait un changement de comportement, pas une correction.
 
@@ -273,9 +273,11 @@ Le registre `lib/personal/connectors/registry.ts` est conçu pour accueillir plu
 - **Garmin** : connecteur actif en développement. Voir [Décisions](./03_Decisions.md) DEC-005 et DEC-006.
 - **Strava, Notion, Finance, Calendrier** : stubs déclarés pour usage futur, non implémentés. `syncPersonalConnector` renvoie `success: false` tant qu'un connecteur n'est pas branché.
 
-Tables associées : `personal_garmin_daily_stats`, `personal_daily_briefs`, `personal_notes`, `personal_journal_entries`, `personal_habits`, `personal_habit_completions`. Voir [Base de données](./05_Database.md).
+Tables associées : `personal_garmin_daily_stats`, `personal_daily_briefs`, `personal_notes`, `personal_journal_entries`, `personal_habits`, `personal_habit_completions`, `personal_tasks`. Voir [Base de données](./05_Database.md).
 
-**Trois des onze onglets portent de la donnée saisie** : Notes, Journal et Habitudes, ci-dessous. Calendrier affiche des événements réels mais en lecture seule, depuis la synchronisation Google. Les sept autres — Résumé, Énergie, Sommeil, Sport, Objectifs, Tâches, Sources — rendent des cartes statiques portant « Ce bloc sera alimenté par … selon le cas ». C'est un écart de couverture assumé, pas une dette masquée : aucune de ces surfaces ne prétend afficher une donnée qu'elle n'a pas.
+**Quatre des onze onglets portent de la donnée saisie** : Notes, Journal, Habitudes et Tâches, ci-dessous. Calendrier affiche des événements réels mais en lecture seule, depuis la synchronisation Google. Les six autres — Résumé, Énergie, Sommeil, Sport, Objectifs, Sources — rendent des cartes statiques portant « Ce bloc sera alimenté par … selon le cas ». C'est un écart de couverture assumé, pas une dette masquée : aucune de ces surfaces ne prétend afficher une donnée qu'elle n'a pas.
+
+Un onglet qui reçoit son panneau réel **sort de `tabCards` en même temps** : ses cartes statiques sont retirées, son identifiant sort du `Exclude<…>` qui type ce `Record`, `sourceForActiveTab` cesse de le citer, et la branche générique l'exclut. Les quatre points bougent ensemble — laisser une carte morte derrière un panneau réel serait exactement l'écart que cette section documente.
 
 L'onglet Habitudes s'appelait « Routines » jusqu'au 2026-08-06. Renommé pour suivre le nom du module dans [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) ; l'identifiant interne reste `routines`, comme `links` qui pointe sur Ressources.
 
@@ -422,6 +424,63 @@ Deux boutons y figurent depuis le 2026-08-18 : « Restaurer » et « Supprimer d
 **Le graphique par habitude n'est pas construit** — différé, pas oublié. La série et le taux de constance suffisaient à rendre le module utile ; un graphique demande un arbitrage de forme qui n'a pas été pris.
 
 **Rattachement Marque/Projet : extension différée**, voir [Décisions](./03_Decisions.md) DEC-010, qui s'applique à tout module de domaine de vie construit avant que le concept n'existe en code.
+
+### Tâches
+
+Quatrième module à saisie manuelle du pôle, construit le 2026-08-24 sur le patron d'Habitudes. Retour à une **table unique** après les deux d'Habitudes : une tâche est une ligne.
+
+Fichiers :
+
+- `lib/personal/tasks.ts` (types et validation, sans I/O) et `lib/server/personal/tasks-store.ts`
+- `app/api/personal/tasks/route.ts`, `app/api/personal/tasks/[id]/route.ts`, `app/api/personal/tasks/[id]/restore/route.ts`
+- `app/interface/personnel/PersonalTasksPanel.tsx`
+- table `personal_tasks` (`supabase/migrations/20260824100000_create_personal_tasks.sql`)
+
+Champs repris de [23-modules.md](../Documentation-Strategique/Markdown/23-modules.md) : intitulé, échéance, statut, contexte. Voir [Base de données](./05_Database.md) pour le schéma et le raisonnement sur `context_label`.
+
+**Le garde DEC-007 est posé dès le premier commit**, sur les cinq handlers, via `authorizeCockpitApiAccess()`. Aucun appel à `getCurrentUser()` n'existe dans ce module. C'est la leçon de la route d'effacement, qui avait vécu sans filtre de rôle parce que le contrôle avait été réécrit inline, et du chantier 5 qui a dû reprendre dix routes pour la même raison.
+
+#### Statut, échéance et la distinction qui les protège
+
+`status` a **deux valeurs**, `todo` et `done`. `doing` est écarté délibérément : il introduirait un workflow que rien ne demande, même retenue que sur `frequency_type` d'Habitudes.
+
+Cocher une tâche est un `PATCH` de statut, pas une route dédiée — un statut est un champ comme un autre. La requête n'envoie **que** `status`, et c'est ce qui rend utile la distinction que `parseTaskUpdatePayload` fait entre « champ absent » et « champ à `null` » : sans elle, chaque cochage aurait effacé l'échéance et le contexte au passage. Retirer une échéance s'écrit `dueOn: null` ; ne pas y toucher s'écrit en l'omettant.
+
+#### Ce qui n'est jamais persisté
+
+**La charge de tâches en attente** — la donnée dérivée notable de `23-modules.md` — est un compte de `status = 'todo'` fait à la lecture par `countPendingPersonalTasks`. Aucune colonne ne la stocke.
+
+**« En retard » et « Aujourd'hui »** sont recalculés à chaque rendu depuis la date du jour en Europe/Paris. Les stocker les figerait : une tâche cesserait d'être en retard sans que rien ne la mette à jour. Une tâche faite n'est jamais en retard, quelle que soit son échéance.
+
+Même décision que pour la série et le taux de constance d'Habitudes : **aucune valeur dérivée persistée ne peut se périmer en silence, parce qu'aucune n'est persistée.**
+
+#### Deux pièges de fuseau, évités dans le même sens
+
+`todayInParis()` côté client passe par `Intl` avec `timeZone: "Europe/Paris"` et non par `toISOString()` : une échéance au 24 doit basculer en retard le 25 à minuit heure de Paris, pas à 2 h du matin.
+
+`formatDueOn` suffixe la date nue par `T00:00:00` **sans `Z`** : sans cela, `"2026-08-24"` serait lu en UTC puis reculé d'un jour à l'affichage.
+
+Le tri de la liste active place les tâches **sans échéance après** celles qui en ont une (`nullsFirst: false`) — une date fixée est une contrainte, son absence n'en est pas une, et les mélanger noierait l'urgent. L'index partiel `personal_tasks_user_id_due_on_idx` sert exactement ce tri.
+
+#### Archives et restauration
+
+Même contrat que les trois autres modules : `GET /api/personal/tasks?archived=true` pour la liste, `archivedCount` sur la liste active, `POST /api/personal/tasks/[id]/restore` pour restaurer. Restaurer conserve le statut, l'échéance et le contexte tels qu'ils étaient à l'archivage — une tâche archivée cochée revient cochée.
+
+Aucune policy RLS nouvelle : restaurer est un `UPDATE` de `deleted_at`, déjà couvert par la policy `update` scopée au propriétaire.
+
+**Le seul geste possible dans les archives est « Restaurer ».** La suppression définitive par élément n'est pas branchée sur ce module — elle relèvera d'un chantier d'extension, comme cela a été fait pour Habitudes. C'est une absence assumée et signalée dans le code, pas un oubli.
+
+#### Nommage : ce module part du bon nom
+
+L'état de confirmation d'archivage s'appelle `confirmingArchiveId`, aligné sur `PersonalHabitsPanel`. Notes et Journal utilisent `confirmingDeleteId` pour désigner la même chose — nom hérité d'avant le renommage « Supprimer » → « Archiver » du 2026-08-09, où seuls les libellés affichés avaient changé. Tâches ne reprend pas cette incohérence.
+
+#### Hors périmètre
+
+**Rattachement à une Action de Trajectoire**, que `23-modules.md` prévoit explicitement comme source possible d'une tâche : non construit, voir [Décisions](./03_Decisions.md) DEC-010. Ce sera une colonne séparée ou une table de liaison, **jamais** une réinterprétation de `context_label`.
+
+**Aucune date d'achèvement** n'est enregistrée : le module ne sait pas dire quand une tâche a été faite. Voir [Base de données](./05_Database.md).
+
+**Aucun test de bout en bout** n'a encore été mené sur ce module.
 
 ## Service renderer
 

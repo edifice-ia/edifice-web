@@ -49,6 +49,7 @@ Tables créées ou visibles dans les migrations :
 - `personal_journal_entries`
 - `personal_habits`
 - `personal_habit_completions`
+- `personal_tasks`
 - `personal_data_erasure_log`
 - `video_render_jobs`
 - `short_video_schedules`
@@ -97,9 +98,17 @@ Tables créées ou visibles dans les migrations :
 
 `personal_habits` et `personal_habit_completions` portent le module Habitudes, le premier du pôle à deux tables : une définition et son historique de réalisations. La seconde dénormalise `user_id` pour que les policies restent sans sous-requête, et ferme le risque de dérive par une **clé étrangère composite** `(habit_id, user_id)` vers `personal_habits (id, user_id)` — d'où la contrainte `unique (id, user_id)` sur la table des habitudes, redondante avec la clé primaire mais exigée par Postgres comme cible de référence.
 
-Ces quatre tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet.
+`personal_tasks` porte le module Tâches, quatrième module à saisie manuelle et retour à une table unique après les deux d'Habitudes. Ses champs suivent `23-modules.md` : `title` (l'intitulé), `due_on` (l'échéance, une **date** et non un timestamp — un jour, pas un instant), `status` contraint à `('todo','done')`, et `context_label`.
+
+**`context_label` est un texte libre descriptif, et son nom porte cette distinction.** Ce n'est pas le « Rattachement contexte » de [12-modele-de-donnees.md](../Documentation-Strategique/Markdown/12-modele-de-donnees.md), qui est une *table de liaison* optionnelle vers une Marque ou un Projet, avec cardinalité multiple. Le commentaire de la migration interdit explicitement d'étendre ce champ en `marque_id`/`projet_id` : le jour où une tâche devra provenir d'une Action de Trajectoire — `23-modules.md` le prévoit — ce sera une colonne séparée ou une table de liaison. Voir [Décisions](./03_Decisions.md) DEC-010.
+
+**Aucune date d'achèvement n'est stockée.** Un `completed_at` à côté de `status` créerait deux sources de vérité pour le même fait. Conséquence assumée : le module ne sait pas répondre à « quand cette tâche a-t-elle été faite ». Si le besoin apparaît, `completed_at` devra **remplacer** `status`, pas s'y ajouter.
+
+Ces cinq tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet.
 
 Aucune n'accorde le privilège `DELETE` à `authenticated`, **sauf `personal_habit_completions`** : décocher un jour retire la ligne, une réalisation étant un booléen sur un jour et non du contenu. Sa policy `DELETE` reste scopée au propriétaire. Partout ailleurs, la suppression physique relève du geste « Vider l'historique », qui passe par la clé service-role.
+
+**Cette propriété n'a été réellement appliquée en base qu'à partir du 2026-08-24.** Jusque-là, les migrations du pôle écrivaient `revoke all … from anon` puis `grant select, insert, update … to authenticated`, sans jamais révoquer côté `authenticated` — or un `grant` est additif. Le projet Supabase accordant `arwdDxtm` à tous les rôles par défaut sur toute nouvelle table du schéma `public`, les cinq tables détenaient donc `DELETE` et `TRUNCATE` sans que personne ne l'ait écrit. Aucune suppression n'était possible pour autant, l'absence de policy `DELETE` valant refus sous RLS — mais la défense ne tenait que par **une** couche au lieu des deux annoncées. Corrigé par `20260824110000` (révocation explicite sur les cinq tables) et `20260824120000` (défaut du schéma vidé pour `anon` et `authenticated`). Voir le chantier 6 dans `suivi-chantiers-edifice.md`.
 
 `personal_data_erasure_log` journalise ce geste. Elle suit un patron **opposé** aux tables ci-dessus, repris de `project_memory_audit_log` : les deux rôles `anon` et `authenticated` sont révoqués et **aucune policy n'est créée**, ce qui la rend accessible à la seule clé service-role. RLS y est une défense en profondeur derrière une révocation totale, là où les tables du pôle en font leur garde réel — un journal d'audit lisible ou modifiable depuis le navigateur ne prouve rien.
 

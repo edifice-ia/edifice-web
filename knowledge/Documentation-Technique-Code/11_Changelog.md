@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-08-18
+Dernière mise à jour : 2026-08-24
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-08-24 (module Tâches, et privilèges hérités du défaut de schéma)](#2026-08-24-module-tâches-et-privilèges-hérités-du-défaut-de-schéma)
 - [2026-08-18 (suppression définitive d'un élément archivé)](#2026-08-18-suppression-définitive-dun-élément-archivé)
 - [2026-08-16 (un module à la fois, et révision de DEC-012)](#2026-08-16-un-module-à-la-fois-et-révision-de-dec-012)
 - [2026-08-13 (« Vider l'historique », Réglages > Personnel)](#2026-08-13--vider-lhistorique--réglages--personnel)
@@ -47,6 +48,50 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-08-24 (module Tâches, et privilèges hérités du défaut de schéma)
+
+Type : produit, sécurité, base de données, documentation  
+Résumé : ajout du **module Tâches**, quatrième module à saisie manuelle du pôle Personnel. Ajout de la table `personal_tasks`. Et, découvert en vérifiant cette migration, correction d'un **défaut de privilèges présent depuis le 2026-08-04** sur les cinq tables du pôle.
+
+Fichiers liés :
+
+- `lib/personal/tasks.ts`, `lib/server/personal/tasks-store.ts`
+- `app/api/personal/tasks/route.ts`, `[id]/route.ts`, `[id]/restore/route.ts`
+- `app/interface/personnel/PersonalTasksPanel.tsx`, `PersonalDashboardClient.tsx`
+- `supabase/migrations/20260824100000_create_personal_tasks.sql`
+- `supabase/migrations/20260824110000_revoke_inherited_privileges_on_personal_tables.sql`
+- `supabase/migrations/20260824120000_restrict_default_privileges_public_schema.sql`
+
+Impact : les trois migrations sont **appliquées et vérifiées en base**. Le module Tâches n'a **pas encore été testé de bout en bout** dans le navigateur.
+
+### Module Tâches
+
+Champs repris de `23-modules.md` : intitulé, échéance, statut, contexte. Une seule table — une tâche est une ligne, retour au patron simple après les deux tables d'Habitudes. **Tâches ne fournit donc pas** le deuxième module à table dépendante que DEC-013 attend pour passer en `actif`.
+
+**Le garde DEC-007 est posé dès le premier commit**, sur les cinq handlers, via `authorizeCockpitApiAccess()`. Aucun `getCurrentUser()` dans le module. C'est la leçon combinée de la route d'effacement et du chantier 5.
+
+**`context_label`, et non `context`.** Le champ est un texte libre descriptif de la tâche. Ce n'est pas le « Rattachement contexte » de `12-modele-de-donnees.md`, qui est une table de liaison vers une Marque ou un Projet. Le commentaire de la migration interdit explicitement d'étendre ce champ en `marque_id`/`projet_id`.
+
+**Aucune valeur dérivée n'est persistée** : ni la charge de tâches en attente, ni « en retard », ni « aujourd'hui ». Toutes se recalculent à la lecture ou au rendu. Même décision que pour la série et le taux de constance d'Habitudes.
+
+**Cocher une tâche n'envoie que `status`**, ce qui rend utile la distinction entre « champ absent » et « champ à `null` » de `parseTaskUpdatePayload` : sans elle, chaque cochage aurait effacé l'échéance et le contexte.
+
+L'onglet Tâches existait déjà mais rendait deux cartes statiques vides. Il rejoint Notes, Journal et Habitudes : cartes retirées de `tabCards`, identifiant sorti du `Exclude<…>`, `sourceForActiveTab` mis à jour, branche générique exclue. **Quatre des onze onglets** du pôle portent désormais de la donnée saisie.
+
+### Privilèges hérités du défaut de schéma
+
+**Découvert par le contrôle post-application de `personal_tasks`**, qui a montré `authenticated` en possession de tous les privilèges — `DELETE` et `TRUNCATE` compris — alors que la migration n'en accordait que trois. Sans ce contrôle, la table serait passée pour conforme.
+
+**Cause** : le projet Supabase porte deux `ALTER DEFAULT PRIVILEGES`, posés par `postgres` et `supabase_admin`, accordant `arwdDxtm` à tous les rôles sur toute nouvelle table du schéma `public`. Les cinq migrations du pôle écrivaient `revoke all … from anon` puis `grant … to authenticated`, **sans jamais révoquer côté `authenticated`**. Un `grant` étant additif, il n'a rien retiré. Le défaut remonte à `personal_notes` (2026-08-04) ; les quatre migrations suivantes l'ont recopié. Les cinq tables du pôle étaient les seules du dépôt dans ce cas.
+
+**Ce qui n'était pas cassé** : aucune suppression physique n'a jamais été possible. Vérifié par **test négatif réel** avec un vrai JWT `authenticated` — un `DELETE` sur sa propre ligne renvoie **0 ligne supprimée sans erreur de privilège**, signature exacte d'un privilège accordé et d'une policy absente. La protection tenait, mais par **une seule couche** au lieu des deux annoncées dans cette documentation. C'est la configuration qui a rendu l'incident `content_assets` du 2026-07-28 exploitable le jour où sa couche unique est tombée.
+
+**Correctif** : `20260824110000` applique `revoke all` puis re-grant sur les cinq tables — méthode exhaustive par construction, préférée à une énumération qui aurait oublié `MAINTAIN`, privilège introduit en PostgreSQL 17 et cette base tournant en 17.6. `personal_habit_completions` **conserve `DELETE`**, intentionnel et doublé d'une policy scopée, mais perd `UPDATE` qu'elle n'aurait jamais dû avoir. `20260824120000` vide le défaut du schéma pour `postgres`.
+
+**Limite connue** : le second défaut, posé par `supabase_admin`, reste hors de portée — le modifier exige d'être superutilisateur. Une table créée par l'outillage interne de Supabase hérite donc encore du blanc-seing.
+
+**Ce que cet épisode apprend** : un commentaire de migration qui énonce une garantie ne la produit pas. Ceux du pôle décrivaient correctement la règle — « il faudrait ajouter à la fois le privilège et une policy » — tout en omettant l'instruction qui l'aurait rendue vraie. Seul un contrôle exécuté contre la base l'a montré, vingt jours plus tard. Le contrôle des grants doit rester dans les entrées `MANUAL_ACTIONS.md` des futures migrations.
 
 ## 2026-08-18 (suppression définitive d'un élément archivé)
 

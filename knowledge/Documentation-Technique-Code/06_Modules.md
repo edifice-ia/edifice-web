@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-08-24
+Dernière mise à jour : 2026-09-03
 
 ## Sommaire
 
@@ -101,11 +101,11 @@ La fonction contenait un `if (provider.key === "youtube") return "Connecte"` qui
 
 Suite possible, non faite : étendre à tous les providers la lecture réelle du token, sur le modèle de Pinterest, pour que le badge signifie « connecté » plutôt que « configuré ».
 
-Écart de couverture avec la [documentation stratégique v1.0, archivée](../Archive/v1.0-2026-07/L-Edifice-Documentation-Strategique-de-Reference.md) (section 17), non traité : identité et profil, notifications, sessions actives et journaux d'accès n'existent pas. Des deux capacités de souveraineté que la vision rattache explicitement à ce module, **l'export complet des données reste absent du code** ; la **suppression ciblée** existe désormais pour les trois modules à saisie manuelle du pôle Personnel (voir ci-dessous), mais **la suppression totale n'existe pas** — le geste ne couvre ni les autres pôles, ni le compte lui-même.
+Écart de couverture avec la [documentation stratégique v1.0, archivée](../Archive/v1.0-2026-07/L-Edifice-Documentation-Strategique-de-Reference.md) (section 17), non traité : identité et profil, notifications, sessions actives et journaux d'accès n'existent pas. Des deux capacités de souveraineté que la vision rattache explicitement à ce module, **l'export complet des données reste absent du code** ; la **suppression ciblée** existe désormais pour les quatre modules à saisie manuelle du pôle Personnel (voir ci-dessous), mais **la suppression totale n'existe pas** — le geste ne couvre ni les autres pôles, ni le compte lui-même.
 
 #### Onglet Personnel : « Vider l'historique »
 
-Le seul onglet de cet écran dont les réglages agissent, et le seul endroit du dépôt qui **supprime physiquement** des données. Il vide l'historique d'un module Personnel — Notes, Journal et Humeur, ou Habitudes. Il ne supprime pas le compte, ne touche ni aux connexions, ni aux autres modules du pôle, ni aux autres pôles.
+Le seul onglet de cet écran dont les réglages agissent, et le seul endroit du dépôt qui **supprime physiquement** des données. Il vide l'historique d'un module Personnel — Notes, Journal et Humeur, Habitudes, ou Tâches. Il ne supprime pas le compte, ne touche ni aux connexions, ni aux autres modules du pôle, ni aux autres pôles.
 
 **Un module à la fois, jamais plusieurs.** C'est la propriété structurante de cet écran, et elle descend jusqu'au contrat de la route. La liste de sélection propose une ligne par module, chacune avec son propre bouton nommé — « Vider Notes », « Vider Habitudes ». Il n'existe ni case à cocher, ni bouton commun, ni requête capable d'emporter deux modules.
 
@@ -427,7 +427,7 @@ Deux boutons y figurent depuis le 2026-08-18 : « Restaurer » et « Supprimer d
 
 ### Tâches
 
-Quatrième module à saisie manuelle du pôle, construit le 2026-08-24 sur le patron d'Habitudes. Retour à une **table unique** après les deux d'Habitudes : une tâche est une ligne.
+Quatrième module à saisie manuelle du pôle, construit sur le patron d'Habitudes : la table `personal_tasks` le 2026-08-24, puis le store, la route et l'interface le 2026-08-30. Retour à une **table unique** après les deux d'Habitudes : une tâche est une ligne.
 
 Fichiers :
 

@@ -1,6 +1,6 @@
 # Suivi des chantiers — L'Édifice
 
-*Chantiers 4, 5 et 6 mis à jour le 24 août 2026, vérifiés contre le code, l'historique git et la base. Les chantiers 1, 2 et 3 datent du 28 juillet 2026 et n'ont pas été re-vérifiés depuis.*
+*Chantiers 4 et 5 mis à jour le 24 août 2026, chantier 6 le 3 septembre 2026, vérifiés contre le code, l'historique git et la base. Les chantiers 1, 2 et 3 datent du 28 juillet 2026 et n'ont pas été re-vérifiés depuis.*
 
 *Principe de ce document, inchangé : chaque état est vérifié contre le code et l'historique git, jamais contre la version précédente de ce fichier.*
 
@@ -9,7 +9,7 @@
 1. **Chantier 2 — Audit de sécurité.** Des failles réelles restent ouvertes en production (routes OAuth Instagram/Pinterest sans authentification, table `content_assets` sans isolation utilisateur, modes debug non gatés sur plusieurs providers). Le Lot 1 est poussé, mais tant que les Lots 2 et 3 ne sont pas traités, l'exposition est active et en prod.
 2. **Chantier 1 — Module Vitals (étape 6, UI).** L'étape 5 (cron quotidien) est committée et poussée (`195aced`). Ce qui reste non committé est le volet suivant — le store de brief quotidien et sa route API — délibérément laissé de côté (voir Chantier 1).
 3. ~~**Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/`.**~~ **Terminé** le 24 août 2026 : dix routes converties, quatorze fichiers désormais conformes sous ce chemin. Voir plus bas.
-4. ~~**Chantier 6 — Privilèges hérités du défaut de schéma.**~~ **Terminé** le 24 août 2026, chantier imprévu : cinq tables corrigées et défaut du schéma restreint. Voir plus bas.
+4. ~~**Chantier 6 — Privilèges hérités du défaut de schéma.**~~ **Terminé** le 30 août 2026, chantier imprévu : cinq tables corrigées et défaut du schéma restreint. Voir plus bas.
 5. ~~**Chantier 3 — Audit Observatoire.**~~ **Terminé** le 22 juillet 2026 (`4280a8d`), vérifié dans le code le 28 juillet. Voir plus bas.
 
 ---
@@ -118,7 +118,7 @@ Aucune divergence n'a été trouvée entre les dix routes : ni message différen
 
 ## Chantier 6 — Privilèges hérités du défaut de schéma — TERMINÉ
 
-**Chantier imprévu**, ouvert et clos le 24 août 2026.
+**Chantier imprévu**, ouvert le 24 août 2026 et clos le 30 août 2026.
 
 **Origine** : découvert en exécutant les contrôles post-application de la migration `personal_tasks` (`ef48ede`). Le contrôle des grants a montré `authenticated` en possession de **tous** les privilèges — `SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER` — alors que la migration n'accordait que les trois premiers. C'est le contrôle lui-même qui a révélé le problème : sans lui, la table serait passée pour conforme.
 
@@ -134,7 +134,7 @@ Le défaut remonte à `personal_notes` (2026-08-04), première migration du pôl
 - **Exception conservée** : `personal_habit_completions` garde `DELETE`, intentionnel depuis `20260806100000` et doublé d'une policy scopée au propriétaire. Elle perd en revanche `UPDATE`, qu'elle n'a jamais dû avoir — une réalisation n'a aucun champ modifiable.
 - `20260824120000` — le défaut du schéma pour le rôle `postgres` ne concède plus rien à `anon` ni `authenticated`. Choix d'un défaut **vide** plutôt que `select/insert/update` : trois privilèges par défaut resteraient faux pour toute table qui ne doit rien exposer, et les journaux d'audit `personal_data_erasure_log` et `personal_item_erasure_log` sont exactement dans ce cas. Aucune migration du dépôt ne dépendait du défaut.
 
-Les deux migrations sont **appliquées et vérifiées en base le 2026-08-24** : grants conformes sur les cinq tables, une seule policy `DELETE` dans tout le pôle et correctement scopée, défaut de schéma vidé pour `postgres`.
+Les deux migrations sont **appliquées et vérifiées en base le 2026-08-30** — leur horodatage de nom porte `0824`, jour de la découverte, et non celui de leur écriture : grants conformes sur les cinq tables, une seule policy `DELETE` dans tout le pôle et correctement scopée, défaut de schéma vidé pour `postgres`.
 
 **Limite connue, non corrigeable depuis le dépôt** : le second `ALTER DEFAULT PRIVILEGES`, posé par **`supabase_admin`**, reste hors de portée. Le modifier exige d'être `supabase_admin` ou superutilisateur ; le SQL Editor s'exécute en `postgres`. Une table créée par l'outillage interne de Supabase — pas par une migration du dépôt — hérite donc encore du blanc-seing. La commande est consignée en commentaire dans `20260824120000` si un accès superutilisateur devient disponible. À défaut, le garde-fou reste la discipline de migration : révoquer explicitement avant d'accorder.
 

@@ -1,13 +1,14 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-08-24
+Dernière mise à jour : 2026-09-03
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
-- [2026-08-24 (module Tâches, et privilèges hérités du défaut de schéma)](#2026-08-24-module-tâches-et-privilèges-hérités-du-défaut-de-schéma)
+- [2026-09-03 (Tâches dans « Vider l'historique », et correction de dates)](#2026-09-03-tâches-dans--vider-lhistorique--et-correction-de-dates)
+- [2026-08-30 (module Tâches, et privilèges hérités du défaut de schéma)](#2026-08-30-module-tâches-et-privilèges-hérités-du-défaut-de-schéma)
 - [2026-08-18 (suppression définitive d'un élément archivé)](#2026-08-18-suppression-définitive-dun-élément-archivé)
 - [2026-08-16 (un module à la fois, et révision de DEC-012)](#2026-08-16-un-module-à-la-fois-et-révision-de-dec-012)
 - [2026-08-13 (« Vider l'historique », Réglages > Personnel)](#2026-08-13--vider-lhistorique--réglages--personnel)
@@ -49,7 +50,25 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
-## 2026-08-24 (module Tâches, et privilèges hérités du défaut de schéma)
+## 2026-09-03 (Tâches dans « Vider l'historique », et correction de dates)
+
+Type : produit, documentation
+
+Résumé : le module **Tâches** entre dans le geste « Vider l'historique », quatrième module couvert par la seule suppression physique du dépôt. Extension conforme à ce que DEC-012 annonçait : deux entrées ajoutées, une dans `ERASABLE_MODULES` et une dans `MODULE_TABLES`, sans toucher ni à la route, ni au validateur, ni à l'écran. `personal_tasks` étant une table unique, `dependents` reste vide.
+
+Corrigé au passage : **cinq dates fausses** dans la documentation déjà poussée, qui attribuaient au 2026-08-24 un travail réalisé le 2026-08-30 — module Tâches hors migration, et correctif de privilèges du chantier 6. L'erreur venait de l'horodatage de nom des migrations `20260824110000` et `20260824120000`, repris comme date d'application alors qu'il porte le jour de la découverte. Ces noms de fichiers ne sont pas renommés : les migrations sont appliquées en base, et l'écart est désormais signalé à l'endroit où il induisait en erreur.
+
+Fichiers liés :
+
+- `lib/personal/data-erasure.ts`, `lib/server/personal/data-erasure-store.ts`
+- `knowledge/Documentation-Technique-Code/03_Decisions.md`, `05_Database.md`, `06_Modules.md`, `11_Changelog.md`
+- `suivi-chantiers-edifice.md`
+
+Impact : vider l'historique de Tâches devient possible depuis Réglages > Personnel, avec le même mot de confirmation et le même écran que les trois autres modules. Aucun changement de contrat de route, aucune migration.
+
+Action de suivi : la suppression définitive **par élément** ne couvre pas encore Tâches — la route `DELETE /api/personal/tasks/[id]/permanent` n'existe pas.
+
+## 2026-08-30 (module Tâches, et privilèges hérités du défaut de schéma)
 
 Type : produit, sécurité, base de données, documentation  
 Résumé : ajout du **module Tâches**, quatrième module à saisie manuelle du pôle Personnel. Ajout de la table `personal_tasks`. Et, découvert en vérifiant cette migration, correction d'un **défaut de privilèges présent depuis le 2026-08-04** sur les cinq tables du pôle.

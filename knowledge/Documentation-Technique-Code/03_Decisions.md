@@ -1,7 +1,7 @@
 # Décisions
 
 Statut : registre initial  
-Dernière mise à jour : 2026-08-18
+Dernière mise à jour : 2026-09-03
 
 ## Sommaire
 
@@ -275,7 +275,7 @@ Date : 2026-08-13
 Révisée : 2026-08-16 — scindée, voir la note de révision en fin d'entrée  
 Statut : actif
 
-Contexte : les trois modules à saisie manuelle du pôle Personnel (Notes, Journal et Humeur, Habitudes) n'implémentent que la suppression **logique** : leurs tables n'accordent pas `DELETE` à `authenticated` et ne portent aucune policy `DELETE`. C'est délibéré et documenté, mais cela laissait le pôle sans aucun moyen d'effacer réellement quoi que ce soit — une lacune de souveraineté que la documentation stratégique rattache explicitement au module Réglages.
+Contexte : les modules à saisie manuelle du pôle Personnel — Notes, Journal et Humeur, Habitudes et Tâches — n'implémentent que la suppression **logique** : leurs tables n'accordent pas `DELETE` à `authenticated` et ne portent aucune policy `DELETE`. C'est délibéré et documenté, mais cela laissait le pôle sans aucun moyen d'effacer réellement quoi que ce soit — une lacune de souveraineté que la documentation stratégique rattache explicitement au module Réglages.
 
 Décision : **un seul geste du dépôt supprime physiquement**, « Vider l'historique » dans Réglages > Personnel, et il obéit à quatre règles.
 
@@ -287,6 +287,7 @@ Décision : **un seul geste du dépôt supprime physiquement**, « Vider l'histo
 Conséquences :
 
 - **Étendre le geste à un nouveau module se fait en un seul endroit**, `ERASABLE_MODULES` et `MODULE_TABLES`. Aucun écran n'est à modifier : la liste, les boutons et la confirmation se dérivent du module.
+- **Vérifié en pratique le 2026-09-03** : brancher Tâches n'a demandé que deux ajouts, une entrée dans chacune de ces deux listes. Ni la route, ni le validateur, ni l'interface n'ont été touchés — `isErasableModuleId` est dérivé, et l'écran itère sur `ERASABLE_MODULES`.
 - **Vider plusieurs modules demande autant de gestes complets**, et c'est le prix assumé de la règle 1. Si un effacement groupé devient nécessaire, il devra être un geste distinct et explicitement nommé (« Vider tout le pôle Personnel »), avec sa propre confirmation — jamais un retour de la sélection multiple, qui rendait l'ampleur de la destruction dépendante de cases cochées plus haut dans l'écran.
 - Le compte annoncé à l'écran reste exprimé dans l'unité que l'utilisateur reconnaît (une habitude, pas une ligne), mais **ce que ce compte n'inclut pas doit être nommé** à la confirmation et chiffré au résultat. Un total qui sous-estime silencieusement l'ampleur d'une suppression irréversible est le type d'écart de sincérité que ce dépôt traite en priorité.
 - L'onglet Personnel masque le bandeau « réglages enregistrés, pas encore appliqués » et le récapitulatif de bas de page. Les afficher à côté d'une suppression définitive serait faux, et faux au pire endroit.

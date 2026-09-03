@@ -1,7 +1,7 @@
 # Base de données
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-08-16
+Dernière mise à jour : 2026-09-03
 
 ## Sommaire
 
@@ -108,7 +108,7 @@ Ces cinq tables sont les seules du dépôt dont **RLS est le garde réel et non 
 
 Aucune n'accorde le privilège `DELETE` à `authenticated`, **sauf `personal_habit_completions`** : décocher un jour retire la ligne, une réalisation étant un booléen sur un jour et non du contenu. Sa policy `DELETE` reste scopée au propriétaire. Partout ailleurs, la suppression physique relève du geste « Vider l'historique », qui passe par la clé service-role.
 
-**Cette propriété n'a été réellement appliquée en base qu'à partir du 2026-08-24.** Jusque-là, les migrations du pôle écrivaient `revoke all … from anon` puis `grant select, insert, update … to authenticated`, sans jamais révoquer côté `authenticated` — or un `grant` est additif. Le projet Supabase accordant `arwdDxtm` à tous les rôles par défaut sur toute nouvelle table du schéma `public`, les cinq tables détenaient donc `DELETE` et `TRUNCATE` sans que personne ne l'ait écrit. Aucune suppression n'était possible pour autant, l'absence de policy `DELETE` valant refus sous RLS — mais la défense ne tenait que par **une** couche au lieu des deux annoncées. Corrigé par `20260824110000` (révocation explicite sur les cinq tables) et `20260824120000` (défaut du schéma vidé pour `anon` et `authenticated`). Voir le chantier 6 dans `suivi-chantiers-edifice.md`.
+**Cette propriété n'a été réellement appliquée en base qu'à partir du 2026-08-30.** Jusque-là, les migrations du pôle écrivaient `revoke all … from anon` puis `grant select, insert, update … to authenticated`, sans jamais révoquer côté `authenticated` — or un `grant` est additif. Le projet Supabase accordant `arwdDxtm` à tous les rôles par défaut sur toute nouvelle table du schéma `public`, les cinq tables détenaient donc `DELETE` et `TRUNCATE` sans que personne ne l'ait écrit. Aucune suppression n'était possible pour autant, l'absence de policy `DELETE` valant refus sous RLS — mais la défense ne tenait que par **une** couche au lieu des deux annoncées. Corrigé par `20260824110000` (révocation explicite sur les cinq tables) et `20260824120000` (défaut du schéma vidé pour `anon` et `authenticated`) — deux migrations dont l'horodatage de nom dit `0824`, jour de la **découverte**, alors qu'elles ont été écrites et appliquées le **2026-08-30**. Voir le chantier 6 dans `suivi-chantiers-edifice.md`.
 
 `personal_data_erasure_log` journalise ce geste. Elle suit un patron **opposé** aux tables ci-dessus, repris de `project_memory_audit_log` : les deux rôles `anon` et `authenticated` sont révoqués et **aucune policy n'est créée**, ce qui la rend accessible à la seule clé service-role. RLS y est une défense en profondeur derrière une révocation totale, là où les tables du pôle en font leur garde réel — un journal d'audit lisible ou modifiable depuis le navigateur ne prouve rien.
 

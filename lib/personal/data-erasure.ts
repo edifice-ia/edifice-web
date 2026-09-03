@@ -6,7 +6,7 @@
 // definis une seule fois. Un ecart entre les deux cotes serait ici plus grave
 // qu'ailleurs : la suppression est physique et irreversible.
 
-export type ErasableModuleId = "notes" | "journal" | "habits";
+export type ErasableModuleId = "notes" | "journal" | "habits" | "tasks";
 
 // Le mot est fixe, jamais derive d'un nom de module. La selection etant
 // variable (1 a N modules), aucun nom unique n'existe ; et taper le nom d'un
@@ -21,13 +21,14 @@ export const ERASABLE_MODULES: Array<{
   // plusieurs tables. Le compte reste exprime dans l'unite que l'utilisateur
   // reconnait — une habitude, pas une ligne — mais taire ce qui part avec elle
   // ferait annoncer "3 elements" pour une suppression qui en detruit des
-  // centaines. Renseigne pour Habitudes seul, les deux autres modules tenant
+  // centaines. Renseigne pour Habitudes seul, les trois autres modules tenant
   // dans une table.
   cascadeLabel?: string;
 }> = [
   { id: "notes", label: "Notes" },
   { id: "journal", label: "Journal et Humeur" },
   { id: "habits", label: "Habitudes", cascadeLabel: "réalisations" },
+  { id: "tasks", label: "Tâches" },
 ];
 
 export type ErasableModuleSummary = {

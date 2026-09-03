@@ -10,10 +10,16 @@ import {
 
 // Ce store est le SEUL du pole Personnel a utiliser la cle service-role, et il
 // le fait pour une raison structurelle, pas par commodite : personal_notes,
-// personal_journal_entries et personal_habits n'accordent pas le privilege
-// DELETE a authenticated et ne portent aucune policy DELETE. Une suppression
-// physique y est donc impossible depuis le client de session, par conception —
-// voir les migrations 20260804100000, 20260805100000 et 20260806100000.
+// personal_journal_entries, personal_habits et personal_tasks n'accordent pas le
+// privilege DELETE a authenticated et ne portent aucune policy DELETE. Une
+// suppression physique y est donc impossible depuis le client de session, par
+// conception — voir les migrations 20260804100000, 20260805100000,
+// 20260806100000 et 20260824100000.
+//
+// Cette propriete n'est reellement appliquee en base que depuis 20260824110000 :
+// les quatre migrations ci-dessus revoquaient `from anon` mais pas
+// `from authenticated`, et le defaut du schema Supabase accordait tout. Voir le
+// chantier 6 du suivi.
 //
 // Une seule table du pole fait exception, personal_habit_completions, qui
 // accorde DELETE a authenticated sous une policy scopee au proprietaire :
@@ -79,7 +85,7 @@ function getErasureClient() {
 //
 // `as const satisfies Record<...>` plutot qu'une annotation de type : l'annotation
 // elargissait les noms de tables en `string`, et la liste blanche ne tenait plus
-// que par convention. `satisfies` verifie toujours que les trois modules sont
+// que par convention. `satisfies` verifie toujours que les quatre modules sont
 // couverts et que la forme est la bonne, mais laisse TypeScript conserver les
 // litteraux — c'est d'eux qu'est derive ErasableTableName ci-dessous.
 const MODULE_TABLES = {
@@ -94,6 +100,10 @@ const MODULE_TABLES = {
     // une seconde table de correspondance qui divergerait.
     dependents: [{ table: "personal_habit_completions", parentKey: "habit_id" }],
   },
+  // Table unique, comme Notes et Journal : une tache est une ligne. Taches ne
+  // fournit donc PAS le deuxieme module a table dependante que DEC-013 attend
+  // pour passer de propose a actif.
+  tasks: { countedTable: "personal_tasks", dependents: [] },
 } as const satisfies Record<
   ErasableModuleId,
   { countedTable: string; dependents: readonly { table: string; parentKey: string }[] }

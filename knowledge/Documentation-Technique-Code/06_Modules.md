@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-03
+Dernière mise à jour : 2026-09-05
 
 ## Sommaire
 
@@ -111,7 +111,7 @@ Le seul onglet de cet écran dont les réglages agissent, et le seul endroit du 
 
 Le flux est en trois écrans : la liste, une confirmation dédiée au module visé, puis le résultat. **Le nom du module apparaît explicitement sur chacun des trois** — c'est le seul élément qui distingue une confirmation d'une autre, le mot à taper étant générique. À la confirmation, il est sorti du corps du texte : un sur-titre « Module ciblé » puis le libellé en `text-xl`, sur sa propre ligne, puis repris dans la phrase de conséquence, dans le libellé du champ de saisie et sur le bouton final. La confirmation dit aussi ce qui **reste** — « Les autres modules du pôle ne sont pas touchés » — et l'écran de résultat le confirme au passé.
 
-Le mot à taper est `SUPPRIMER`, **générique et identique pour les trois modules**. Il n'est volontairement pas dérivé du nom du module : c'est le nom affiché qui porte la désignation de la cible, pas le mot tapé. Le champ est vidé à chaque ouverture, sans quoi confirmer un module puis en viser un autre trouverait la saisie déjà faite et le second effacement partirait sans rien retaper.
+Le mot à taper est `SUPPRIMER`, **générique et identique pour les quatre modules**. Il n'est volontairement pas dérivé du nom du module : c'est le nom affiché qui porte la désignation de la cible, pas le mot tapé. Le champ est vidé à chaque ouverture, sans quoi confirmer un module puis en viser un autre trouverait la saisie déjà faite et le second effacement partirait sans rien retaper.
 
 Le bouton « Vider » n'est **jamais désactivé, même à zéro élément** : un module annoncé à 0 peut conserver des lignes dépendantes orphelines si la cascade a manqué en base (voir DEC-013), et le désactiver fermerait le seul chemin qui les nettoie.
 
@@ -316,7 +316,7 @@ La restauration est `POST /api/personal/notes/[id]/restore`. Elle remet `deleted
 
 - **trois** fichiers de route distincts depuis le 2026-08-18 — `DELETE /[id]` archive, `POST /[id]/restore` restaure, `DELETE /[id]/permanent` supprime physiquement. Aucun booléen ne fait basculer de l'un à l'autre, et le segment `/permanent` porte l'irréversibilité dans le chemin lui-même ;
 - trois fonctions de store distinctes, sans ligne commune ;
-- **la suppression physique existe désormais, et à un seul endroit** : `permanentlyDeletePersonalItem`, dans `lib/server/personal/data-erasure-store.ts`. Elle n'est **pas** dans le store du module, et c'est délibéré — ce fichier est le seul du dépôt à supprimer physiquement des données Personnel, invariant qui ne survivrait pas à un éparpillement dans les trois stores. La table n'accorde toujours pas `DELETE` à `authenticated` et ne porte toujours aucune policy `DELETE` : la suppression passe par la clé service-role, qui contourne RLS, d'où le filtre triple applicatif.
+- **la suppression physique existe désormais, et à un seul endroit** : `permanentlyDeletePersonalItem`, dans `lib/server/personal/data-erasure-store.ts`. Elle n'est **pas** dans le store du module, et c'est délibéré — ce fichier est le seul du dépôt à supprimer physiquement des données Personnel, invariant qui ne survivrait pas à un éparpillement dans les quatre stores. La table n'accorde toujours pas `DELETE` à `authenticated` et ne porte toujours aucune policy `DELETE` : la suppression passe par la clé service-role, qui contourne RLS, d'où le filtre triple applicatif.
 
 Ce que cette section affirmait jusqu'au 2026-08-18 — « aucune suppression physique n'existe dans ce module, ni route, ni fonction, ni privilège » — n'est donc plus vrai des deux premiers termes. **Le privilège, lui, n'a pas bougé** : `authenticated` ne peut toujours rien supprimer, et c'est ce qui rend la clé service-role nécessaire.
 
@@ -415,7 +415,7 @@ Aucune policy RLS nouvelle : restaurer est un `UPDATE` de `deleted_at`, déjà c
 - `listArchivedPersonalHabits` **n'appelle jamais** `buildHabitStats` — aucun chiffre n'est calculé sur ce chemin ;
 - la vue affiche nom, fréquence, date d'archivage, et **le volume brut de réalisations conservées** — un décompte de lignes, qui ne se périme pas et ne suppose aucune fenêtre de calcul, à ne pas confondre avec les statistiques absentes ci-dessus.
 
-Deux boutons y figurent depuis le 2026-08-18 : « Restaurer » et « Supprimer définitivement » (`DELETE /api/personal/habits/[id]/permanent`). Habitudes est le seul des trois modules à porter une table dépendante, donc le seul dont la confirmation **chiffre ce qui part avec l'élément** : les réalisations sont supprimées explicitement avant l'habitude, et leur nombre est annoncé avant confirmation. C'est ce que `completionCount` sert, et rien d'autre.
+Deux boutons y figurent depuis le 2026-08-18 : « Restaurer » et « Supprimer définitivement » (`DELETE /api/personal/habits/[id]/permanent`). Habitudes est le seul des quatre modules à porter une table dépendante, donc le seul dont la confirmation **chiffre ce qui part avec l'élément** : les réalisations sont supprimées explicitement avant l'habitude, et leur nombre est annoncé avant confirmation. C'est ce que `completionCount` sert, et rien d'autre.
 
 **Restaurer retrouve l'historique intact.** L'archivage d'une habitude n'a jamais touché `personal_habit_completions` : les réalisations ne sont supprimées que par le geste décocher, ou par « Supprimer définitivement », qui les emporte avec l'habitude. Série et taux de constance sont donc recalculés sur des données complètes à la lecture suivante, et non repris d'un instantané figé.
 
@@ -468,7 +468,11 @@ Même contrat que les trois autres modules : `GET /api/personal/tasks?archived=t
 
 Aucune policy RLS nouvelle : restaurer est un `UPDATE` de `deleted_at`, déjà couvert par la policy `update` scopée au propriétaire.
 
-**Le seul geste possible dans les archives est « Restaurer ».** La suppression définitive par élément n'est pas branchée sur ce module — elle relèvera d'un chantier d'extension, comme cela a été fait pour Habitudes. C'est une absence assumée et signalée dans le code, pas un oubli.
+**Deux gestes y sont possibles depuis le 2026-09-05 : « Restaurer » et « Supprimer définitivement »** (`DELETE /api/personal/tasks/[id]/permanent`) — voir la section Notes ci-dessus pour le raisonnement complet sur la séparation entre les trois gestes. Tâches est le quatrième et dernier module à saisie manuelle du pôle à recevoir le troisième geste, qui couvre désormais tout le pôle.
+
+`personal_tasks` n'ayant pas de table dépendante, la confirmation n'a **rien à chiffrer** : elle affiche l'intitulé de la tâche, tronqué à 80 caractères par `erasurePreview`, et rien d'autre. `related_deleted_count` vaut 0 dans `personal_item_erasure_log`. C'est le patron de Notes, pas celui d'Habitudes.
+
+Aucune fonction de store propre à Tâches n'a été écrite pour ce geste : `permanentlyDeletePersonalItem` est générique sur `ErasableModuleId`, et Tâches y est déclaré depuis l'extension du geste module. La route ne fait que nommer son module.
 
 #### Nommage : ce module part du bon nom
 

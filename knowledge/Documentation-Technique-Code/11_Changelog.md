@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-09-03
+Dernière mise à jour : 2026-09-05
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-05 (suppression définitive d'une tâche archivée)](#2026-09-05-suppression-définitive-dune-tâche-archivée)
 - [2026-09-03 (Tâches dans « Vider l'historique », et correction de dates)](#2026-09-03-tâches-dans--vider-lhistorique--et-correction-de-dates)
 - [2026-08-30 (module Tâches, et privilèges hérités du défaut de schéma)](#2026-08-30-module-tâches-et-privilèges-hérités-du-défaut-de-schéma)
 - [2026-08-18 (suppression définitive d'un élément archivé)](#2026-08-18-suppression-définitive-dun-élément-archivé)
@@ -49,6 +50,26 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-09-05 (suppression définitive d'une tâche archivée)
+
+Type : produit, sécurité, documentation
+
+Résumé : Tâches reçoit le **troisième geste canonique**, la suppression physique d'un élément archivé, déjà en place sur Notes, Journal et Habitudes depuis le 2026-08-18. Nouvelle route `DELETE /api/personal/tasks/[id]/permanent`, gardée par `authorizeCockpitApiAccess()` **dès son écriture** et non en correctif après coup. Bouton « Supprimer définitivement » à côté de « Restaurer » dans la carte Archives, avec confirmation binaire et aperçu de l'intitulé tronqué à 80 caractères par `erasurePreview`.
+
+**Aucune fonction de store n'a été écrite.** `permanentlyDeletePersonalItem` est générique sur `ErasableModuleId`, où Tâches est déclaré depuis l'entrée du 2026-09-03 : elle filtre déjà sur `id` + `user_id` + `deleted_at is not null` et renvoie `null` — donc `404` uniforme — dans les trois cas d'inéligibilité. Écrire une fonction propre à Tâches aurait rompu l'invariant tenu depuis le 2026-08-13, un seul fichier du dépôt supprimant physiquement des données Personnel. `related_deleted_count` vaut 0, `personal_tasks` n'ayant pas de table dépendante.
+
+Corrigé au passage : quatre affirmations « trois modules » devenues fausses, dont deux qui auraient dû tomber avec l'entrée du 2026-09-03, et la ligne de `06_Modules.md` qui annonçait la suppression par élément comme « une absence assumée et signalée dans le code ».
+
+Fichiers liés :
+
+- `app/api/personal/tasks/[id]/permanent/route.ts` (nouveau)
+- `app/interface/personnel/PersonalTasksPanel.tsx`
+- `knowledge/Documentation-Technique-Code/03_Decisions.md`, `06_Modules.md`, `11_Changelog.md`
+
+Impact : une tâche archivée peut être détruite individuellement depuis sa carte Archives. **Le troisième geste canonique couvre désormais tout le pôle Personnel** — plus aucun module à saisie manuelle n'y fait exception. Aucune migration, aucune policy nouvelle, aucun changement de contrat sur les routes existantes. Clôt l'action de suivi ouverte par l'entrée du 2026-09-03.
+
+Action de suivi : le test de bout en bout par pilotage navigateur reste à mener sur `test-erase@edificeia.com`, comme il l'a été pour les trois autres modules le 2026-08-24. Un jeu de test y a été créé le 2026-09-05 — trois tâches préfixées `[TEST]`, dont une de 151 caractères pour exercer la troncature de l'aperçu.
 
 ## 2026-09-03 (Tâches dans « Vider l'historique », et correction de dates)
 

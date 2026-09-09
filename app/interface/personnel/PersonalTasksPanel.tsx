@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { erasurePreview } from "@/lib/personal/data-erasure";
 import {
   TASK_CONTEXT_LABEL_MAX_LENGTH,
   TASK_TITLE_MAX_LENGTH,
@@ -95,6 +96,13 @@ export function PersonalTasksPanel() {
   // le confirmingDeleteId de Notes et Journal, qui designe la meme chose sous un
   // nom herite d'avant le renommage "Supprimer" -> "Archiver" du 2026-08-09.
   const [confirmingArchiveId, setConfirmingArchiveId] = useState<string | null>(null);
+
+  // Distinct de confirmingArchiveId ci-dessus : archiver et supprimer
+  // definitivement sont deux gestes, et confondre leurs etats ferait ouvrir
+  // la mauvaise confirmation. Meme nom que dans les trois autres panneaux.
+  const [confirmingPermanentId, setConfirmingPermanentId] = useState<string | null>(
+    null,
+  );
 
   // Les archives forment une liste separee, jamais melangee a la liste active :
   // deux etats, deux appels, deux listes.
@@ -353,6 +361,40 @@ export function PersonalTasksPanel() {
         caughtError instanceof Error
           ? caughtError.message
           : "Archivage de la tache indisponible.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  // SUPPRESSION PHYSIQUE ET IRREVERSIBLE. Ce geste ne partage ni route, ni
+  // fonction de store, ni bouton avec l'archivage, et il n'est atteignable que
+  // depuis les archives.
+  //
+  // Le serveur revalide que la tache est archivee — filtre triple id + user_id
+  // + deleted_at non nul. L'interface n'expose ce bouton que dans les archives,
+  // mais l'interface n'est pas un garde.
+  async function permanentlyDeleteTask(taskId: string) {
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(`/api/personal/tasks/${taskId}/permanent`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error ?? "Suppression definitive indisponible.");
+      }
+
+      setConfirmingPermanentId(null);
+      setArchivedTasks((current) => current.filter((task) => task.id !== taskId));
+      await refresh();
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Suppression definitive indisponible.",
       );
     } finally {
       setIsSubmitting(false);
@@ -630,9 +672,9 @@ export function PersonalTasksPanel() {
 
       {/* Les archives vivent dans une carte separee, jamais dans la liste
           active : aucune tache ne doit laisser croire qu'elle est encore
-          suivie. Le seul geste possible ici est Restaurer — la suppression
-          definitive par element n'est pas branchee sur ce module, elle viendra
-          avec le chantier d'extension. */}
+          suivie. Deux gestes y sont possibles, Restaurer et Supprimer
+          definitivement — ce dernier est le seul endroit de l'interface Taches
+          qui detruise reellement une ligne. */}
       {archivedCount > 0 || showArchived ? (
         <div className="grid gap-3">
           <button
@@ -668,15 +710,68 @@ export function PersonalTasksPanel() {
                             le {formatArchivedAt(task.archivedAt)}
                           </p>
                         </div>
-                        <button
-                          className="rounded-md border border-[#39E6D0]/60 bg-[#39E6D0]/15 px-3 py-1.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/25 disabled:cursor-not-allowed disabled:opacity-40"
-                          disabled={isSubmitting}
-                          onClick={() => restoreTask(task.id)}
-                          type="button"
-                        >
-                          Restaurer
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            className="rounded-md border border-[#39E6D0]/60 bg-[#39E6D0]/15 px-3 py-1.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={isSubmitting}
+                            onClick={() => restoreTask(task.id)}
+                            type="button"
+                          >
+                            Restaurer
+                          </button>
+                          <button
+                            className="rounded-md border border-[#f87171]/50 bg-[#f87171]/10 px-3 py-1.5 text-sm font-semibold text-[#fecaca] transition hover:bg-[#f87171]/20 disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={isSubmitting}
+                            onClick={() => setConfirmingPermanentId(task.id)}
+                            type="button"
+                          >
+                            Supprimer définitivement
+                          </button>
+                        </div>
                       </div>
+
+                      {/* Confirmation binaire, sans mot a taper : l'archivage
+                          prealable tient lieu de premiere barriere. Elle
+                          affiche l'intitule vise — une confirmation generique
+                          ne protegerait de rien entre deux taches archivees qui
+                          se ressemblent. erasurePreview tronque a 80 caracteres
+                          et aplatit les blancs, comme sur les trois autres
+                          modules. */}
+                      {confirmingPermanentId === task.id ? (
+                        <div className="mt-3 grid gap-3 rounded-md border border-[#f87171]/40 bg-[#f87171]/10 p-3">
+                          <div>
+                            <p className="text-sm font-semibold text-[#fecaca]">
+                              Supprimer définitivement cette tâche ?
+                            </p>
+                            <p className="mt-1 text-sm italic leading-6 text-[#fecaca]">
+                              « {erasurePreview(task.title)} »
+                            </p>
+                          </div>
+                          <p className="text-sm leading-6 text-[#fecaca]">
+                            Cette tâche sera définitivement supprimée. Il n&apos;y a pas de
+                            corbeille et aucune sauvegarde n&apos;existe. Les autres
+                            éléments archivés ne sont pas touchés.
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              className="rounded-md border border-[#f87171]/50 bg-[#f87171]/15 px-3 py-1.5 text-sm font-semibold text-[#fecaca] transition hover:bg-[#f87171]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={isSubmitting}
+                              onClick={() => permanentlyDeleteTask(task.id)}
+                              type="button"
+                            >
+                              {isSubmitting ? "Suppression..." : "Confirmer"}
+                            </button>
+                            <button
+                              className="rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-sm font-semibold text-[#A7B0C0] transition hover:text-[#F8FAFC]"
+                              disabled={isSubmitting}
+                              onClick={() => setConfirmingPermanentId(null)}
+                              type="button"
+                            >
+                              Annuler
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </li>
                   ))}
                 </ul>

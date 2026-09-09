@@ -1,7 +1,7 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-09-05
+Dernière mise à jour : 2026-09-09
 
 ## Sommaire
 
@@ -69,7 +69,9 @@ Fichiers liés :
 
 Impact : une tâche archivée peut être détruite individuellement depuis sa carte Archives. **Le troisième geste canonique couvre désormais tout le pôle Personnel** — plus aucun module à saisie manuelle n'y fait exception. Aucune migration, aucune policy nouvelle, aucun changement de contrat sur les routes existantes. Clôt l'action de suivi ouverte par l'entrée du 2026-09-03.
 
-Action de suivi : le test de bout en bout par pilotage navigateur reste à mener sur `test-erase@edificeia.com`, comme il l'a été pour les trois autres modules le 2026-08-24. Un jeu de test y a été créé le 2026-09-05 — trois tâches préfixées `[TEST]`, dont une de 151 caractères pour exercer la troncature de l'aperçu.
+**Code écrit le 2026-09-05, test de bout en bout validé le 2026-09-09** — deux dates distinctes, laissées lisibles séparément comme pour le chantier 6 du suivi. Validé par pilotage navigateur humain sur `test-erase@edificeia.com`, avec un jeu de trois tâches préfixées `[TEST]` créé le 2026-09-05 : troncature de l'aperçu à 80 caractères suivie de `…` vérifiée visuellement sur un intitulé de 151 caractères, disparition de la ligne confirmée en base, et entrée `personal_item_erasure_log` cohérente — `related_deleted_count` à 0 et `item_id` correct.
+
+Action de suivi : aucune.
 
 ## 2026-09-03 (Tâches dans « Vider l'historique », et correction de dates)
 

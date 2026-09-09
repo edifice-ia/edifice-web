@@ -69,19 +69,23 @@ function getErasureClient() {
 // supprimees EXPLICITEMENT avant les habitudes plutot que laissees a la cascade
 // de la cle etrangere composite.
 //
-// CE N'EST PAS UNE REGLE DU DEPOT — voir DEC-013, au statut `propose`. C'est ce
-// que le code fait aujourd'hui, sur un argument qui tient mais ne suffit pas a
-// generaliser : la cascade existe bien dans la migration 20260806100000, mais ce
+// C'EST UNE REGLE DU DEPOT depuis le 2026-09-09 — voir DEC-013, passee en
+// `actif`. Elle ne l'etait pas avant : l'argument tenait sur un seul module.
+// Cet argument reste le bon : la cascade existe bien dans la migration 20260806100000, mais ce
 // module a precisement connu une migration appliquee partiellement en base
 // (l'incident RLS documente dans cc281b2), et une contrainte absente en
 // production ne leve aucune erreur — les realisations survivraient a leur
 // habitude en lignes orphelines qu'aucun ecran ne montre plus.
 //
-// Ce que l'argument ne couvre pas, et qui reste a trancher : le patron est
-// deduit d'un seul module, et il suppose que chaque table dependante porte
-// `user_id`, faute de quoi deleteOwnedRows ne peut pas la filtrer. Un deuxieme
-// module effacable a table dependante tranchera. D'ici la, ne pas invoquer ce
-// choix comme precedent etabli ailleurs dans le depot.
+// Ce qui a tranche : les categories de Journal, deuxieme module effacable a
+// table dependante, de forme comparable — un seul niveau, et `user_id`
+// denormalise sur la dependante, donc filtrable par deleteOwnedRows.
+//
+// CONDITION A TENIR pour toute nouvelle table dependante : elle DOIT porter
+// `user_id`, denormalise s'il le faut. C'est la propriete sur laquelle repose
+// tout ce mecanisme, et la seule qui ait ete verifiee avant de generaliser.
+// Une dependante qui ne peut pas la porter rouvre DEC-013, elle ne la
+// contourne pas.
 //
 // `as const satisfies Record<...>` plutot qu'une annotation de type : l'annotation
 // elargissait les noms de tables en `string`, et la liste blanche ne tenait plus
@@ -90,7 +94,22 @@ function getErasureClient() {
 // litteraux — c'est d'eux qu'est derive ErasableTableName ci-dessous.
 const MODULE_TABLES = {
   notes: { countedTable: "personal_notes", dependents: [] },
-  journal: { countedTable: "personal_journal_entries", dependents: [] },
+  journal: {
+    countedTable: "personal_journal_entries",
+    // Deuxieme module du pole a table dependante, apres Habitudes — et c'est ce
+    // second cas reel qui a fait passer DEC-013 de `propose` a `actif`.
+    //
+    // Declare AVANT que la migration 20260909110000 ne soit appliquee, pour
+    // qu'aucune fenetre n'existe ou les deux gestes de suppression physique
+    // laisseraient des liaisons orphelines sur Journal.
+    //
+    // Les CATEGORIES ne figurent pas ici, et ce n'est pas un oubli :
+    // personal_journal_categories n'est pas une dependante des entrees. Vider
+    // le Journal detruit les entrees et leurs liaisons, et laisse les
+    // categories — une etiquette definie par l'utilisateur n'est pas du contenu
+    // de journal. Voir DEC-013, section "hors de cette decision".
+    dependents: [{ table: "personal_journal_entry_categories", parentKey: "entry_id" }],
+  },
   habits: {
     countedTable: "personal_habits",
     // parentKey : la colonne par laquelle la dependante reference sa principale.
@@ -100,9 +119,9 @@ const MODULE_TABLES = {
     // une seconde table de correspondance qui divergerait.
     dependents: [{ table: "personal_habit_completions", parentKey: "habit_id" }],
   },
-  // Table unique, comme Notes et Journal : une tache est une ligne. Taches ne
-  // fournit donc PAS le deuxieme module a table dependante que DEC-013 attend
-  // pour passer de propose a actif.
+  // Table unique, comme Notes : une tache est une ligne. Taches n'a donc pas
+  // fourni le deuxieme module a table dependante que DEC-013 attendait — ce
+  // sont les categories de Journal qui l'ont fait, le 2026-09-09.
   tasks: { countedTable: "personal_tasks", dependents: [] },
 } as const satisfies Record<
   ErasableModuleId,

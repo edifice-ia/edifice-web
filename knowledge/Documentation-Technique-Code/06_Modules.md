@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-05
+Dernière mise à jour : 2026-09-09
 
 ## Sommaire
 
@@ -131,7 +131,7 @@ Les deux verbes passent par le **même** helper d'autorisation, `authorizeErasur
 
 **Habitudes est le premier module effaçable à deux tables**, et ses réalisations sont supprimées **explicitement** avant ses habitudes, plutôt que laissées à la cascade de la clé étrangère composite. La cascade existe bien dans la migration, mais ce module a précisément connu une migration appliquée partiellement en base — l'incident RLS documenté plus bas. Si la contrainte manque en production, la cascade ne se produit pas et les réalisations survivent à leur habitude : des lignes orphelines qu'aucun écran ne montre plus, après un geste qui promettait de tout effacer.
 
-**Ce n'est pas une règle du dépôt, seulement ce que le code fait aujourd'hui.** Le patron est déduit d'un unique module, et il dépend d'une propriété qui n'a rien d'universel : `deleteOwnedRows` filtre sur `user_id`, ce qui suppose que chaque table dépendante porte cette colonne. Le choix reste ouvert jusqu'à ce qu'un deuxième module à table dépendante confirme qu'il se généralise — voir [Décisions](./03_Decisions.md) DEC-013, au statut `proposé`. Ne pas l'invoquer comme précédent établi.
+**C'est une règle du dépôt depuis le 2026-09-09.** Elle ne l'était pas avant : le patron était déduit d'un unique module et dépendait d'une propriété qui n'a rien d'universel — `deleteOwnedRows` filtre sur `user_id`, ce qui suppose que chaque table dépendante porte cette colonne. Les catégories de Journal ont fourni le deuxième module attendu, de forme comparable et portant bien `user_id`, ce qui a fait passer [DEC-013](./03_Decisions.md) en `actif`. Corollaire à respecter pour toute nouvelle table dépendante : elle doit porter `user_id`, dénormalisé s'il le faut.
 
 Le compte affiché reste exprimé dans l'unité que l'utilisateur reconnaît — une habitude, pas une ligne. Mais le taire ferait annoncer « 3 éléments » pour une suppression qui en détruit des centaines. Deux champs portent cette nuance de bout en bout :
 

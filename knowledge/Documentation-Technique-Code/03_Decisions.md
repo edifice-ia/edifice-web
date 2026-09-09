@@ -1,7 +1,7 @@
 # Décisions
 
 Statut : registre initial  
-Dernière mise à jour : 2026-09-05
+Dernière mise à jour : 2026-09-09
 
 ## Sommaire
 
@@ -294,7 +294,7 @@ Conséquences :
 - **Ce geste n'est pas une suppression de compte** et ne couvre pas les autres pôles. La « suppression totale » de la vision stratégique reste absente, de même que l'export complet des données.
 - La route porte le **garde par défaut de [DEC-007](#dec-007---toute-route-api-porte-un-garde-dauthentification-sauf-exception-documentée)** — `getCurrentUser()` **et** `canAccessPrivateCockpit`, ajouté le 2026-08-18. Elle ne posait que le premier à sa création, ce qui la laissait joignable par appel direct depuis un compte reviewer : le middleware bloque `/interface` pour ce rôle, mais pas `/api/personal`. C'est la seule route du dépôt à supprimer physiquement, et la seule du pôle à passer par la service-role, donc sans RLS pour rattraper un garde manquant.
 - **Une seconde granularité existe depuis le 2026-08-18** : « Supprimer définitivement » un élément archivé, dans la carte Archives de chaque module. Elle réutilise le même store, la même clé service-role et le même principe de liste blanche, mais avec son propre journal d'audit (`personal_item_erasure_log`), sa propre route par module (`DELETE /[id]/permanent`) et une friction différente — confirmation binaire, l'archivage préalable tenant lieu de première barrière. La règle 1 ci-dessus vaut aussi pour elle : **un élément par requête**. La documentation stratégique la range en **sous-cas du troisième geste canonique**, pas en sixième geste.
-- Le **traitement des tables dépendantes** ne relève pas de cette décision : il est ouvert, voir [DEC-013](#dec-013---traitement-des-tables-dépendantes-lors-dun-effacement--suppression-explicite-ou-cascade-proposé).
+- Le **traitement des tables dépendantes** ne relève pas de cette décision : il fait l'objet de [DEC-013](#dec-013---traitement-des-tables-dépendantes-lors-dun-effacement--suppression-explicite-actif), passée en `actif` le 2026-09-09.
 
 Note de révision (2026-08-16), deux passes le même jour :
 
@@ -308,10 +308,11 @@ Fichiers liés :
 - `supabase/migrations/20260806200000_create_personal_data_erasure_log.sql`
 - `knowledge/Documentation-Technique-Code/06_Modules.md` (section Paramètres, onglet Personnel)
 
-### DEC-013 - Traitement des tables dépendantes lors d'un effacement : suppression explicite ou cascade (proposé)
+### DEC-013 - Traitement des tables dépendantes lors d'un effacement : suppression explicite (actif)
 
 Date : 2026-08-16  
-Statut : **proposé** — décrit ce que le code fait aujourd'hui, sans en faire une règle
+Actée : 2026-09-09 — critère de sortie rempli, voir la note de bascule en fin d'entrée  
+Statut : **actif**
 
 Contexte : `erasePersonalModules` supprime les lignes des tables dépendantes d'un module **explicitement**, avant celles de sa table principale, au lieu de laisser la clé étrangère `on delete cascade` les emporter. Un seul module est concerné à ce jour : Habitudes, dont `personal_habit_completions` référence `personal_habits (id, user_id)` en cascade.
 
@@ -328,19 +329,34 @@ Arguments contre, ou au moins non tranchés :
 
 Un fait relevé au passage, en faveur du choix : le déplacement des données de test du 2026-08-18 a buté sur cette clé étrangère composite, faute d'`on update cascade`. La contrainte est donc bien réelle en base aujourd'hui — ce qui ne dit rien de sa présence demain, ni sur un autre environnement, et ne change pas le raisonnement.
 
-Ce qui permettrait de trancher : **un deuxième module effaçable doté d'une table dépendante.** Si son besoin est de même forme, le patron se généralise et cette décision passe en `actif`. Si sa dépendante ne porte pas `user_id`, ou si elle a plusieurs niveaux de dépendance, il faudra soit un mécanisme générique, soit revenir à la cascade avec une vérification de contrainte au déploiement.
+Ce qui permettait de trancher : **un deuxième module effaçable doté d'une table dépendante.** Si son besoin était de même forme, le patron se généralisait. Si sa dépendante ne portait pas `user_id`, ou si elle avait plusieurs niveaux de dépendance, il aurait fallu soit un mécanisme générique, soit revenir à la cascade avec une vérification de contrainte au déploiement.
 
-Conséquences tant que le statut reste `proposé` :
+**Ce cas est arrivé le 2026-09-09 : les catégories de Journal.** `personal_journal_entry_categories` relie une entrée de journal à ses catégories, et c'est bien un deuxième MODULE, pas un deuxième geste sur Habitudes — la distinction que la note de 2026-08-18 refusait de forcer.
 
-- Le code actuel **reste en l'état**, la suppression explicite étant la plus conservative des deux : elle donne le bon résultat que la cascade existe ou non.
-- **Ne pas invoquer cette entrée comme règle** pour justifier un choix d'implémentation ailleurs, et ne pas la citer dans une revue comme précédent établi.
-- La formule « ne jamais dépendre d'une contrainte pour la correction d'une suppression annoncée comme totale », qui figurait dans DEC-012 comme règle générale, n'a pas ce statut. Elle reste ici comme argument, pas comme principe du dépôt.
+Sa forme a été comparée point par point au critère, et non supposée conforme :
+
+- **elle porte `user_id`**, dénormalisé au-delà de ses deux clés étrangères. `deleteOwnedRows` peut donc la filtrer directement, sans jointure — la propriété dont l'universalité était précisément mise en doute ;
+- **un seul niveau de dépendance.** Aucune table ne dépend d'elle ;
+- **un `parentKey` unique suffit** pour la granularité par élément, `entry_id`. Sa seconde clé étrangère, `category_id`, pointe vers une table sœur et non vers un parent : elle ne participe pas à la chaîne d'effacement.
+
+Une différence, qui ne remet pas le patron en cause : sa clé étrangère vers `personal_journal_categories` est en `restrict` et non en `cascade`, parce qu'elle porte une règle métier — bloquer la suppression d'une catégorie qui laisserait une entrée sans catégorie. La suppression explicite y devient donc **nécessaire et non plus seulement prudente** : sans elle, l'ordre de suppression buterait sur la contrainte au lieu de s'en passer.
+
+Le patron se généralise sur deux modules de forme comparable. La décision passe en **`actif`**.
+
+Conséquences :
+
+- **Toute table dépendante déclarée dans `MODULE_TABLES` est supprimée explicitement, avant sa table principale.** C'est désormais la règle du dépôt pour les deux gestes de suppression physique du pôle, et elle peut être invoquée comme précédent.
+- **Toute nouvelle table dépendante doit porter `user_id`**, dénormalisé s'il le faut. C'est ce qui rend le patron applicable sans jointure, et c'est la condition qui a été vérifiée pour l'admettre. Une dépendante qui ne pourrait pas la porter rouvrirait cette décision plutôt que de la contourner.
+- La formule « ne jamais dépendre d'une contrainte pour la correction d'une suppression annoncée comme totale » **devient un principe du dépôt**, et non plus un simple argument de cette entrée.
+- **Les arguments contre listés plus haut ne disparaissent pas.** Le coût d'un aller-retour et d'une entrée d'audit par table dépendante reste réel, et la cause racine — une migration partiellement appliquée sans signal — n'est toujours pas traitée. Le contrôle des contraintes en base reste une vérification `MANUAL_ACTIONS.md`, pas une garantie du code.
+- Ce qui reste **hors** de cette décision : le sort des tables SŒURS. `personal_journal_categories` n'est pas une dépendante des entrées de journal — vider le Journal détruit les entrées et leurs liaisons, et laisse les catégories. Une étiquette définie par l'utilisateur n'est pas du contenu de journal. Si ce choix devait changer, ce serait une décision distincte, pas une extension de celle-ci.
 
 Fichiers liés :
 
-- `lib/server/personal/data-erasure-store.ts` (`MODULE_TABLES`, `erasePersonalModules`)
-- `supabase/migrations/20260806100000_create_personal_habits.sql` (la clé étrangère composite en cascade)
-- `MANUAL_ACTIONS.md` (entrée du 2026-08-13, requête de contrôle de `confdeltype`)
+- `lib/server/personal/data-erasure-store.ts` (`MODULE_TABLES`, `erasePersonalModule`, `permanentlyDeletePersonalItem`)
+- `supabase/migrations/20260806100000_create_personal_habits.sql` (la clé étrangère composite en cascade, premier cas)
+- `supabase/migrations/20260909110000_create_personal_journal_entry_categories.sql` (second cas, qui a fait basculer le statut)
+- `MANUAL_ACTIONS.md` (entrées du 2026-08-13 et du 2026-09-09, requêtes de contrôle de `confdeltype`)
 
 ## Décisions à confirmer
 

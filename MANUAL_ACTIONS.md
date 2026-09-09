@@ -53,6 +53,151 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-09-09 — Appliquer les deux migrations « catégories de Journal »
+
+**Statut** : `pending`
+
+**Fichiers** :
+
+- `supabase/migrations/20260909100000_create_personal_journal_categories.sql`
+- `supabase/migrations/20260909110000_create_personal_journal_entry_categories.sql`
+
+**Pourquoi c'est manuel** : nécessite un clic dans le SQL Editor Supabase, pas d'accès API direct pour ce type d'opération. Aucun CLI Supabase authentifié n'est configuré sur cette machine, et la clé service-role ne permet pas d'exécuter du DDL par l'API REST.
+
+**Bloque** : tout le chantier « catégories de Journal », et l'amorçage des dix catégories décrit dans l'entrée suivante.
+
+**ORDRE IMPÉRATIF — appliquer ces deux migrations AVANT de déployer le commit qui les accompagne.** Ce commit déclare déjà `personal_journal_entry_categories` comme table dépendante de Journal dans `lib/server/personal/data-erasure-store.ts`. Tant que la table n'existe pas en base, les **deux gestes de suppression physique de Journal** — « Vider l'historique » et la suppression d'une entrée archivée — échouent en `500`. Vérifié : PostgREST répond `PGRST205 / Could not find the table 'public.personal_journal_entry_categories' in the schema cache`, et `deleteOwnedRows` transforme cette erreur en exception. Aucune donnée n'est perdue, mais le geste est indisponible. La fenêtre inverse — des liaisons orphelines — est nulle aujourd'hui, la table de liaison étant vide tant qu'aucune interface ne crée de lien.
+
+**À lire avant d'exécuter — deux écarts au patron du pôle, tous deux délibérés** :
+
+1. `personal_journal_categories` **accorde `DELETE` à `authenticated`**, avec une policy scopée au propriétaire. C'est la **seconde exception** du pôle après `personal_habit_completions`. Une catégorie est une étiquette, pas du contenu ; la protection contre la perte est la règle de blocage, pas une corbeille.
+2. Ces deux tables **n'ont pas de `deleted_at`**. Le soft delete du pôle protège du contenu ; il n'y en a pas ici.
+
+**Conséquence, déjà traitée dans le commit qui accompagne ces migrations** : Journal devient le **deuxième module du pôle à porter une table dépendante**, après Habitudes. `lib/server/personal/data-erasure-store.ts` déclare donc désormais `journal.dependents` avec `personal_journal_entry_categories` et `parentKey: "entry_id"` — c'est la raison de l'ordre impératif ci-dessus. C'est aussi le second cas réel que **DEC-013** attendait, et qui l'a fait passer de `proposé` à `actif` le 2026-09-09.
+
+**Étapes** :
+
+1. Ouvrir <https://supabase.com/dashboard>, sélectionner le projet de L'Édifice, puis « SQL Editor » dans la barre latérale.
+2. Cliquer « New query ».
+3. Coller le contenu intégral de `20260909100000_create_personal_journal_categories.sql`, cliquer « Run ». Les deux fichiers sont idempotents (`if not exists`, `drop policy if exists`, `drop trigger if exists`, `create or replace function`) : les relancer ne casse rien.
+4. Nouvelle requête, coller `20260909110000_create_personal_journal_entry_categories.sql`, cliquer « Run ». **Dans cet ordre** : la seconde référence la première.
+5. Vérifier que **RLS est activée** sur les deux — sans cela les policies ne s'appliquent pas :
+
+```sql
+select relname, relrowsecurity
+from pg_class
+where relname in ('personal_journal_categories', 'personal_journal_entry_categories');
+```
+
+Attendu : `relrowsecurity` à `true` sur les deux lignes.
+
+6. Vérifier les **grants**. C'est ce contrôle qui a révélé le défaut du chantier 6 ; il n'est pas optionnel :
+
+```sql
+select table_name, grantee, privilege_type
+from information_schema.role_table_grants
+where table_schema = 'public'
+  and table_name in ('personal_journal_categories', 'personal_journal_entry_categories')
+  and grantee in ('anon', 'authenticated')
+order by table_name, grantee, privilege_type;
+```
+
+Attendu, et **rien d'autre** :
+
+- `personal_journal_categories` / `authenticated` → `SELECT`, `INSERT`, `UPDATE`, `DELETE`
+- `personal_journal_entry_categories` / `authenticated` → `SELECT`, `INSERT`, `DELETE`
+- **aucune ligne pour `anon`**, et **aucun `TRUNCATE`, `REFERENCES` ni `TRIGGER`**
+
+7. Vérifier que les policies correspondent exactement aux verbes accordés :
+
+```sql
+select tablename, policyname, cmd
+from pg_policies
+where schemaname = 'public'
+  and tablename in ('personal_journal_categories', 'personal_journal_entry_categories')
+order by tablename, cmd;
+```
+
+Attendu : quatre policies sur `personal_journal_categories` (`SELECT`, `INSERT`, `UPDATE`, `DELETE`), trois sur `personal_journal_entry_categories` (`SELECT`, `INSERT`, `DELETE`). **Aucune policy `UPDATE` sur la table de liaison.**
+
+8. Vérifier que la contrainte `RESTRICT` est bien posée — c'est la moitié structurelle de la règle de blocage :
+
+```sql
+select conname, confdeltype
+from pg_constraint
+where conrelid = 'public.personal_journal_entry_categories'::regclass
+  and contype = 'f';
+```
+
+Attendu : `confdeltype` = `r` (restrict) sur la clé étrangère vers `personal_journal_categories`, et `c` (cascade) sur celles vers `personal_journal_entries` et `auth.users`.
+
+**Vérification** : les quatre requêtes ci-dessus renvoient exactement les valeurs attendues. Si un `TRUNCATE` ou un droit `anon` apparaît malgré la révocation explicite, **ne pas continuer** et rouvrir le chantier 6 : cela signifierait qu'un troisième `ALTER DEFAULT PRIVILEGES` existe.
+
+### 2026-09-09 — Amorcer les dix catégories de Journal sur `contact.edificeia@gmail.com`
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : insertion ponctuelle de données en production, sur un compte réel nommé. Ce n'est **pas** un mécanisme de seed et ne doit pas en devenir un — aucun script du dépôt ne doit connaître ces dix noms, et aucun futur compte ne doit les recevoir automatiquement. Un script dans `scripts/` serait un outil, et un outil se relance ; ce geste ne doit jamais l'être.
+
+**Bloque** : rien techniquement. Le chantier fonctionne sans, avec zéro catégorie.
+
+**Dépend de** : l'entrée ci-dessus. Les deux tables doivent exister.
+
+**Garde en place, à ne pas retirer** : le `SELECT` résout le compte **par e-mail**, il ne contient aucun UUID en dur. Un identifiant copié serait faux le jour où le compte est recréé — c'est déjà arrivé deux fois sur le compte de test au cours du chantier Tâches. Aucune ligne ne peut atteindre un autre compte que celui nommé dans le `where`.
+
+**Étapes** :
+
+1. **Contrôle préalable.** Vérifier qu'exactement un compte porte cet e-mail :
+
+```sql
+select id, email, created_at
+from auth.users
+where email = 'contact.edificeia@gmail.com';
+```
+
+**Une seule ligne attendue.** Si zéro ou plusieurs, s'arrêter : l'insertion viserait la mauvaise cible ou aucune.
+
+2. Exécuter l'insertion :
+
+```sql
+insert into public.personal_journal_categories (user_id, name, description)
+select u.id, c.name, c.description
+from auth.users u
+cross join (values
+  ('Observations',            'Ce que tu remarques — comportements, relations, société, environnement, toi-même.'),
+  ('Prises de conscience',    'Ce que tu comprends sur toi ou sur la vie.'),
+  ('Évolutions',              'Ce qui change en toi, comparé à l''ancien toi.'),
+  ('Tempêtes',                'Les périodes difficiles : événement → réaction → compréhension → évolution.'),
+  ('Décisions',               'Les choix importants, et pourquoi cette direction plutôt qu''une autre.'),
+  ('Objectifs / Directions',  'Là où tu veux aller, mesurable ou non.'),
+  ('Apprentissages',          'Ce que tu retiens d''une expérience — erreur, rencontre, réussite, échec.'),
+  ('Principes / Philosophie', 'Les règles de vie construites progressivement, amenées à évoluer.'),
+  ('Relations / Humain',      'Observations et apprentissages sur les dynamiques relationnelles.'),
+  ('Fragments',               'Pensées brutes, intuitions non encore classées.')
+) as c(name, description)
+where u.email = 'contact.edificeia@gmail.com'
+on conflict do nothing;
+```
+
+`on conflict do nothing` s'appuie sur l'index unique `personal_journal_categories_user_id_name_key`, insensible à la casse : une seconde exécution accidentelle n'insère aucun doublon.
+
+**Vérification** : dix catégories, et zéro sur tout autre compte.
+
+```sql
+select count(*) as total
+from public.personal_journal_categories c
+join auth.users u on u.id = c.user_id
+where u.email = 'contact.edificeia@gmail.com';
+
+select count(*) as hors_compte_cible
+from public.personal_journal_categories c
+join auth.users u on u.id = c.user_id
+where u.email <> 'contact.edificeia@gmail.com';
+```
+
+Attendu : `total` = 10, `hors_compte_cible` = 0.
+
+
 ### 2026-08-24 — Appliquer la migration `personal_tasks` (module Tâches du pôle Personnel)
 
 **Statut** : `pending`

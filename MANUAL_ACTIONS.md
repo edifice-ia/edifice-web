@@ -53,89 +53,6 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
-### 2026-08-18 — Appliquer la migration `personal_item_erasure_log`
-
-**Statut** : `pending`
-
-**Pourquoi c'est manuel** : nécessite un clic dans le SQL Editor Supabase, pas d'accès API direct pour ce type d'opération. Aucun CLI Supabase authentifié n'est configuré sur cette machine, et la clé service-role ne permet pas d'exécuter du DDL par l'API REST.
-
-**Bloque** : la suppression physique individuelle d'un élément archivé (bouton « Supprimer définitivement » de la carte Archives), sur Notes, Journal et Humeur, et Habitudes. **Le code n'est pas encore écrit** : cette entrée précède l'implémentation, contrairement à celle du 2026-08-13 qui la suivait. Appliquer la migration maintenant ne casse rien et ne rend rien accessible — aucune route n'écrit encore dans cette table.
-
-**Étapes** :
-
-1. Ouvrir <https://supabase.com/dashboard>, sélectionner le projet de L'Édifice, puis « SQL Editor » dans la barre latérale.
-2. Cliquer « New query ».
-3. Coller ce script **tel quel** et cliquer « Run ». C'est le contenu exact de `supabase/migrations/20260818100000_create_personal_item_erasure_log.sql`, commentaires abrégés ; en cas de doute, c'est le fichier qui fait foi.
-
-```sql
-create table if not exists public.personal_item_erasure_log (
-  id uuid primary key default gen_random_uuid(),
-  -- Pas de FK vers auth.users : une suppression de compte cascaderait et
-  -- effacerait la preuve que l'effacement a eu lieu.
-  user_id uuid not null,
-  module text not null,
-  table_name text not null,
-  -- Identifiant technique de la ligne supprimee, pas du contenu. Pas de FK :
-  -- la ligne referencee n'existe plus au moment de l'ecriture.
-  item_id uuid not null,
-  -- Lignes dependantes emportees avec l'element. 0 si le module tient dans
-  -- une seule table.
-  related_deleted_count integer not null default 0,
-  requested_at timestamptz not null default now(),
-  source text not null default 'archives_panel',
-  constraint personal_item_erasure_log_related_count_positive
-    check (related_deleted_count >= 0)
-);
-
-alter table public.personal_item_erasure_log enable row level security;
-
--- Patron repris de personal_data_erasure_log : les DEUX roles sont revoques, et
--- aucune policy n'est creee. La table n'est accessible que par la service-role.
-revoke all on table public.personal_item_erasure_log from anon;
-revoke all on table public.personal_item_erasure_log from authenticated;
-
-create index if not exists personal_item_erasure_log_user_id_requested_at_idx
-on public.personal_item_erasure_log (user_id, requested_at desc);
-```
-
-Le script est **idempotent sur la table et l'index** (`create ... if not exists`), les `revoke` sont sans effet s'ils ont déjà été appliqués, et `enable row level security` est sans effet si RLS est déjà actif. Le rejouer ne casse rien.
-
-4. Vérifier que les révocations ont bien pris — c'est le point qui avait été appliqué partiellement lors de l'incident du 2026-08-10 sur `personal_habits` :
-
-```sql
-select grantee, privilege_type
-from information_schema.role_table_grants
-where table_name = 'personal_item_erasure_log';
-```
-
-5. Vérifier que RLS est actif et qu'aucune policy n'existe :
-
-```sql
-select c.relrowsecurity as rls_active,
-       (select count(*) from pg_policies p
-        where p.schemaname = 'public' and p.tablename = 'personal_item_erasure_log') as nb_policies
-from pg_class c
-join pg_namespace n on n.oid = c.relnamespace
-where n.nspname = 'public' and c.relname = 'personal_item_erasure_log';
-```
-
-6. Vérifier que la contrainte de positivité est bien en place :
-
-```sql
-select conname, pg_get_constraintdef(oid)
-from pg_constraint
-where conrelid = 'public.personal_item_erasure_log'::regclass
-  and contype = 'c';
-```
-
-**Vérification** :
-
-- étape 4 : `anon` et `authenticated` **ne doivent apparaître dans aucune ligne**. Une ligne pour l'un des deux signifie que les `revoke` n'ont pas pris, et la table serait alors lisible depuis le navigateur — ce qui retirerait toute valeur au journal.
-- étape 5 : `rls_active` doit valoir `true` et `nb_policies` doit valoir `0`. Zéro policy avec RLS actif est le résultat attendu, pas une anomalie : sous RLS, l'absence de policy vaut refus, et l'accès ne passe que par la service-role qui contourne RLS.
-- étape 6 : la contrainte `personal_item_erasure_log_related_count_positive` doit apparaître avec `CHECK ((related_deleted_count >= 0))`.
-
-Aucun test fonctionnel n'est possible à ce stade : aucune route n'écrit encore dans cette table. Le test viendra avec l'implémentation du geste.
-
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
@@ -451,6 +368,95 @@ order by conname;
 - étape 8 : cinq contraintes `CHECK` — `title_not_blank`, `title_max_length`, `status_known` (`status in ('todo','done')`), `context_label_not_blank`, `context_label_max_length`.
 
 Une fois appliquée, le cycle CRUD complet reste à valider par test manuel une fois l'interface construite (checkpoint 3).
+
+### 2026-08-18 — Appliquer la migration `personal_item_erasure_log`
+
+**Statut** : `done` — au plus tard le 2026-08-20, date exacte non établie
+
+**Résultat** : migration appliquée dans le SQL Editor, à une date qui **n'est pas établie avec certitude**, et que cette entrée refuse donc de fixer. `cc76f38` (2026-08-20, 10:11) l'affirme « appliquée et vérifiée en base le 2026-08-18 » — grants propres, RLS actif sans policy, contrainte `CHECK` confirmée — et `suivi-chantiers-edifice.md` reprend cette date. Mais cette entrée a été ouverte au statut `pending` par `5951773`, le 2026-08-20 à 09:52, dix-neuf minutes plus tôt : les deux affirmations ne peuvent pas être vraies ensemble. La lecture la plus probable est que la migration était déjà appliquée et que l'entrée est née périmée. « 2026-08-18 » peut aussi n'être que l'horodatage du nom de fichier, repris comme date d'application — le piège relevé au chantier 6. Seule borne sûre : **au plus tard le 2026-08-20**, date de l'affirmation de `cc76f38`.
+
+**En service, prouvé en base et non seulement affirmé** : la table porte quatre entrées — les trois du test de suppression par élément du 2026-08-24, la première à `07:29:55Z`, et celle du test Tâches du 2026-09-09 à `15:30:47Z`, avec `related_deleted_count` à 0. Le 2026-09-09, la clé `anon` y reçoit `42501` : le privilège est absent, pas seulement masqué.
+
+Le contrôle de l'étape 4 lit `information_schema.role_table_grants`, aveugle à `MAINTAIN` — le défaut corrigé le 2026-09-10 dans l'entrée des catégories de Journal. Sans conséquence ici : la migration révoque `all` des deux rôles, ce qui inclut `MAINTAIN`.
+
+**Pourquoi c'est manuel** : nécessite un clic dans le SQL Editor Supabase, pas d'accès API direct pour ce type d'opération. Aucun CLI Supabase authentifié n'est configuré sur cette machine, et la clé service-role ne permet pas d'exécuter du DDL par l'API REST.
+
+**Bloque** : la suppression physique individuelle d'un élément archivé (bouton « Supprimer définitivement » de la carte Archives), sur Notes, Journal et Humeur, et Habitudes. **Le code n'est pas encore écrit** : cette entrée précède l'implémentation, contrairement à celle du 2026-08-13 qui la suivait. Appliquer la migration maintenant ne casse rien et ne rend rien accessible — aucune route n'écrit encore dans cette table.
+
+**Étapes** :
+
+1. Ouvrir <https://supabase.com/dashboard>, sélectionner le projet de L'Édifice, puis « SQL Editor » dans la barre latérale.
+2. Cliquer « New query ».
+3. Coller ce script **tel quel** et cliquer « Run ». C'est le contenu exact de `supabase/migrations/20260818100000_create_personal_item_erasure_log.sql`, commentaires abrégés ; en cas de doute, c'est le fichier qui fait foi.
+
+```sql
+create table if not exists public.personal_item_erasure_log (
+  id uuid primary key default gen_random_uuid(),
+  -- Pas de FK vers auth.users : une suppression de compte cascaderait et
+  -- effacerait la preuve que l'effacement a eu lieu.
+  user_id uuid not null,
+  module text not null,
+  table_name text not null,
+  -- Identifiant technique de la ligne supprimee, pas du contenu. Pas de FK :
+  -- la ligne referencee n'existe plus au moment de l'ecriture.
+  item_id uuid not null,
+  -- Lignes dependantes emportees avec l'element. 0 si le module tient dans
+  -- une seule table.
+  related_deleted_count integer not null default 0,
+  requested_at timestamptz not null default now(),
+  source text not null default 'archives_panel',
+  constraint personal_item_erasure_log_related_count_positive
+    check (related_deleted_count >= 0)
+);
+
+alter table public.personal_item_erasure_log enable row level security;
+
+-- Patron repris de personal_data_erasure_log : les DEUX roles sont revoques, et
+-- aucune policy n'est creee. La table n'est accessible que par la service-role.
+revoke all on table public.personal_item_erasure_log from anon;
+revoke all on table public.personal_item_erasure_log from authenticated;
+
+create index if not exists personal_item_erasure_log_user_id_requested_at_idx
+on public.personal_item_erasure_log (user_id, requested_at desc);
+```
+
+Le script est **idempotent sur la table et l'index** (`create ... if not exists`), les `revoke` sont sans effet s'ils ont déjà été appliqués, et `enable row level security` est sans effet si RLS est déjà actif. Le rejouer ne casse rien.
+
+4. Vérifier que les révocations ont bien pris — c'est le point qui avait été appliqué partiellement lors de l'incident du 2026-08-10 sur `personal_habits` :
+
+```sql
+select grantee, privilege_type
+from information_schema.role_table_grants
+where table_name = 'personal_item_erasure_log';
+```
+
+5. Vérifier que RLS est actif et qu'aucune policy n'existe :
+
+```sql
+select c.relrowsecurity as rls_active,
+       (select count(*) from pg_policies p
+        where p.schemaname = 'public' and p.tablename = 'personal_item_erasure_log') as nb_policies
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relname = 'personal_item_erasure_log';
+```
+
+6. Vérifier que la contrainte de positivité est bien en place :
+
+```sql
+select conname, pg_get_constraintdef(oid)
+from pg_constraint
+where conrelid = 'public.personal_item_erasure_log'::regclass
+  and contype = 'c';
+```
+
+**Vérification** :
+
+- étape 4 : `anon` et `authenticated` **ne doivent apparaître dans aucune ligne**. Une ligne pour l'un des deux signifie que les `revoke` n'ont pas pris, et la table serait alors lisible depuis le navigateur — ce qui retirerait toute valeur au journal.
+- étape 5 : `rls_active` doit valoir `true` et `nb_policies` doit valoir `0`. Zéro policy avec RLS actif est le résultat attendu, pas une anomalie : sous RLS, l'absence de policy vaut refus, et l'accès ne passe que par la service-role qui contourne RLS.
+- étape 6 : la contrainte `personal_item_erasure_log_related_count_positive` doit apparaître avec `CHECK ((related_deleted_count >= 0))`.
+
+Aucun test fonctionnel n'est possible à ce stade : aucune route n'écrit encore dans cette table. Le test viendra avec l'implémentation du geste.
 
 ### 2026-08-13 — Appliquer la migration `personal_data_erasure_log`, puis tester « Vider l'historique »
 

@@ -53,6 +53,7 @@ Tables créées ou visibles dans les migrations :
 - `personal_journal_categories`
 - `personal_journal_entry_categories`
 - `personal_data_erasure_log`
+- `personal_item_erasure_log`
 - `video_render_jobs`
 - `short_video_schedules`
 - `user_preferences`

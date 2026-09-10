@@ -91,22 +91,27 @@ where relname in ('personal_journal_categories', 'personal_journal_entry_categor
 
 Attendu : `relrowsecurity` à `true` sur les deux lignes.
 
-6. Vérifier les **grants**. C'est ce contrôle qui a révélé le défaut du chantier 6 ; il n'est pas optionnel :
+6. Vérifier les **grants**, lus dans l'ACL brute. C'est ce contrôle qui a révélé le défaut du chantier 6 ; il n'est pas optionnel :
 
 ```sql
-select table_name, grantee, privilege_type
-from information_schema.role_table_grants
-where table_schema = 'public'
-  and table_name in ('personal_journal_categories', 'personal_journal_entry_categories')
-  and grantee in ('anon', 'authenticated')
-order by table_name, grantee, privilege_type;
+select c.relname as table_name,
+       case a.grantee when 0 then 'PUBLIC' else pg_get_userbyid(a.grantee) end as grantee,
+       a.privilege_type
+from pg_class c
+cross join lateral aclexplode(c.relacl) a
+where c.relnamespace = 'public'::regnamespace
+  and c.relname in ('personal_journal_categories', 'personal_journal_entry_categories')
+  and (a.grantee = 0 or pg_get_userbyid(a.grantee) in ('anon', 'authenticated'))
+order by 1, 2, 3;
 ```
 
-Attendu, et **rien d'autre** :
+Attendu, **exactement 7 lignes**, et rien d'autre :
 
-- `personal_journal_categories` / `authenticated` → `SELECT`, `INSERT`, `UPDATE`, `DELETE`
-- `personal_journal_entry_categories` / `authenticated` → `SELECT`, `INSERT`, `DELETE`
-- **aucune ligne pour `anon`**, et **aucun `TRUNCATE`, `REFERENCES` ni `TRIGGER`**
+- `personal_journal_categories` / `authenticated` → `DELETE`, `INSERT`, `SELECT`, `UPDATE`
+- `personal_journal_entry_categories` / `authenticated` → `DELETE`, `INSERT`, `SELECT`
+- **aucune ligne pour `anon` ni pour `PUBLIC`**, et **aucun `TRUNCATE`, `REFERENCES`, `TRIGGER` ni `MAINTAIN`**
+
+**Pourquoi `aclexplode` et non `information_schema.role_table_grants`**, la vue que cette étape utilisait dans sa première rédaction : la vue n'affiche pas `MAINTAIN`, privilège apparu avec PostgreSQL 17. La preuve est dans le chantier 6 — le défaut du projet accordait `arwdDxtm`, soit huit privilèges, et le contrôle du 2026-08-24 fait avec cette vue n'en a listé que sept. `aclexplode` lit l'ACL brute de la table et ne peut en omettre aucun.
 
 7. Vérifier que les policies correspondent exactement aux verbes accordés :
 
@@ -131,7 +136,55 @@ where conrelid = 'public.personal_journal_entry_categories'::regclass
 
 Attendu : `confdeltype` = `r` (restrict) sur la clé étrangère vers `personal_journal_categories`, et `c` (cascade) sur celles vers `personal_journal_entries` et `auth.users`.
 
-**Vérification** : les quatre requêtes ci-dessus renvoient exactement les valeurs attendues. Si un `TRUNCATE` ou un droit `anon` apparaît malgré la révocation explicite, **ne pas continuer** et rouvrir le chantier 6 : cela signifierait qu'un troisième `ALTER DEFAULT PRIVILEGES` existe.
+9. Vérifier l'**unicité insensible à la casse** sur `personal_journal_categories`, en structure puis en comportement. Absente de la première rédaction de cette entrée, alors que l'amorçage ci-dessous repose dessus pour ne pas créer de doublons.
+
+**9a, structure** — l'index existe et porte bien l'expression :
+
+```sql
+select indexname, indexdef
+from pg_indexes
+where schemaname = 'public'
+  and tablename = 'personal_journal_categories'
+  and indexname = 'personal_journal_categories_user_id_name_key';
+```
+
+Attendu, une ligne, dont `indexdef` contient **à la fois** `UNIQUE` et `lower(btrim(name))` :
+
+```text
+CREATE UNIQUE INDEX personal_journal_categories_user_id_name_key
+ON public.personal_journal_categories USING btree (user_id, lower(btrim(name)))
+```
+
+C'est un **index** et non une contrainte — une contrainte `unique` ne peut pas porter sur une expression. Il n'apparaît donc pas dans `pg_constraint`, et ce n'est pas une anomalie.
+
+**9b, comportement** — dans une transaction annulée, sur le compte de test uniquement :
+
+```sql
+begin;
+insert into public.personal_journal_categories (user_id, name)
+select id, 'Controle casse' from auth.users where email = 'test-erase@edificeia.com';
+insert into public.personal_journal_categories (user_id, name)
+select id, '  CONTROLE CASSE ' from auth.users where email = 'test-erase@edificeia.com';
+rollback;
+```
+
+Attendu : la **seconde** insertion échoue en `23505 — duplicate key value violates unique constraint "personal_journal_categories_user_id_name_key"`. La casse et les blancs de bord diffèrent tous deux, donc l'échec prouve que `lower` et `btrim` sont appliqués. Rien n'est conservé : la transaction échoue, et aucun `COMMIT` ne peut plus aboutir.
+
+Ce test **ne prouve rien si `test-erase@edificeia.com` n'existe pas** : les deux `insert` ne visent alors aucune ligne et passent sans erreur. Vérifier le compte avant. Le compte `contact.edificeia@gmail.com` n'est jamais touché.
+
+**9c, résidu** — contre-vérification :
+
+```sql
+select count(*) as residus
+from public.personal_journal_categories
+where lower(btrim(name)) = 'controle casse';
+```
+
+Attendu : `0`.
+
+**Vérification** : les étapes 5 à 9 renvoient exactement les valeurs attendues. Si un `TRUNCATE`, un `MAINTAIN` ou un droit `anon` apparaît malgré la révocation explicite, **ne pas continuer** et rouvrir le chantier 6 : cela signifierait qu'un troisième `ALTER DEFAULT PRIVILEGES` existe.
+
+**Révision du 2026-09-10** : les étapes 6 et 9 ont été corrigées après la rédaction initiale du 2026-09-09, qui présentait deux trous — une vue de grants aveugle à `MAINTAIN`, et aucun contrôle de l'unicité. L'application du 2026-09-10 a été vérifiée **avec les requêtes corrigées** : 7 lignes de grants exactes, aucune pour `anon` ; RLS active sur les deux tables ; 7 policies alignées sur les grants ; `23505` déclenché par le test de casse, aucun résidu.
 
 ### 2026-09-09 — Amorcer les dix catégories de Journal sur `contact.edificeia@gmail.com`
 

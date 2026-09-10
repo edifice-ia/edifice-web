@@ -1,7 +1,7 @@
 # Base de données
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-03
+Dernière mise à jour : 2026-09-10
 
 ## Sommaire
 
@@ -50,6 +50,8 @@ Tables créées ou visibles dans les migrations :
 - `personal_habits`
 - `personal_habit_completions`
 - `personal_tasks`
+- `personal_journal_categories`
+- `personal_journal_entry_categories`
 - `personal_data_erasure_log`
 - `video_render_jobs`
 - `short_video_schedules`
@@ -104,11 +106,26 @@ Tables créées ou visibles dans les migrations :
 
 **Aucune date d'achèvement n'est stockée.** Un `completed_at` à côté de `status` créerait deux sources de vérité pour le même fait. Conséquence assumée : le module ne sait pas répondre à « quand cette tâche a-t-elle été faite ». Si le besoin apparaît, `completed_at` devra **remplacer** `status`, pas s'y ajouter.
 
-Ces cinq tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet.
+`personal_journal_categories` et `personal_journal_entry_categories` portent les **catégories de Journal**, créées par l'utilisateur, appliquées en base le 2026-09-10. Une entrée peut porter plusieurs catégories et une catégorie couvrir plusieurs entrées : relation N-N, donc table de liaison explicite. Périmètre Journal uniquement — aucune abstraction commune n'est posée pour Notes ou Tâches. Points de conception :
 
-Aucune n'accorde le privilège `DELETE` à `authenticated`, **sauf `personal_habit_completions`** : décocher un jour retire la ligne, une réalisation étant un booléen sur un jour et non du contenu. Sa policy `DELETE` reste scopée au propriétaire. Partout ailleurs, la suppression physique relève du geste « Vider l'historique », qui passe par la clé service-role.
+- **pas de `deleted_at` sur les catégories.** Une étiquette n'est pas du contenu : sa suppression est physique et irréversible. La protection contre la perte est la règle de blocage ci-dessous, pas une corbeille ;
+- **unicité par utilisateur, insensible à la casse et aux blancs de bord**, portée par un index unique sur `(user_id, lower(btrim(name)))`. Un index et non une contrainte, une contrainte `unique` ne pouvant porter sur une expression : il n'apparaît donc pas dans `pg_constraint` ;
+- **la liaison dénormalise `user_id`**, comme `personal_habit_completions`, pour des policies sans jointure. Contrairement à Habitudes, aucune clé étrangère composite n'en garantit la cohérence avec les deux parents : elle est tenue à l'insertion applicative, limite documentée dans la migration ;
+- **la clé étrangère de la liaison vers les catégories est en `on delete restrict`** : c'est la moitié structurelle de la règle qui bloque la suppression d'une catégorie laissant une entrée sans catégorie. Celle vers les entrées est en `cascade`, filet et non mécanisme — la suppression explicite des dépendantes est la règle, voir [Décisions](./03_Decisions.md) DEC-013, passée en `actif` sur ce cas.
 
-**Cette propriété n'a été réellement appliquée en base qu'à partir du 2026-08-30.** Jusque-là, les migrations du pôle écrivaient `revoke all … from anon` puis `grant select, insert, update … to authenticated`, sans jamais révoquer côté `authenticated` — or un `grant` est additif. Le projet Supabase accordant `arwdDxtm` à tous les rôles par défaut sur toute nouvelle table du schéma `public`, les cinq tables détenaient donc `DELETE` et `TRUNCATE` sans que personne ne l'ait écrit. Aucune suppression n'était possible pour autant, l'absence de policy `DELETE` valant refus sous RLS — mais la défense ne tenait que par **une** couche au lieu des deux annoncées. Corrigé par `20260824110000` (révocation explicite sur les cinq tables) et `20260824120000` (défaut du schéma vidé pour `anon` et `authenticated`) — deux migrations dont l'horodatage de nom dit `0824`, jour de la **découverte**, alors qu'elles ont été écrites et appliquées le **2026-08-30**. Voir le chantier 6 dans `suivi-chantiers-edifice.md`.
+Leur store n'est pas encore écrit.
+
+Ces sept tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role — ou l'utiliseront, pour les deux tables de catégories dont le store n'est pas encore écrit. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet.
+
+**Trois d'entre elles seulement accordent le privilège `DELETE` à `authenticated`**, chacune doublée d'une policy `DELETE` scopée au propriétaire, et pour la même raison : aucune ne porte de contenu.
+
+- `personal_habit_completions` — décocher un jour retire la ligne, une réalisation étant un booléen sur un jour ;
+- `personal_journal_entry_categories` — retirer une catégorie d'une entrée retire le lien. Un lien n'a aucun champ modifiable, d'où l'absence d'`UPDATE` ;
+- `personal_journal_categories` — supprimer une catégorie est un geste de gestion courante sur une étiquette. La garde n'y est pas une corbeille mais la règle de blocage, tenue par l'application et par la contrainte `restrict`.
+
+Partout ailleurs, la suppression physique relève des deux gestes du pôle, « Vider l'historique » et « Supprimer définitivement » un élément archivé, qui passent tous deux par la clé service-role.
+
+**Cette propriété n'a été réellement appliquée en base qu'à partir du 2026-08-30.** Jusque-là, les migrations du pôle écrivaient `revoke all … from anon` puis `grant select, insert, update … to authenticated`, sans jamais révoquer côté `authenticated` — or un `grant` est additif. Le projet Supabase accordant `arwdDxtm` à tous les rôles par défaut sur toute nouvelle table du schéma `public`, les cinq tables détenaient donc `DELETE` et `TRUNCATE` sans que personne ne l'ait écrit. Aucune suppression n'était possible pour autant, l'absence de policy `DELETE` valant refus sous RLS — mais la défense ne tenait que par **une** couche au lieu des deux annoncées. Corrigé par `20260824110000` (révocation explicite sur les cinq tables) et `20260824120000` (défaut du schéma vidé pour `anon` et `authenticated`) — deux migrations dont l'horodatage de nom dit `0824`, jour de la **découverte**, alors qu'elles ont été écrites et appliquées le **2026-08-30**. Voir le chantier 6 dans `suivi-chantiers-edifice.md`. Les deux tables de catégories, créées après ce correctif, tiennent cette propriété dès leur création : leur migration révoque explicitement avant d'accorder, et l'ACL brute lue par `aclexplode` le 2026-09-10 ne montre que les privilèges écrits.
 
 `personal_data_erasure_log` journalise ce geste. Elle suit un patron **opposé** aux tables ci-dessus, repris de `project_memory_audit_log` : les deux rôles `anon` et `authenticated` sont révoqués et **aucune policy n'est créée**, ce qui la rend accessible à la seule clé service-role. RLS y est une défense en profondeur derrière une révocation totale, là où les tables du pôle en font leur garde réel — un journal d'audit lisible ou modifiable depuis le navigateur ne prouve rien.
 

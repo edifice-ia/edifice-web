@@ -1,7 +1,7 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-09-09
+Dernière mise à jour : 2026-09-14
 
 ## Sommaire
 
@@ -149,7 +149,7 @@ Fichiers liés :
 - `app/interface/personnel/Personal{Notes,Journal,Habits}Panel.tsx`
 - `supabase/migrations/20260818100000_create_personal_item_erasure_log.sql`
 
-Impact : migration appliquée et vérifiée en base le 2026-08-18. **Le geste n'a pas encore été testé de bout en bout dans le navigateur** — le socle serveur et l'interface compilent, la vérification isolée passe, mais aucun test réel n'a été mené.
+Impact : migration appliquée **au plus tard le 2026-08-20, date exacte non établie** — `cc76f38` (2026-08-20, 10:11) l'affirme appliquée et vérifiée le 2026-08-18, mais `5951773`, dix-neuf minutes plus tôt, ouvrait l'entrée `MANUAL_ACTIONS.md` correspondante au statut `pending`, et « 2026-08-18 » peut n'être que l'horodatage du nom de fichier. **Le geste n'a pas encore été testé de bout en bout dans le navigateur** — le socle serveur et l'interface compilent, la vérification isolée passe, mais aucun test réel n'a été mené.
 
 **Le geste n'existe que dans les archives, et le serveur le revalide.** La fonction de store filtre sur `id` + `user_id` + `deleted_at is not null` : l'identifiant d'un élément **actif** posté à la route renvoie `404` sans rien détruire. L'interface n'expose le bouton que dans la carte Archives, mais l'interface n'est pas un garde.
 

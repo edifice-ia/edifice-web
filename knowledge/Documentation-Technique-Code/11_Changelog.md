@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-09-14
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-09 (catégories de Journal, et DEC-013 passée en actif)](#2026-09-09-catégories-de-journal-et-dec-013-passée-en-actif)
 - [2026-09-05 (suppression définitive d'une tâche archivée)](#2026-09-05-suppression-définitive-dune-tâche-archivée)
 - [2026-09-03 (Tâches dans « Vider l'historique », et correction de dates)](#2026-09-03-tâches-dans--vider-lhistorique--et-correction-de-dates)
 - [2026-08-30 (module Tâches, et privilèges hérités du défaut de schéma)](#2026-08-30-module-tâches-et-privilèges-hérités-du-défaut-de-schéma)
@@ -50,6 +51,43 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-09-09 (catégories de Journal, et DEC-013 passée en actif)
+
+Type : base de données, sécurité, architecture, documentation
+
+Résumé : pose du socle des **catégories de Journal**, créées par l'utilisateur, et passage de **DEC-013 en `actif`** (`3b36515`). Deux migrations : `personal_journal_categories`, et la table de liaison `personal_journal_entry_categories` — une entrée peut porter plusieurs catégories, relation N-N, donc table de liaison explicite. Périmètre Journal uniquement : aucune abstraction commune pour Notes ou Tâches.
+
+**Deux écarts délibérés au patron du pôle.** Pas de `deleted_at` sur les catégories : une étiquette n'est pas du contenu, sa suppression est physique, et la protection contre la perte est la règle de blocage plutôt qu'une corbeille. Et `DELETE` accordé à `authenticated` sur les deux tables, sous policies scopées au propriétaire — ce qui porte à **trois** les tables du pôle dans ce cas, avec `personal_habit_completions`.
+
+**La règle « bloqué si seule catégorie restante » a deux moitiés, et une seule existe.** La moitié structurelle est posée : la clé étrangère de la liaison vers les catégories est en `on delete restrict`. La moitié applicative — la requête qui repère les entrées mono-catégorie et répond `409` — viendra avec le store. L'unicité des noms par utilisateur, insensible à la casse et aux blancs de bord, est portée par un index unique sur `(user_id, lower(btrim(name)))`.
+
+**Révocation explicite avant tout grant**, bien que `pg_default_acl` ait été vérifié propre avant l'écriture : ce qui a manqué au chantier 6 n'était pas le défaut, c'était la discipline.
+
+**DEC-013 passe de `proposé` à `actif`.** Journal est le deuxième module effaçable à porter une table dépendante, après Habitudes, et le critère de sortie a été vérifié point par point plutôt que déclaré rempli : `user_id` dénormalisé sur la dépendante, un seul niveau de dépendance, un `parentKey` unique suffisant. La suppression explicite des dépendantes avant la principale devient une règle du dépôt, avec un corollaire : toute nouvelle table dépendante doit porter `user_id`.
+
+**Le store d'effacement déclare la nouvelle dépendante** : `MODULE_TABLES.journal.dependents` porte `personal_journal_entry_categories`, avec `parentKey: "entry_id"`. Effets sur Journal, pour les deux gestes :
+
+- les liaisons sont supprimées **explicitement**, avant les entrées ;
+- « Vider l'historique » écrit désormais **deux** entrées dans `personal_data_erasure_log`, une par table vidée, au lieu d'une ;
+- la suppression d'une entrée archivée fait la **vérification d'éligibilité préalable**, jusque-là réservée à Habitudes, et son `related_deleted_count` compte désormais les liaisons emportées ;
+- les catégories elles-mêmes **survivent** à un « Vider l'historique » du Journal : ce sont des tables sœurs, pas des dépendantes.
+
+Fichiers liés :
+
+- `supabase/migrations/20260909100000_create_personal_journal_categories.sql`, `supabase/migrations/20260909110000_create_personal_journal_entry_categories.sql` (nouveaux)
+- `lib/server/personal/data-erasure-store.ts`
+- `knowledge/Documentation-Technique-Code/03_Decisions.md`, `06_Modules.md`
+- `MANUAL_ACTIONS.md`
+
+Impact : déclarée **avant** que la table n'existe, la dépendante imposait d'appliquer les migrations avant de pousser — sans quoi les deux gestes de suppression de Journal échouaient en `500`, erreur `PGRST205` vérifiée. Migrations appliquées le **2026-09-10**, avant tout push, contrôles post-application validés ; les appels du store sur la liaison ont ensuite été rejoués en base, sans erreur. Dix catégories amorcées le même jour sur `contact.edificeia@gmail.com`, par une action ponctuelle de `MANUAL_ACTIONS.md` et non par un mécanisme de seed. `05_Database.md` a été aligné le 2026-09-10, dans `ff87d18`.
+
+Action de suivi :
+
+- **Défaut introduit par ce commit, non corrigé à la rédaction de cette entrée.** L'écran de résultat de « Vider l'historique » (`SettingsPersonalPanel.tsx`) écrit en dur le mot « réalisation » dès que `relatedDeletedCount` est défini — ce qu'il est désormais pour Journal. Un vidage de Journal afficherait « et 0 réalisation ». Établi par lecture du code, non observé à l'écran. Et `ERASABLE_MODULES` ne donne à Journal aucun `cascadeLabel` : la confirmation ne nommerait pas les liaisons emportées, ce que DEC-012 exige de tout volume que le compte affiché n'inclut pas.
+- Le store, la route et l'interface des catégories ne sont pas écrits : ni sélecteur sur une entrée, ni écran de gestion, ni moitié applicative de la règle de blocage.
+
+Entrée rédigée le 2026-09-14 : un changement structurant appelle une entrée dans le commit même, et elle avait été omise dans `3b36515`.
 
 ## 2026-09-05 (suppression définitive d'une tâche archivée)
 
@@ -159,7 +197,7 @@ Impact : migration appliquée **au plus tard le 2026-08-20, date exacte non éta
 
 **Habitudes annonce ses réalisations.** `ArchivedPersonalHabit` gagne `completionCount`, alimenté par une seconde requête dans `listArchivedPersonalHabits` — le patron déjà en place pour la liste active, une requête pour les habitudes et une pour leurs réalisations. La jointure imbriquée PostgREST a été écartée : la clé étrangère est composite, et faire dépendre l'affichage de la résolution de cette relation ajouterait une dépendance à la contrainte que DEC-013 refuse déjà de présumer appliquée. `buildHabitStats` n'est toujours pas appelé sur ce chemin — un volume brut n'est ni une série ni un taux de constance, et ne se périme pas.
 
-**Un seul fichier du dépôt supprime physiquement des données Personnel.** `permanentlyDeletePersonalItem` vit dans `data-erasure-store.ts` et non dans les stores de module : l'invariant annoncé en tête de ce fichier ne survivrait pas à l'éparpillement. Ces stores utilisent de toute façon le client de session, qui n'a pas le privilège `DELETE`.
+**Les gestes d'effacement passent par un seul fichier.** « Vider l'historique » et la suppression d'un élément archivé — les deux gestes par lesquels l'utilisateur efface des données Personnel à sa demande — vivent dans `data-erasure-store.ts`, sous la clé service-role : `permanentlyDeletePersonalItem` y rejoint `erasePersonalModule` plutôt que les stores de module, l'invariant annoncé en tête de ce fichier ne survivant pas à l'éparpillement. Les stores de module utilisent le client de session, qui n'a pas le privilège `DELETE` sur les tables de contenu. **Une exception distincte, et voulue** : décocher un jour d'habitude (`unmarkHabitCompletion`, dans `habits-store.ts`) supprime physiquement la réalisation par le client de session. `personal_habit_completions` accorde `DELETE` à `authenticated` sous une policy scopée au propriétaire, intentionnellement depuis la migration `20260806100000` et confirmé au chantier 6 : une réalisation est un booléen sur un jour et non du contenu, et la retirer est un geste de saisie, pas un effacement.
 
 **Vérification d'éligibilité préalable pour Habitudes seulement.** Supprimer les réalisations puis découvrir que l'habitude n'était pas archivée détruirait des données sur un geste qui aurait dû répondre `404` sans rien faire. Pour Notes et Journal cette lecture serait inutile : le filtre triple du `DELETE` fait office de contrôle.
 

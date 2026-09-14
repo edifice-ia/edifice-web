@@ -1,6 +1,6 @@
 # Suivi des chantiers — L'Édifice
 
-*Chantiers 4 et 5 mis à jour le 24 août 2026, chantier 6 le 3 septembre 2026, vérifiés contre le code, l'historique git et la base. Les chantiers 1, 2 et 3 datent du 28 juillet 2026 et n'ont pas été re-vérifiés depuis.*
+*Chantiers 4 et 5 mis à jour le 24 août 2026, chantier 6 le 3 septembre 2026, vérifiés contre le code, l'historique git et la base. Une date du chantier 4 requalifiée le 14 septembre 2026, sans re-vérification du reste du chantier. Les chantiers 1, 2 et 3 datent du 28 juillet 2026 et n'ont pas été re-vérifiés depuis.*
 
 *Principe de ce document, inchangé : chaque état est vérifié contre le code et l'historique git, jamais contre la version précédente de ce fichier.*
 
@@ -37,7 +37,7 @@ Geste distinct, rangé en **sous-cas du troisième geste canonique** dans `11-mo
 - `d6d0108` : garde DEC-007 posé sur la route d'effacement, qui ne portait que `getCurrentUser()`.
 - `cc76f38` : socle serveur — helper partagé `authorizeCockpitApiAccess()`, table `personal_item_erasure_log`, `permanentlyDeletePersonalItem` sous filtre triple (`id` + `user_id` + `deleted_at is not null`), et les trois routes `DELETE /api/personal/{notes,journal,habits}/[id]/permanent`.
 - `a137fc0` : interface et documentation — bouton « Supprimer définitivement » dans les trois cartes Archives, confirmation binaire avec aperçu identifiable, `completionCount` sur `ArchivedPersonalHabit`.
-- Migration `20260818100000_create_personal_item_erasure_log.sql` appliquée et vérifiée en base le 2026-08-18.
+- Migration `20260818100000_create_personal_item_erasure_log.sql` appliquée **au plus tard le 2026-08-20, date exacte non établie**. `cc76f38` (2026-08-20, 10:11) l'affirme appliquée et vérifiée le 2026-08-18, mais `5951773`, dix-neuf minutes plus tôt, ouvrait l'entrée `MANUAL_ACTIONS.md` correspondante au statut `pending` : les deux ne peuvent pas être vraies ensemble, et « 2026-08-18 » peut n'être que l'horodatage du nom de fichier. Cette ligne reprenait la date de `cc76f38` jusqu'au 2026-09-14. Voir l'entrée archivée du 2026-08-18 dans `MANUAL_ACTIONS.md`.
 - **Test de bout en bout validé le 2026-08-24** sur `test-erase@edificeia.com`, par pilotage navigateur humain. Les trois modules testés séparément, et les trois cas limites du jeu de test confirmés : troncature de l'aperçu à 80 caractères sur une note longue, désambiguïsation par date et humeur entre deux entrées de journal commençant à l'identique, et compte de réalisations propre à l'habitude visée.
 
   Corroboré en base : `personal_item_erasure_log` porte **trois entrées** le 2026-08-24, une par module, avec `related_deleted_count` à 0 pour Notes et Journal et à **3** pour Habitudes — soit le compte de l'habitude supprimée, et non le total de 8 réalisations du compte. Zéro réalisation orpheline après coup.

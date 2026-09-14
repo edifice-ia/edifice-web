@@ -21,8 +21,15 @@ export const ERASABLE_MODULES: Array<{
   // plusieurs tables. Le compte reste exprime dans l'unite que l'utilisateur
   // reconnait — une habitude, pas une ligne — mais taire ce qui part avec elle
   // ferait annoncer "3 elements" pour une suppression qui en detruit des
-  // centaines. Renseigne pour Habitudes seul, les trois autres modules tenant
-  // dans une table.
+  // centaines. Renseigne pour Habitudes seul.
+  //
+  // Notes et Taches tiennent dans une table. Journal NON : il porte une
+  // table dependante depuis 3b36515, personal_journal_entry_categories, mais
+  // son libelle est differe a l'interface des categories. Tant qu'il manque,
+  // l'ecran de resultat n'affiche aucun volume dependant pour Journal, et la
+  // confirmation ne nomme pas les liaisons emportees. Sans consequence tant
+  // qu'aucun ecran ne cree de liaison ; l'interface des categories DOIT
+  // l'ajouter ici, faute de quoi DEC-012 serait enfreinte.
   cascadeLabel?: string;
 }> = [
   { id: "notes", label: "Notes" },

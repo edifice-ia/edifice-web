@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  ERASABLE_MODULES,
   ERASURE_CONFIRMATION_WORD,
   type ErasableModuleId,
   type ErasableModuleSummary,
@@ -78,6 +79,9 @@ export function SettingsPersonalPanel() {
   }, []);
 
   const target = modules.find((module) => module.id === targetId) ?? null;
+  const resultCascadeLabel = result
+    ? ERASABLE_MODULES.find((module) => module.id === result.id)?.cascadeLabel
+    : undefined;
   const canConfirm = confirmationInput === ERASURE_CONFIRMATION_WORD && !isErasing;
 
   // Le mot de confirmation est vide a chaque ouverture : sans cela, confirmer un
@@ -300,12 +304,31 @@ export function SettingsPersonalPanel() {
               {result.deletedCount > 1 ? "s" : ""}
               {/* Volume reellement supprime dans les tables dependantes,
                   renvoye par le serveur. Affiche meme a zero une fois le
-                  module concerne : "0 realisation" apres suppression est
-                  une information, pas du bruit. */}
-              {result.relatedDeletedCount !== undefined
-                ? `, et ${result.relatedDeletedCount} réalisation${
-                    result.relatedDeletedCount > 1 ? "s" : ""
-                  }`
+                  module concerne : "0" apres suppression est une
+                  information, pas du bruit.
+
+                  Le libelle vient du module (cascadeLabel dans
+                  ERASABLE_MODULES), jamais d'un mot ecrit ici. Il etait
+                  code en dur a "realisation" tant qu'Habitudes etait le
+                  seul module a dependante ; depuis que Journal en porte
+                  une, relatedDeletedCount est defini aussi pour lui, et le
+                  mot en dur lui aurait fait afficher "0 realisation".
+
+                  Forme libelle : valeur, et non "et N realisations" :
+                  cascadeLabel est au pluriel, et la phrase donnerait
+                  "1 realisations". Un second champ au singulier aurait
+                  double la declaration, avec le risque de divergence que
+                  ERASABLE_MODULES existe pour eviter.
+
+                  Sans cascadeLabel, rien n'est affiche. C'est le cas de
+                  Journal, dont le libelle est differe a l'interface des
+                  categories : aucune route ni aucun ecran ne cree encore de
+                  liaison, le volume est donc toujours nul. Cette interface
+                  DOIT ajouter le cascadeLabel de Journal — sans lui, les
+                  liaisons emportees ne seraient ni nommees a la
+                  confirmation ni chiffrees ici, ce que DEC-012 interdit. */}
+              {result.relatedDeletedCount !== undefined && resultCascadeLabel
+                ? ` — ${resultCascadeLabel} : ${result.relatedDeletedCount}`
                 : null}
               .
             </p>

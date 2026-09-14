@@ -84,7 +84,8 @@ Impact : déclarée **avant** que la table n'existe, la dépendante imposait d'a
 
 Action de suivi :
 
-- **Défaut introduit par ce commit, non corrigé à la rédaction de cette entrée.** L'écran de résultat de « Vider l'historique » (`SettingsPersonalPanel.tsx`) écrit en dur le mot « réalisation » dès que `relatedDeletedCount` est défini — ce qu'il est désormais pour Journal. Un vidage de Journal afficherait « et 0 réalisation ». Établi par lecture du code, non observé à l'écran. Et `ERASABLE_MODULES` ne donne à Journal aucun `cascadeLabel` : la confirmation ne nommerait pas les liaisons emportées, ce que DEC-012 exige de tout volume que le compte affiché n'inclut pas.
+- **Défaut introduit par ce commit, corrigé le 2026-09-14, avant tout push.** L'écran de résultat de « Vider l'historique » (`SettingsPersonalPanel.tsx`) écrivait en dur le mot « réalisation » dès que `relatedDeletedCount` était défini — ce qu'il est désormais pour Journal, qui aurait affiché « et 0 réalisation ». Établi par lecture du code, jamais observé à l'écran. Le libellé vient maintenant du `cascadeLabel` du module, sous la forme « — réalisations : 8 », et rien n'est affiché sans lui.
+- **Reste ouvert, différé à l'interface des catégories** : `ERASABLE_MODULES` ne donne à Journal aucun `cascadeLabel`. Sans lui, les liaisons emportées ne sont ni nommées à la confirmation ni chiffrées au résultat, ce que DEC-012 exige de tout volume que le compte affiché n'inclut pas. Sans conséquence tant qu'aucun écran ne crée de liaison ; cette interface devra l'ajouter.
 - Le store, la route et l'interface des catégories ne sont pas écrits : ni sélecteur sur une entrée, ni écran de gestion, ni moitié applicative de la règle de blocage.
 
 Entrée rédigée le 2026-09-14 : un changement structurant appelle une entrée dans le commit même, et elle avait été omise dans `3b36515`.

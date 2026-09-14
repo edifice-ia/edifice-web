@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-09
+Dernière mise à jour : 2026-09-14
 
 ## Sommaire
 
@@ -135,8 +135,8 @@ Les deux verbes passent par le **même** helper d'autorisation, `authorizeErasur
 
 Le compte affiché reste exprimé dans l'unité que l'utilisateur reconnaît — une habitude, pas une ligne. Mais le taire ferait annoncer « 3 éléments » pour une suppression qui en détruit des centaines. Deux champs portent cette nuance de bout en bout :
 
-- **`cascadeLabel`**, déclaré sur le module dans `ERASABLE_MODULES` et repropagé par le résumé serveur. Renseigné pour Habitudes seul (`"réalisations"`), les deux autres modules tenant dans une table. Il produit la mention `+ réalisations` à côté du compte dans la liste, la phrase « et toutes les réalisations associées » à la confirmation, et l'avertissement qui suit le compte : ce compte ne comprend pas les réalisations, elles sont supprimées aussi, et elles sont bien plus nombreuses.
-- **`relatedDeletedCount`**, renvoyé par le serveur après coup, qui chiffre les lignes réellement supprimées dans les tables dépendantes. Il est omis pour un module à table unique plutôt que forcé à zéro — « et 0 réalisations » sur une note n'aurait aucun sens à l'écran.
+- **`cascadeLabel`**, déclaré sur le module dans `ERASABLE_MODULES` et repropagé par le résumé serveur. Renseigné pour Habitudes seul (`"réalisations"`). Notes et Tâches tiennent dans une table. Journal non : il porte une table dépendante depuis le 2026-09-09, mais son libellé est différé à l'interface des catégories, qui **devra** l'ajouter. Il produit la mention `+ réalisations` à côté du compte dans la liste, la phrase « et toutes les réalisations associées » à la confirmation, et l'avertissement qui suit le compte : ce compte ne comprend pas les réalisations, elles sont supprimées aussi, et elles sont bien plus nombreuses.
+- **`relatedDeletedCount`**, renvoyé par le serveur après coup, qui chiffre les lignes réellement supprimées dans les tables dépendantes. Il est omis pour un module à table unique plutôt que forcé à zéro. L'écran de résultat l'affiche sous la forme « — réalisations : 8 », le libellé venant du `cascadeLabel` du module et **jamais d'un mot écrit dans l'écran**. Sans `cascadeLabel`, rien n'est affiché : c'est ce qui empêche un vidage de Journal d'annoncer « 0 réalisation ». La forme libellé-valeur tient au pluriel de `cascadeLabel` — une phrase « et N réalisations » donnerait « 1 réalisations », et un second champ au singulier doublerait la déclaration. Tant qu'aucune interface ne crée de liaison, le volume dépendant de Journal est toujours nul ; le jour où elle existera, son `cascadeLabel` sera la condition pour qu'il soit nommé et chiffré, comme DEC-012 l'exige.
 
 L'écran de résultat affiche les volumes **renvoyés par le serveur**, pas ceux annoncés à la confirmation. Un écart entre les deux est donc visible plutôt que masqué.
 

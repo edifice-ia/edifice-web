@@ -1,7 +1,7 @@
 # Base de données
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-10
+Dernière mise à jour : 2026-09-15
 
 ## Sommaire
 
@@ -111,8 +111,8 @@ Tables créées ou visibles dans les migrations :
 
 - **pas de `deleted_at` sur les catégories.** Une étiquette n'est pas du contenu : sa suppression est physique et irréversible. La protection contre la perte est la règle de blocage ci-dessous, pas une corbeille ;
 - **unicité par utilisateur, insensible à la casse et aux blancs de bord**, portée par un index unique sur `(user_id, lower(btrim(name)))`. Un index et non une contrainte, une contrainte `unique` ne pouvant porter sur une expression : il n'apparaît donc pas dans `pg_constraint` ;
-- **la liaison dénormalise `user_id`**, comme `personal_habit_completions`, pour des policies sans jointure. Contrairement à Habitudes, aucune clé étrangère composite n'en garantit la cohérence avec les deux parents : elle est tenue à l'insertion applicative, limite documentée dans la migration ;
-- **la clé étrangère de la liaison vers les catégories est en `on delete restrict`** : c'est la moitié structurelle de la règle qui bloque la suppression d'une catégorie laissant une entrée sans catégorie. Celle vers les entrées est en `cascade`, filet et non mécanisme — la suppression explicite des dépendantes est la règle, voir [Décisions](./03_Decisions.md) DEC-013, passée en `actif` sur ce cas.
+- **la liaison dénormalise `user_id`**, comme `personal_habit_completions`, pour des policies sans jointure, et **sa cohérence avec les deux parents est garantie en base** : ses deux clés étrangères sont **composites** — `(entry_id, user_id)` vers `personal_journal_entries (id, user_id)`, `(category_id, user_id)` vers `personal_journal_categories (id, user_id)` —, adossées à `unique (id, user_id)` sur chaque parent, patron d'Habitudes. C'est ce qui empêche une liaison de référencer l'entrée ou la catégorie d'un autre compte : Postgres vérifie une clé étrangère **sans appliquer RLS**, et les clés simples posées à la création le permettaient. Faille fermée par `20260914100000`, appliquée le 2026-09-15, avant qu'aucune liaison n'ait existé ;
+- **la clé composite vers les catégories est en `on delete restrict`** : c'est la moitié structurelle de la règle qui bloque la suppression d'une catégorie laissant une entrée sans catégorie. Elle ne peut être déclenchée que par les liaisons du propriétaire lui-même. Celle vers les entrées est en `cascade`, filet et non mécanisme — la suppression explicite des dépendantes est la règle, voir [Décisions](./03_Decisions.md) DEC-013, passée en `actif` sur ce cas.
 
 Leur store n'est pas encore écrit.
 

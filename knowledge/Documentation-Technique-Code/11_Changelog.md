@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-09-14
+Dernière mise à jour : 2026-09-15
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-15 (clés étrangères composites sur la liaison des catégories de Journal)](#2026-09-15-clés-étrangères-composites-sur-la-liaison-des-catégories-de-journal)
 - [2026-09-09 (catégories de Journal, et DEC-013 passée en actif)](#2026-09-09-catégories-de-journal-et-dec-013-passée-en-actif)
 - [2026-09-05 (suppression définitive d'une tâche archivée)](#2026-09-05-suppression-définitive-dune-tâche-archivée)
 - [2026-09-03 (Tâches dans « Vider l'historique », et correction de dates)](#2026-09-03-tâches-dans--vider-lhistorique--et-correction-de-dates)
@@ -51,6 +52,35 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-09-15 (clés étrangères composites sur la liaison des catégories de Journal)
+
+Type : sécurité, base de données
+
+Résumé : correctif d'une **faille d'isolation entre comptes** dans `personal_journal_entry_categories`, découverte en cadrant l'interface des catégories, avant qu'aucune liaison n'existe. **Migration écrite le 2026-09-14** — c'est l'horodatage de son nom, `20260914100000` —, committée le 2026-09-15, et **pas encore appliquée en base**.
+
+**La faille.** Les deux clés étrangères posées par `20260909110000` étaient simples : `entry_id` vers `personal_journal_entries(id)`, `category_id` vers `personal_journal_categories(id)`. Or Postgres vérifie une clé étrangère **sans appliquer RLS**. La policy `insert` de la liaison ne contrôlait que `user_id = auth.uid()`, jamais le propriétaire de l'entrée ni de la catégorie référencées. Un compte authentifié pouvait donc, par un appel direct à l'API, lier sa propre entrée à la catégorie d'un autre compte — à condition d'en connaître l'UUID, que RLS l'empêche de lire. Le `on delete restrict` aurait alors bloqué le propriétaire légitime au moment de supprimer **sa** catégorie, et son contrôle applicatif, qui passe par RLS, n'aurait pas vu ce lien : l'application aurait conclu que rien ne bloquait, la base aurait refusé, et le geste aurait fini en `500`.
+
+**Rien n'a été exploité** : la table de liaison compte **0 ligne** au 2026-09-15, mesuré en base au moment de cette entrée. Aucune route ni aucun écran ne crée encore de liaison.
+
+**Le correctif**, repris d'Habitudes (`personal_habit_completions_habit_fk`) : `unique (id, user_id)` sur les deux tables parentes, et deux clés **composites** qui remplacent les simples — `(entry_id, user_id)` vers `personal_journal_entries (id, user_id)`, `(category_id, user_id)` vers `personal_journal_categories (id, user_id)`. Une liaison ne peut plus référencer qu'une entrée et une catégorie du même compte qu'elle, et la policy `insert` impose déjà que ce compte soit l'appelant. Retrait et ajout tiennent dans une transaction : il n'existe aucun instant où la liaison serait sans clé étrangère.
+
+**Ce qui ne change pas** : les règles de suppression — `restrict` vers les catégories, moitié structurelle de la règle de blocage, et `cascade` vers les entrées. Ni grant, ni policy, ni RLS ne sont touchés.
+
+**Effet de bord** : la « limite assumée » documentée dans `20260909110000` — rien en base ne garantissait que le `user_id` de la liaison égale celui de l'entrée et celui de la catégorie — est levée par les clés composites, sans trigger.
+
+Fichiers liés :
+
+- `supabase/migrations/20260914100000_journal_categories_composite_fk.sql` (nouveau)
+- `MANUAL_ACTIONS.md` (entrée du 2026-09-14)
+
+Impact : **aucun tant que la migration n'est pas appliquée** — la faille reste ouverte en base jusque-là. Une fois appliquée, une liaison inter-comptes est refusée en `23503`, ce que le contrôle de comportement de l'entrée `MANUAL_ACTIONS.md` vérifie sur trois cas, dont un témoin qui doit passer.
+
+Action de suivi :
+
+- **Appliquer la migration** dans le SQL Editor, en suivant l'entrée `MANUAL_ACTIONS.md` du 2026-09-14. Son contrôle préalable est bloquant : la migration retire les clés simples par leur **nom par défaut**, et un nom différent les laisserait en place, faille ouverte, sans erreur.
+- À l'application, corriger `05_Database.md`, qui affirme encore qu'« aucune clé étrangère composite n'en garantit la cohérence avec les deux parents ».
+- Le commentaire de `20260909110000` qui décrit la limite assumée restera tel quel : la migration est appliquée, la modifier désalignerait le fichier du dépôt de ce qui a tourné en base.
 
 ## 2026-09-09 (catégories de Journal, et DEC-013 passée en actif)
 

@@ -53,6 +53,142 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-09-14 — Appliquer les clés étrangères composites de la liaison des catégories de Journal
+
+**Statut** : `pending`
+
+**Fichier** : `supabase/migrations/20260914100000_journal_categories_composite_fk.sql`
+
+**Pourquoi c'est manuel** : nécessite un clic dans le SQL Editor Supabase, pas d'accès API direct pour ce type d'opération. Aucun CLI Supabase authentifié n'est configuré sur cette machine, et la clé service-role ne permet pas d'exécuter du DDL par l'API REST.
+
+**Bloque** : toute création de liaison entre une entrée de journal et une catégorie. Les routes du checkpoint suivant, qui en créeront, ne doivent pas être exposées en production avant que cette migration soit appliquée.
+
+**Ce que corrige cette migration, à lire avant d'exécuter** : les deux clés étrangères de `personal_journal_entry_categories` étaient simples. Or Postgres vérifie une clé étrangère **sans appliquer RLS**. Un utilisateur connaissant l'UUID d'une catégorie d'un autre compte pouvait donc y lier sa propre entrée — et bloquer ainsi, par le `restrict`, la suppression de cette catégorie par son propriétaire, avec une erreur 500 que son contrôle applicatif n'aurait pas vu venir. Les clés deviennent composites, sur `(id, user_id)`, patron repris d'Habitudes. **Les règles de suppression ne changent pas** — `restrict` vers les catégories, `cascade` vers les entrées — ni aucun grant, ni aucune policy. La table de liaison est vide : rien n'est revalidé.
+
+**Étapes** :
+
+1. Ouvrir <https://supabase.com/dashboard>, sélectionner le projet de L'Édifice, puis « SQL Editor » dans la barre latérale.
+
+2. **Contrôle préalable — noms des clés actuelles.** La migration retire les deux clés simples par leur nom par défaut. Si les noms diffèrent, elle ne les retirerait pas :
+
+```sql
+select conname,
+       confrelid::regclass as vers,
+       confdeltype,
+       array_length(conkey, 1) as nb_colonnes
+from pg_constraint
+where conrelid = 'public.personal_journal_entry_categories'::regclass
+  and contype = 'f'
+order by conname;
+```
+
+Attendu, **trois lignes exactement** :
+
+- `personal_journal_entry_categories_category_id_fkey` → `personal_journal_categories`, `r`, 1
+- `personal_journal_entry_categories_entry_id_fkey` → `personal_journal_entries`, `c`, 1
+- `personal_journal_entry_categories_user_id_fkey` → `auth.users`, `c`, 1
+
+**Si l'un des deux premiers noms diffère, ne pas exécuter** : le signaler, la migration sera corrigée d'abord.
+
+3. Nouvelle requête, coller le contenu intégral de `20260914100000_journal_categories_composite_fk.sql`, cliquer « Run ». Le fichier est idempotent — ajouts gardés par un test d'existence, retraits en `if exists` — et tient dans une transaction : il n'existe aucun instant où la liaison serait sans clé étrangère.
+
+4. **Contrôle après application — les clés.** Relancer la requête de l'étape 2.
+
+Attendu, **trois lignes exactement** :
+
+- `personal_journal_entry_categories_category_fk` → `personal_journal_categories`, `r`, **2**
+- `personal_journal_entry_categories_entry_fk` → `personal_journal_entries`, `c`, **2**
+- `personal_journal_entry_categories_user_id_fkey` → `auth.users`, `c`, 1
+
+**Aucune clé à une colonne vers `personal_journal_categories` ni vers `personal_journal_entries` ne doit subsister.** Si l'une reste, la faille n'est pas fermée : la clé simple continuerait d'accepter une catégorie d'un autre compte.
+
+5. **Contrôle après application — les cibles uniques** :
+
+```sql
+select conrelid::regclass as table_name, conname, pg_get_constraintdef(oid) as definition
+from pg_constraint
+where conname in ('personal_journal_entries_id_user_id_key',
+                  'personal_journal_categories_id_user_id_key')
+order by 1;
+```
+
+Attendu : deux lignes, chacune avec `UNIQUE (id, user_id)`.
+
+6. **Contrôle de comportement — dans un bloc entièrement annulé.** Il crée, sans rien conserver, une catégorie pour `reviewer@edificeia.com`, une catégorie et une entrée pour `test-erase@edificeia.com`, puis tente trois liaisons. Le compte `contact.edificeia@gmail.com` n'est jamais touché.
+
+```sql
+do $$
+declare
+  v_reviewer uuid;
+  v_test uuid;
+  v_cat_reviewer uuid;
+  v_cat_test uuid;
+  v_entry_test uuid;
+  v_cas_b text := 'ECHEC';
+  v_cas_c text := 'ECHEC';
+begin
+  select id into v_reviewer from auth.users where email = 'reviewer@edificeia.com';
+  select id into v_test from auth.users where email = 'test-erase@edificeia.com';
+  if v_reviewer is null or v_test is null then
+    raise exception 'CONTROLE NUL : un des deux comptes est absent, le test ne prouverait rien';
+  end if;
+
+  insert into public.personal_journal_categories (user_id, name)
+    values (v_reviewer, 'Controle isolation') returning id into v_cat_reviewer;
+  insert into public.personal_journal_categories (user_id, name)
+    values (v_test, 'Controle isolation') returning id into v_cat_test;
+  insert into public.personal_journal_entries (user_id, content)
+    values (v_test, 'Controle isolation') returning id into v_entry_test;
+
+  -- Cas A, temoin : entree et categorie du meme compte. Doit PASSER, sinon le
+  -- test echouerait pour une autre raison que la cle composite.
+  insert into public.personal_journal_entry_categories (entry_id, category_id, user_id)
+    values (v_entry_test, v_cat_test, v_test);
+
+  -- Cas B : categorie d'un autre compte. Doit ECHOUER sur la cle categorie.
+  begin
+    insert into public.personal_journal_entry_categories (entry_id, category_id, user_id)
+      values (v_entry_test, v_cat_reviewer, v_test);
+  exception when foreign_key_violation then
+    v_cas_b := 'refuse (23503)';
+  end;
+
+  -- Cas C : liaison qui se declare d'un autre compte que l'entree. Doit
+  -- ECHOUER sur la cle entree.
+  begin
+    insert into public.personal_journal_entry_categories (entry_id, category_id, user_id)
+      values (v_entry_test, v_cat_reviewer, v_reviewer);
+  exception when foreign_key_violation then
+    v_cas_c := 'refuse (23503)';
+  end;
+
+  -- Annulation volontaire de TOUT le bloc. Le resultat est porte par le message
+  -- d'erreur, parce que le SQL Editor n'affiche pas toujours les NOTICE.
+  raise exception 'ANNULATION VOLONTAIRE, rien n''est conserve — A : accepte ; B : % ; C : %',
+    v_cas_b, v_cas_c;
+end $$;
+```
+
+Attendu : le bloc se termine **en erreur, et c'est voulu**, avec le message :
+
+```text
+ANNULATION VOLONTAIRE, rien n'est conserve — A : accepte ; B : refuse (23503) ; C : refuse (23503)
+```
+
+Tout autre message est un échec. `B : ECHEC` ou `C : ECHEC` signifie qu'un lien inter-comptes a été accepté : la faille reste ouverte. Une erreur dès le cas A signifie que le témoin lui-même ne passe pas.
+
+7. **Contre-vérification** — rien n'a subsisté :
+
+```sql
+select
+  (select count(*) from public.personal_journal_categories where name = 'Controle isolation') as categories,
+  (select count(*) from public.personal_journal_entries where content = 'Controle isolation') as entrees;
+```
+
+Attendu : `0` et `0`.
+
+**Vérification** : les étapes 4 à 7 renvoient exactement les valeurs attendues. Grants, RLS et policies ne sont pas touchés par cette migration : les contrôles de l'entrée du 2026-09-09 restent valables sans être rejoués.
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`

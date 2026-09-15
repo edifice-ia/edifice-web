@@ -114,9 +114,9 @@ Tables créées ou visibles dans les migrations :
 - **la liaison dénormalise `user_id`**, comme `personal_habit_completions`, pour des policies sans jointure, et **sa cohérence avec les deux parents est garantie en base** : ses deux clés étrangères sont **composites** — `(entry_id, user_id)` vers `personal_journal_entries (id, user_id)`, `(category_id, user_id)` vers `personal_journal_categories (id, user_id)` —, adossées à `unique (id, user_id)` sur chaque parent, patron d'Habitudes. C'est ce qui empêche une liaison de référencer l'entrée ou la catégorie d'un autre compte : Postgres vérifie une clé étrangère **sans appliquer RLS**, et les clés simples posées à la création le permettaient. Faille fermée par `20260914100000`, appliquée le 2026-09-15, avant qu'aucune liaison n'ait existé ;
 - **la clé composite vers les catégories est en `on delete restrict`** : c'est la moitié structurelle de la règle qui bloque la suppression d'une catégorie laissant une entrée sans catégorie. Elle ne peut être déclenchée que par les liaisons du propriétaire lui-même. Celle vers les entrées est en `cascade`, filet et non mécanisme — la suppression explicite des dépendantes est la règle, voir [Décisions](./03_Decisions.md) DEC-013, passée en `actif` sur ce cas.
 
-Leur store n'est pas encore écrit.
+Leur store existe depuis le 2026-09-15, `lib/server/personal/journal-categories-store.ts` : client de session, RLS en garde réel. L'interface n'est pas encore écrite.
 
-Ces sept tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role — ou l'utiliseront, pour les deux tables de catégories dont le store n'est pas encore écrit. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet.
+Ces sept tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet.
 
 **Trois d'entre elles seulement accordent le privilège `DELETE` à `authenticated`**, chacune doublée d'une policy `DELETE` scopée au propriétaire, et pour la même raison : aucune ne porte de contenu.
 

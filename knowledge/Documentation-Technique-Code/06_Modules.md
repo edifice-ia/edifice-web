@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-14
+Dernière mise à jour : 2026-09-15
 
 ## Sommaire
 
@@ -358,6 +358,30 @@ Deux écarts propres à ce module :
 **Rattachement Marque/Projet : extension différée**, même raison et même référence que Notes — voir [Décisions](./03_Decisions.md) DEC-010, qui s'applique à tout module de domaine de vie construit avant que le concept n'existe en code.
 
 **Archives et restauration : contrat identique à Notes**, libellé « Archiver » compris, à la forme de réponse près (`entries` au lieu de `notes`). `GET /api/personal/journal?archived=true` pour la liste, `POST /api/personal/journal/[id]/restore` pour restaurer, `archivedCount` sur la liste active. Les entrées archivées affichent leur humeur si elle était notée. **Deux gestes y sont possibles depuis le 2026-08-18, comme sur Notes : « Restaurer » et « Supprimer définitivement »** (`DELETE /api/personal/journal/[id]/permanent`) — voir la section Notes ci-dessus pour le raisonnement complet sur la séparation entre les trois gestes. Une différence propre à ce module : l'aperçu de confirmation reprend le début du texte **plus la date d'archivage et l'humeur**, deux entrées de journal commençant souvent de la même façon.
+
+#### Catégories — socle serveur
+
+Construit le 2026-09-15, **sans aucune interface** : les écrans viendront aux checkpoints suivants. Tables en base depuis le 2026-09-10, clés étrangères composites depuis le 2026-09-15 — voir [Base de données](./05_Database.md).
+
+Fichiers :
+
+- `lib/personal/journal-categories.ts` — types et validation, sans I/O, partagés client et serveur
+- `lib/server/personal/journal-categories-store.ts` — client de session : **RLS est le garde réel**, sans service-role
+- `app/api/personal/journal/categories/route.ts` (GET, POST), `app/api/personal/journal/categories/[id]/route.ts` (PATCH, DELETE), `app/api/personal/journal/[id]/categories/route.ts` (PUT)
+
+Toutes les routes passent par `authorizeCockpitApiAccess()` dès leur écriture, et **valident le format UUID** des identifiants avant qu'ils n'atteignent Postgres — `404` pour un identifiant d'URL malformé, `400` dans le corps. Les routes plus anciennes du pôle ne font pas ce contrôle : un identifiant malformé y remonte en `22P02`, puis en `500`.
+
+**Les catégories d'une entrée s'écrivent par une route à part**, `PUT /api/personal/journal/[id]/categories`, qui remplace l'ensemble — jamais par la création ni par la modification du contenu. L'entrée et ses liaisons ne peuvent pas s'écrire atomiquement : portées par la même requête, un échec sur les liaisons laisserait l'entrée créée et ferait recréer une entrée en double au nouvel essai. Ici, un échec ne laisse qu'une entrée sans catégorie, état valide. Un tableau vide est accepté : **aucune catégorie n'est obligatoire à la saisie**. Les ajouts passent avant les retraits, pour qu'un échec entre les deux laisse trop de catégories, jamais trop peu.
+
+`PersonalJournalEntry` porte désormais `categoryIds`, sur les entrées actives comme archivées. Les noms ne sont pas répétés dans l'entrée : l'interface les résoudra depuis la liste des catégories, source unique, pour qu'un renommage ne laisse pas d'anciens noms dans les entrées déjà chargées.
+
+**Le compte par catégorie inclut les entrées archivées, et le dit** : `entryCount` et `archivedEntryCount`, ce dernier étant une part du premier. Un total des seules entrées actives mentirait sur ce que la suppression peut bloquer.
+
+**La suppression d'une catégorie est physique et irréversible**, et elle vit dans ce store, hors de `data-erasure-store.ts` : ce fichier-là porte les gestes d'effacement de contenu, et une étiquette n'en est pas. Elle est **bloquée en `409 CATEGORY_IN_USE`** si une entrée — **archivée comprise** — n'a que cette catégorie ; rien n'est alors écrit, et la réponse liste ces entrées avec date, humeur et un aperçu calculé côté serveur par `erasurePreview`. Sinon, les entrées qui ont d'autres catégories perdent seulement celle-ci. Séquentielle et non atomique, par choix : si une autre session crée entre-temps une entrée n'ayant que cette catégorie, la clé composite en `restrict` refuse en `23503`, le contrôle est refait, et la réponse est un `409` — jamais une `500`.
+
+Les noms en double — majuscules et blancs de bord ignorés — sont refusés par l'index unique en base, rendus en `409 CATEGORY_NAME_TAKEN`. Le `404` est uniforme : ressource inexistante, d'un autre compte, ou identifiant malformé.
+
+**Pas encore construits** : l'écran de gestion, le sélecteur sur une entrée, l'affichage sur les entrées, l'écran de blocage et de réassignation. Et `ERASABLE_MODULES` ne donne toujours à Journal aucun `cascadeLabel` : il viendra avec le premier écran qui crée des liaisons.
 
 ### Habitudes
 

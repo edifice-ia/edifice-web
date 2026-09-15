@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-09-15
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-15 (socle serveur des catégories de Journal)](#2026-09-15-socle-serveur-des-catégories-de-journal)
 - [2026-09-15 (clés étrangères composites sur la liaison des catégories de Journal)](#2026-09-15-clés-étrangères-composites-sur-la-liaison-des-catégories-de-journal)
 - [2026-09-09 (catégories de Journal, et DEC-013 passée en actif)](#2026-09-09-catégories-de-journal-et-dec-013-passée-en-actif)
 - [2026-09-05 (suppression définitive d'une tâche archivée)](#2026-09-05-suppression-définitive-dune-tâche-archivée)
@@ -53,6 +54,37 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
+## 2026-09-15 (socle serveur des catégories de Journal)
+
+Type : produit, sécurité, architecture, documentation
+
+Résumé : store et routes des **catégories de Journal**, sans aucune interface. C'est le premier des quatre checkpoints du chantier ; l'écran de gestion, le sélecteur et l'écran de blocage suivront. Toutes les routes passent par `authorizeCockpitApiAccess()` dès leur écriture.
+
+**Contrat.** `GET` et `POST /api/personal/journal/categories` ; `PATCH` et `DELETE /api/personal/journal/categories/[id]` ; `PUT /api/personal/journal/[id]/categories`, qui remplace l'ensemble des catégories d'une entrée. Les entrées de journal, actives comme archivées, portent désormais `categoryIds`.
+
+**Décisions portées par ce commit** :
+
+- les catégories d'une entrée s'écrivent par une **route à part**, jamais avec la création de l'entrée : les deux écritures ne peuvent pas être atomiques, et un échec sur les liaisons ferait recréer l'entrée en double au nouvel essai ;
+- la **règle de blocage compte les entrées archivées**, et le compte par catégorie les inclut en le disant (`entryCount`, dont `archivedEntryCount`) ;
+- la **suppression est séquentielle**, pas atomique : la clé composite en `restrict` sert de filet, et un `23503` tardif devient un `409`, jamais une `500` ;
+- les nouvelles routes **valident le format UUID** avant Postgres ; les routes plus anciennes du pôle ne le font pas.
+
+Supprimer une catégorie est une suppression physique, hors de `data-erasure-store.ts` : ce fichier porte les gestes d'effacement de contenu, et une étiquette n'en est pas.
+
+Fichiers liés :
+
+- `lib/personal/journal-categories.ts`, `lib/server/personal/journal-categories-store.ts` (nouveaux)
+- `app/api/personal/journal/categories/route.ts`, `app/api/personal/journal/categories/[id]/route.ts`, `app/api/personal/journal/[id]/categories/route.ts` (nouveaux)
+- `lib/personal/journal.ts`, `lib/server/personal/journal-store.ts`
+- `knowledge/Documentation-Technique-Code/05_Database.md`, `06_Modules.md`, `11_Changelog.md`
+
+Impact : aucun à l'écran. Les liaisons deviennent possibles par l'API, et seulement entre une entrée et une catégorie du même compte, la clé composite l'imposant en base.
+
+Action de suivi :
+
+- les écrans du chantier, dans l'ordre : gestion des catégories, puis sélecteur et affichage avec le `cascadeLabel` de Journal, puis écran de blocage et de réassignation ;
+- valider le format des identifiants dans les routes plus anciennes du pôle, qui laissent un identifiant malformé finir en `500`.
+
 ## 2026-09-15 (clés étrangères composites sur la liaison des catégories de Journal)
 
 Type : sécurité, base de données
@@ -64,6 +96,8 @@ Résumé : correctif d'une **faille d'isolation entre comptes** dans `personal_j
 **La faille.** Les deux clés étrangères posées par `20260909110000` étaient simples : `entry_id` vers `personal_journal_entries(id)`, `category_id` vers `personal_journal_categories(id)`. Or Postgres vérifie une clé étrangère **sans appliquer RLS**. La policy `insert` de la liaison ne contrôlait que `user_id = auth.uid()`, jamais le propriétaire de l'entrée ni de la catégorie référencées. Un compte authentifié pouvait donc, par un appel direct à l'API, lier sa propre entrée à la catégorie d'un autre compte — à condition d'en connaître l'UUID, que RLS l'empêche de lire. Le `on delete restrict` aurait alors bloqué le propriétaire légitime au moment de supprimer **sa** catégorie, et son contrôle applicatif, qui passe par RLS, n'aurait pas vu ce lien : l'application aurait conclu que rien ne bloquait, la base aurait refusé, et le geste aurait fini en `500`.
 
 **Rien n'a été exploité** : la table de liaison compte **0 ligne** au 2026-09-15, mesuré en base au moment de cette entrée. Aucune route ni aucun écran ne crée encore de liaison.
+
+> ⚠️ **« Aucune route ni aucun écran ne crée encore de liaison » est dépassé depuis le 2026-09-15, jour même de cette entrée.** Le socle serveur des catégories — voir l'entrée « socle serveur des catégories de Journal » du même jour — expose `PUT /api/personal/journal/[id]/categories`, qui crée des liaisons, et son test de contrat en a créé sur le compte de test. La mesure « 0 ligne » reste exacte à son heure : la faille était fermée en base avant qu'aucune liaison n'existe. Aucun écran n'en crée encore.
 
 **Le correctif**, repris d'Habitudes (`personal_habit_completions_habit_fk`) : `unique (id, user_id)` sur les deux tables parentes, et deux clés **composites** qui remplacent les simples — `(entry_id, user_id)` vers `personal_journal_entries (id, user_id)`, `(category_id, user_id)` vers `personal_journal_categories (id, user_id)`. Une liaison ne peut plus référencer qu'une entrée et une catégorie du même compte qu'elle, et la policy `insert` impose déjà que ce compte soit l'appelant. Retrait et ajout tiennent dans une transaction : il n'existe aucun instant où la liaison serait sans clé étrangère.
 
@@ -83,6 +117,7 @@ Action de suivi :
 - **Appliquer la migration** dans le SQL Editor, en suivant l'entrée `MANUAL_ACTIONS.md` du 2026-09-14. Son contrôle préalable est bloquant : la migration retire les clés simples par leur **nom par défaut**, et un nom différent les laisserait en place, faille ouverte, sans erreur.
 - À l'application, corriger `05_Database.md`, qui affirme encore qu'« aucune clé étrangère composite n'en garantit la cohérence avec les deux parents ».
 - Le commentaire de `20260909110000` qui décrit la limite assumée restera tel quel : la migration est appliquée, la modifier désalignerait le fichier du dépôt de ce qui a tourné en base.
+- **Point ouvert, non bloquant : `restrict` face à une future suppression de compte.** Supprimer un compte dans `auth.users` déclenche plusieurs cascades dans une même instruction — vers ses catégories, ses entrées et ses liaisons. `on delete restrict` vérifie immédiatement, sans attendre la fin de l'instruction : si la cascade des catégories passait avant celles qui effacent les liaisons, la suppression du compte **pourrait échouer**. L'ordre dépend du nom interne des triggers et n'est pas garanti. **Non vérifié** : aucun compte n'a encore été supprimé en portant des liaisons. `on delete no action` offrirait la même garantie à l'application, avec une vérification en fin d'instruction. Non bloquant tant que le geste « supprimer le compte » n'existe pas dans le dépôt ; **à trancher avant de l'écrire**.
 
 ## 2026-09-09 (catégories de Journal, et DEC-013 passée en actif)
 
@@ -118,7 +153,7 @@ Action de suivi :
 
 - **Défaut introduit par ce commit, corrigé le 2026-09-14, avant tout push.** L'écran de résultat de « Vider l'historique » (`SettingsPersonalPanel.tsx`) écrivait en dur le mot « réalisation » dès que `relatedDeletedCount` était défini — ce qu'il est désormais pour Journal, qui aurait affiché « et 0 réalisation ». Établi par lecture du code, jamais observé à l'écran. Le libellé vient maintenant du `cascadeLabel` du module, sous la forme « — réalisations : 8 », et rien n'est affiché sans lui.
 - **Reste ouvert, différé à l'interface des catégories** : `ERASABLE_MODULES` ne donne à Journal aucun `cascadeLabel`. Sans lui, les liaisons emportées ne sont ni nommées à la confirmation ni chiffrées au résultat, ce que DEC-012 exige de tout volume que le compte affiché n'inclut pas. Sans conséquence tant qu'aucun écran ne crée de liaison ; cette interface devra l'ajouter.
-- Le store, la route et l'interface des catégories ne sont pas écrits : ni sélecteur sur une entrée, ni écran de gestion, ni moitié applicative de la règle de blocage.
+- Le store, les routes et la moitié applicative de la règle de blocage sont écrits le 2026-09-15 — voir l'entrée « socle serveur des catégories de Journal ». L'interface ne l'est pas : ni sélecteur sur une entrée, ni écran de gestion.
 
 Entrée rédigée le 2026-09-14 : un changement structurant appelle une entrée dans le commit même, et elle avait été omise dans `3b36515`.
 

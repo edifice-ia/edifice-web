@@ -3,6 +3,10 @@ import type {
   PersonalJournalEntry,
 } from "@/lib/personal/journal";
 import { createClient } from "@/src/lib/supabase/server";
+import {
+  listCategoryIdsForJournalEntry,
+  listJournalEntryCategoryIds,
+} from "./journal-categories-store";
 
 type PersonalJournalEntryRow = {
   id: string;
@@ -37,11 +41,12 @@ async function getJournalClient() {
   return supabase;
 }
 
-function mapEntry(row: PersonalJournalEntryRow): PersonalJournalEntry {
+function mapEntry(row: PersonalJournalEntryRow, categoryIds: string[]): PersonalJournalEntry {
   return {
     id: row.id,
     content: row.content,
     mood: row.mood,
+    categoryIds,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -57,18 +62,26 @@ export async function listPersonalJournalEntries(
   userId: string,
 ): Promise<PersonalJournalEntry[]> {
   const supabase = await getJournalClient();
-  const { data, error } = await supabase
-    .from("personal_journal_entries")
-    .select(JOURNAL_COLUMNS)
-    .eq("user_id", userId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+  // Deux requetes et non une jointure imbriquee : la cle de la liaison est
+  // composite, et l'affichage ne doit pas dependre de sa resolution par
+  // PostgREST — meme choix que completionCount sur Habitudes.
+  const [{ data, error }, categoryIdsByEntry] = await Promise.all([
+    supabase
+      .from("personal_journal_entries")
+      .select(JOURNAL_COLUMNS)
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false }),
+    listJournalEntryCategoryIds(userId),
+  ]);
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return ((data ?? []) as PersonalJournalEntryRow[]).map(mapEntry);
+  return ((data ?? []) as PersonalJournalEntryRow[]).map((row) =>
+    mapEntry(row, categoryIdsByEntry.get(row.id) ?? []),
+  );
 }
 
 // Triees par date d'archivage decroissante : ce qu'on vient d'archiver par
@@ -77,19 +90,24 @@ export async function listArchivedPersonalJournalEntries(
   userId: string,
 ): Promise<ArchivedPersonalJournalEntry[]> {
   const supabase = await getJournalClient();
-  const { data, error } = await supabase
-    .from("personal_journal_entries")
-    .select(ARCHIVED_JOURNAL_COLUMNS)
-    .eq("user_id", userId)
-    .not("deleted_at", "is", null)
-    .order("deleted_at", { ascending: false });
+  // Une entree archivee garde ses categories : l'archivage ne touche pas a la
+  // table de liaison, et la carte Archives les affiche en lecture seule.
+  const [{ data, error }, categoryIdsByEntry] = await Promise.all([
+    supabase
+      .from("personal_journal_entries")
+      .select(ARCHIVED_JOURNAL_COLUMNS)
+      .eq("user_id", userId)
+      .not("deleted_at", "is", null)
+      .order("deleted_at", { ascending: false }),
+    listJournalEntryCategoryIds(userId),
+  ]);
 
   if (error) {
     throw new Error(error.message);
   }
 
   return ((data ?? []) as ArchivedPersonalJournalEntryRow[]).map((row) => ({
-    ...mapEntry(row),
+    ...mapEntry(row, categoryIdsByEntry.get(row.id) ?? []),
     archivedAt: row.deleted_at,
   }));
 }
@@ -164,7 +182,11 @@ export async function createPersonalJournalEntry({
     throw new Error(error.message);
   }
 
-  return mapEntry(data);
+  // Tableau vide par construction, sans requete : une entree qui vient d'etre
+  // creee n'a encore aucune liaison. Ses categories se posent ensuite par
+  // PUT /api/personal/journal/[id]/categories — un second appel delibere, pour
+  // qu'un echec sur les categories ne fasse jamais recreer l'entree en double.
+  return mapEntry(data, []);
 }
 
 // Renvoie null quand aucune ligne n'a ete touchee : entree inexistante,
@@ -197,7 +219,15 @@ export async function updatePersonalJournalEntry({
     throw new Error(error.message);
   }
 
-  return data ? mapEntry(data) : null;
+  if (!data) {
+    return null;
+  }
+
+  // Modifier le contenu ou l'humeur ne touche pas aux categories : on les
+  // relit pour renvoyer l'entree complete, pas pour les ecrire.
+  const categoryIds = await listCategoryIdsForJournalEntry({ userId, entryId });
+
+  return mapEntry(data, categoryIds);
 }
 
 // Suppression logique uniquement : ecrit deleted_at. Aucune suppression

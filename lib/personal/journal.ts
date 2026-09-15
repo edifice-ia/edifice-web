@@ -10,6 +10,15 @@ export type PersonalJournalEntry = {
   id: string;
   content: string;
   mood: number | null;
+  // Identifiants des categories de l'entree, tableau vide si elle n'en a
+  // aucune — un etat valide. Les noms ne sont pas repetes ici : l'interface
+  // les resout depuis la liste des categories, source unique, pour qu'un
+  // renommage ne laisse pas d'anciens noms dans les entrees deja chargees.
+  //
+  // Lecture seule sur ce type : les categories d'une entree s'ecrivent par
+  // PUT /api/personal/journal/[id]/categories, jamais par la creation ni par
+  // la modification du contenu.
+  categoryIds: string[];
   createdAt: string;
   updatedAt: string;
 };

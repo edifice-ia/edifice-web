@@ -21,20 +21,41 @@ export const ERASABLE_MODULES: Array<{
   // plusieurs tables. Le compte reste exprime dans l'unite que l'utilisateur
   // reconnait — une habitude, pas une ligne — mais taire ce qui part avec elle
   // ferait annoncer "3 elements" pour une suppression qui en detruit des
-  // centaines. Renseigne pour Habitudes seul.
+  // centaines. Renseigne pour Habitudes et Journal ; Notes et Taches tiennent
+  // dans une table.
   //
-  // Notes et Taches tiennent dans une table. Journal NON : il porte une
-  // table dependante depuis 3b36515, personal_journal_entry_categories, mais
-  // son libelle est differe a l'interface des categories. Tant qu'il manque,
-  // l'ecran de resultat n'affiche aucun volume dependant pour Journal, et la
-  // confirmation ne nomme pas les liaisons emportees. Sans consequence tant
-  // qu'aucun ecran ne cree de liaison ; l'interface des categories DOIT
-  // l'ajouter ici, faute de quoi DEC-012 serait enfreinte.
+  // Toujours un nom FEMININ PLURIEL : les phrases qui l'emploient l'accordent
+  // ainsi ("toutes les ... associees", "elles sont supprimees").
+  //
+  // Obligatoire des qu'un module porte une table dependante : sans lui, les
+  // lignes emportees ne sont ni nommees a la confirmation ni chiffrees au
+  // resultat, ce que DEC-012 interdit.
   cascadeLabel?: string;
+  // Qualificatif de VOLUME, ajoute a l'avertissement "elles sont supprimees
+  // aussi". Facultatif, et renseigne seulement quand il est vrai pour tout
+  // compte : les realisations d'Habitudes sont par construction bien plus
+  // nombreuses que les habitudes. Rien de tel n'est garanti pour les
+  // attributions de categories de Journal. Sans lui, la phrase reste neutre.
+  cascadeVolumeNote?: string;
+  // Ce qui SURVIT au vidage alors que le libelle pourrait laisser croire le
+  // contraire. Journal seul : "toutes les attributions de categories associees"
+  // se lit facilement comme "toutes les categories", alors que les categories
+  // elles-memes restent.
+  cascadeSurvivalNote?: string;
 }> = [
   { id: "notes", label: "Notes" },
-  { id: "journal", label: "Journal et Humeur" },
-  { id: "habits", label: "Habitudes", cascadeLabel: "réalisations" },
+  {
+    id: "journal",
+    label: "Journal et Humeur",
+    cascadeLabel: "attributions de catégories",
+    cascadeSurvivalNote: "Les catégories elles-mêmes sont conservées.",
+  },
+  {
+    id: "habits",
+    label: "Habitudes",
+    cascadeLabel: "réalisations",
+    cascadeVolumeNote: "et elles sont bien plus nombreuses",
+  },
   { id: "tasks", label: "Tâches" },
 ];
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import {
   JOURNAL_CATEGORY_DELETE_RACE,
   JOURNAL_CATEGORY_DESCRIPTION_MAX_LENGTH,
@@ -78,18 +78,27 @@ type BlockedDeletion = {
 // DETRUIT des donnees du pole, y loger une gestion courante brouillerait cette
 // lecture.
 //
-// Elle charge ses categories elle-meme, a l'ouverture. Le jour ou le selecteur
-// d'une entree en aura aussi besoin, ce chargement remontera dans
-// PersonalJournalPanel pour etre partage.
+// Elle ne charge pas ses categories : PersonalJournalPanel les charge une fois
+// et les partage avec le selecteur des entrees et l'affichage des noms, pour
+// qu'il n'existe qu'une liste. Apres chaque ecriture, la carte appelle
+// onChanged, qui recharge cette liste — et les entrees, dont une suppression a
+// pu retirer des liaisons.
 //
 // La validation vient de lib/personal/journal-categories.ts, le module utilise
 // par les routes : le retour avant appel et le 400 du serveur ne peuvent pas
 // diverger. L'unicite du nom, elle, n'est tranchee que par le serveur — la
 // base l'impose, et une verification locale laisserait une fenetre de course.
-export function PersonalJournalCategoriesPanel() {
-  const [categories, setCategories] = useState<PersonalJournalCategoryWithCounts[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+export function PersonalJournalCategoriesPanel({
+  categories,
+  isLoading,
+  loadError,
+  onChanged,
+}: {
+  categories: PersonalJournalCategoryWithCounts[];
+  isLoading: boolean;
+  loadError: string | null;
+  onChanged: () => Promise<void>;
+}) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Message de fin d'une suppression reussie, ou d'une categorie disparue.
   const [notice, setNotice] = useState<string | null>(null);
@@ -111,62 +120,11 @@ export function PersonalJournalCategoriesPanel() {
     null,
   );
 
-  const fetchCategories = useCallback(async () => {
-    const response = await fetch("/api/personal/journal/categories", { cache: "no-store" });
-    const payload = (await response.json()) as ApiError & {
-      categories?: PersonalJournalCategoryWithCounts[];
-    };
-
-    if (!response.ok || !payload.categories) {
-      throw new Error(payload.error ?? "Lecture des categories indisponible.");
-    }
-
-    return payload.categories;
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    fetchCategories()
-      .then((next) => {
-        if (isMounted) {
-          setCategories(next);
-          setLoadError(null);
-        }
-      })
-      .catch((caughtError) => {
-        if (isMounted) {
-          setLoadError(
-            caughtError instanceof Error
-              ? caughtError.message
-              : "Lecture des categories indisponible.",
-          );
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [fetchCategories]);
-
   // Apres chaque ecriture, la liste est rechargee plutot que corrigee
   // localement : les comptes sont calcules par le serveur, et les recalculer ici
-  // creerait une seconde source qui deriverait.
-  async function reload() {
-    try {
-      setCategories(await fetchCategories());
-      setLoadError(null);
-    } catch (caughtError) {
-      setLoadError(
-        caughtError instanceof Error ? caughtError.message : "Lecture des categories indisponible.",
-      );
-    }
-  }
+  // creerait une seconde source qui deriverait. Un echec de rechargement
+  // s'affiche via loadError, tenu par PersonalJournalPanel.
+  const reload = onChanged;
 
   const draftCheck = parseJournalCategoryCreatePayload({
     name: draftName,

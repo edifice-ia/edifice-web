@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-09-16
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-16 (sélecteur et affichage des catégories de Journal)](#2026-09-16-sélecteur-et-affichage-des-catégories-de-journal)
 - [2026-09-16 (écran de gestion des catégories de Journal)](#2026-09-16-écran-de-gestion-des-catégories-de-journal)
 - [2026-09-15 (socle serveur des catégories de Journal)](#2026-09-15-socle-serveur-des-catégories-de-journal)
 - [2026-09-15 (clés étrangères composites sur la liaison des catégories de Journal)](#2026-09-15-clés-étrangères-composites-sur-la-liaison-des-catégories-de-journal)
@@ -55,6 +56,38 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
+## 2026-09-16 (sélecteur et affichage des catégories de Journal)
+
+Type : produit, documentation
+
+Résumé : troisième checkpoint du chantier des catégories de Journal, **interface seule**, sans changement serveur. Un sélecteur de catégories à la création et à la modification d'une entrée, l'affichage des catégories sur les entrées actives et archivées, et le `cascadeLabel` de Journal dans « Vider l'historique ». **C'est le premier écran qui crée des liaisons.**
+
+**Décisions portées par ce commit** :
+
+- **les catégories sont chargées une fois, par `PersonalJournalPanel`**, et partagées avec la carte de gestion, qui ne les charge plus elle-même ;
+- **deux écritures, l'entrée puis ses catégories**. À la création, un échec de la seconde garde l'entrée et vide le formulaire, pour ne pas inviter à la recréer en double ; à la modification, il laisse l'édition ouverte ;
+- **un identifiant de catégorie absent de la liste chargée n'est pas affiché**, sans message ; un échec de chargement de la liste, lui, est signalé ;
+- **`cascadeLabel` de Journal : « attributions de catégories »** ;
+- **l'avertissement de « Vider l'historique » devient neutre sur le volume** : « et elles sont bien plus nombreuses », jusqu'ici écrit en dur dans `SettingsPersonalPanel.tsx` et donc appliqué à tout module ayant un `cascadeLabel`, devient le champ `cascadeVolumeNote`, renseigné pour Habitudes seul ;
+- **nouveau champ `cascadeSurvivalNote`, renseigné pour Journal seul** : « Les catégories elles-mêmes sont conservées. », à la confirmation de « Vider l'historique ». La même précision figure dans la confirmation de suppression définitive d'une entrée archivée.
+
+**Constat inscrit en commentaire** : `cascadeLabel` doit être un **nom féminin pluriel**, les phrases de l'écran l'accordant ainsi — « toutes les … associées », « elles sont supprimées ». Vrai pour les deux libellés actuels ; un futur libellé masculin produirait une phrase fausse.
+
+Fichiers liés :
+
+- `app/interface/personnel/PersonalJournalPanel.tsx`
+- `app/interface/personnel/PersonalJournalCategoriesPanel.tsx`
+- `lib/personal/data-erasure.ts`
+- `app/interface/settings/SettingsPersonalPanel.tsx`
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `11_Changelog.md`
+
+Impact : les entrées de journal peuvent être classées. Les liaisons créées sont nommées à la confirmation et chiffrées au résultat de « Vider l'historique », comme DEC-012 l'exige. Aucun changement serveur, aucune migration.
+
+Action de suivi :
+
+- **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com` : créer une entrée avec deux catégories, puis une sans ; en modifier une ; voir les étiquettes sur une entrée archivée ; renommer une catégorie et voir le nouveau nom sur les entrées ; lire les libellés de Journal dans « Vider l'historique » **sans valider le vidage**, qui supprimerait l'entrée archivée E1, cas de refus dont l'écran de réassignation aura besoin ;
+- l'écran suivant : la réassignation depuis l'écran de blocage.
+
 ## 2026-09-16 (écran de gestion des catégories de Journal)
 
 Type : produit, documentation
@@ -78,10 +111,12 @@ Fichiers liés :
 
 Impact : les catégories deviennent gérables à l'écran. **Aucune liaison ne peut encore être créée depuis l'interface** : le sélecteur sur une entrée n'existe pas. Le `cascadeLabel` de Journal n'est donc toujours pas nécessaire.
 
+> ⚠️ **Dépassé depuis le 2026-09-16, jour même de cette entrée** : le sélecteur sur une entrée crée des liaisons depuis l'interface, et Journal a son `cascadeLabel`. Le chargement des catégories est aussi remonté dans `PersonalJournalPanel`, comme l'annonçait la cinquième décision. Voir l'entrée « sélecteur et affichage des catégories de Journal ».
+
 Action de suivi :
 
 - **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com`. Le compte porte déjà le cas de refus : « [TEST] Beta renommée » est la seule catégorie de l'entrée E1, archivée, donc sa suppression doit être refusée ;
-- les deux écrans suivants : sélecteur et affichage des catégories sur les entrées, avec le `cascadeLabel` de Journal, puis la réassignation depuis l'écran de blocage.
+- les deux écrans suivants : sélecteur et affichage des catégories sur les entrées, avec le `cascadeLabel` de Journal — faits le 2026-09-16, voir l'entrée « sélecteur et affichage des catégories de Journal » —, puis la réassignation depuis l'écran de blocage.
 
 ## 2026-09-15 (socle serveur des catégories de Journal)
 
@@ -111,7 +146,7 @@ Impact : aucun à l'écran. Les liaisons deviennent possibles par l'API, et seul
 
 Action de suivi :
 
-- les écrans du chantier, dans l'ordre : gestion des catégories — faite le 2026-09-16, voir l'entrée « écran de gestion des catégories de Journal » —, puis sélecteur et affichage avec le `cascadeLabel` de Journal, puis écran de blocage et de réassignation ;
+- les écrans du chantier, dans l'ordre : gestion des catégories — faite le 2026-09-16, voir l'entrée « écran de gestion des catégories de Journal » —, puis sélecteur et affichage avec le `cascadeLabel` de Journal — faits le 2026-09-16, voir l'entrée « sélecteur et affichage des catégories de Journal » —, puis écran de blocage et de réassignation ;
 - valider le format des identifiants dans les routes plus anciennes du pôle, qui laissent un identifiant malformé finir en `500`.
 
 ## 2026-09-15 (clés étrangères composites sur la liaison des catégories de Journal)
@@ -126,7 +161,7 @@ Résumé : correctif d'une **faille d'isolation entre comptes** dans `personal_j
 
 **Rien n'a été exploité** : la table de liaison compte **0 ligne** au 2026-09-15, mesuré en base au moment de cette entrée. Aucune route ni aucun écran ne crée encore de liaison.
 
-> ⚠️ **« Aucune route ni aucun écran ne crée encore de liaison » est dépassé depuis le 2026-09-15, jour même de cette entrée.** Le socle serveur des catégories — voir l'entrée « socle serveur des catégories de Journal » du même jour — expose `PUT /api/personal/journal/[id]/categories`, qui crée des liaisons, et son test de contrat en a créé sur le compte de test. La mesure « 0 ligne » reste exacte à son heure : la faille était fermée en base avant qu'aucune liaison n'existe. Aucun écran n'en crée encore.
+> ⚠️ **« Aucune route ni aucun écran ne crée encore de liaison » est dépassé depuis le 2026-09-15, jour même de cette entrée.** Le socle serveur des catégories — voir l'entrée « socle serveur des catégories de Journal » du même jour — expose `PUT /api/personal/journal/[id]/categories`, qui crée des liaisons, et son test de contrat en a créé sur le compte de test. La mesure « 0 ligne » reste exacte à son heure : la faille était fermée en base avant qu'aucune liaison n'existe. Aucun écran n'en créait encore ; le sélecteur sur une entrée en crée depuis le 2026-09-16 — voir l'entrée « sélecteur et affichage des catégories de Journal ».
 
 **Le correctif**, repris d'Habitudes (`personal_habit_completions_habit_fk`) : `unique (id, user_id)` sur les deux tables parentes, et deux clés **composites** qui remplacent les simples — `(entry_id, user_id)` vers `personal_journal_entries (id, user_id)`, `(category_id, user_id)` vers `personal_journal_categories (id, user_id)`. Une liaison ne peut plus référencer qu'une entrée et une catégorie du même compte qu'elle, et la policy `insert` impose déjà que ce compte soit l'appelant. Retrait et ajout tiennent dans une transaction : il n'existe aucun instant où la liaison serait sans clé étrangère.
 
@@ -183,6 +218,8 @@ Action de suivi :
 - **Défaut introduit par ce commit, corrigé le 2026-09-14, avant tout push.** L'écran de résultat de « Vider l'historique » (`SettingsPersonalPanel.tsx`) écrivait en dur le mot « réalisation » dès que `relatedDeletedCount` était défini — ce qu'il est désormais pour Journal, qui aurait affiché « et 0 réalisation ». Établi par lecture du code, jamais observé à l'écran. Le libellé vient maintenant du `cascadeLabel` du module, sous la forme « — réalisations : 8 », et rien n'est affiché sans lui.
 - **Reste ouvert, différé à l'interface des catégories** : `ERASABLE_MODULES` ne donne à Journal aucun `cascadeLabel`. Sans lui, les liaisons emportées ne sont ni nommées à la confirmation ni chiffrées au résultat, ce que DEC-012 exige de tout volume que le compte affiché n'inclut pas. Sans conséquence tant qu'aucun écran ne crée de liaison ; cette interface devra l'ajouter.
 - Le store, les routes et la moitié applicative de la règle de blocage sont écrits le 2026-09-15 — voir l'entrée « socle serveur des catégories de Journal ». L'interface ne l'est pas : ni sélecteur sur une entrée, ni écran de gestion.
+
+> ⚠️ **Les deux derniers points de cette liste sont dépassés depuis le 2026-09-16.** Journal a son `cascadeLabel`, « attributions de catégories » : les liaisons emportées sont nommées à la confirmation et chiffrées au résultat. L'interface existe : écran de gestion, sélecteur et affichage sur les entrées. Voir les entrées « écran de gestion des catégories de Journal » et « sélecteur et affichage des catégories de Journal ».
 
 Entrée rédigée le 2026-09-14 : un changement structurant appelle une entrée dans le commit même, et elle avait été omise dans `3b36515`.
 

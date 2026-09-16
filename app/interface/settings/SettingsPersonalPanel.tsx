@@ -79,6 +79,11 @@ export function SettingsPersonalPanel() {
   }, []);
 
   const target = modules.find((module) => module.id === targetId) ?? null;
+  // Les deux notes ne transitent pas par le resume serveur : elles sont lues ici,
+  // dans la declaration partagee, comme le libelle de l'ecran de resultat.
+  const targetDeclaration = target
+    ? ERASABLE_MODULES.find((module) => module.id === target.id)
+    : undefined;
   const resultCascadeLabel = result
     ? ERASABLE_MODULES.find((module) => module.id === result.id)?.cascadeLabel
     : undefined;
@@ -242,14 +247,26 @@ export function SettingsPersonalPanel() {
             </p>
 
             {/* Le compte ci-dessus est exprime dans l'unite affichee — des
-                habitudes, pas des lignes. Les realisations partent avec elles
-                sans y figurer, et elles sont de loin les plus nombreuses. Le
-                taire ferait passer une suppression de plusieurs centaines de
-                lignes pour une suppression de trois. */}
+                habitudes, des entrees, pas des lignes. Les lignes dependantes
+                partent avec elles sans y figurer ; le taire ferait passer une
+                suppression de plusieurs centaines de lignes pour une
+                suppression de trois.
+
+                La phrase est neutre sur le volume. Le qualificatif ("bien plus
+                nombreuses") vient du module, qui ne le declare que s'il est
+                vrai pour tout compte — Habitudes seul aujourd'hui. Idem pour
+                la note de survie, Journal seul. */}
             {target.cascadeLabel ? (
               <p className="mt-2 text-sm leading-6 text-[#fecaca]">
                 Ce compte ne comprend pas les {target.cascadeLabel} : elles sont supprimées
-                aussi, et elles sont bien plus nombreuses.
+                aussi
+                {targetDeclaration?.cascadeVolumeNote
+                  ? `, ${targetDeclaration.cascadeVolumeNote}`
+                  : ""}
+                .
+                {targetDeclaration?.cascadeSurvivalNote
+                  ? ` ${targetDeclaration.cascadeSurvivalNote}`
+                  : ""}
               </p>
             ) : null}
 
@@ -320,13 +337,11 @@ export function SettingsPersonalPanel() {
                   double la declaration, avec le risque de divergence que
                   ERASABLE_MODULES existe pour eviter.
 
-                  Sans cascadeLabel, rien n'est affiche. C'est le cas de
-                  Journal, dont le libelle est differe a l'interface des
-                  categories : aucune route ni aucun ecran ne cree encore de
-                  liaison, le volume est donc toujours nul. Cette interface
-                  DOIT ajouter le cascadeLabel de Journal — sans lui, les
-                  liaisons emportees ne seraient ni nommees a la
-                  confirmation ni chiffrees ici, ce que DEC-012 interdit. */}
+                  Sans cascadeLabel, rien n'est affiche. Habitudes et
+                  Journal en declarent un ; un futur module a table
+                  dependante DOIT en declarer un aussi — sans lui, les
+                  lignes emportees ne seraient ni nommees a la confirmation
+                  ni chiffrees ici, ce que DEC-012 interdit. */}
               {result.relatedDeletedCount !== undefined && resultCascadeLabel
                 ? ` — ${resultCascadeLabel} : ${result.relatedDeletedCount}`
                 : null}

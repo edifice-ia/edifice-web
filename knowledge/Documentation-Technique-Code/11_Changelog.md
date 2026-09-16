@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-09-16
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-16 (réassignation depuis l'écran de blocage des catégories de Journal)](#2026-09-16-réassignation-depuis-lécran-de-blocage-des-catégories-de-journal)
 - [2026-09-16 (sélecteur et affichage des catégories de Journal)](#2026-09-16-sélecteur-et-affichage-des-catégories-de-journal)
 - [2026-09-16 (écran de gestion des catégories de Journal)](#2026-09-16-écran-de-gestion-des-catégories-de-journal)
 - [2026-09-15 (socle serveur des catégories de Journal)](#2026-09-15-socle-serveur-des-catégories-de-journal)
@@ -56,6 +57,36 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
+## 2026-09-16 (réassignation depuis l'écran de blocage des catégories de Journal)
+
+Type : produit, documentation
+
+Résumé : quatrième et dernier checkpoint du chantier des catégories de Journal, **interface seule**, sans changement serveur. L'écran de refus d'une suppression de catégorie n'est plus en lecture seule : chaque entrée qui n'a que cette catégorie peut en recevoir d'autres, puis la suppression peut être réessayée. **L'interface du chantier est complète.**
+
+**Décisions portées par ce commit** :
+
+- **le sélecteur des entrées est déplacé dans `JournalCategoryControls.tsx`**, pour être partagé sans cycle d'import ; il gagne un paramètre `emptySelectionNote`, que la réassignation met à `null` ;
+- **« Attribuer » ajoute les catégories cochées à celle qu'on veut supprimer**, sans la retirer : fermer sans réessayer ne fait rien perdre ;
+- **course acceptée** : le `PUT` remplace l'ensemble, et écraserait une catégorie ajoutée par une autre session entre le refus et l'attribution ;
+- **« Réessayer la suppression » n'apparaît qu'une fois toutes les entrées réassignées**, et envoie le `DELETE` sans seconde confirmation ; un nouveau `409` remplace la liste ;
+- **laisser une entrée sans catégorie n'est pas proposé** ;
+- **attribution entrée par entrée**, sans raccourci « attribuer à toutes ».
+
+Fichiers liés :
+
+- `app/interface/personnel/JournalCategoryControls.tsx` (nouveau)
+- `app/interface/personnel/PersonalJournalCategoriesPanel.tsx`
+- `app/interface/personnel/PersonalJournalPanel.tsx`
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `11_Changelog.md`
+
+Impact : une catégorie portée seule par des entrées, archivées comprises, peut désormais être supprimée depuis l'écran, sans jamais laisser une entrée perdre sa dernière catégorie en silence. Une entrée archivée peut être reclassée, par ce seul chemin. Aucun changement serveur, aucune migration.
+
+Action de suivi :
+
+- **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com`, avec le cas préservé : l'entrée archivée E1 n'a que « [TEST] Beta renommée ». Demander la suppression, constater le refus ; attribuer une autre catégorie à E1 ; réessayer ; constater « 1 entrée l'a perdue » et E1 portant sa seule nouvelle catégorie ; vérifier qu'aucun bouton « sans catégorie » n'existe. **Ce test consomme le cas de refus** ;
+- nettoyage possible, hors de ce commit : `formatJournalTimestamp` reste copié dans `PersonalJournalPanel.tsx` et `PersonalJournalCategoriesPanel.tsx`, et pourrait rejoindre `JournalCategoryControls.tsx`, qui supprime la raison de la copie ;
+- restent ouvertes, sans changement : trancher `restrict` ou `no action` avant tout geste de suppression de compte — voir l'entrée « clés étrangères composites » — et valider le format des identifiants dans les routes plus anciennes du pôle — voir l'entrée « socle serveur ».
+
 ## 2026-09-16 (sélecteur et affichage des catégories de Journal)
 
 Type : produit, documentation
@@ -86,7 +117,7 @@ Impact : les entrées de journal peuvent être classées. Les liaisons créées 
 Action de suivi :
 
 - **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com` : créer une entrée avec deux catégories, puis une sans ; en modifier une ; voir les étiquettes sur une entrée archivée ; renommer une catégorie et voir le nouveau nom sur les entrées ; lire les libellés de Journal dans « Vider l'historique » **sans valider le vidage**, qui supprimerait l'entrée archivée E1, cas de refus dont l'écran de réassignation aura besoin ;
-- l'écran suivant : la réassignation depuis l'écran de blocage.
+- l'écran suivant : la réassignation depuis l'écran de blocage — faite le 2026-09-16, voir l'entrée « réassignation depuis l'écran de blocage des catégories de Journal ».
 
 ## 2026-09-16 (écran de gestion des catégories de Journal)
 
@@ -111,12 +142,12 @@ Fichiers liés :
 
 Impact : les catégories deviennent gérables à l'écran. **Aucune liaison ne peut encore être créée depuis l'interface** : le sélecteur sur une entrée n'existe pas. Le `cascadeLabel` de Journal n'est donc toujours pas nécessaire.
 
-> ⚠️ **Dépassé depuis le 2026-09-16, jour même de cette entrée** : le sélecteur sur une entrée crée des liaisons depuis l'interface, et Journal a son `cascadeLabel`. Le chargement des catégories est aussi remonté dans `PersonalJournalPanel`, comme l'annonçait la cinquième décision. Voir l'entrée « sélecteur et affichage des catégories de Journal ».
+> ⚠️ **Dépassé depuis le 2026-09-16, jour même de cette entrée** : le sélecteur sur une entrée crée des liaisons depuis l'interface, et Journal a son `cascadeLabel`. Le chargement des catégories est aussi remonté dans `PersonalJournalPanel`, comme l'annonçait la cinquième décision. Voir l'entrée « sélecteur et affichage des catégories de Journal ». La quatrième décision est dépassée le même jour : le refus `409 CATEGORY_IN_USE` n'est plus en lecture seule et permet de réassigner les entrées bloquantes — voir l'entrée « réassignation depuis l'écran de blocage des catégories de Journal ».
 
 Action de suivi :
 
 - **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com`. Le compte porte déjà le cas de refus : « [TEST] Beta renommée » est la seule catégorie de l'entrée E1, archivée, donc sa suppression doit être refusée ;
-- les deux écrans suivants : sélecteur et affichage des catégories sur les entrées, avec le `cascadeLabel` de Journal — faits le 2026-09-16, voir l'entrée « sélecteur et affichage des catégories de Journal » —, puis la réassignation depuis l'écran de blocage.
+- les deux écrans suivants : sélecteur et affichage des catégories sur les entrées, avec le `cascadeLabel` de Journal — faits le 2026-09-16, voir l'entrée « sélecteur et affichage des catégories de Journal » —, puis la réassignation depuis l'écran de blocage — faite le 2026-09-16, voir l'entrée « réassignation depuis l'écran de blocage des catégories de Journal ».
 
 ## 2026-09-15 (socle serveur des catégories de Journal)
 
@@ -146,7 +177,7 @@ Impact : aucun à l'écran. Les liaisons deviennent possibles par l'API, et seul
 
 Action de suivi :
 
-- les écrans du chantier, dans l'ordre : gestion des catégories — faite le 2026-09-16, voir l'entrée « écran de gestion des catégories de Journal » —, puis sélecteur et affichage avec le `cascadeLabel` de Journal — faits le 2026-09-16, voir l'entrée « sélecteur et affichage des catégories de Journal » —, puis écran de blocage et de réassignation ;
+- les écrans du chantier, dans l'ordre : gestion des catégories — faite le 2026-09-16, voir l'entrée « écran de gestion des catégories de Journal » —, puis sélecteur et affichage avec le `cascadeLabel` de Journal — faits le 2026-09-16, voir l'entrée « sélecteur et affichage des catégories de Journal » —, puis écran de blocage et de réassignation — fait le 2026-09-16, voir l'entrée « réassignation depuis l'écran de blocage des catégories de Journal » ;
 - valider le format des identifiants dans les routes plus anciennes du pôle, qui laissent un identifiant malformé finir en `500`.
 
 ## 2026-09-15 (clés étrangères composites sur la liaison des catégories de Journal)

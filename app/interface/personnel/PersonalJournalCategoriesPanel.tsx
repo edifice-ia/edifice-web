@@ -11,6 +11,7 @@ import {
   type PersonalJournalCategory,
   type PersonalJournalCategoryWithCounts,
 } from "@/lib/personal/journal-categories";
+import { JournalCategorySelector } from "./JournalCategoryControls";
 import { PersonalModuleCard } from "./PersonalPrimitives";
 
 // Meme format que formatJournalTimestamp dans PersonalJournalPanel. Repete ici
@@ -67,12 +68,30 @@ function describeDeletionScope({ entryCount, archivedEntryCount }: PersonalJourn
 
 type ApiError = { error?: string; code?: string };
 
+// Refus de suppression en cours de traitement. Les trois tables par entree sont
+// remises a zero a chaque nouveau refus : un second 409 porte une liste neuve,
+// dont aucune entree n'est encore reassignee — une entree deja reassignee a au
+// moins deux categories et ne peut plus bloquer.
 type BlockedDeletion = {
   categoryId: string;
   entries: JournalCategoryBlockingEntry[];
+  // Categories cochees, pas encore ecrites.
+  selections: Record<string, string[]>;
+  // Categories ajoutees, telles que renvoyees par le serveur, hors celle a
+  // supprimer.
+  reassigned: Record<string, string[]>;
+  errors: Record<string, string>;
 };
 
-// Carte de gestion des categories de Journal : creer, renommer, supprimer.
+function openBlockedDeletion(
+  categoryId: string,
+  entries: JournalCategoryBlockingEntry[],
+): BlockedDeletion {
+  return { categoryId, entries, selections: {}, reassigned: {}, errors: {} };
+}
+
+// Carte de gestion des categories de Journal : creer, renommer, supprimer — et
+// reassigner les entrees qui bloquent une suppression.
 //
 // Sous-ecran de Journal et non de Reglages : Reglages porte le geste qui
 // DETRUIT des donnees du pole, y loger une gestion courante brouillerait cette
@@ -259,6 +278,7 @@ export function PersonalJournalCategoriesPanel({
       setConfirmingDeleteId(null);
 
       if (response.ok) {
+        setBlocked(null);
         // Le compte vient du serveur, pas de la confirmation : un ecart entre
         // les deux reste visible plutot que masque.
         const unlinked = payload.unlinkedEntryCount ?? 0;
@@ -274,7 +294,7 @@ export function PersonalJournalCategoriesPanel({
       }
 
       if (response.status === 409 && payload.code === JOURNAL_CATEGORY_IN_USE) {
-        setBlocked({ categoryId: category.id, entries: payload.entries ?? [] });
+        setBlocked(openBlockedDeletion(category.id, payload.entries ?? []));
         return;
       }
 
@@ -288,6 +308,7 @@ export function PersonalJournalCategoriesPanel({
       }
 
       if (response.status === 404) {
+        setBlocked(null);
         setNotice("Cette catégorie n'existe plus.");
         await reload();
         return;
@@ -302,6 +323,84 @@ export function PersonalJournalCategoriesPanel({
         categoryId: category.id,
         message: "Suppression de la categorie indisponible.",
       });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  // Reassignation d'UNE entree bloquante. Le PUT envoie la categorie a supprimer
+  // PLUS les categories cochees : si l'on ferme sans reessayer, l'entree garde
+  // tout et n'a rien perdu. C'est la suppression, ensuite, qui retire la
+  // liaison — avec son compte renvoye par le serveur.
+  //
+  // Le PUT remplace l'ensemble : une categorie ajoutee a cette entree par une
+  // autre session entre le refus et ce clic serait ecrasee. Fenetre acceptee,
+  // la meme que pour la modification d'une entree ; la fermer demanderait une
+  // route d'ajout seul.
+  //
+  // L'entree peut etre archivee : la route l'accepte, c'est le seul chemin a
+  // l'ecran pour reclasser une entree archivee.
+  function updateBlocked(update: (current: BlockedDeletion) => BlockedDeletion) {
+    setBlocked((current) => (current ? update(current) : current));
+  }
+
+  async function reassignEntry(entryId: string, chosen: string[]) {
+    if (!blocked) {
+      return;
+    }
+
+    const { categoryId } = blocked;
+
+    if (chosen.length === 0) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    updateBlocked((current) => {
+      const errors = { ...current.errors };
+      delete errors[entryId];
+      return { ...current, errors };
+    });
+
+    try {
+      const response = await fetch(`/api/personal/journal/${entryId}/categories`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ categoryIds: [categoryId, ...chosen] }),
+      });
+      const payload = (await response.json()) as ApiError & { categoryIds?: string[] };
+
+      if (!response.ok || !payload.categoryIds) {
+        const message =
+          response.status === 404
+            ? "Entrée ou catégorie introuvable."
+            : (payload.error ?? "Attribution des categories indisponible.");
+
+        updateBlocked((current) => ({
+          ...current,
+          errors: { ...current.errors, [entryId]: message },
+        }));
+
+        if (response.status === 404) {
+          await reload();
+        }
+
+        return;
+      }
+
+      const added = payload.categoryIds.filter((id) => id !== categoryId);
+
+      updateBlocked((current) => ({
+        ...current,
+        reassigned: { ...current.reassigned, [entryId]: added },
+      }));
+      // Comptes de la carte et etiquettes des entrees.
+      await reload();
+    } catch {
+      updateBlocked((current) => ({
+        ...current,
+        errors: { ...current.errors, [entryId]: "Attribution des categories indisponible." },
+      }));
     } finally {
       setIsSubmitting(false);
     }
@@ -528,9 +627,12 @@ export function PersonalJournalCategoriesPanel({
                     ) : null}
 
                     {/* Refus du serveur : des entrees n'ont que cette
-                        categorie. Rien n'a ete ecrit. La liste est affichee en
-                        lecture seule ; la reassignation depuis cet ecran n'est
-                        pas encore construite, et l'ecran le dit. */}
+                        categorie. Rien n'a ete ecrit. Chaque entree recoit un
+                        selecteur qui ne propose pas la categorie a supprimer ;
+                        "Reessayer" n'apparait qu'une fois toutes reassignees.
+                        Laisser une entree sans categorie n'est pas propose :
+                        la regle bloque la perte, elle ne l'offre pas. Fermer
+                        garde les attributions deja faites, ecrites en base. */}
                     {blocked?.categoryId === category.id ? (
                       <div
                         className="grid gap-3 rounded-md border border-[#fbbf24]/40 bg-[#fbbf24]/10 p-3"
@@ -541,29 +643,123 @@ export function PersonalJournalCategoriesPanel({
                           {blocked.entries.length > 1 ? "s n'ont" : " n'a"} que cette catégorie.
                         </p>
                         <p className="text-sm leading-6 text-[#fde68a]">
-                          Rien n&apos;a été supprimé. Il faut d&apos;abord leur donner une autre
-                          catégorie — la réassignation depuis cet écran n&apos;est pas encore
-                          construite.
+                          Rien n&apos;a été supprimé. Donne une autre catégorie à chaque entrée,
+                          puis réessaie.
                         </p>
                         <ul className="grid gap-2">
-                          {blocked.entries.map((entry) => (
-                            <li
-                              className="rounded-md border border-[#1D2A44] bg-[#03070B] p-3"
-                              key={entry.id}
-                            >
-                              <p className="text-sm italic leading-6 text-[#A7B0C0]">
-                                « {entry.preview} »
-                              </p>
-                              <p className="mt-1 text-xs text-[#64748b]">
-                                Écrite le {formatJournalTimestamp(entry.createdAt)}
-                                {entry.mood !== null ? ` · humeur ${entry.mood}/5` : ""}
-                                {entry.archived ? " · archivée" : ""}
-                              </p>
-                            </li>
-                          ))}
+                          {blocked.entries.map((entry) => {
+                            const otherCategories = categories.filter(
+                              (candidate) => candidate.id !== category.id,
+                            );
+                            const reassignedIds = blocked.reassigned[entry.id];
+                            // Une categorie cochee puis supprimee entre-temps
+                            // ne compte plus : le PUT la refuserait en 404.
+                            const selection = (blocked.selections[entry.id] ?? []).filter((id) =>
+                              otherCategories.some((candidate) => candidate.id === id),
+                            );
+                            const entryError = blocked.errors[entry.id];
+
+                            return (
+                              <li
+                                className="grid gap-3 rounded-md border border-[#1D2A44] bg-[#03070B] p-3"
+                                key={entry.id}
+                              >
+                                <div>
+                                  <p className="text-sm italic leading-6 text-[#A7B0C0]">
+                                    « {entry.preview} »
+                                  </p>
+                                  <p className="mt-1 text-xs text-[#64748b]">
+                                    Écrite le {formatJournalTimestamp(entry.createdAt)}
+                                    {entry.mood !== null ? ` · humeur ${entry.mood}/5` : ""}
+                                    {entry.archived ? " · archivée" : ""}
+                                  </p>
+                                </div>
+
+                                {reassignedIds ? (
+                                  <p className="text-sm text-[#39E6D0]">
+                                    Réassignée :{" "}
+                                    {categories
+                                      .filter((candidate) => reassignedIds.includes(candidate.id))
+                                      .map((candidate) => candidate.name)
+                                      .join(", ")}
+                                  </p>
+                                ) : loadError ? (
+                                  <p className="text-sm text-[#fbbf24]">
+                                    Catégories indisponibles : l&apos;attribution est impossible
+                                    pour l&apos;instant.
+                                  </p>
+                                ) : otherCategories.length === 0 && !isLoading ? (
+                                  <p className="text-sm text-[#A7B0C0]">
+                                    Aucune autre catégorie : crée-en une avec le formulaire
+                                    ci-dessus.
+                                  </p>
+                                ) : (
+                                  <div className="grid gap-2">
+                                    <JournalCategorySelector
+                                      categories={otherCategories}
+                                      disabled={isSubmitting}
+                                      emptySelectionNote={null}
+                                      isLoading={isLoading}
+                                      loadError={loadError}
+                                      onChange={(categoryIds) =>
+                                        updateBlocked((current) => ({
+                                          ...current,
+                                          selections: {
+                                            ...current.selections,
+                                            [entry.id]: categoryIds,
+                                          },
+                                        }))
+                                      }
+                                      onManage={() => undefined}
+                                      value={selection}
+                                    />
+                                    <button
+                                      className={`justify-self-start ${accentButtonClass}`}
+                                      disabled={isSubmitting || selection.length === 0}
+                                      onClick={() => reassignEntry(entry.id, selection)}
+                                      type="button"
+                                    >
+                                      Attribuer
+                                    </button>
+                                  </div>
+                                )}
+
+                                {entryError ? (
+                                  <p className="text-sm text-[#fecaca]" role="alert">
+                                    {entryError}
+                                  </p>
+                                ) : null}
+                              </li>
+                            );
+                          })}
                         </ul>
+
+                        {blocked.entries.every((entry) => blocked.reassigned[entry.id]) ? (
+                          <div className="grid gap-2">
+                            {/* Pas de seconde confirmation : la suppression a
+                                deja ete confirmee, et la phrase dit ce qui
+                                change. Un nouveau 409 remplace la liste. */}
+                            <p className="text-sm leading-6 text-[#fde68a]">
+                              {blocked.entries.length > 1
+                                ? `Ces ${blocked.entries.length} entrées perdront « ${category.name} » et garderont leurs nouvelles catégories.`
+                                : `Cette entrée perdra « ${category.name} » et gardera ses nouvelles catégories.`}
+                            </p>
+                            <button
+                              className={`justify-self-start ${dangerButtonClass}`}
+                              disabled={isSubmitting}
+                              onClick={() => confirmDelete(category)}
+                              type="button"
+                            >
+                              {isSubmitting
+                                ? "Suppression..."
+                                : `Réessayer la suppression de « ${category.name} »`}
+                            </button>
+                          </div>
+                        ) : null}
+
                         <button
                           className={`justify-self-start ${neutralButtonClass}`}
+                          disabled={isSubmitting}
                           onClick={() => setBlocked(null)}
                           type="button"
                         >

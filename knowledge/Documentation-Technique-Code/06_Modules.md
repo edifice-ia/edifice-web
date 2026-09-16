@@ -393,11 +393,11 @@ Chaque catégorie affiche son nom, sa description ou « Sans description », et 
 
 **La suppression demande une confirmation binaire, qui dit trois choses** : le geste est **irréversible**, sans corbeille, et la catégorie devra être recréée à la main ; le compte des entrées qui la portent, **présenté comme venant du dernier chargement**, puisqu'il a pu vieillir ; et la règle — les entrées qui ont d'autres catégories la perdent, et la suppression sera refusée si une entrée n'a que celle-ci. L'écran ne prétend pas savoir d'avance quelles entrées bloqueront : c'est le serveur qui tranche. **Après une suppression, le message reprend le compte renvoyé par le serveur** (`unlinkedEntryCount`), pas celui de la confirmation, pour qu'un écart entre les deux reste visible — même principe que l'écran de résultat de « Vider l'historique ».
 
-**Un refus `409 CATEGORY_IN_USE` est affiché en lecture seule** : le nombre d'entrées qui n'ont que cette catégorie, et leur liste — aperçu, date d'écriture, humeur, mention « archivée ». L'écran dit que rien n'a été supprimé, et que **la réassignation depuis cet écran n'est pas encore construite**. Les refus `CATEGORY_DELETE_RACE` et `404` sont rendus en messages courts, suivis d'un rechargement de la liste.
+**Un refus `409 CATEGORY_IN_USE` affiche les entrées bloquantes** : leur nombre, et leur liste — aperçu, date d'écriture, humeur, mention « archivée ». L'écran dit que rien n'a été supprimé, et permet de **réassigner ces entrées puis de réessayer** — voir « réassignation » ci-dessous. Les refus `CATEGORY_DELETE_RACE` et `404` sont rendus en messages courts, suivis d'un rechargement de la liste.
 
 #### Catégories — sélecteur et affichage sur les entrées
 
-Construit le 2026-09-16, dans `app/interface/personnel/PersonalJournalPanel.tsx`. Interface seule : il consomme `PUT /api/personal/journal/[id]/categories` et le champ `categoryIds` des entrées.
+Construit le 2026-09-16, dans `app/interface/personnel/PersonalJournalPanel.tsx` ; le sélecteur vit dans `JournalCategoryControls.tsx`, partagé avec la réassignation. Interface seule : il consomme `PUT /api/personal/journal/[id]/categories` et le champ `categoryIds` des entrées.
 
 **Les catégories sont chargées une fois, par `PersonalJournalPanel`**, à l'ouverture de l'onglet, indépendamment des entrées : un échec sur les catégories n'empêche ni de lire ni d'écrire son journal. La liste est partagée par la carte de gestion, le sélecteur et l'affichage des noms. Les noms ne sont jamais copiés dans les entrées : un renommage se voit partout. Après chaque écriture dans la carte de gestion, le panneau recharge les catégories **puis les entrées**, archives comprises si elles sont ouvertes : une suppression retire côté serveur des liaisons que les entrées déjà chargées porteraient encore. Une catégorie supprimée est aussi décochée des formulaires ouverts.
 
@@ -412,7 +412,21 @@ Construit le 2026-09-16, dans `app/interface/personnel/PersonalJournalPanel.tsx`
 
 **Premier écran qui crée des liaisons, il apporte le `cascadeLabel` de Journal**, « attributions de catégories », avec la note « Les catégories elles-mêmes sont conservées. » — voir « Vider l'historique » plus haut.
 
-**Pas encore construite** : la réassignation depuis l'écran de blocage.
+#### Catégories — réassignation depuis l'écran de blocage
+
+Construite le 2026-09-16, dans `PersonalJournalCategoriesPanel.tsx`. Interface seule : elle consomme `PUT /api/personal/journal/[id]/categories`, qui accepte une entrée archivée précisément pour ce cas. **C'est le seul chemin à l'écran pour reclasser une entrée archivée.**
+
+Après un refus `409 CATEGORY_IN_USE`, **chaque entrée bloquante reçoit un sélecteur qui ne propose pas la catégorie à supprimer**, et un bouton « Attribuer », inactif tant que rien n'est coché. Le sélecteur est celui des entrées, déplacé dans `app/interface/personnel/JournalCategoryControls.tsx` pour être partagé : la carte, importée par `PersonalJournalPanel`, ne pouvait l'y chercher sans former un cycle. Sa mention « Aucune catégorie cochée : c'est permis » est retirée ici, puisque ce n'est justement pas permis.
+
+**« Attribuer » ajoute, il ne remplace pas** : le `PUT` envoie la catégorie à supprimer **plus** les catégories cochées. Fermer sans réessayer laisse donc l'entrée avec tout, sans rien perdre ; c'est la suppression, ensuite, qui retire la liaison, avec son compte renvoyé par le serveur. Une attribution réussie affiche « Réassignée : A, B » et recharge catégories et entrées. Un échec s'affiche sous l'entrée concernée, le sélecteur restant ouvert. Une catégorie cochée puis supprimée entre-temps est ignorée.
+
+**Quand toutes les entrées sont réassignées**, un bouton « Réessayer la suppression » apparaît, avec la phrase « Ces N entrées perdront « X » et garderont leurs nouvelles catégories. » Il envoie le `DELETE` **sans seconde confirmation** : la suppression a déjà été confirmée, et la phrase dit ce qui change. Un nouveau `409` — une autre entrée n'a entre-temps plus que cette catégorie — remplace la liste par celle renvoyée par le serveur.
+
+**Laisser une entrée sans catégorie n'est pas proposé**, bien que `PUT []` le permette : la règle de blocage a été posée pour bloquer la perte, pas pour l'offrir. Contrepartie assumée : une entrée archivée n'a aucun chemin à l'écran pour perdre sa dernière catégorie.
+
+**Course acceptée** : le `PUT` remplace l'ensemble des catégories de l'entrée. Une catégorie ajoutée à cette entrée par une autre session entre le refus et l'attribution serait écrasée. Fenêtre de quelques secondes, la même que pour la modification d'une entrée ; la fermer demanderait une route d'ajout seul, donc un changement serveur.
+
+Une attribution se fait **entrée par entrée** : chaque entrée est identifiée par son aperçu, et l'attribution est un choix de classement. Aucun raccourci « attribuer à toutes » n'existe.
 
 ### Habitudes
 

@@ -116,7 +116,7 @@ Impact : les entrées de journal peuvent être classées. Les liaisons créées 
 
 Action de suivi :
 
-- **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com` : créer une entrée avec deux catégories, puis une sans ; en modifier une ; voir les étiquettes sur une entrée archivée ; renommer une catégorie et voir le nouveau nom sur les entrées ; lire les libellés de Journal dans « Vider l'historique » **sans valider le vidage**, qui supprimerait l'entrée archivée E1, cas de refus dont l'écran de réassignation aura besoin ;
+- **test de bout en bout par pilotage navigateur humain** — validé le 2026-09-16 —, sur `test-erase@edificeia.com` : créer une entrée avec deux catégories, puis une sans ; en modifier une ; voir les étiquettes sur une entrée archivée ; renommer une catégorie et voir le nouveau nom sur les entrées ; lire les libellés de Journal dans « Vider l'historique » **sans valider le vidage**, qui supprimerait l'entrée archivée E1, cas de refus dont l'écran de réassignation aura besoin ;
 - l'écran suivant : la réassignation depuis l'écran de blocage — faite le 2026-09-16, voir l'entrée « réassignation depuis l'écran de blocage des catégories de Journal ».
 
 ## 2026-09-16 (écran de gestion des catégories de Journal)
@@ -146,7 +146,7 @@ Impact : les catégories deviennent gérables à l'écran. **Aucune liaison ne p
 
 Action de suivi :
 
-- **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com`. Le compte porte déjà le cas de refus : « [TEST] Beta renommée » est la seule catégorie de l'entrée E1, archivée, donc sa suppression doit être refusée ;
+- **test de bout en bout par pilotage navigateur humain** — validé le 2026-09-16 —, sur `test-erase@edificeia.com`. Le compte porte déjà le cas de refus : « [TEST] Beta renommée » est la seule catégorie de l'entrée E1, archivée, donc sa suppression doit être refusée ;
 - les deux écrans suivants : sélecteur et affichage des catégories sur les entrées, avec le `cascadeLabel` de Journal — faits le 2026-09-16, voir l'entrée « sélecteur et affichage des catégories de Journal » —, puis la réassignation depuis l'écran de blocage — faite le 2026-09-16, voir l'entrée « réassignation depuis l'écran de blocage des catégories de Journal ».
 
 ## 2026-09-15 (socle serveur des catégories de Journal)

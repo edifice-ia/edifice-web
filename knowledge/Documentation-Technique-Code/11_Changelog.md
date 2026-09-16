@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-09-15
+Dernière mise à jour : 2026-09-16
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-16 (écran de gestion des catégories de Journal)](#2026-09-16-écran-de-gestion-des-catégories-de-journal)
 - [2026-09-15 (socle serveur des catégories de Journal)](#2026-09-15-socle-serveur-des-catégories-de-journal)
 - [2026-09-15 (clés étrangères composites sur la liaison des catégories de Journal)](#2026-09-15-clés-étrangères-composites-sur-la-liaison-des-catégories-de-journal)
 - [2026-09-09 (catégories de Journal, et DEC-013 passée en actif)](#2026-09-09-catégories-de-journal-et-dec-013-passée-en-actif)
@@ -54,6 +55,34 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
+## 2026-09-16 (écran de gestion des catégories de Journal)
+
+Type : produit, documentation
+
+Résumé : deuxième checkpoint du chantier des catégories de Journal, **interface seule**, sans changement serveur. Une carte de gestion — créer, renommer, supprimer — ouverte par un bouton « Gérer les catégories » en tête de l'onglet Journal. Elle consomme les routes du socle serveur du 2026-09-15.
+
+**Décisions portées par ce commit** :
+
+- **le bouton est en tête de l'onglet**, avant « Nouvelle entrée », et non à côté de « Voir les archives » ;
+- **tout se fait sur place**, sans fenêtre modale ;
+- **le compte de la confirmation est présenté comme datant du dernier chargement**, et le message de fin reprend le compte **renvoyé par le serveur** ;
+- **un refus `409 CATEGORY_IN_USE` affiche les entrées bloquantes en lecture seule**, en disant que la réassignation n'est pas encore construite ;
+- **la carte charge ses catégories elle-même**, à l'ouverture ; ce chargement remontera dans `PersonalJournalPanel` quand le sélecteur en aura besoin ;
+- **après chaque écriture, la liste est rechargée** depuis le serveur, qui calcule les comptes.
+
+Fichiers liés :
+
+- `app/interface/personnel/PersonalJournalCategoriesPanel.tsx` (nouveau)
+- `app/interface/personnel/PersonalJournalPanel.tsx`
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `11_Changelog.md`
+
+Impact : les catégories deviennent gérables à l'écran. **Aucune liaison ne peut encore être créée depuis l'interface** : le sélecteur sur une entrée n'existe pas. Le `cascadeLabel` de Journal n'est donc toujours pas nécessaire.
+
+Action de suivi :
+
+- **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com`. Le compte porte déjà le cas de refus : « [TEST] Beta renommée » est la seule catégorie de l'entrée E1, archivée, donc sa suppression doit être refusée ;
+- les deux écrans suivants : sélecteur et affichage des catégories sur les entrées, avec le `cascadeLabel` de Journal, puis la réassignation depuis l'écran de blocage.
+
 ## 2026-09-15 (socle serveur des catégories de Journal)
 
 Type : produit, sécurité, architecture, documentation
@@ -82,7 +111,7 @@ Impact : aucun à l'écran. Les liaisons deviennent possibles par l'API, et seul
 
 Action de suivi :
 
-- les écrans du chantier, dans l'ordre : gestion des catégories, puis sélecteur et affichage avec le `cascadeLabel` de Journal, puis écran de blocage et de réassignation ;
+- les écrans du chantier, dans l'ordre : gestion des catégories — faite le 2026-09-16, voir l'entrée « écran de gestion des catégories de Journal » —, puis sélecteur et affichage avec le `cascadeLabel` de Journal, puis écran de blocage et de réassignation ;
 - valider le format des identifiants dans les routes plus anciennes du pôle, qui laissent un identifiant malformé finir en `500`.
 
 ## 2026-09-15 (clés étrangères composites sur la liaison des catégories de Journal)

@@ -8,6 +8,7 @@ import {
   type PersonalJournalEntry,
 } from "@/lib/personal/journal";
 import { erasurePreview } from "@/lib/personal/data-erasure";
+import { PersonalJournalCategoriesPanel } from "./PersonalJournalCategoriesPanel";
 import { PersonalEmptyState, PersonalModuleCard } from "./PersonalPrimitives";
 
 function formatJournalTimestamp(value: string) {
@@ -99,6 +100,10 @@ export function PersonalJournalPanel() {
   // confirmations coexistent desormais, l'une reversible et l'autre non.
   const [confirmingPermanentId, setConfirmingPermanentId] = useState<string | null>(null);
   const [isLoadingArchived, setIsLoadingArchived] = useState(false);
+
+  // La carte de gestion des categories ne se monte qu'a l'ouverture, et charge
+  // alors ses categories elle-meme : rien n'est lu tant qu'on ne la demande pas.
+  const [showCategories, setShowCategories] = useState(false);
 
   const fetchActive = useCallback(async () => {
     const response = await fetch("/api/personal/journal", { cache: "no-store" });
@@ -374,6 +379,22 @@ export function PersonalJournalPanel() {
 
   return (
     <div className="grid gap-4">
+      {/* En tete de l'onglet, avant "Nouvelle entree" : on cree ses categories
+          avant d'ecrire, et c'est la qu'on les cherche au moment de classer.
+          Pas a cote de "Voir les archives", qui range ce qu'on a mis de cote. */}
+      <div className="grid gap-3">
+        <button
+          aria-expanded={showCategories}
+          className="justify-self-start rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/40 hover:text-[#F8FAFC]"
+          onClick={() => setShowCategories((current) => !current)}
+          type="button"
+        >
+          {showCategories ? "Masquer les catégories" : "Gérer les catégories"}
+        </button>
+
+        {showCategories ? <PersonalJournalCategoriesPanel /> : null}
+      </div>
+
       <PersonalModuleCard title="Nouvelle entrée">
         <div className="grid gap-3">
           <textarea

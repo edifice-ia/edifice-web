@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-15
+Dernière mise à jour : 2026-09-16
 
 ## Sommaire
 
@@ -381,7 +381,21 @@ Toutes les routes passent par `authorizeCockpitApiAccess()` dès leur écriture,
 
 Les noms en double — majuscules et blancs de bord ignorés — sont refusés par l'index unique en base, rendus en `409 CATEGORY_NAME_TAKEN`. Le `404` est uniforme : ressource inexistante, d'un autre compte, ou identifiant malformé.
 
-**Pas encore construits** : l'écran de gestion, le sélecteur sur une entrée, l'affichage sur les entrées, l'écran de blocage et de réassignation. Et `ERASABLE_MODULES` ne donne toujours à Journal aucun `cascadeLabel` : il viendra avec le premier écran qui crée des liaisons.
+`ERASABLE_MODULES` ne donne toujours à Journal aucun `cascadeLabel` : il viendra avec le premier écran qui crée des liaisons. Les écrans sont décrits ci-dessous, au fur et à mesure qu'ils existent.
+
+#### Catégories — écran de gestion
+
+Construit le 2026-09-16 : `app/interface/personnel/PersonalJournalCategoriesPanel.tsx`, ouvert par un bouton « Gérer les catégories » **en tête de l'onglet Journal, avant « Nouvelle entrée »** — on crée ses catégories avant d'écrire. Sous-écran de Journal et non de Réglages : Réglages porte le geste qui détruit des données du pôle, y loger une gestion courante brouillerait cette lecture. La carte ne se monte qu'à l'ouverture, et charge alors ses catégories elle-même ; le jour où le sélecteur d'une entrée en aura besoin, ce chargement remontera dans `PersonalJournalPanel` pour être partagé.
+
+Elle permet de **créer, renommer et supprimer**. Tout se fait sur place, sans fenêtre modale, comme l'édition des entrées. La validation vient de `lib/personal/journal-categories.ts`, le module des routes : le retour avant appel et le `400` du serveur ne peuvent pas diverger. L'unicité du nom n'est tranchée que par le serveur ; un doublon s'affiche sous le champ.
+
+Chaque catégorie affiche son nom, sa description ou « Sans description », et **son compte, entrées archivées comprises et nommées** : « Aucune entrée », « 1 entrée », « 12 entrées, dont 3 archivées ». Après chaque écriture, la liste est **rechargée depuis le serveur** plutôt que corrigée localement : les comptes y sont calculés, et les recalculer à l'écran créerait une seconde source qui dériverait.
+
+**La suppression demande une confirmation binaire, qui dit trois choses** : le geste est **irréversible**, sans corbeille, et la catégorie devra être recréée à la main ; le compte des entrées qui la portent, **présenté comme venant du dernier chargement**, puisqu'il a pu vieillir ; et la règle — les entrées qui ont d'autres catégories la perdent, et la suppression sera refusée si une entrée n'a que celle-ci. L'écran ne prétend pas savoir d'avance quelles entrées bloqueront : c'est le serveur qui tranche. **Après une suppression, le message reprend le compte renvoyé par le serveur** (`unlinkedEntryCount`), pas celui de la confirmation, pour qu'un écart entre les deux reste visible — même principe que l'écran de résultat de « Vider l'historique ».
+
+**Un refus `409 CATEGORY_IN_USE` est affiché en lecture seule** : le nombre d'entrées qui n'ont que cette catégorie, et leur liste — aperçu, date d'écriture, humeur, mention « archivée ». L'écran dit que rien n'a été supprimé, et que **la réassignation depuis cet écran n'est pas encore construite**. Les refus `CATEGORY_DELETE_RACE` et `404` sont rendus en messages courts, suivis d'un rechargement de la liste.
+
+**Pas encore construits** : le sélecteur sur une entrée et l'affichage des catégories sur les entrées, avec le `cascadeLabel` de Journal ; puis la réassignation depuis l'écran de blocage.
 
 ### Habitudes
 

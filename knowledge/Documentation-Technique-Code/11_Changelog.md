@@ -1,7 +1,7 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-09-16
+Dernière mise à jour : 2026-09-17
 
 ## Sommaire
 
@@ -83,7 +83,7 @@ Impact : une catégorie portée seule par des entrées, archivées comprises, pe
 
 Action de suivi :
 
-- **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com`, avec le cas préservé : l'entrée archivée E1 n'a que « [TEST] Beta renommée ». Demander la suppression, constater le refus ; attribuer une autre catégorie à E1 ; réessayer ; constater « 1 entrée l'a perdue » et E1 portant sa seule nouvelle catégorie ; vérifier qu'aucun bouton « sans catégorie » n'existe. **Ce test consomme le cas de refus** ;
+- **test de bout en bout par pilotage navigateur humain** — validé le 2026-09-17 —, sur `test-erase@edificeia.com`, en supprimant « [TEST] Beta renommée ». Le plan n'attendait qu'une entrée bloquante, l'entrée archivée E1 ; **le refus en a listé deux** : E1, et une seconde entrée issue des tests de l'entrée « sélecteur et affichage des catégories de Journal ». Résultat constaté : refus initial avec ces deux entrées, réassignation réussie sur les deux, suppression finale réussie avec le compte exact renvoyé par le serveur. **Ce test a consommé le cas de refus** ;
 - nettoyage possible, hors de ce commit : `formatJournalTimestamp` reste copié dans `PersonalJournalPanel.tsx` et `PersonalJournalCategoriesPanel.tsx`, et pourrait rejoindre `JournalCategoryControls.tsx`, qui supprime la raison de la copie ;
 - restent ouvertes, sans changement : trancher `restrict` ou `no action` avant tout geste de suppression de compte — voir l'entrée « clés étrangères composites » — et valider le format des identifiants dans les routes plus anciennes du pôle — voir l'entrée « socle serveur ».
 

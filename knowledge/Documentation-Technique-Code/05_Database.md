@@ -1,7 +1,7 @@
 # Base de données
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-15
+Dernière mise à jour : 2026-09-18
 
 ## Sommaire
 
@@ -52,6 +52,7 @@ Tables créées ou visibles dans les migrations :
 - `personal_tasks`
 - `personal_journal_categories`
 - `personal_journal_entry_categories`
+- `personal_goals`
 - `personal_data_erasure_log`
 - `personal_item_erasure_log`
 - `video_render_jobs`
@@ -114,9 +115,23 @@ Tables créées ou visibles dans les migrations :
 - **la liaison dénormalise `user_id`**, comme `personal_habit_completions`, pour des policies sans jointure, et **sa cohérence avec les deux parents est garantie en base** : ses deux clés étrangères sont **composites** — `(entry_id, user_id)` vers `personal_journal_entries (id, user_id)`, `(category_id, user_id)` vers `personal_journal_categories (id, user_id)` —, adossées à `unique (id, user_id)` sur chaque parent, patron d'Habitudes. C'est ce qui empêche une liaison de référencer l'entrée ou la catégorie d'un autre compte : Postgres vérifie une clé étrangère **sans appliquer RLS**, et les clés simples posées à la création le permettaient. Faille fermée par `20260914100000`, appliquée le 2026-09-15, avant qu'aucune liaison n'ait existé ;
 - **la clé composite vers les catégories est en `on delete restrict`** : c'est la moitié structurelle de la règle qui bloque la suppression d'une catégorie laissant une entrée sans catégorie. Elle ne peut être déclenchée que par les liaisons du propriétaire lui-même. Celle vers les entrées est en `cascade`, filet et non mécanisme — la suppression explicite des dépendantes est la règle, voir [Décisions](./03_Decisions.md) DEC-013, passée en `actif` sur ce cas.
 
-Leur store existe depuis le 2026-09-15, `lib/server/personal/journal-categories-store.ts` : client de session, RLS en garde réel. L'interface n'est pas encore écrite.
+Leur store existe depuis le 2026-09-15, `lib/server/personal/journal-categories-store.ts` : client de session, RLS en garde réel, et l'interface a suivi les 2026-09-16 et 2026-09-17.
 
-Ces sept tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet.
+`personal_goals` porte le module **Objectifs**, cinquième module à saisie manuelle, appliquée en base le 2026-09-18. Table unique, comme Tâches. Module autonome : aucun lien avec `trajectoire_objectives`, ni avec le « moteur Objectifs » de [20-catalogue-services.md](../Documentation-Strategique/Markdown/20-catalogue-services.md) — un service commun attend un second cas réel, pas un premier cas anticipé. Points de conception :
+
+- **trois valeurs en `numeric(15,3)`** — `start_value`, `target_value`, `current_value`. Un type exact, adapté à des montants ; douze chiffres entiers au plus, ce qui borne la valeur absolue sous 1e12 et fait refuser un dépassement en `22003`. **Au-delà de trois décimales, Postgres arrondit sans erreur** — `80.12345` devient `80.123`, vérifié à l'application : c'est au parser applicatif de refuser une saisie plus précise ;
+- **la progression n'est pas stockée** : `(current_value − start_value) / (target_value − start_value)`, calculée à la lecture. Une seule formule couvre l'objectif qui monte et celui qui descend, et **le sens n'est pas stocké non plus** — il se déduit du signe de `target_value − start_value`, qu'une colonne `direction` pourrait contredire. Même règle que la charge de Tâches et la série d'Habitudes ;
+- **la cible doit différer du départ**, contrainte `personal_goals_target_differs_from_start` : la formule diviserait sinon par zéro, cas que la lecture n'a donc jamais à traiter ;
+- **`start_value` est `not null default 0`**, et non nullable : « absente » et « 0 » seraient deux écritures du même état, la règle déjà appliquée à `context_label`. Conséquence assumée : un objectif de poids créé sans valeur de départ part de 0 et se lit comme un objectif qui monte ;
+- **`current_value` n'a pas de défaut en base**, une colonne ne pouvant prendre par défaut la valeur d'une autre. C'est l'application qui la fixe à `start_value` à la création ;
+- **`status` contraint à `('active','achieved')`**, et c'est une **déclaration** de l'utilisateur, jamais recalculée : « cible atteinte » se déduit des valeurs, « atteint » se déclare, et les deux peuvent diverger. Pas de `abandoned` : renoncer à un objectif, c'est l'archiver ;
+- **`unit_label`** est un texte libre — « EUR », « kg », « livres » —, nul autorisé, chaîne vide refusée, sur le modèle de `context_label` ;
+- **`due_on` est une date**, un jour et non un instant, comme `personal_tasks.due_on` ;
+- **aucun historique des valeurs** : `current_value` est écrasée à chaque mise à jour. Une courbe d'évolution demanderait une table dépendante, donc [Décisions](./03_Decisions.md) DEC-012 et DEC-013.
+
+Droits : `SELECT`, `INSERT`, `UPDATE` à `authenticated`, **aucun `DELETE`** ni en privilège ni en policy, trois policies scopées au propriétaire. La révocation `from anon, authenticated` précède le `grant`. Contrôles post-application validés le 2026-09-18, ACL lue par `aclexplode`. Ni store ni route à cette date.
+
+Ces huit tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role. `personal_goals` n'a pas encore de store, mais sa migration l'inscrit dans ce patron. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet.
 
 **Trois d'entre elles seulement accordent le privilège `DELETE` à `authenticated`**, chacune doublée d'une policy `DELETE` scopée au propriétaire, et pour la même raison : aucune ne porte de contenu.
 

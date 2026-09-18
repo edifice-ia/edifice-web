@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-09-17
+Dernière mise à jour : 2026-09-18
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-18 (module Objectifs : migration)](#2026-09-18-module-objectifs--migration)
 - [2026-09-16 (réassignation depuis l'écran de blocage des catégories de Journal)](#2026-09-16-réassignation-depuis-lécran-de-blocage-des-catégories-de-journal)
 - [2026-09-16 (sélecteur et affichage des catégories de Journal)](#2026-09-16-sélecteur-et-affichage-des-catégories-de-journal)
 - [2026-09-16 (écran de gestion des catégories de Journal)](#2026-09-16-écran-de-gestion-des-catégories-de-journal)
@@ -56,6 +57,43 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-09-18 (module Objectifs : migration)
+
+Type : produit, base de données, sécurité
+
+Résumé : premier checkpoint du **module Objectifs**, cinquième module à saisie manuelle du pôle Personnel. Ajout de la table `personal_goals`. Migration **écrite le 2026-09-17** — c'est l'horodatage de son nom, `20260917100000` —, **committée et appliquée le 2026-09-18**, dans cet ordre inverse de l'habitude : elle a été appliquée avant d'être committée, le commit ayant attendu la validation humaine. Ni store, ni route, ni interface : aucun code du dépôt ne référence encore la table.
+
+**Contrôles post-application validés le 2026-09-18**, selon l'entrée `MANUAL_ACTIONS.md` du 2026-09-17, désormais archivée : RLS active ; grants exacts, lus par `aclexplode` — `INSERT`, `SELECT`, `UPDATE` pour `authenticated` seul, rien pour `anon` ni `PUBLIC`, aucun `DELETE` ni `MAINTAIN` ; trois policies alignées ; six contraintes présentes ; quatre tests de comportement conformes, dont **l'arrondi silencieux constaté — `80.12345` enregistré en `80.123`** ; aucun résidu.
+
+**Module autonome, sur le patron de Tâches** : une seule table, une ligne par objectif, aucune dépendante. Il n'est relié ni à Trajectoire, ni au « moteur Objectifs » de `20-catalogue-services.md` : pas de généralisation anticipée, même raisonnement que DEC-013.
+
+**Champs** : intitulé ; valeur de départ, actuelle et cible, en `numeric(15,3)` ; unité libre (`unit_label`, sur le modèle de `context_label`) ; échéance facultative (`due_on`, un jour) ; statut ; `deleted_at` pour l'archivage.
+
+**Décisions portées par cette migration** :
+
+- **la progression n'est pas stockée** : `(actuelle − départ) / (cible − départ)`, calculée à la lecture. Une seule formule couvre l'objectif qui monte et celui qui descend ; **le sens n'est pas stocké non plus**, il se déduit du signe de `cible − départ` ;
+- **la cible doit différer du départ**, contrainte en base : la formule diviserait sinon par zéro ;
+- **`start_value not null default 0`**, et non nullable : « absente » et « 0 » seraient deux écritures du même état. Conséquence connue : un objectif de poids créé sans départ se lit comme un objectif qui monte ;
+- **deux statuts, `active` et `achieved`**, déclarés par l'utilisateur et jamais recalculés. Pas de `abandoned` : renoncer, c'est archiver ;
+- **`numeric(15,3)`** : exact, borné sous 1e12 par le type, qui refuse un dépassement en `22003`. **Au-delà de trois décimales, Postgres arrondit sans erreur** : le parser du checkpoint 2 devra le refuser ;
+- **aucun historique des valeurs** : une courbe demanderait une table dépendante.
+
+**Droits** : `revoke all … from anon, authenticated` avant le `grant` de `SELECT`, `INSERT`, `UPDATE` à `authenticated`. **Aucun `DELETE`**, ni en privilège ni en policy : la suppression physique passera par la clé service-role au checkpoint 4. Trois policies scopées au propriétaire.
+
+**Écart au plan, signalé** : le plan prévoyait une contrainte `abs(valeur) < 1e12`. Elle n'est pas écrite : `numeric(15,3)` ne peut pas représenter de valeur de 1e12 ou plus, la contrainte n'aurait jamais pu échouer.
+
+Fichiers liés :
+
+- `supabase/migrations/20260917100000_create_personal_goals.sql` (nouveau)
+- `MANUAL_ACTIONS.md`
+- `knowledge/Documentation-Technique-Code/05_Database.md`, `06_Modules.md`
+
+Impact : la table existe en base, et rien ne la lit encore. `05_Database.md` décrit son schéma et ses droits ; `06_Modules.md` ouvre une section Objectifs qui dit l'état réel — table seule, l'onglet rendant toujours ses cartes statiques.
+
+Action de suivi :
+
+- checkpoint 2 : `lib/personal/goals.ts`, store et routes, `authorizeCockpitApiAccess()` sur chaque handler dès l'écriture.
 
 ## 2026-09-16 (réassignation depuis l'écran de blocage des catégories de Journal)
 

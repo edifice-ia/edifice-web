@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-16
+Dernière mise à jour : 2026-09-18
 
 ## Sommaire
 
@@ -273,7 +273,7 @@ Le registre `lib/personal/connectors/registry.ts` est conçu pour accueillir plu
 - **Garmin** : connecteur actif en développement. Voir [Décisions](./03_Decisions.md) DEC-005 et DEC-006.
 - **Strava, Notion, Finance, Calendrier** : stubs déclarés pour usage futur, non implémentés. `syncPersonalConnector` renvoie `success: false` tant qu'un connecteur n'est pas branché.
 
-Tables associées : `personal_garmin_daily_stats`, `personal_daily_briefs`, `personal_notes`, `personal_journal_entries`, `personal_habits`, `personal_habit_completions`, `personal_tasks`. Voir [Base de données](./05_Database.md).
+Tables associées : `personal_garmin_daily_stats`, `personal_daily_briefs`, `personal_notes`, `personal_journal_entries`, `personal_habits`, `personal_habit_completions`, `personal_tasks`, `personal_journal_categories`, `personal_journal_entry_categories`, `personal_goals`. Voir [Base de données](./05_Database.md).
 
 **Quatre des onze onglets portent de la donnée saisie** : Notes, Journal, Habitudes et Tâches, ci-dessous. Calendrier affiche des événements réels mais en lecture seule, depuis la synchronisation Google. Les six autres — Résumé, Énergie, Sommeil, Sport, Objectifs, Sources — rendent des cartes statiques portant « Ce bloc sera alimenté par … selon le cas ». C'est un écart de couverture assumé, pas une dette masquée : aucune de ces surfaces ne prétend afficher une donnée qu'elle n'a pas.
 
@@ -554,6 +554,24 @@ L'état de confirmation d'archivage s'appelle `confirmingArchiveId`, aligné sur
 **Aucune date d'achèvement** n'est enregistrée : le module ne sait pas dire quand une tâche a été faite. Voir [Base de données](./05_Database.md).
 
 **Aucun test de bout en bout** n'a encore été mené sur ce module.
+
+### Objectifs
+
+Cinquième module à saisie manuelle du pôle, **construit à cette date en base seulement** : la table `personal_goals` est appliquée depuis le 2026-09-18, et rien d'autre n'existe — ni validation, ni store, ni route, ni interface. L'onglet Objectifs rend donc toujours ses deux cartes statiques, et il ne prétend afficher aucune donnée.
+
+Module **autonome**, sur le patron de Tâches : une table unique, une ligne par objectif. Il n'est relié ni à Trajectoire, dont les `trajectoire_objectives` vivent dans un projet, ni au « moteur Objectifs » de [20-catalogue-services.md](../Documentation-Strategique/Markdown/20-catalogue-services.md), que `23-modules.md` cite pour la progression. Un service commun attend un second cas réel plutôt qu'un premier cas anticipé — le raisonnement de [Décisions](./03_Decisions.md) DEC-013.
+
+Champs : intitulé ; valeur de départ, valeur actuelle et cible ; unité libre ; échéance facultative ; statut déclaré, `active` ou `achieved`. Voir [Base de données](./05_Database.md) pour le schéma, les contraintes et les droits.
+
+**La progression est calculée à la lecture, jamais stockée** : `(actuelle − départ) / (cible − départ)`. Une seule formule couvre les deux sens, et le sens lui-même se déduit du signe de `cible − départ`. Elle sera écrite dans `lib/personal/goals.ts` au checkpoint suivant.
+
+**Vocabulaire** : ce module dit « progression », et rien d'autre. La distinction de Trajectoire entre progression manuelle, calculée et retenue n'a pas de sens ici, où la progression est toujours calculée et jamais saisie.
+
+Fichiers, à cette date :
+
+- table `personal_goals` (`supabase/migrations/20260917100000_create_personal_goals.sql`)
+
+**Pas encore construits** : `lib/personal/goals.ts` et le store, les routes, l'interface et son archivage, puis le branchement sur les deux gestes de suppression physique du pôle.
 
 ## Service renderer
 

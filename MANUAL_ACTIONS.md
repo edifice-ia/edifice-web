@@ -89,6 +89,151 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 ## Archive (done)
 
+### 2026-09-17 — Appliquer la migration « module Objectifs »
+
+**Statut** : `done` — 2026-09-18
+
+**Résultat** : migration appliquée dans le SQL Editor et vérifiée par les huit étapes ci-dessous. RLS active. Grants exacts : `INSERT`, `SELECT`, `UPDATE` pour `authenticated` seul, aucune ligne pour `anon` ni `PUBLIC`, aucun `DELETE`, `TRUNCATE` ni `MAINTAIN`. Trois policies alignées sur ces trois verbes, aucune `DELETE`. Six contraintes présentes. Les quatre tests de comportement conformes : cible égale au départ, statut inconnu et unité vide refusés, cas valide accepté avec `start_value` à `0.000` — et **l'arrondi silencieux confirmé, `80.12345` enregistré en `80.123`**. Aucun résidu.
+
+**Réserve levée** : la lisibilité du `returning` de l'étape 7e dans le SQL Editor était incertaine à la rédaction. Les valeurs ont bien été lues ; l'étape est donc conservée telle quelle.
+
+**Fichier** : `supabase/migrations/20260917100000_create_personal_goals.sql`
+
+**Pourquoi c'est manuel** : nécessite un clic dans le SQL Editor Supabase, pas d'accès API direct pour ce type d'opération. Aucun CLI Supabase authentifié n'est configuré sur cette machine, et la clé service-role ne permet pas d'exécuter du DDL par l'API REST.
+
+**Bloque** : le checkpoint 2 du module Objectifs (store et routes), qui ne doit pas être **déployé** avant que la table existe. Rien de ce qui est déjà en production n'en dépend : aucun code du dépôt ne référence `personal_goals` à la date de cette entrée, et les deux gestes de suppression physique ne la connaîtront qu'au checkpoint 4.
+
+**À lire avant d'exécuter** — ce qui distingue cette table du patron du pôle, et ce qui n'en diffère pas :
+
+1. **Aucun écart sur les droits.** `SELECT`, `INSERT`, `UPDATE` à `authenticated`, **pas de `DELETE`**, rien à `anon` ; trois policies scopées au propriétaire. La migration révoque `from anon, authenticated` avant le `grant`, pour neutraliser le défaut de schéma posé par `supabase_admin`.
+2. **Valeurs en `numeric(15,3)`.** Au-delà de trois décimales, Postgres **arrondit sans erreur** : le test 7e le montre. C'est au parser applicatif, au checkpoint 2, de refuser plus de trois décimales.
+3. **`current_value` n'a pas de défaut en base** : une colonne ne peut pas prendre par défaut la valeur d'une autre. Un `insert` qui l'omet échoue en `23502`, ce qui est voulu ; l'application la fixera à `start_value`.
+
+**Étapes** :
+
+1. Ouvrir <https://supabase.com/dashboard>, sélectionner le projet de L'Édifice, puis « SQL Editor » dans la barre latérale.
+2. Cliquer « New query ».
+3. Coller le contenu intégral de `20260917100000_create_personal_goals.sql`, cliquer « Run ». Le fichier est idempotent (`if not exists`, `drop policy if exists`, `drop trigger if exists`, `create or replace function`) : le relancer ne casse rien.
+4. Vérifier que **RLS est activée** — sans cela les policies ne s'appliquent pas :
+
+```sql
+select relname, relrowsecurity
+from pg_class
+where relname = 'personal_goals'
+  and relnamespace = 'public'::regnamespace;
+```
+
+Attendu : une ligne, `relrowsecurity` à `true`.
+
+5. Vérifier les **grants**, lus dans l'ACL brute par `aclexplode` — `information_schema.role_table_grants` n'affiche pas `MAINTAIN`, privilège de PostgreSQL 17. Ce contrôle n'est pas optionnel : c'est lui qui a révélé le défaut du 2026-08-24.
+
+```sql
+select case a.grantee when 0 then 'PUBLIC' else pg_get_userbyid(a.grantee) end as grantee,
+       a.privilege_type
+from pg_class c
+cross join lateral aclexplode(c.relacl) a
+where c.relnamespace = 'public'::regnamespace
+  and c.relname = 'personal_goals'
+  and (a.grantee = 0 or pg_get_userbyid(a.grantee) in ('anon', 'authenticated'))
+order by 1, 2;
+```
+
+Attendu, **exactement 3 lignes**, et rien d'autre :
+
+- `authenticated` → `INSERT`, `SELECT`, `UPDATE`
+- **aucune ligne pour `anon` ni pour `PUBLIC`**, et **aucun `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER` ni `MAINTAIN`**
+
+6. Vérifier que les policies correspondent exactement aux verbes accordés :
+
+```sql
+select policyname, cmd, roles
+from pg_policies
+where schemaname = 'public'
+  and tablename = 'personal_goals'
+order by cmd;
+```
+
+Attendu, **exactement 3 lignes** : `personal_goals_insert_own` (`INSERT`), `personal_goals_select_own` (`SELECT`), `personal_goals_update_own` (`UPDATE`), chacune pour `{authenticated}`. **Aucune policy `DELETE`.**
+
+7. Vérifier les **contraintes**, en structure puis en comportement.
+
+**7a, structure** :
+
+```sql
+select conname, pg_get_constraintdef(oid) as definition
+from pg_constraint
+where conrelid = 'public.personal_goals'::regclass
+  and contype = 'c'
+order by conname;
+```
+
+Attendu, **exactement 6 lignes** : `personal_goals_status_known`, `personal_goals_target_differs_from_start`, `personal_goals_title_max_length`, `personal_goals_title_not_blank`, `personal_goals_unit_label_max_length`, `personal_goals_unit_label_not_blank`.
+
+**7b à 7e, comportement** — sur le compte de test uniquement, chaque bloc dans sa propre transaction annulée, puisqu'une erreur rend la transaction inutilisable. **Vérifier d'abord que `test-erase@edificeia.com` existe** : sinon les `insert … select` ne visent aucune ligne et passent sans erreur, ce qui ne prouve rien.
+
+```sql
+select id from auth.users where email = 'test-erase@edificeia.com';
+```
+
+Attendu : une ligne.
+
+**7b, cible égale au départ** :
+
+```sql
+begin;
+insert into public.personal_goals (user_id, title, start_value, target_value, current_value)
+select id, 'Controle cible', 10, 10, 10 from auth.users where email = 'test-erase@edificeia.com';
+rollback;
+```
+
+Attendu : échec `23514`, contrainte `personal_goals_target_differs_from_start`.
+
+**7c, statut inconnu** :
+
+```sql
+begin;
+insert into public.personal_goals (user_id, title, target_value, current_value, status)
+select id, 'Controle statut', 100, 0, 'abandoned' from auth.users where email = 'test-erase@edificeia.com';
+rollback;
+```
+
+Attendu : échec `23514`, contrainte `personal_goals_status_known`.
+
+**7d, unité vide** :
+
+```sql
+begin;
+insert into public.personal_goals (user_id, title, target_value, current_value, unit_label)
+select id, 'Controle unite', 100, 0, '   ' from auth.users where email = 'test-erase@edificeia.com';
+rollback;
+```
+
+Attendu : échec `23514`, contrainte `personal_goals_unit_label_not_blank`.
+
+**7e, cas valide, défaut du départ et arrondi** :
+
+```sql
+begin;
+insert into public.personal_goals (user_id, title, target_value, current_value)
+select id, 'Controle valide', 80.12345, 0 from auth.users where email = 'test-erase@edificeia.com'
+returning start_value, target_value, current_value, status, unit_label, due_on, deleted_at;
+rollback;
+```
+
+Attendu : une ligne, `start_value` = `0.000`, `target_value` = **`80.123`** (arrondi silencieux, point 2 ci-dessus), `current_value` = `0.000`, `status` = `active`, et `unit_label`, `due_on`, `deleted_at` à `null`.
+
+8. **Résidu** — contre-vérification :
+
+```sql
+select count(*) as residus
+from public.personal_goals
+where title like 'Controle %';
+```
+
+Attendu : `0`.
+
+**Vérification** : les étapes 4 à 8 renvoient exactement les valeurs attendues. Toute ligne de grant en plus des trois attendues est un échec, même si elle paraît inoffensive. Le compte `contact.edificeia@gmail.com` n'est jamais touché.
+
 ### 2026-09-14 — Appliquer les clés étrangères composites de la liaison des catégories de Journal
 
 **Statut** : `done` — 2026-09-15

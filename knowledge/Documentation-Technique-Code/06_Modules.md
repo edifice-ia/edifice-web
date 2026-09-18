@@ -557,21 +557,54 @@ L'état de confirmation d'archivage s'appelle `confirmingArchiveId`, aligné sur
 
 ### Objectifs
 
-Cinquième module à saisie manuelle du pôle, **construit à cette date en base seulement** : la table `personal_goals` est appliquée depuis le 2026-09-18, et rien d'autre n'existe — ni validation, ni store, ni route, ni interface. L'onglet Objectifs rend donc toujours ses deux cartes statiques, et il ne prétend afficher aucune donnée.
+Cinquième module à saisie manuelle du pôle. La table `personal_goals` est appliquée depuis le 2026-09-18 ; le store et les routes sont écrits le même jour. **L'interface n'existe pas encore** : l'onglet Objectifs rend toujours ses deux cartes statiques, et il ne prétend afficher aucune donnée.
 
 Module **autonome**, sur le patron de Tâches : une table unique, une ligne par objectif. Il n'est relié ni à Trajectoire, dont les `trajectoire_objectives` vivent dans un projet, ni au « moteur Objectifs » de [20-catalogue-services.md](../Documentation-Strategique/Markdown/20-catalogue-services.md), que `23-modules.md` cite pour la progression. Un service commun attend un second cas réel plutôt qu'un premier cas anticipé — le raisonnement de [Décisions](./03_Decisions.md) DEC-013.
 
+Fichiers :
+
+- `lib/personal/goals.ts` (types, validation et calcul de progression, sans I/O) et `lib/server/personal/goals-store.ts`
+- `app/api/personal/goals/route.ts`, `app/api/personal/goals/[id]/route.ts`, `app/api/personal/goals/[id]/restore/route.ts`
+- table `personal_goals` (`supabase/migrations/20260917100000_create_personal_goals.sql`)
+
 Champs : intitulé ; valeur de départ, valeur actuelle et cible ; unité libre ; échéance facultative ; statut déclaré, `active` ou `achieved`. Voir [Base de données](./05_Database.md) pour le schéma, les contraintes et les droits.
 
-**La progression est calculée à la lecture, jamais stockée** : `(actuelle − départ) / (cible − départ)`. Une seule formule couvre les deux sens, et le sens lui-même se déduit du signe de `cible − départ`. Elle sera écrite dans `lib/personal/goals.ts` au checkpoint suivant.
+**Le garde DEC-007 est posé dès le premier commit du module**, sur les cinq handlers, via `authorizeCockpitApiAccess()`. Les routes **valident aussi le format UUID** avant que l'identifiant n'atteigne Postgres — `404` pour un identifiant d'URL malformé, comme les routes des catégories de Journal, et contrairement aux routes plus anciennes du pôle.
+
+#### Progression : calculée, jamais stockée
+
+`goalProgress` vit dans `lib/personal/goals.ts` et n'est **ni persistée en base ni renvoyée par l'API** : l'interface l'appellera sur les trois valeurs de l'objectif. Une seule implémentation, contrairement à `retainedObjectiveProgress` de Trajectoire, qui existe en double sans que rien ne tienne les deux copies synchronisées.
+
+```text
+ratio = (actuelle − départ) / (cible − départ)
+```
+
+Une seule formule couvre les deux sens. Épargne de 0 vers 5 000 : `(2 000 − 0) / (5 000 − 0) = 0,40`. Poids de 90 vers 80 : `(85 − 90) / (80 − 90) = 0,50`, numérateur et dénominateur négatifs. **Le sens n'est pas stocké non plus** : `descending` se déduit du signe de `cible − départ`.
+
+Le résultat porte quatre champs : `ratio` brut — négatif en cas de recul, supérieur à 1 en cas de dépassement —, `percent` borné à 0-100 et **arrondi vers le bas**, `state` parmi `behind`, `inProgress`, `reached` et `exceeded`, et `descending`. L'état est nommé plutôt que laissé au seul pourcentage : un recul et un début valent tous deux 0 %, un dépassement et une cible juste atteinte valent tous deux 100 %. L'arrondi vers le bas empêche d'afficher 100 % à 99,6 %.
+
+#### Trois décimales, et pourquoi le parser les refuse
+
+`parseGoalValue` refuse une valeur non finie, une valeur absolue au-delà de 1e12, et **plus de trois décimales**. Ce dernier refus n'est pas un excès de zèle : `numeric(15,3)` **arrondit sans erreur** au-delà de trois décimales — `80.12345` devient `80.123`, constaté à l'application de la migration. Arrondir pour l'utilisateur reproduirait ce défaut dans le code censé l'en protéger, et la valeur affichée ne serait pas celle qu'il a saisie.
+
+Le store convertit les trois valeurs par `Number()` à la lecture. PostgREST rend un `numeric` en nombre JSON, mais une valeur arrivant en texte serait autrement propagée telle quelle dans un champ typé `number`, et une comparaison deviendrait une comparaison de chaînes.
+
+#### Cible différente du départ, vérifiée des deux côtés
+
+Sans écart entre départ et cible, la formule diviserait par zéro. La règle est tenue par la contrainte `personal_goals_target_differs_from_start`, et rendue lisible côté application :
+
+- à la **création**, le parser compare les deux valeurs et répond `400` ;
+- à la **mise à jour**, il ne peut comparer que si les deux sont envoyées ensemble. Sinon, la comparaison porte sur les valeurs **résultantes**, que seule la base connaît : le store traduit alors le `23514` en refus typé, et la route répond `400` plutôt qu'une `500`. Lire la ligne puis comparer en mémoire laisserait une fenêtre de course entre la lecture et l'écriture.
+
+#### Ce que le module ne fait pas
+
+**Le statut ne change jamais tout seul.** Atteindre la cible ne fait pas passer un objectif à `achieved` : « cible atteinte » se déduit des valeurs, « atteint » se déclare. Les deux peuvent diverger, et l'écran les montrera sans les confondre. Un passage automatique ferait stocker une valeur dérivée.
+
+**Aucun historique des valeurs** : `current_value` est écrasée à chaque mise à jour. Une courbe d'évolution demanderait une table dépendante.
 
 **Vocabulaire** : ce module dit « progression », et rien d'autre. La distinction de Trajectoire entre progression manuelle, calculée et retenue n'a pas de sens ici, où la progression est toujours calculée et jamais saisie.
 
-Fichiers, à cette date :
-
-- table `personal_goals` (`supabase/migrations/20260917100000_create_personal_goals.sql`)
-
-**Pas encore construits** : `lib/personal/goals.ts` et le store, les routes, l'interface et son archivage, puis le branchement sur les deux gestes de suppression physique du pôle.
+**Pas encore construits** : l'interface et son archivage, puis le branchement sur les deux gestes de suppression physique du pôle. **Aucun test de bout en bout** n'a encore été mené sur ce module.
 
 ## Service renderer
 

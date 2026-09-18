@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-09-18
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-18 (module Objectifs : store et API)](#2026-09-18-module-objectifs--store-et-api)
 - [2026-09-18 (module Objectifs : migration)](#2026-09-18-module-objectifs--migration)
 - [2026-09-16 (réassignation depuis l'écran de blocage des catégories de Journal)](#2026-09-16-réassignation-depuis-lécran-de-blocage-des-catégories-de-journal)
 - [2026-09-16 (sélecteur et affichage des catégories de Journal)](#2026-09-16-sélecteur-et-affichage-des-catégories-de-journal)
@@ -58,6 +59,37 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
+## 2026-09-18 (module Objectifs : store et API)
+
+Type : produit, sécurité
+
+Résumé : deuxième checkpoint du **module Objectifs**, écrit le même jour que l'application de sa table. Validation, store et trois routes ; **aucune interface**, l'onglet Objectifs rendant toujours ses cartes statiques. Aucun changement de base.
+
+**Décisions portées par ce commit** :
+
+- **le parser refuse plus de trois décimales** — `numeric(15,3)` arrondirait sans le dire, et la valeur affichée ne serait pas celle saisie. Arrondir côté application reproduirait le défaut dont ce code protège ;
+- **la progression n'est ni stockée ni renvoyée par l'API** : `goalProgress` est une fonction pure de `lib/personal/goals.ts`, que l'interface appellera. Une seule implémentation, l'inverse de `retainedObjectiveProgress` de Trajectoire, écrite en double ;
+- **`percent` est arrondi vers le bas** et borné à 0-100, et un `state` nommé — `behind`, `inProgress`, `reached`, `exceeded` — distingue ce qu'un pourcentage seul confond ;
+- **« cible ≠ départ » est vérifiée des deux côtés** : par le parser quand les deux valeurs sont envoyées, par la base sinon, le `23514` étant traduit en `400` au lieu d'une `500` ;
+- **`DELETE` archive**, et `POST /[id]/restore` restaure, comme les quatre autres modules du pôle ;
+- **le statut ne change jamais tout seul** ; les valeurs transitent en nombres JSON, converties par `Number()` à la lecture.
+
+**Le garde DEC-007 est posé dès l'écriture**, sur les cinq handlers. Les routes valident le format UUID : `404` pour un identifiant malformé, jamais un `22P02` remonté en `500`.
+
+Fichiers liés :
+
+- `lib/personal/goals.ts`, `lib/server/personal/goals-store.ts` (nouveaux)
+- `app/api/personal/goals/route.ts`, `app/api/personal/goals/[id]/route.ts`, `app/api/personal/goals/[id]/restore/route.ts` (nouveaux)
+- `knowledge/Documentation-Technique-Code/05_Database.md`, `06_Modules.md`
+
+Impact : les objectifs deviennent créables, modifiables, archivables et restaurables **par l'API**. Rien n'est visible à l'écran : aucun appel n'est encore émis par l'interface.
+
+Action de suivi :
+
+- checkpoint 3 : l'interface, `PersonalGoalsPanel.tsx`, avec l'archivage et la restauration ; l'onglet sort alors de `tabCards`, en changeant les quatre points ensemble ;
+- checkpoint 4 : `goals` dans `ERASABLE_MODULES` et `MODULE_TABLES`, plus la suppression définitive d'un objectif archivé ;
+- **aucun test de bout en bout** n'a encore été mené sur ce module : le premier viendra avec l'interface.
+
 ## 2026-09-18 (module Objectifs : migration)
 
 Type : produit, base de données, sécurité
@@ -93,7 +125,7 @@ Impact : la table existe en base, et rien ne la lit encore. `05_Database.md` dé
 
 Action de suivi :
 
-- checkpoint 2 : `lib/personal/goals.ts`, store et routes, `authorizeCockpitApiAccess()` sur chaque handler dès l'écriture.
+- checkpoint 2 : `lib/personal/goals.ts`, store et routes, `authorizeCockpitApiAccess()` sur chaque handler dès l'écriture — fait le 2026-09-18, voir l'entrée « module Objectifs : store et API ».
 
 ## 2026-09-16 (réassignation depuis l'écran de blocage des catégories de Journal)
 

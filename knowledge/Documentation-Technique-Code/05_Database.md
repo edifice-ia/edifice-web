@@ -129,9 +129,9 @@ Leur store existe depuis le 2026-09-15, `lib/server/personal/journal-categories-
 - **`due_on` est une date**, un jour et non un instant, comme `personal_tasks.due_on` ;
 - **aucun historique des valeurs** : `current_value` est écrasée à chaque mise à jour. Une courbe d'évolution demanderait une table dépendante, donc [Décisions](./03_Decisions.md) DEC-012 et DEC-013.
 
-Droits : `SELECT`, `INSERT`, `UPDATE` à `authenticated`, **aucun `DELETE`** ni en privilège ni en policy, trois policies scopées au propriétaire. La révocation `from anon, authenticated` précède le `grant`. Contrôles post-application validés le 2026-09-18, ACL lue par `aclexplode`. Ni store ni route à cette date.
+Droits : `SELECT`, `INSERT`, `UPDATE` à `authenticated`, **aucun `DELETE`** ni en privilège ni en policy, trois policies scopées au propriétaire. La révocation `from anon, authenticated` précède le `grant`. Contrôles post-application validés le 2026-09-18, ACL lue par `aclexplode`. Son store, `lib/server/personal/goals-store.ts`, existe depuis le 2026-09-18 : client de session, RLS en garde réel. L'interface n'est pas encore écrite.
 
-Ces huit tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role. `personal_goals` n'a pas encore de store, mais sa migration l'inscrit dans ce patron. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet.
+Ces huit tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet.
 
 **Trois d'entre elles seulement accordent le privilège `DELETE` à `authenticated`**, chacune doublée d'une policy `DELETE` scopée au propriétaire, et pour la même raison : aucune ne porte de contenu.
 

@@ -10,23 +10,26 @@ import {
 
 // Ce store est le SEUL du pole Personnel a utiliser la cle service-role, et il
 // le fait pour une raison structurelle, pas par commodite : personal_notes,
-// personal_journal_entries, personal_habits et personal_tasks n'accordent pas le
-// privilege DELETE a authenticated et ne portent aucune policy DELETE. Une
-// suppression physique y est donc impossible depuis le client de session, par
-// conception — voir les migrations 20260804100000, 20260805100000,
-// 20260806100000 et 20260824100000.
+// personal_journal_entries, personal_habits, personal_tasks et personal_goals
+// n'accordent pas le privilege DELETE a authenticated et ne portent aucune
+// policy DELETE. Une suppression physique y est donc impossible depuis le client
+// de session, par conception — voir les migrations 20260804100000,
+// 20260805100000, 20260806100000, 20260824100000 et 20260917100000.
 //
 // Cette propriete n'est reellement appliquee en base que depuis 20260824110000 :
-// les quatre migrations ci-dessus revoquaient `from anon` mais pas
+// les quatre premieres migrations ci-dessus revoquaient `from anon` mais pas
 // `from authenticated`, et le defaut du schema Supabase accordait tout. Voir le
-// chantier 6 du suivi.
+// chantier 6 du suivi. Les tables creees apres ce correctif, dont personal_goals,
+// revoquent explicitement avant d'accorder.
 //
-// Une seule table du pole fait exception, personal_habit_completions, qui
-// accorde DELETE a authenticated sous une policy scopee au proprietaire :
-// decocher un jour retire la ligne. Elle est neanmoins videe ici par la
-// service-role comme les autres, et non par le client de session — melanger
-// deux chemins de suppression dans un meme geste rendrait le resultat partiel
-// si l'un des deux echouait.
+// Trois tables du pole font exception et accordent DELETE a authenticated sous
+// une policy scopee au proprietaire : personal_habit_completions (decocher un
+// jour retire la ligne), personal_journal_entry_categories (retirer une
+// categorie d'une entree retire le lien) et personal_journal_categories, qui
+// n'est PAS effacable ici — une etiquette n'est pas du contenu. Les deux
+// premieres sont neanmoins videes ici par la service-role comme les autres, et
+// non par le client de session — melanger deux chemins de suppression dans un
+// meme geste rendrait le resultat partiel si l'un des deux echouait.
 //
 // Le service-role contourne RLS. Il n'existe donc ICI aucun garde en base :
 // le seul filtre d'isolation est le .eq("user_id", userId) applique ci-dessous.
@@ -89,7 +92,7 @@ function getErasureClient() {
 //
 // `as const satisfies Record<...>` plutot qu'une annotation de type : l'annotation
 // elargissait les noms de tables en `string`, et la liste blanche ne tenait plus
-// que par convention. `satisfies` verifie toujours que les quatre modules sont
+// que par convention. `satisfies` verifie toujours que les cinq modules sont
 // couverts et que la forme est la bonne, mais laisse TypeScript conserver les
 // litteraux — c'est d'eux qu'est derive ErasableTableName ci-dessous.
 const MODULE_TABLES = {
@@ -123,6 +126,12 @@ const MODULE_TABLES = {
   // fourni le deuxieme module a table dependante que DEC-013 attendait — ce
   // sont les categories de Journal qui l'ont fait, le 2026-09-09.
   tasks: { countedTable: "personal_tasks", dependents: [] },
+  // Table unique, comme Notes et Taches : un objectif est une ligne, sans
+  // dependante et sans historique de valeurs. personal_goals porte user_id et
+  // deleted_at, les deux colonnes que deleteOwnedRows et deleteOwnedArchivedRow
+  // filtrent. Aucune migration n'a ete necessaire : les tables d'audit n'ont pas
+  // de liste de valeurs autorisees pour `module`.
+  goals: { countedTable: "personal_goals", dependents: [] },
 } as const satisfies Record<
   ErasableModuleId,
   { countedTable: string; dependents: readonly { table: string; parentKey: string }[] }

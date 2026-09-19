@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-09-19
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-19 (module Objectifs : suppression physique)](#2026-09-19-module-objectifs--suppression-physique)
 - [2026-09-19 (module Objectifs : interface)](#2026-09-19-module-objectifs--interface)
 - [2026-09-18 (module Objectifs : store et API)](#2026-09-18-module-objectifs--store-et-api)
 - [2026-09-18 (module Objectifs : migration)](#2026-09-18-module-objectifs--migration)
@@ -60,6 +61,52 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
+## 2026-09-19 (module Objectifs : suppression physique)
+
+Type : produit, sécurité
+
+Résumé : quatrième et dernier checkpoint du **module Objectifs**. Il rejoint les deux gestes de suppression physique du pôle : « Vider l'historique » dans Réglages, et « Supprimer définitivement » un objectif archivé dans sa carte Archives. **Aucune migration** : les deux tables d'audit n'ont pas de liste de valeurs autorisées pour `module`.
+
+**Décisions portées par ce commit** :
+
+- **`goals` en dernière position de `ERASABLE_MODULES`**, sans `cascadeLabel` ni note : une table, aucune dépendante, rien à nommer hors compte ;
+- **une route `DELETE /api/personal/goals/[id]/permanent` qui valide le format UUID.** Elle passe par la clé service-role, où un identifiant malformé remonterait en `22P02` puis en `500`. **Les quatre routes `/permanent` plus anciennes ne le font pas** et restent à reprendre ;
+- **la confirmation de suppression définitive nomme intitulé, valeurs et date d'archivage**, deux objectifs archivés se ressemblant facilement ;
+- **fermer les archives remet la confirmation à zéro**, pour qu'une confirmation destructrice ne se rouvre pas d'elle-même ;
+- **le commentaire d'en-tête de `data-erasure-store.ts` est corrigé.** Il affirmait qu'« une seule table du pôle » accorde `DELETE` à `authenticated` et comptait « les quatre modules » : trois tables l'accordent, et les modules sont cinq. Corrigé au moment d'y ajouter `personal_goals`, faute de quoi le commentaire aurait été retouché sur une phrase fausse ;
+- **DEC-012 dit désormais « trois écrans » — sélection, confirmation, résultat —, et non « quatre ».** Erreur relevée en relisant la règle 1 : un reliquat de l'ancienne interface à sélection multiple, alors que `06_Modules.md` décrit le flux à trois écrans — liste, confirmation, résultat ;
+- **`CLAUDE.md` gagne une règle de vérification isolée** : ne laisser tourner aucun serveur de développement pendant l'isolation. Tirée de l'incident ci-dessous.
+
+**Incident pendant la vérification isolée de ce commit.** Le `git stash push --include-untracked` a échoué en partie — `File exists` sur un fichier de route nouvellement stagé, `Permission denied` sur un dossier non suivi — pendant qu'un serveur de développement tournait, et l'a fait planter. L'arbre est resté incohérent, un fichier stagé absent du disque et le travail de l'utilisateur dans le stash. Rien n'a été perdu : copie de sécurité hors de git, fichier remis sur disque depuis l'index, `stash pop` sans conflit, contenu vérifié identique. La vérification a été refaite sans serveur, et elle passe. **La cause est probable, non prouvée.**
+
+**Vérifié en pratique, une seconde fois** : brancher un module sur « Vider l'historique » demande deux entrées, une dans chaque liste. Le compilateur refuse l'état intermédiaire. Voir [Décisions](./03_Decisions.md) DEC-012.
+
+**Test de contrat passé le 2026-09-19, 30 vérifications sur 30**, session réelle sur `test-erase@edificeia.com` avec des objectifs `[TEST-CP4]` créés pour l'occasion :
+
+- `401` sans session ; `404` sur un objectif actif, un identifiant malformé et un identifiant inexistant, sans écriture ni audit ;
+- suppression d'un objectif archivé en `200` ; ligne disparue en base ; autre archive et objectif actif intacts ;
+- **une seule entrée d'audit** — `goals`, `personal_goals`, `related_deleted_count` à 0, aux seules colonnes techniques, sans intitulé ni unité ; un second appel répond `404` et n'en écrit pas ;
+- `GET` de « Vider l'historique » : cinq modules, Objectifs en dernier, compte égal aux lignes en base archivées comprises, aucun `cascadeLabel` ;
+- les quatre objectifs déjà présents sur le compte — les trois du checkpoint 2 et « [TEST] Virgule », créé par le test de bout en bout du checkpoint précédent — sont restés identiques, `updated_at` compris.
+
+**Le `POST` de « Vider l'historique » n'a pas été exercé.** Le test s'est aussi limité à un seul compte : **l'isolation entre comptes n'est pas couverte**. Le filtre `.eq("user_id", …)` est le seul garde de ce chemin, la clé service-role contournant RLS — le même code que pour les quatre autres modules, sans qu'un second compte l'ait mis en défaut.
+
+Fichiers liés :
+
+- `lib/personal/data-erasure.ts`, `lib/server/personal/data-erasure-store.ts`
+- `app/api/personal/goals/[id]/permanent/route.ts` (nouveau)
+- `app/interface/personnel/PersonalGoalsPanel.tsx`
+- `knowledge/Documentation-Technique-Code/03_Decisions.md`, `05_Database.md`, `06_Modules.md`
+- `CLAUDE.md`
+
+Impact : Objectifs est effaçable. Le module est complet côté code : table, store, routes, interface, archivage, restauration et les deux gestes de suppression physique.
+
+Action de suivi :
+
+- **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com` : « Supprimer définitivement » un objectif archivé depuis la carte Archives — un objectif `[TEST-CP4]` y est laissé archivé —, puis « Vider Objectifs » depuis Réglages. **Ce second geste détruit tous les objectifs du compte de test.** À contrôler ensuite en base : lignes disparues, une entrée de `personal_data_erasure_log` au bon compte, une de `personal_item_erasure_log` pour la suppression individuelle ;
+- **push des commits d'Objectifs**, sur demande explicite : ce commit touche à la suppression physique et à la clé service-role, la règle permanente s'applique ;
+- restent ouvertes : valider le format des identifiants dans les quatre routes `/permanent` plus anciennes et dans les routes plus anciennes du pôle ; trancher `restrict` ou `no action` avant tout geste de suppression de compte ; rassembler les helpers de date copiés dans le pôle.
+
 ## 2026-09-19 (module Objectifs : interface)
 
 Type : produit
@@ -89,7 +136,7 @@ Impact : les objectifs sont visibles et modifiables à l'écran. **Aucun test de
 Action de suivi :
 
 - **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com`, avec les trois objectifs `[TEST]` du checkpoint précédent — Épargne (montant, atteint), Poids (descendant, en recul), Lectures (à zéro) — plus une création avec une valeur à virgule, un refus à quatre décimales, une mise à jour de valeur, un archivage puis une restauration ;
-- checkpoint 4 : `goals` dans `ERASABLE_MODULES` et `MODULE_TABLES`, plus la suppression définitive d'un objectif archivé ;
+- checkpoint 4 : `goals` dans `ERASABLE_MODULES` et `MODULE_TABLES`, plus la suppression définitive d'un objectif archivé — fait le 2026-09-19, voir l'entrée « module Objectifs : suppression physique » ;
 - nettoyage possible, hors de ce commit : rassembler `formatDueOn`, `formatArchivedAt`, `todayInParis` et `formatJournalTimestamp`, chacun copié entre deux à quatre fichiers du pôle.
 
 ## 2026-09-18 (module Objectifs : store et API)
@@ -120,7 +167,7 @@ Impact : les objectifs deviennent créables, modifiables, archivables et restaur
 Action de suivi :
 
 - checkpoint 3 : l'interface, `PersonalGoalsPanel.tsx`, avec l'archivage et la restauration ; l'onglet sort alors de `tabCards`, en changeant les quatre points ensemble — fait le 2026-09-19, voir l'entrée « module Objectifs : interface » ;
-- checkpoint 4 : `goals` dans `ERASABLE_MODULES` et `MODULE_TABLES`, plus la suppression définitive d'un objectif archivé ;
+- checkpoint 4 : `goals` dans `ERASABLE_MODULES` et `MODULE_TABLES`, plus la suppression définitive d'un objectif archivé — fait le 2026-09-19, voir l'entrée « module Objectifs : suppression physique » ;
 - **aucun test de bout en bout** n'a encore été mené sur ce module : le premier viendra avec l'interface.
 
 ## 2026-09-18 (module Objectifs : migration)

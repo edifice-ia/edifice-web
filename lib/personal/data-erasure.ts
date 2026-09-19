@@ -6,7 +6,7 @@
 // definis une seule fois. Un ecart entre les deux cotes serait ici plus grave
 // qu'ailleurs : la suppression est physique et irreversible.
 
-export type ErasableModuleId = "notes" | "journal" | "habits" | "tasks";
+export type ErasableModuleId = "notes" | "journal" | "habits" | "tasks" | "goals";
 
 // Le mot est fixe, jamais derive d'un nom de module. La selection etant
 // variable (1 a N modules), aucun nom unique n'existe ; et taper le nom d'un
@@ -21,8 +21,8 @@ export const ERASABLE_MODULES: Array<{
   // plusieurs tables. Le compte reste exprime dans l'unite que l'utilisateur
   // reconnait — une habitude, pas une ligne — mais taire ce qui part avec elle
   // ferait annoncer "3 elements" pour une suppression qui en detruit des
-  // centaines. Renseigne pour Habitudes et Journal ; Notes et Taches tiennent
-  // dans une table.
+  // centaines. Renseigne pour Habitudes et Journal ; Notes, Taches et Objectifs
+  // tiennent dans une table.
   //
   // Toujours un nom FEMININ PLURIEL : les phrases qui l'emploient l'accordent
   // ainsi ("toutes les ... associees", "elles sont supprimees").
@@ -57,6 +57,9 @@ export const ERASABLE_MODULES: Array<{
     cascadeVolumeNote: "et elles sont bien plus nombreuses",
   },
   { id: "tasks", label: "Tâches" },
+  // Table unique, comme Notes et Taches : ni cascadeLabel, ni note. DEC-012
+  // exige de nommer ce que le compte n'inclut pas ; ici il n'y a rien hors compte.
+  { id: "goals", label: "Objectifs" },
 ];
 
 export type ErasableModuleSummary = {

@@ -105,13 +105,13 @@ Suite possible, non faite : étendre à tous les providers la lecture réelle du
 
 #### Onglet Personnel : « Vider l'historique »
 
-Le seul onglet de cet écran dont les réglages agissent, et le seul endroit du dépôt qui **supprime physiquement** des données. Il vide l'historique d'un module Personnel — Notes, Journal et Humeur, Habitudes, ou Tâches. Il ne supprime pas le compte, ne touche ni aux connexions, ni aux autres modules du pôle, ni aux autres pôles.
+Le seul onglet de cet écran dont les réglages agissent, et le seul endroit du dépôt qui **supprime physiquement** des données. Il vide l'historique d'un module Personnel — Notes, Journal et Humeur, Habitudes, Tâches ou Objectifs. Il ne supprime pas le compte, ne touche ni aux connexions, ni aux autres modules du pôle, ni aux autres pôles.
 
 **Un module à la fois, jamais plusieurs.** C'est la propriété structurante de cet écran, et elle descend jusqu'au contrat de la route. La liste de sélection propose une ligne par module, chacune avec son propre bouton nommé — « Vider Notes », « Vider Habitudes ». Il n'existe ni case à cocher, ni bouton commun, ni requête capable d'emporter deux modules.
 
 Le flux est en trois écrans : la liste, une confirmation dédiée au module visé, puis le résultat. **Le nom du module apparaît explicitement sur chacun des trois** — c'est le seul élément qui distingue une confirmation d'une autre, le mot à taper étant générique. À la confirmation, il est sorti du corps du texte : un sur-titre « Module ciblé » puis le libellé en `text-xl`, sur sa propre ligne, puis repris dans la phrase de conséquence, dans le libellé du champ de saisie et sur le bouton final. La confirmation dit aussi ce qui **reste** — « Les autres modules du pôle ne sont pas touchés » — et l'écran de résultat le confirme au passé.
 
-Le mot à taper est `SUPPRIMER`, **générique et identique pour les quatre modules**. Il n'est volontairement pas dérivé du nom du module : c'est le nom affiché qui porte la désignation de la cible, pas le mot tapé. Le champ est vidé à chaque ouverture, sans quoi confirmer un module puis en viser un autre trouverait la saisie déjà faite et le second effacement partirait sans rien retaper.
+Le mot à taper est `SUPPRIMER`, **générique et identique pour les cinq modules**. Il n'est volontairement pas dérivé du nom du module : c'est le nom affiché qui porte la désignation de la cible, pas le mot tapé. Le champ est vidé à chaque ouverture, sans quoi confirmer un module puis en viser un autre trouverait la saisie déjà faite et le second effacement partirait sans rien retaper.
 
 Le bouton « Vider » n'est **jamais désactivé, même à zéro élément** : un module annoncé à 0 peut conserver des lignes dépendantes orphelines si la cascade a manqué en base (voir DEC-013), et le désactiver fermerait le seul chemin qui les nettoie.
 
@@ -484,7 +484,7 @@ Aucune policy RLS nouvelle : restaurer est un `UPDATE` de `deleted_at`, déjà c
 - `listArchivedPersonalHabits` **n'appelle jamais** `buildHabitStats` — aucun chiffre n'est calculé sur ce chemin ;
 - la vue affiche nom, fréquence, date d'archivage, et **le volume brut de réalisations conservées** — un décompte de lignes, qui ne se périme pas et ne suppose aucune fenêtre de calcul, à ne pas confondre avec les statistiques absentes ci-dessus.
 
-Deux boutons y figurent depuis le 2026-08-18 : « Restaurer » et « Supprimer définitivement » (`DELETE /api/personal/habits/[id]/permanent`). Habitudes est le seul des quatre modules à porter une table dépendante, donc le seul dont la confirmation **chiffre ce qui part avec l'élément** : les réalisations sont supprimées explicitement avant l'habitude, et leur nombre est annoncé avant confirmation. C'est ce que `completionCount` sert, et rien d'autre.
+Deux boutons y figurent depuis le 2026-08-18 : « Restaurer » et « Supprimer définitivement » (`DELETE /api/personal/habits/[id]/permanent`). Habitudes est, avec Journal depuis les catégories, l'un des deux modules à porter une table dépendante ; c'est le seul dont la confirmation **chiffre ce qui part avec l'élément** : les réalisations sont supprimées explicitement avant l'habitude, et leur nombre est annoncé avant confirmation. C'est ce que `completionCount` sert, et rien d'autre.
 
 **Restaurer retrouve l'historique intact.** L'archivage d'une habitude n'a jamais touché `personal_habit_completions` : les réalisations ne sont supprimées que par le geste décocher, ou par « Supprimer définitivement », qui les emporte avec l'habitude. Série et taux de constance sont donc recalculés sur des données complètes à la lecture suivante, et non repris d'un instantané figé.
 
@@ -621,7 +621,23 @@ Construite le 2026-09-19, sur le patron de Tâches. La validation vient de `lib/
 
 `formatDueOn`, `formatArchivedAt` et `todayInParis` sont copiées de `PersonalTasksPanel.tsx`, à l'identique. Troisième duplication du genre dans le pôle, avec `formatJournalTimestamp` : les rassembler mérite un commit dédié.
 
-**Pas encore construit** : le branchement sur les deux gestes de suppression physique du pôle. **Aucun test de bout en bout** n'a encore été mené sur ce module.
+#### Suppression physique : les deux gestes du pôle
+
+Branchée le 2026-09-19. Objectifs est une **table unique**, comme Notes et Tâches : ni table dépendante, ni `cascadeLabel`, ni note de volume ou de survie — DEC-012 exige de nommer ce que le compte n'inclut pas, et ici il n'y a rien hors compte.
+
+**« Vider l'historique »** : deux entrées suffisent, `goals` dans `ERASABLE_MODULES` et dans `MODULE_TABLES`. L'écran de réglages et la route n'ont pas été touchés — c'est la seconde vérification en pratique de ce que [Décisions](./03_Decisions.md) DEC-012 annonce. Le compilateur impose l'ordre : `MODULE_TABLES` est typé `satisfies Record<ErasableModuleId, …>`, donc ajouter `"goals"` à la liste sans l'ajouter au tableau ne compile pas. Objectifs apparaît en cinquième ligne, avec son compte, archivés compris.
+
+**« Supprimer définitivement »** un objectif archivé : `DELETE /api/personal/goals/[id]/permanent`, dans la carte Archives, à côté de « Restaurer ». Aucune fonction de store n'est écrite : `permanentlyDeletePersonalItem` est générique sur le module, filtre `id` + `user_id` + `deleted_at` non nul, répond `404` uniforme, et écrit une entrée sans contenu dans `personal_item_erasure_log` avec `related_deleted_count` à 0. La route porte cinq gardes : session, rôle via `authorizeCockpitApiAccess()`, **format UUID**, filtre triple, et exécution par la clé service-role.
+
+**La route valide le format UUID, ce que les quatre routes `/permanent` plus anciennes ne font pas.** Comme elle passe par la clé service-role, un identifiant malformé atteindrait Postgres en `22P02` et remonterait en `500`. Ici il répond `404`. Les quatre autres restent à reprendre.
+
+**La confirmation identifie la cible** par l'intitulé, tronqué à 80 caractères par `erasurePreview`, les valeurs (`4 000 / 5 000 EUR`, avec le départ quand il n'est pas nul) et la date d'archivage — deux objectifs archivés portent facilement le même intitulé, leurs valeurs les distinguent. Sans mot à taper : l'archivage préalable tient lieu de première barrière. Fermer les archives remet cette confirmation à zéro, pour qu'elle ne se rouvre pas d'elle-même.
+
+**Test de contrat passé le 2026-09-19**, session réelle sur le compte de test, avec des objectifs `[TEST-CP4]` créés pour l'occasion : `401` sans session ; `404` pour un objectif **actif**, un identifiant malformé et un identifiant inexistant, sans écriture ni entrée d'audit ; suppression d'un objectif archivé en `200`, ligne disparue en base, autre archive et objectif actif intacts ; **une seule entrée d'audit**, `goals` / `personal_goals` / 0, aux seules colonnes techniques et sans contenu ; second appel en `404` ; `GET` des réglages listant cinq modules avec le bon compte. **Le `POST` de « Vider l'historique » n'a pas été exercé** : c'est le geste destructeur à l'échelle du module, il reste à la main de l'utilisateur.
+
+**Non couvert par ce test** : l'isolation entre comptes. Le filtre `.eq("user_id", …)` est le seul garde de ce chemin, la clé service-role contournant RLS. Il s'agit du même code que pour les quatre autres modules, mais aucun second compte n'a été utilisé pour le mettre en défaut.
+
+**Aucun test de bout en bout** de ces deux gestes n'a encore été mené sur ce module.
 
 ## Service renderer
 

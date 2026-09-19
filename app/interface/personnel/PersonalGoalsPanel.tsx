@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { erasurePreview } from "@/lib/personal/data-erasure";
 import {
   GOAL_TITLE_MAX_LENGTH,
   GOAL_UNIT_LABEL_MAX_LENGTH,
@@ -109,6 +110,15 @@ function readValueInput(raw: string, field: string): ValueInputResult {
   return parseGoalValue(parsed, field);
 }
 
+// Les valeurs d'un objectif sur une ligne, pour la confirmation de suppression
+// definitive. Deux objectifs archives portent facilement le meme intitule ; leurs
+// valeurs, elles, les distinguent.
+function describeGoalValues(goal: PersonalGoal) {
+  const base = `${formatValue(goal.currentValue)} / ${formatValue(goal.targetValue, goal.unitLabel)}`;
+
+  return goal.startValue !== 0 ? `${base} · départ ${formatValue(goal.startValue)}` : base;
+}
+
 const PROGRESS_STATE_LABEL: Record<string, string | null> = {
   behind: "En recul par rapport au départ",
   inProgress: null,
@@ -200,6 +210,12 @@ export function PersonalGoalsPanel() {
   const [editError, setEditError] = useState<string | null>(null);
 
   const [confirmingArchiveId, setConfirmingArchiveId] = useState<string | null>(null);
+
+  // Distinct de confirmingArchiveId : archiver et supprimer definitivement sont
+  // deux gestes, et confondre leurs etats ferait ouvrir la mauvaise confirmation.
+  const [confirmingPermanentId, setConfirmingPermanentId] = useState<string | null>(
+    null,
+  );
 
   // Les archives forment une liste separee, jamais melangee a la liste active :
   // deux etats, deux appels, deux listes.
@@ -601,10 +617,44 @@ export function PersonalGoalsPanel() {
     }
   }
 
+  // SUPPRESSION PHYSIQUE ET IRREVERSIBLE. Geste distinct de l'archivage : ni
+  // route, ni bouton en commun, et atteignable depuis les seules archives.
+  //
+  // Le serveur revalide que l'objectif est archive — filtre triple id + user_id +
+  // deleted_at non nul. L'interface n'est pas un garde.
+  async function permanentlyDeleteGoal(goalId: string) {
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(`/api/personal/goals/${goalId}/permanent`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error ?? "Suppression definitive indisponible.");
+      }
+
+      setConfirmingPermanentId(null);
+      setArchivedGoals((current) => current.filter((goal) => goal.id !== goalId));
+      await refresh();
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Suppression definitive indisponible.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   const inputClass =
     "w-full rounded-md border border-[#1D2A44] bg-[#03070B] px-3 py-2 text-sm text-[#F8FAFC] outline-none transition placeholder:text-[#64748b] focus:border-[#39E6D0]/60";
   const neutralButtonClass =
     "rounded-md border border-[#1D2A44] bg-[#08111A] px-3 py-1.5 text-sm font-semibold text-[#A7B0C0] transition hover:border-[#39E6D0]/40 hover:text-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-40";
+  const dangerButtonClass =
+    "rounded-md border border-[#f87171]/50 bg-[#f87171]/10 px-3 py-1.5 text-sm font-semibold text-[#fecaca] transition hover:bg-[#f87171]/20 disabled:cursor-not-allowed disabled:opacity-40";
   const accentButtonClass =
     "rounded-md border border-[#39E6D0]/60 bg-[#39E6D0]/15 px-3 py-1.5 text-sm font-semibold text-[#39E6D0] transition hover:bg-[#39E6D0]/25 disabled:cursor-not-allowed disabled:opacity-40";
 
@@ -988,13 +1038,24 @@ export function PersonalGoalsPanel() {
       </PersonalModuleCard>
 
       {/* Carte separee : aucun objectif archive ne doit pouvoir passer pour
-          actif. Un seul geste y est possible, Restaurer. La suppression
-          definitive n'existe pas encore dans ce module. */}
+          actif. Deux gestes y sont possibles : Restaurer, et Supprimer
+          definitivement. La seconde n'existe QUE dans cette carte, et le
+          serveur le revalide — un objectif actif ne peut etre supprime
+          physiquement ni depuis l'interface, ni par appel direct. */}
       {archivedCount > 0 || showArchived ? (
         <div className="grid gap-3">
           <button
             className={`justify-self-start ${neutralButtonClass}`}
-            onClick={() => (showArchived ? setShowArchived(false) : openArchives())}
+            onClick={() => {
+              if (showArchived) {
+                // Une confirmation destructrice ne doit pas se rouvrir toute seule
+                // a la prochaine ouverture des archives.
+                setConfirmingPermanentId(null);
+                setShowArchived(false);
+              } else {
+                openArchives();
+              }
+            }}
             type="button"
           >
             {showArchived ? "Masquer les archives" : `Voir les archives (${archivedCount})`}
@@ -1028,24 +1089,77 @@ export function PersonalGoalsPanel() {
                             Archivé le {formatArchivedAt(goal.archivedAt)}
                             {goal.dueOn ? ` · échéance ${formatDueOn(goal.dueOn)}` : ""}
                           </p>
-                          <button
-                            className={accentButtonClass}
-                            disabled={isSubmitting}
-                            onClick={() => restoreGoal(goal.id)}
-                            type="button"
-                          >
-                            Restaurer
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              className={accentButtonClass}
+                              disabled={isSubmitting}
+                              onClick={() => restoreGoal(goal.id)}
+                              type="button"
+                            >
+                              Restaurer
+                            </button>
+                            <button
+                              className={dangerButtonClass}
+                              disabled={isSubmitting}
+                              onClick={() => setConfirmingPermanentId(goal.id)}
+                              type="button"
+                            >
+                              Supprimer définitivement
+                            </button>
+                          </div>
                         </div>
+
+                        {/* Confirmation binaire, sans mot a taper : l'archivage
+                            prealable tient lieu de premiere barriere. Elle rend
+                            la cible identifiable par elle-meme — intitule
+                            tronque a 80 caracteres par erasurePreview, valeurs
+                            et date d'archivage — parce qu'une confirmation
+                            generique ne protegerait de rien entre deux objectifs
+                            archives qui se ressemblent. */}
+                        {confirmingPermanentId === goal.id ? (
+                          <div className="grid gap-3 rounded-md border border-[#f87171]/40 bg-[#f87171]/10 p-3">
+                            <div>
+                              <p className="text-sm font-semibold text-[#fecaca]">
+                                Supprimer définitivement cet objectif ?
+                              </p>
+                              <p className="mt-1 text-sm italic leading-6 text-[#fecaca]">
+                                « {erasurePreview(goal.title)} »
+                              </p>
+                              <p className="mt-1 text-xs text-[#fecaca]/80">
+                                {describeGoalValues(goal)} · archivé le{" "}
+                                {formatArchivedAt(goal.archivedAt)}
+                              </p>
+                            </div>
+                            <p className="text-sm leading-6 text-[#fecaca]">
+                              Cet objectif sera définitivement supprimé. Il n&apos;y a pas de
+                              corbeille et aucune sauvegarde n&apos;existe. Les autres
+                              éléments archivés ne sont pas touchés.
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                className="rounded-md border border-[#f87171]/50 bg-[#f87171]/15 px-3 py-1.5 text-sm font-semibold text-[#fecaca] transition hover:bg-[#f87171]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                                disabled={isSubmitting}
+                                onClick={() => permanentlyDeleteGoal(goal.id)}
+                                type="button"
+                              >
+                                {isSubmitting ? "Suppression..." : "Confirmer"}
+                              </button>
+                              <button
+                                className={neutralButtonClass}
+                                disabled={isSubmitting}
+                                onClick={() => setConfirmingPermanentId(null)}
+                                type="button"
+                              >
+                                Annuler
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </li>
                   ))}
                 </ul>
               )}
-              <p className="mt-3 text-xs text-[#64748b]">
-                La suppression définitive d&apos;un objectif archivé n&apos;est pas encore
-                construite.
-              </p>
             </PersonalModuleCard>
           ) : null}
         </div>

@@ -119,6 +119,12 @@ Le principe : **vérifier l'état exact qui sera commité, pas l'arbre de travai
 3. Vérifier dans cet état isolé : `npx tsc --noEmit`, puis `npm run build`.
 4. Restaurer : `git stash pop`, et contrôler que `git status` est revenu à son état initial.
 
+**Aucun serveur de développement ne doit tourner pendant l'isolation.** Sur cette machine (Windows), un serveur `next dev` surveille les dossiers du dépôt. Or `git stash push --include-untracked` supprime précisément les dossiers non suivis, et les fichiers nouvellement stagés le temps de l'isolation. Constaté le 2026-09-19 : le serveur plante (`reading dir … Accès refusé`, Turbopack), et le stash peut n'aboutir qu'en partie — `unable to create file … File exists`, `Permission denied` — en laissant l'arbre incohérent : un fichier stagé absent du disque (`AD`) et le travail de l'utilisateur dans le stash, non restauré. La cause est probable, non prouvée ; la parade est peu coûteuse.
+
+- **Avant l'étape 2**, vérifier qu'aucun serveur n'écoute (`Get-NetTCPConnection -LocalPort 3000 -State Listen`, ou les processus `node` du dépôt). S'il en tourne un **que la session a elle-même démarré**, l'arrêter, et le relancer après l'étape 4. S'il n'est pas de la session — celui de l'utilisateur —, **ne pas l'arrêter** : reporter la vérification et le dire, plutôt que de prendre le risque.
+- **Si `git stash push` affiche la moindre erreur ou le moindre `warning: could not open directory`**, ne lancer ni `tsc` ni `build`. Le stash contient déjà du travail de l'utilisateur : en prendre une copie hors de git, remettre sur disque ce que l'index seul contient, puis `git stash pop` — sans `checkout`, `reset` ni `stash drop`. Un `pop` qui échoue reste soumis à la règle ci-dessous.
+- Le subagent `verifier` n'applique pas cette règle de lui-même : la vérification préalable revient à l'agent principal.
+
 En pratique, déléguer ces quatre étapes au subagent [`verifier`](./.claude/agents/verifier.md), qui ne renvoie que `PASS`/`FAIL` et les erreurs — ce qui évite de charger le contexte de la session avec des logs de build à chaque commit.
 
 Si le `git stash pop` échoue (conflit) : **aucune résolution automatique, aucun `git checkout`/`reset`/`stash drop`.** Le stash contient du travail non commité de l'utilisateur. Arrêter la session, et le placer en tête du résumé.

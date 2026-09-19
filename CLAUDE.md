@@ -116,8 +116,8 @@ Le principe : **vérifier l'état exact qui sera commité, pas l'arbre de travai
    ```bash
    git stash push --keep-index --include-untracked -m "verifier-isolation"
    ```
-3. Vérifier dans cet état isolé : `npx tsc --noEmit`, puis `npm run build`.
-4. Restaurer : `git stash pop`, et contrôler que `git status` est revenu à son état initial.
+3. Vérifier dans cet état isolé : `npx next typegen` — les types de routes générés dans `.next/` décrivent l'arbre de routes, que l'isolation modifie, et un cache périmé fait échouer `tsc` sans faute du code —, puis `npx tsc --noEmit`, puis `npm run build`. Ne jamais supprimer `.next/types` ni `.next` : régénérer.
+4. Restaurer : `git stash pop`, contrôler que `git status` est revenu à son état initial, puis relancer `npx next typegen` pour que `.next/` décrive de nouveau l'arbre restauré.
 
 **Aucun serveur de développement ne doit tourner pendant l'isolation.** Sur cette machine (Windows), un serveur `next dev` surveille les dossiers du dépôt. Or `git stash push --include-untracked` supprime précisément les dossiers non suivis, et les fichiers nouvellement stagés le temps de l'isolation. Constaté le 2026-09-19 : le serveur plante (`reading dir … Accès refusé`, Turbopack), et le stash peut n'aboutir qu'en partie — `unable to create file … File exists`, `Permission denied` — en laissant l'arbre incohérent : un fichier stagé absent du disque (`AD`) et le travail de l'utilisateur dans le stash, non restauré. La cause est probable, non prouvée ; la parade est peu coûteuse.
 

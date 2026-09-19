@@ -49,11 +49,19 @@ Relance `git stash list` : si aucune entrée n'a été ajoutée (`N_apres == N_a
 
 **Lis la sortie de `git stash push`, ligne par ligne.** Ces motifs signalent une isolation échouée ou partielle, **même avec un code de sortie 0** : `error:`, `unable to create file`, `File exists`, `Permission denied`, `warning: could not open directory`. Les avertissements `in the working copy of … LF will be replaced by CRLF` sont sans gravité. Si l'un des motifs apparaît, **n'exécute ni `tsc` ni `build`** — ils ne testeraient pas l'index — et passe directement à la [récupération](#récupération-en-cas-déchec-de-lisolation).
 
-**3. Typecheck** :
+**3. Types de routes, puis typecheck** — les types de routes générés par Next vivent dans `.next/`, ignoré par git, et `tsconfig.json` les inclut (`.next/types/**/*.ts` et `.next/dev/types/**/*.ts`). Ils décrivent l'arbre de routes **au moment où ils ont été générés**, or l'isolation le modifie : les routes non suivies sont mises de côté. Un cache périmé fait échouer `tsc` sans que le code y soit pour rien. Régénère-les **systématiquement**, avant `tsc`, sans attendre un échec :
 
 ```bash
+npx next typegen
 npx tsc --noEmit
 ```
+
+`next typegen` prend quelques secondes, n'écrit que sous `.next/` et ne touche aucun fichier source. Il corrige les deux signatures constatées trois fois entre le 2026-09-16 et le 2026-09-19 :
+
+- `Cannot find name 'RouteContext'` dans une route : ce type est défini dans `.next/types/routes.d.ts`, absent ou périmé ;
+- `Cannot find module '…/route.js'` dans `.next/types/validator.ts` : le validateur référence une route que l'isolation a mise de côté.
+
+**Ne supprime jamais `.next/types`, `.next/dev/types` ni `.next`** pour « repartir propre ». Constaté : après un `.next` supprimé puis un serveur de développement relancé, `.next/types` restait vide et `RouteContext` introuvable, jusqu'à un `typegen`. Régénère, ne supprime pas. Si `next typegen` échoue lui-même, note son message pour le rapport et lance quand même `tsc`.
 
 **4. Build** :
 
@@ -70,6 +78,8 @@ git stash pop
 ```
 
 Puis contrôle : `git stash list` doit être revenu à `N_avant`, et `git status --porcelain=v1` doit correspondre au constat de l'étape 1.
+
+Une fois la restauration contrôlée — et **seulement si elle a réussi** —, régénère les types : `npx next typegen`. Les types de `.next/` décrivent alors l'arbre restauré, routes non suivies de l'utilisateur comprises. Sans cela, son prochain `tsc` ou son serveur de développement partirait d'un cache qui décrit l'arbre isolé.
 
 Si le `pop` échoue (conflit) : **ne tente aucune résolution automatique, ne fais aucun `git checkout`, `git reset` ou `git stash drop`**. Le stash est intact et contient le travail de l'utilisateur. Rapporte immédiatement en tête de rapport, en majuscules, que la restauration a échoué, avec le message d'erreur exact et l'identifiant du stash (`stash@{0}`), pour intervention humaine.
 
@@ -109,7 +119,7 @@ Contrôle que le statut ne montre plus de ligne `AD` ni `MD`. **Si une commande 
 
 Sur cette machine, `core.autocrlf` vaut `true` : `git show` écrit le contenu de l'index en LF, alors que le disque est en CRLF. Le fichier remis en place peut donc apparaître en `AM` alors que `git diff -- <fichier>` est vide — un faux positif lié aux fins de ligne, constaté sur un dépôt d'essai. Ne le corrige pas, ne l'ajoute pas à l'index : note-le dans le rapport.
 
-**R5. `git stash pop`**, puis les contrôles de l'étape 5 : `git stash list` revenu à `N_avant`, statut conforme au constat initial — au faux positif `AM` près, décrit ci-dessus. Si le `pop` échoue, la règle de l'étape 5 s'applique : aucune résolution, rapport en majuscules.
+**R5. `git stash pop`**, puis l'étape 5 en entier, régénération des types comprise : `git stash list` revenu à `N_avant`, statut conforme au constat initial — au faux positif `AM` près, décrit ci-dessus. Si le `pop` échoue, la règle de l'étape 5 s'applique : aucune résolution, rapport en majuscules.
 
 **R6. Compare les fichiers non suivis à la copie**, fins de ligne normalisées :
 
@@ -133,6 +143,7 @@ Copie de sécurité : <chemin> | sans objet
 Restauration : OK | ECHEC (détail) | SANS OBJET
 Fichiers vérifiés (index) : <liste des chemins stagés>
 
+next typegen (avant tsc) : OK | ECHEC (détail) | NON EXÉCUTÉ
 tsc --noEmit : PASS | FAIL | NON EXÉCUTÉ
 <si FAIL : les erreurs, fichier:ligne + message, 20 max, dédoublonnées>
 

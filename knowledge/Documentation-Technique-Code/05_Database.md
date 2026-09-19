@@ -1,7 +1,7 @@
 # Base de données
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-18
+Dernière mise à jour : 2026-09-19
 
 ## Sommaire
 
@@ -129,7 +129,7 @@ Leur store existe depuis le 2026-09-15, `lib/server/personal/journal-categories-
 - **`due_on` est une date**, un jour et non un instant, comme `personal_tasks.due_on` ;
 - **aucun historique des valeurs** : `current_value` est écrasée à chaque mise à jour. Une courbe d'évolution demanderait une table dépendante, donc [Décisions](./03_Decisions.md) DEC-012 et DEC-013.
 
-Droits : `SELECT`, `INSERT`, `UPDATE` à `authenticated`, **aucun `DELETE`** ni en privilège ni en policy, trois policies scopées au propriétaire. La révocation `from anon, authenticated` précède le `grant`. Contrôles post-application validés le 2026-09-18, ACL lue par `aclexplode`. Son store, `lib/server/personal/goals-store.ts`, existe depuis le 2026-09-18 : client de session, RLS en garde réel. L'interface n'est pas encore écrite.
+Droits : `SELECT`, `INSERT`, `UPDATE` à `authenticated`, **aucun `DELETE`** ni en privilège ni en policy, trois policies scopées au propriétaire. La révocation `from anon, authenticated` précède le `grant`. Contrôles post-application validés le 2026-09-18, ACL lue par `aclexplode`. Son store, `lib/server/personal/goals-store.ts`, existe depuis le 2026-09-18 : client de session, RLS en garde réel. L'interface, `PersonalGoalsPanel.tsx`, est écrite depuis le 2026-09-19.
 
 Ces huit tables sont les seules du dépôt dont **RLS est le garde réel et non une défense en profondeur** : leurs stores utilisent le client de session et non la clé service-role. Voir la section Notes de [Modules](./06_Modules.md) pour le raisonnement complet.
 

@@ -81,7 +81,10 @@ export function parseGoalValue(value: unknown, field: string): GoalValueParseRes
   if (Math.abs(value) >= GOAL_VALUE_ABS_MAX) {
     return {
       ok: false,
-      error: `${field} doit rester inferieur a ${GOAL_VALUE_ABS_MAX} en valeur absolue.`,
+      // Formule sans accord en genre : le champ est nomme par l'appelant, et
+      // l'interface y passe un libelle francais ("La valeur cible") la ou les
+      // routes passent le nom du champ de l'API ("targetValue").
+      error: `${field} : valeur trop grande, la limite est de ${GOAL_VALUE_ABS_MAX} en valeur absolue.`,
     };
   }
 

@@ -10,6 +10,7 @@ import {
   type PersonalConnectorCapability,
 } from "@/lib/personal/connectors";
 import type { CockpitCalendarTodayState } from "@/types/cockpit";
+import { PersonalGoalsPanel } from "./PersonalGoalsPanel";
 import { PersonalHabitsPanel } from "./PersonalHabitsPanel";
 import { PersonalJournalPanel } from "./PersonalJournalPanel";
 import { PersonalNotesPanel } from "./PersonalNotesPanel";
@@ -82,10 +83,14 @@ const summaryCards: PersonalCardDefinition[] = [
   },
 ];
 
-// "notes", "journal" et "routines" sont exclus : ces trois onglets n'affichent
-// plus de cartes statiques, ils rendent leur panneau avec les donnees reelles.
+// "notes", "journal", "routines", "tasks" et "goals" sont exclus : ces cinq
+// onglets n'affichent plus de cartes statiques, ils rendent leur panneau avec
+// les donnees reelles.
 const tabCards: Record<
-  Exclude<PersonalTab, "summary" | "sources" | "notes" | "journal" | "routines" | "tasks">,
+  Exclude<
+    PersonalTab,
+    "summary" | "sources" | "notes" | "journal" | "routines" | "tasks" | "goals"
+  >,
   PersonalCardDefinition[]
 > = {
   calendar: [
@@ -106,16 +111,6 @@ const tabCards: Record<
     {
       title: "Signaux à surveiller",
       source: "Ce bloc sera alimenté par journal / routines selon le cas.",
-    },
-  ],
-  goals: [
-    {
-      title: "Objectifs actifs",
-      source: "Ce bloc sera alimenté par objectifs selon le cas.",
-    },
-    {
-      title: "Décisions liées",
-      source: "Ce bloc sera alimenté par journal / objectifs selon le cas.",
     },
   ],
   sleep: [
@@ -206,13 +201,8 @@ function sourceForActiveTab(tab: PersonalTab) {
     return "Ce bloc sera alimenté par calendrier selon le cas.";
   }
 
-  if (tab === "goals") {
-    return "Ce bloc sera alimenté par objectifs selon le cas.";
-  }
-
-  // "notes", "journal", "routines" et "tasks" ne passent plus par la branche
-  // generique :
-  // ils rendent leur panneau avec les donnees reelles.
+  // "notes", "journal", "routines", "tasks" et "goals" ne passent plus par la
+  // branche generique : ils rendent leur panneau avec les donnees reelles.
   return "Ce bloc sera alimenté par Garmin / journal selon le cas.";
 }
 
@@ -582,6 +572,12 @@ export function PersonalDashboardClient({
         </PersonalSection>
       ) : null}
 
+      {activeTab === "goals" ? (
+        <PersonalSection description={activeCopy.description} title={activeCopy.title}>
+          <PersonalGoalsPanel />
+        </PersonalSection>
+      ) : null}
+
       {activeTab === "calendar" ? (
         <PersonalSection description={activeCopy.description} title={activeCopy.title}>
           <div className="grid gap-4 lg:grid-cols-2">
@@ -606,7 +602,8 @@ export function PersonalDashboardClient({
       activeTab !== "notes" &&
       activeTab !== "journal" &&
       activeTab !== "routines" &&
-      activeTab !== "tasks" ? (
+      activeTab !== "tasks" &&
+      activeTab !== "goals" ? (
         <PersonalSection description={activeCopy.description} title={activeCopy.title}>
           <div className="grid gap-4 lg:grid-cols-2">
             {tabCards[activeTab].map((card) => (

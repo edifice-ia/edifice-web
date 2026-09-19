@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-18
+Dernière mise à jour : 2026-09-19
 
 ## Sommaire
 
@@ -275,7 +275,7 @@ Le registre `lib/personal/connectors/registry.ts` est conçu pour accueillir plu
 
 Tables associées : `personal_garmin_daily_stats`, `personal_daily_briefs`, `personal_notes`, `personal_journal_entries`, `personal_habits`, `personal_habit_completions`, `personal_tasks`, `personal_journal_categories`, `personal_journal_entry_categories`, `personal_goals`. Voir [Base de données](./05_Database.md).
 
-**Quatre des onze onglets portent de la donnée saisie** : Notes, Journal, Habitudes et Tâches, ci-dessous. Calendrier affiche des événements réels mais en lecture seule, depuis la synchronisation Google. Les six autres — Résumé, Énergie, Sommeil, Sport, Objectifs, Sources — rendent des cartes statiques portant « Ce bloc sera alimenté par … selon le cas ». C'est un écart de couverture assumé, pas une dette masquée : aucune de ces surfaces ne prétend afficher une donnée qu'elle n'a pas.
+**Cinq des onze onglets portent de la donnée saisie** : Notes, Journal, Habitudes, Tâches et Objectifs, ci-dessous. Calendrier affiche des événements réels mais en lecture seule, depuis la synchronisation Google. Les cinq autres — Résumé, Énergie, Sommeil, Sport, Sources — rendent des cartes statiques portant « Ce bloc sera alimenté par … selon le cas ». C'est un écart de couverture assumé, pas une dette masquée : aucune de ces surfaces ne prétend afficher une donnée qu'elle n'a pas.
 
 Un onglet qui reçoit son panneau réel **sort de `tabCards` en même temps** : ses cartes statiques sont retirées, son identifiant sort du `Exclude<…>` qui type ce `Record`, `sourceForActiveTab` cesse de le citer, et la branche générique l'exclut. Les quatre points bougent ensemble — laisser une carte morte derrière un panneau réel serait exactement l'écart que cette section documente.
 
@@ -557,7 +557,7 @@ L'état de confirmation d'archivage s'appelle `confirmingArchiveId`, aligné sur
 
 ### Objectifs
 
-Cinquième module à saisie manuelle du pôle. La table `personal_goals` est appliquée depuis le 2026-09-18 ; le store et les routes sont écrits le même jour. **L'interface n'existe pas encore** : l'onglet Objectifs rend toujours ses deux cartes statiques, et il ne prétend afficher aucune donnée.
+Cinquième module à saisie manuelle du pôle. La table `personal_goals` est appliquée depuis le 2026-09-18 ; le store et les routes sont écrits le même jour, l'interface le 2026-09-19. **Cinq des onze onglets** du pôle portent désormais de la donnée saisie.
 
 Module **autonome**, sur le patron de Tâches : une table unique, une ligne par objectif. Il n'est relié ni à Trajectoire, dont les `trajectoire_objectives` vivent dans un projet, ni au « moteur Objectifs » de [20-catalogue-services.md](../Documentation-Strategique/Markdown/20-catalogue-services.md), que `23-modules.md` cite pour la progression. Un service commun attend un second cas réel plutôt qu'un premier cas anticipé — le raisonnement de [Décisions](./03_Decisions.md) DEC-013.
 
@@ -565,6 +565,7 @@ Fichiers :
 
 - `lib/personal/goals.ts` (types, validation et calcul de progression, sans I/O) et `lib/server/personal/goals-store.ts`
 - `app/api/personal/goals/route.ts`, `app/api/personal/goals/[id]/route.ts`, `app/api/personal/goals/[id]/restore/route.ts`
+- `app/interface/personnel/PersonalGoalsPanel.tsx`
 - table `personal_goals` (`supabase/migrations/20260917100000_create_personal_goals.sql`)
 
 Champs : intitulé ; valeur de départ, valeur actuelle et cible ; unité libre ; échéance facultative ; statut déclaré, `active` ou `achieved`. Voir [Base de données](./05_Database.md) pour le schéma, les contraintes et les droits.
@@ -604,7 +605,23 @@ Sans écart entre départ et cible, la formule diviserait par zéro. La règle e
 
 **Vocabulaire** : ce module dit « progression », et rien d'autre. La distinction de Trajectoire entre progression manuelle, calculée et retenue n'a pas de sens ici, où la progression est toujours calculée et jamais saisie.
 
-**Pas encore construits** : l'interface et son archivage, puis le branchement sur les deux gestes de suppression physique du pôle. **Aucun test de bout en bout** n'a encore été mené sur ce module.
+#### Interface : `PersonalGoalsPanel.tsx`
+
+Construite le 2026-09-19, sur le patron de Tâches. La validation vient de `lib/personal/goals.ts`, le même module que celui utilisé par les routes : le refus avant appel et le `400` du serveur ne peuvent pas diverger.
+
+**La virgule décimale est acceptée et normalisée** avant l'envoi — un clavier français en produit une, et la refuser rejetterait une saisie correcte. Le refus au-delà de trois décimales reste celui du parser, avec son message.
+
+**La mise à jour de la valeur actuelle passe par un champ dédié**, séparé du formulaire d'édition complète : c'est le geste répété du module, comme cocher une tâche. Il envoie `{ currentValue }` seul, ce que CP2 a vérifié comme ne touchant ni l'unité ni l'échéance.
+
+**Le statut ne se déduit jamais à l'écran.** Quand la cible est atteinte et que le statut reste `active`, l'écran l'indique et propose « Marquer comme atteint », sans le faire à sa place — c'est la règle de conception ci-dessus, rendue visible.
+
+**Une seule liste**, dans l'ordre du serveur (échéance puis création) : les objectifs atteints y restent, avec leur badge. Aucune section séparée pour eux — l'archivage sert déjà à ranger ce qu'on ne veut plus voir.
+
+**Carte Archives séparée**, comme partout dans le pôle : lecture seule, avec la date d'archivage et un bouton « Restaurer ». **Aucune suppression définitive** dans cette carte : elle viendra avec le branchement sur les deux gestes de suppression physique du pôle, et `personal_goals` n'accorde de toute façon ni `DELETE` ni policy.
+
+`formatDueOn`, `formatArchivedAt` et `todayInParis` sont copiées de `PersonalTasksPanel.tsx`, à l'identique. Troisième duplication du genre dans le pôle, avec `formatJournalTimestamp` : les rassembler mérite un commit dédié.
+
+**Pas encore construit** : le branchement sur les deux gestes de suppression physique du pôle. **Aucun test de bout en bout** n'a encore été mené sur ce module.
 
 ## Service renderer
 

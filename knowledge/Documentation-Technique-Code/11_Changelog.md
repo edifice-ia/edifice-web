@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-09-18
+Dernière mise à jour : 2026-09-19
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-19 (module Objectifs : interface)](#2026-09-19-module-objectifs--interface)
 - [2026-09-18 (module Objectifs : store et API)](#2026-09-18-module-objectifs--store-et-api)
 - [2026-09-18 (module Objectifs : migration)](#2026-09-18-module-objectifs--migration)
 - [2026-09-16 (réassignation depuis l'écran de blocage des catégories de Journal)](#2026-09-16-réassignation-depuis-lécran-de-blocage-des-catégories-de-journal)
@@ -59,6 +60,38 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
+## 2026-09-19 (module Objectifs : interface)
+
+Type : produit
+
+Résumé : troisième checkpoint du **module Objectifs**. `PersonalGoalsPanel.tsx`, sur le patron de Tâches : création, mise à jour de la valeur actuelle, modification complète, statut déclaré, archivage et restauration. L'onglet Objectifs sort de `tabCards` — **cinq des onze onglets** du pôle portent désormais de la donnée saisie. Aucun changement serveur ni base.
+
+**Décisions portées par ce commit** :
+
+- **la virgule décimale est acceptée et normalisée** avant l'envoi, un clavier français en produisant une ; le refus au-delà de trois décimales reste celui du parser ;
+- **la mise à jour de la valeur actuelle passe par un champ dédié**, séparé de l'édition complète — le geste répété du module, comme cocher une tâche ;
+- **le statut ne se déduit jamais à l'écran** : cible atteinte et statut « actif » peuvent coexister, l'écran le signale et propose de déclarer l'atteinte sans le faire à la place ;
+- **une seule liste**, dans l'ordre du serveur, les objectifs atteints y restant avec un badge — pas de section séparée ;
+- **aucune suppression définitive** dans la carte Archives : `personal_goals` n'accorde de toute façon ni `DELETE` ni policy, et le geste viendra au checkpoint 4 ;
+- **les quatre points du branchement d'onglet bougent ensemble** : cartes retirées de `tabCards`, identifiant sorti du `Exclude<…>`, `sourceForActiveTab` mis à jour, branche générique exclue.
+
+**Trois helpers sont copiés de `PersonalTasksPanel.tsx`** — `formatDueOn`, `formatArchivedAt`, `todayInParis` —, à l'identique. Troisième duplication du genre dans le pôle, avec `formatJournalTimestamp` : les rassembler mérite un commit dédié, pas un passage clandestin dans celui-ci.
+
+Fichiers liés :
+
+- `app/interface/personnel/PersonalGoalsPanel.tsx` (nouveau)
+- `app/interface/personnel/PersonalDashboardClient.tsx`
+- `lib/personal/goals.ts` (message d'erreur de `parseGoalValue`, neutre en genre pour un appel depuis l'interface)
+- `knowledge/Documentation-Technique-Code/05_Database.md`, `06_Modules.md`
+
+Impact : les objectifs sont visibles et modifiables à l'écran. **Aucun test de bout en bout** n'a encore été mené sur ce module.
+
+Action de suivi :
+
+- **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com`, avec les trois objectifs `[TEST]` du checkpoint précédent — Épargne (montant, atteint), Poids (descendant, en recul), Lectures (à zéro) — plus une création avec une valeur à virgule, un refus à quatre décimales, une mise à jour de valeur, un archivage puis une restauration ;
+- checkpoint 4 : `goals` dans `ERASABLE_MODULES` et `MODULE_TABLES`, plus la suppression définitive d'un objectif archivé ;
+- nettoyage possible, hors de ce commit : rassembler `formatDueOn`, `formatArchivedAt`, `todayInParis` et `formatJournalTimestamp`, chacun copié entre deux à quatre fichiers du pôle.
+
 ## 2026-09-18 (module Objectifs : store et API)
 
 Type : produit, sécurité
@@ -86,7 +119,7 @@ Impact : les objectifs deviennent créables, modifiables, archivables et restaur
 
 Action de suivi :
 
-- checkpoint 3 : l'interface, `PersonalGoalsPanel.tsx`, avec l'archivage et la restauration ; l'onglet sort alors de `tabCards`, en changeant les quatre points ensemble ;
+- checkpoint 3 : l'interface, `PersonalGoalsPanel.tsx`, avec l'archivage et la restauration ; l'onglet sort alors de `tabCards`, en changeant les quatre points ensemble — fait le 2026-09-19, voir l'entrée « module Objectifs : interface » ;
 - checkpoint 4 : `goals` dans `ERASABLE_MODULES` et `MODULE_TABLES`, plus la suppression définitive d'un objectif archivé ;
 - **aucun test de bout en bout** n'a encore été mené sur ce module : le premier viendra avec l'interface.
 

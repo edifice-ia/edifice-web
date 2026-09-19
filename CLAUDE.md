@@ -123,7 +123,7 @@ Le principe : **vérifier l'état exact qui sera commité, pas l'arbre de travai
 
 - **Avant l'étape 2**, vérifier qu'aucun serveur n'écoute (`Get-NetTCPConnection -LocalPort 3000 -State Listen`, ou les processus `node` du dépôt). S'il en tourne un **que la session a elle-même démarré**, l'arrêter, et le relancer après l'étape 4. S'il n'est pas de la session — celui de l'utilisateur —, **ne pas l'arrêter** : reporter la vérification et le dire, plutôt que de prendre le risque.
 - **Si `git stash push` affiche la moindre erreur ou le moindre `warning: could not open directory`**, ne lancer ni `tsc` ni `build`. Le stash contient déjà du travail de l'utilisateur : en prendre une copie hors de git, remettre sur disque ce que l'index seul contient, puis `git stash pop` — sans `checkout`, `reset` ni `stash drop`. Un `pop` qui échoue reste soumis à la règle ci-dessous.
-- Le subagent `verifier` n'applique pas cette règle de lui-même : la vérification préalable revient à l'agent principal.
+- Le subagent [`verifier`](./.claude/agents/verifier.md) applique cette vérification préalable et cette procédure de récupération. **Il n'arrête jamais un serveur** : il ne peut pas savoir si c'est celui de la session ou celui de l'utilisateur. S'il en trouve un, il n'isole rien et le signale (`Isolation : NON TENTÉE`) ; la décision revient à l'agent principal, selon le premier point ci-dessus.
 
 En pratique, déléguer ces quatre étapes au subagent [`verifier`](./.claude/agents/verifier.md), qui ne renvoie que `PASS`/`FAIL` et les erreurs — ce qui évite de charger le contexte de la session avec des logs de build à chaque commit.
 

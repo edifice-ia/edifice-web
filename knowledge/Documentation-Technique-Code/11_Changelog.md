@@ -1,7 +1,7 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-09-19
+Dernière mise à jour : 2026-09-20
 
 ## Sommaire
 
@@ -91,6 +91,12 @@ Résumé : quatrième et dernier checkpoint du **module Objectifs**. Il rejoint 
 
 **Le `POST` de « Vider l'historique » n'a pas été exercé.** Le test s'est aussi limité à un seul compte : **l'isolation entre comptes n'est pas couverte**. Le filtre `.eq("user_id", …)` est le seul garde de ce chemin, la clé service-role contournant RLS — le même code que pour les quatre autres modules, sans qu'un second compte l'ait mis en défaut.
 
+> ⚠️ **« Le `POST` de « Vider l'historique » n'a pas été exercé » est dépassé depuis le 2026-09-19** — vrai du test de contrat, plus du module. Le test de bout en bout par pilotage navigateur humain a exercé les deux gestes sur `test-erase@edificeia.com` : « Supprimer définitivement » sur l'objectif archivé `[TEST-CP4]`, puis « Vider Objectifs ». **La date est établie par les horodatages de la base**, non par celle du message qui l'a rapporté : 13:35:14 UTC pour la suppression individuelle, 13:35:53 UTC pour « Vider Objectifs », 39 secondes plus tard.
+>
+> **Relecture en base, en lecture seule, le 2026-09-20 : 13 contrôles sur 13.** `personal_goals` ne compte plus aucune ligne pour ce compte, archivées comprises, et l'objectif supprimé individuellement est absent. `personal_item_erasure_log` porte une entrée pour lui — `goals`, `personal_goals`, `related_deleted_count` à 0, `archives_panel`, bon compte, colonnes techniques seulement. `personal_data_erasure_log` porte une entrée `goals` / `personal_goals` / `deleted_count` à 4 / `settings_personal`, au bon compte, sans aucune entrée d'un autre module au même moment. Les 4 lignes supprimées sont les 4 objectifs du compte avant le test — Épargne, Poids, Lectures, Virgule —, et les deux autres entrées individuelles du journal sont celles du test de contrat.
+>
+> **Limites de cette relecture.** (1) Le volume de 4 est cohérent avec l'état relevé avant le test, mais aucun relevé n'a été pris juste avant le geste. (2) **L'isolation entre comptes n'a pas été re-testée** : la relecture est limitée au compte de test. Elle reste établie par construction — le filtre `user_id` est une fonction unique du store, le même code que pour les quatre autres modules —, non par un test à deux comptes ; le paragraphe précédent le dit toujours. (3) **`personal_data_erasure_log` ne compte qu'une seule entrée pour ce compte**, toutes dates confondues. L'explication vraisemblable est que les gestes « Vider » validés plus tôt l'ont été sous d'anciens identifiants du compte, recréé plusieurs fois — **non vérifiée**.
+
 Fichiers liés :
 
 - `lib/personal/data-erasure.ts`, `lib/server/personal/data-erasure-store.ts`
@@ -103,7 +109,7 @@ Impact : Objectifs est effaçable. Le module est complet côté code : table, st
 
 Action de suivi :
 
-- **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com` : « Supprimer définitivement » un objectif archivé depuis la carte Archives — un objectif `[TEST-CP4]` y est laissé archivé —, puis « Vider Objectifs » depuis Réglages. **Ce second geste détruit tous les objectifs du compte de test.** À contrôler ensuite en base : lignes disparues, une entrée de `personal_data_erasure_log` au bon compte, une de `personal_item_erasure_log` pour la suppression individuelle ;
+- **test de bout en bout par pilotage navigateur humain** — validé le 2026-09-19 —, sur `test-erase@edificeia.com` : « Supprimer définitivement » un objectif archivé depuis la carte Archives — un objectif `[TEST-CP4]` y est laissé archivé —, puis « Vider Objectifs » depuis Réglages. **Ce second geste détruit tous les objectifs du compte de test.** À contrôler ensuite en base : lignes disparues, une entrée de `personal_data_erasure_log` au bon compte, une de `personal_item_erasure_log` pour la suppression individuelle — contrôlé le 2026-09-20, voir l'encart ⚠️ plus haut ;
 - **push des commits d'Objectifs**, sur demande explicite : ce commit touche à la suppression physique et à la clé service-role, la règle permanente s'applique ;
 - restent ouvertes : valider le format des identifiants dans les quatre routes `/permanent` plus anciennes et dans les routes plus anciennes du pôle ; trancher `restrict` ou `no action` avant tout geste de suppression de compte ; rassembler les helpers de date copiés dans le pôle.
 
@@ -133,9 +139,11 @@ Fichiers liés :
 
 Impact : les objectifs sont visibles et modifiables à l'écran. **Aucun test de bout en bout** n'a encore été mené sur ce module.
 
+> ⚠️ **« Aucun test de bout en bout n'a encore été mené » est dépassé depuis le 2026-09-19.** Le test de bout en bout de cette interface a été mené par pilotage navigateur humain sur `test-erase@edificeia.com`, et validé : affichage des trois cas de progression, création avec virgule décimale normalisée, refus propre à quatre décimales, mise à jour de la valeur actuelle sans effet de bord, cycle d'archivage et de restauration préservant les données. **Date établie par la base** : « [TEST] Virgule », créé pendant ce test, portait `created_at` au 2026-09-19 à 11:44 UTC, relevé en base avant sa suppression. Les autres étapes n'ont pas d'horodatage propre. Voir l'entrée « module Objectifs : suppression physique » pour les deux gestes de suppression, testés le même jour.
+
 Action de suivi :
 
-- **test de bout en bout par pilotage navigateur humain**, sur `test-erase@edificeia.com`, avec les trois objectifs `[TEST]` du checkpoint précédent — Épargne (montant, atteint), Poids (descendant, en recul), Lectures (à zéro) — plus une création avec une valeur à virgule, un refus à quatre décimales, une mise à jour de valeur, un archivage puis une restauration ;
+- **test de bout en bout par pilotage navigateur humain** — validé le 2026-09-19 —, sur `test-erase@edificeia.com`, avec les trois objectifs `[TEST]` du checkpoint précédent — Épargne (montant, atteint), Poids (descendant, en recul), Lectures (à zéro) — plus une création avec une valeur à virgule, un refus à quatre décimales, une mise à jour de valeur, un archivage puis une restauration ;
 - checkpoint 4 : `goals` dans `ERASABLE_MODULES` et `MODULE_TABLES`, plus la suppression définitive d'un objectif archivé — fait le 2026-09-19, voir l'entrée « module Objectifs : suppression physique » ;
 - nettoyage possible, hors de ce commit : rassembler `formatDueOn`, `formatArchivedAt`, `todayInParis` et `formatJournalTimestamp`, chacun copié entre deux à quatre fichiers du pôle.
 
@@ -169,6 +177,8 @@ Action de suivi :
 - checkpoint 3 : l'interface, `PersonalGoalsPanel.tsx`, avec l'archivage et la restauration ; l'onglet sort alors de `tabCards`, en changeant les quatre points ensemble — fait le 2026-09-19, voir l'entrée « module Objectifs : interface » ;
 - checkpoint 4 : `goals` dans `ERASABLE_MODULES` et `MODULE_TABLES`, plus la suppression définitive d'un objectif archivé — fait le 2026-09-19, voir l'entrée « module Objectifs : suppression physique » ;
 - **aucun test de bout en bout** n'a encore été mené sur ce module : le premier viendra avec l'interface.
+
+> ⚠️ **La dernière ligne de cette liste est dépassée depuis le 2026-09-19.** Le premier test de bout en bout, celui de l'interface, a eu lieu ce jour-là et a exercé à travers l'écran la création, la lecture, la mise à jour, l'archivage et la restauration de cette entrée — voir « module Objectifs : interface ». Les deux gestes de suppression physique ont été testés de bout en bout le même jour — voir « module Objectifs : suppression physique ».
 
 ## 2026-09-18 (module Objectifs : migration)
 

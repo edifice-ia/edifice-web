@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-19
+Dernière mise à jour : 2026-09-20
 
 ## Sommaire
 
@@ -638,6 +638,10 @@ Branchée le 2026-09-19. Objectifs est une **table unique**, comme Notes et Tâc
 **Non couvert par ce test** : l'isolation entre comptes. Le filtre `.eq("user_id", …)` est le seul garde de ce chemin, la clé service-role contournant RLS. Il s'agit du même code que pour les quatre autres modules, mais aucun second compte n'a été utilisé pour le mettre en défaut.
 
 **Aucun test de bout en bout** de ces deux gestes n'a encore été mené sur ce module.
+
+> ⚠️ **Deux affirmations de cette sous-section sont dépassées depuis le 2026-09-19** : « Le `POST` de « Vider l'historique » n'a pas été exercé » — vrai du seul test de contrat — et « Aucun test de bout en bout de ces deux gestes n'a encore été mené ». Le test de bout en bout par pilotage navigateur humain a exercé les deux gestes sur le compte de test — 13:35:14 UTC pour « Supprimer définitivement », 13:35:53 UTC pour « Vider Objectifs », **horodatages lus en base** — et validé aussi l'interface : création avec virgule, refus à quatre décimales, mise à jour de valeur, archivage et restauration. Relecture en base le 2026-09-20 : 13 contrôles sur 13 — table vidée pour ce compte, une entrée `personal_item_erasure_log` et une entrée `personal_data_erasure_log` (`deleted_count` à 4), toutes deux au bon compte et sans contenu.
+>
+> **Limites** : l'isolation entre comptes n'a pas été re-testée — établie par construction, non par un test à deux comptes — ; et `personal_data_erasure_log` ne compte qu'une seule entrée pour ce compte, explication vraisemblable liée aux recréations successives du compte, **non vérifiée**. Voir le changelog, entrée « module Objectifs : suppression physique ».
 
 ## Service renderer
 

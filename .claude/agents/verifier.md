@@ -49,19 +49,25 @@ Relance `git stash list` : si aucune entrée n'a été ajoutée (`N_apres == N_a
 
 **Lis la sortie de `git stash push`, ligne par ligne.** Ces motifs signalent une isolation échouée ou partielle, **même avec un code de sortie 0** : `error:`, `unable to create file`, `File exists`, `Permission denied`, `warning: could not open directory`. Les avertissements `in the working copy of … LF will be replaced by CRLF` sont sans gravité. Si l'un des motifs apparaît, **n'exécute ni `tsc` ni `build`** — ils ne testeraient pas l'index — et passe directement à la [récupération](#récupération-en-cas-déchec-de-lisolation).
 
-**3. Types de routes, puis typecheck** — les types de routes générés par Next vivent dans `.next/`, ignoré par git, et `tsconfig.json` les inclut (`.next/types/**/*.ts` et `.next/dev/types/**/*.ts`). Ils décrivent l'arbre de routes **au moment où ils ont été générés**, or l'isolation le modifie : les routes non suivies sont mises de côté. Un cache périmé fait échouer `tsc` sans que le code y soit pour rien. Régénère-les **systématiquement**, avant `tsc`, sans attendre un échec :
+**3. Types de routes, puis typecheck** — les types de routes générés par Next vivent dans `.next/`, ignoré par git, et `tsconfig.json` les inclut deux dossiers distincts : `.next/types/**/*.ts` et `.next/dev/types/**/*.ts`. Ils décrivent l'arbre de routes **au moment où ils ont été générés**, or l'isolation le modifie : les routes non suivies sont mises de côté. Un cache périmé fait échouer `tsc` sans que le code y soit pour rien. Régénère `.next/types` **systématiquement**, avant `tsc`, sans attendre un échec :
 
 ```bash
 npx next typegen
 npx tsc --noEmit
 ```
 
-`next typegen` prend quelques secondes, n'écrit que sous `.next/` et ne touche aucun fichier source. Il corrige les deux signatures constatées trois fois entre le 2026-09-16 et le 2026-09-19 :
+`next typegen` prend quelques secondes, n'écrit **que `.next/types`**, et ne touche aucun fichier source. Il corrige :
 
-- `Cannot find name 'RouteContext'` dans une route : ce type est défini dans `.next/types/routes.d.ts`, absent ou périmé ;
-- `Cannot find module '…/route.js'` dans `.next/types/validator.ts` : le validateur référence une route que l'isolation a mise de côté.
+- `Cannot find name 'RouteContext'` dans une route : ce type est défini dans `.next/types/routes.d.ts`, absent ou périmé.
 
-**Ne supprime jamais `.next/types`, `.next/dev/types` ni `.next`** pour « repartir propre ». Constaté : après un `.next` supprimé puis un serveur de développement relancé, `.next/types` restait vide et `RouteContext` introuvable, jusqu'à un `typegen`. Régénère, ne supprime pas. Si `next typegen` échoue lui-même, note son message pour le rapport et lance quand même `tsc`.
+**`next typegen` ne régénère PAS `.next/dev/types`.** Ce second dossier est écrit exclusivement par un serveur `next dev` en cours d'exécution — que tu ne démarres jamais (voir plus haut). S'il existe déjà, écrit par un serveur antérieur à cette vérification, il peut référencer une route que l'isolation vient de mettre de côté. **Si `tsc` échoue encore après `typegen`**, avec une erreur située dans `.next/dev/types/validator.ts` ou `.next/dev/types/routes.d.ts` — typiquement `Cannot find module '…/route.js'` — constaté le 2026-09-20 : ce cache est périmé et rien ici ne peut le régénérer. **Supprime uniquement `.next/dev/types`**, jamais `.next/types` ni `.next` en entier, puis relance `tsc` :
+
+```bash
+rm -rf .next/dev/types
+npx tsc --noEmit
+```
+
+`.next/dev/types` est un cache de développement, pas du code committable : le supprimer ne touche à rien que git suit, et il se régénère de lui-même au prochain démarrage d'un serveur `next dev` — hors de ta portée. **Ne supprime jamais `.next/types` ni `.next` en entier** : `.next/types` se régénère par `typegen`, pas par suppression — un `.next` supprimé puis un serveur de développement relancé a déjà laissé `.next/types` vide, `RouteContext` introuvable, jusqu'au `typegen` suivant. Si `next typegen` échoue lui-même, note son message pour le rapport et lance quand même `tsc`.
 
 **4. Build** :
 
@@ -80,6 +86,8 @@ git stash pop
 Puis contrôle : `git stash list` doit être revenu à `N_avant`, et `git status --porcelain=v1` doit correspondre au constat de l'étape 1.
 
 Une fois la restauration contrôlée — et **seulement si elle a réussi** —, régénère les types : `npx next typegen`. Les types de `.next/` décrivent alors l'arbre restauré, routes non suivies de l'utilisateur comprises. Sans cela, son prochain `tsc` ou son serveur de développement partirait d'un cache qui décrit l'arbre isolé.
+
+Si `.next/dev/types` a été supprimé à l'étape 3, ne le restaure pas et ne le régénère pas : c'est un cache, pas du travail perdu, et il se reconstruira de lui-même la prochaine fois qu'un serveur `next dev` tournera.
 
 Si le `pop` échoue (conflit) : **ne tente aucune résolution automatique, ne fais aucun `git checkout`, `git reset` ou `git stash drop`**. Le stash est intact et contient le travail de l'utilisateur. Rapporte immédiatement en tête de rapport, en majuscules, que la restauration a échoué, avec le message d'erreur exact et l'identifiant du stash (`stash@{0}`), pour intervention humaine.
 

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isPersonalItemId } from "@/lib/personal/data-erasure";
 import { permanentlyDeletePersonalItem } from "@/lib/server/personal/data-erasure-store";
 import { authorizeCockpitApiAccess } from "@/src/lib/auth/api-guards";
 
@@ -15,13 +16,17 @@ export const runtime = "nodejs";
 // Le segment /permanent porte l'irreversibilite dans le chemin lui-meme : sans
 // lui, DELETE /[id] et DELETE /[id] differeraient par leur seule implementation.
 //
-// Quatre gardes :
+// Cinq gardes :
 //   1. session obligatoire (401 sans session) ;
 //   2. role autorise sur le cockpit prive (403 pour un reviewer), via le helper
 //      partage — pose des la conception, pas en correctif ;
-//   3. filtre triple cote store : id + user_id + deleted_at non nul. Un element
+//   3. format UUID valide AVANT toute requete : cette route passe par la cle
+//      service-role, et un identifiant malforme atteignait Postgres en 22P02,
+//      remonte en 500 avec le message d'erreur de la base. Corrige le
+//      2026-09-20, comme la route Objectifs le faisait des sa conception ;
+//   4. filtre triple cote store : id + user_id + deleted_at non nul. Un element
 //      ACTIF ne peut pas etre supprime par cette route, meme en postant son id ;
-//   4. execution par la cle service-role, seule capable de supprimer,
+//   5. execution par la cle service-role, seule capable de supprimer.
 //
 // Ce geste ne vide pas le module : les autres elements archives ne sont pas
 // touches. Voir /api/personal/settings/erase pour le geste a l'echelle du
@@ -37,6 +42,10 @@ export async function DELETE(
   }
 
   const { id } = await context.params;
+
+  if (!isPersonalItemId(id)) {
+    return NextResponse.json({ error: "Entree introuvable." }, { status: 404 });
+  }
 
   try {
     const result = await permanentlyDeletePersonalItem({

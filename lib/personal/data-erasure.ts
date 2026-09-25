@@ -91,6 +91,22 @@ export function labelForErasableModule(id: ErasableModuleId) {
   return ERASABLE_MODULES.find((module) => module.id === id)?.label ?? id;
 }
 
+// Format de l'identifiant d'un element d'un module Personnel : un UUID.
+//
+// Verifie par les routes /permanent AVANT tout appel au store. Ces routes passent
+// par la cle service-role ; un identifiant malforme atteindrait Postgres, qui le
+// refuse en 22P02, et la route repondrait 500 en renvoyant au client le message
+// d'erreur de la base. La casse est indifferente, comme pour Postgres.
+//
+// Meme expression que isUuid de goals.ts et de journal-categories.ts : trois
+// copies. Les consolider est un nettoyage a part.
+const PERSONAL_ITEM_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isPersonalItemId(value: unknown): value is string {
+  return typeof value === "string" && PERSONAL_ITEM_ID_PATTERN.test(value);
+}
+
 // Resultat de la suppression physique d'UN element archive, geste distinct de
 // "Vider l'historique" — voir 11-modularite-configuration.md, sous-cas du
 // troisieme geste canonique.

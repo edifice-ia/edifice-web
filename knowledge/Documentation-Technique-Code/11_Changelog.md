@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-09-20
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-20 (validation UUID des routes /permanent)](#2026-09-20-validation-uuid-des-routes-permanent)
 - [2026-09-19 (module Objectifs : suppression physique)](#2026-09-19-module-objectifs--suppression-physique)
 - [2026-09-19 (module Objectifs : interface)](#2026-09-19-module-objectifs--interface)
 - [2026-09-18 (module Objectifs : store et API)](#2026-09-18-module-objectifs--store-et-api)
@@ -61,6 +62,51 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
+## 2026-09-20 (validation UUID des routes /permanent)
+
+Type : sécurité
+
+Résumé : **l'écart de validation UUID est fermé sur les quatre routes `/permanent` plus anciennes** — Notes, Journal, Habitudes et Tâches. Chacune valide désormais le format de l'identifiant **en première étape après `authorizeCockpitApiAccess()`**, avant tout appel au store, et répond `404` sur un identifiant malformé. Elles se comportent comme la route Objectifs, écrite ainsi dès sa conception. Aucune migration, aucun changement de base.
+
+**Constat avant correction, mesuré le 2026-09-20 sur le code non modifié** : les quatre routes répondaient **`500`**, et renvoyaient au client **le message d'erreur brut de Postgres** — `invalid input syntax for type uuid: "pas-un-uuid"`. C'est plus qu'un mauvais code d'état : le message de la base traversait la route. Il ne contient que la valeur envoyée par le client, mais la route n'a pas à laisser passer un message de base de données. La route Objectifs, elle, répondait `404`.
+
+**Décisions portées par ce commit** :
+
+- **un helper partagé, `isPersonalItemId`, dans `lib/personal/data-erasure.ts`**, module commun aux gestes d'effacement du pôle, sans I/O. Il évite de faire dépendre Notes de `goals.ts` ou de `journal-categories.ts` ;
+- **c'est une troisième copie de la même expression** : `isUuid` existe dans `goals.ts` et dans `journal-categories.ts`. La route Objectifs garde la sienne, pour ne pas toucher à une route déjà validée de bout en bout. **Consolider les trois est un nettoyage à part** ;
+- **`404` avec le message que chaque route renvoyait déjà** — « Note introuvable. », « Entree introuvable. », « Habitude introuvable. », « Tache introuvable. » —, pour qu'un identifiant malformé, inexistant, actif ou d'un autre compte reste indistinguable : la route n'est pas un oracle d'existence ;
+- **la casse est indifférente**, comme pour Postgres : un UUID valide en majuscules passe la validation, et répond `404` s'il n'existe pas ;
+- **portée limitée aux `/permanent`**. Les autres routes `[id]` de ces quatre modules — modification, archivage, restauration, réalisations d'Habitudes — **n'ont pas de validation UUID** (recherche dans le code) et restent à reprendre. Elles passent par le client de session, donc par RLS ; leur comportement sur un identifiant malformé n'a **pas été re-mesuré** ce jour.
+
+**Commentaires corrigés au passage**, sur des affirmations devenues fausses dans les fichiers touchés : « Quatre gardes » devient « Cinq gardes » dans les quatre routes ; celle d'Habitudes disait « le seul des trois à porter une table dépendante », alors que Journal en porte une depuis les catégories ; celle de la route Objectifs disait que les quatre autres routes « restent à reprendre ».
+
+**Test de contrat passé le 2026-09-20, 72 vérifications sur 72**, session réelle sur `test-erase@edificeia.com` avec des éléments `[TEST-UUID]` créés pour l'occasion, et un instantané des comptes avant et après :
+
+- `401` sans session sur les quatre routes ;
+- **identifiant malformé → `404`, et non `500`**, pour trois formes — `pas-un-uuid`, `123`, et un UUID à un caractère invalide — sur chacune des quatre routes ;
+- UUID valide inexistant, en minuscules comme en majuscules → `404` ;
+- **le reste, inchangé** : élément actif → `404` sans écriture ni audit ; élément archivé → `200`, ligne disparue, **une seule entrée d'audit** au bon module, à la bonne table et au bon volume ; second appel → `404` sans nouvelle entrée ;
+- **les dépendantes partent toujours avec l'élément** : une habitude avec une réalisation renvoie `relatedDeletedCount` à 1 et la réalisation disparaît ; une entrée de journal avec une catégorie liée renvoie 1 et la liaison disparaît, la catégorie elle-même étant conservée puis supprimée par la route de gestion ;
+- témoin : la route Objectifs répond toujours `404` ;
+- **huit tables du compte identiques avant et après** : tout ce qui avait été créé a été supprimé.
+
+**Limites.** Le test se limite au compte de test : la validation du format ne dépend pas du compte, mais **l'isolation entre comptes n'est pas concernée et n'a pas été re-testée**. Elle reste établie par construction — le filtre `user_id` est une fonction unique du store —, non par un test à deux comptes. **La validation accepte tout UUID de forme**, sans contrôle de version : c'est ce qu'accepte Postgres.
+
+Fichiers liés :
+
+- `lib/personal/data-erasure.ts`
+- `app/api/personal/notes/[id]/permanent/route.ts`, `app/api/personal/journal/[id]/permanent/route.ts`, `app/api/personal/habits/[id]/permanent/route.ts`, `app/api/personal/tasks/[id]/permanent/route.ts`
+- `app/api/personal/goals/[id]/permanent/route.ts` (commentaire seul)
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `11_Changelog.md`
+
+Impact : une requête `DELETE /api/personal/{notes,journal,habits,tasks}/<identifiant malformé>/permanent` répond `404` au lieu de `500`, et **ne transmet plus de message de base de données**. Aucun autre comportement ne change.
+
+Action de suivi :
+
+- **push du commit**, sur demande explicite : ces routes passent par la clé service-role, la règle permanente s'applique ;
+- **valider le format des identifiants dans les autres routes plus anciennes du pôle** — `[id]`, `restore`, `completions` de Notes, Journal, Habitudes et Tâches. Mesurer d'abord leur comportement actuel ;
+- **consolider les trois copies de `isUuid`** en un seul module.
+
 ## 2026-09-19 (module Objectifs : suppression physique)
 
 Type : produit, sécurité
@@ -76,6 +122,8 @@ Résumé : quatrième et dernier checkpoint du **module Objectifs**. Il rejoint 
 - **le commentaire d'en-tête de `data-erasure-store.ts` est corrigé.** Il affirmait qu'« une seule table du pôle » accorde `DELETE` à `authenticated` et comptait « les quatre modules » : trois tables l'accordent, et les modules sont cinq. Corrigé au moment d'y ajouter `personal_goals`, faute de quoi le commentaire aurait été retouché sur une phrase fausse ;
 - **DEC-012 dit désormais « trois écrans » — sélection, confirmation, résultat —, et non « quatre ».** Erreur relevée en relisant la règle 1 : un reliquat de l'ancienne interface à sélection multiple, alors que `06_Modules.md` décrit le flux à trois écrans — liste, confirmation, résultat ;
 - **`CLAUDE.md` gagne une règle de vérification isolée** : ne laisser tourner aucun serveur de développement pendant l'isolation. Tirée de l'incident ci-dessous.
+
+> ⚠️ **« Les quatre routes `/permanent` plus anciennes ne le font pas » est dépassé depuis le 2026-09-20.** Les quatre routes de Notes, Journal, Habitudes et Tâches valident désormais le format UUID, et répondent `404` au lieu de `500` — voir l'entrée « validation UUID des routes /permanent ». Les autres routes plus anciennes du pôle n'ont toujours pas cette validation.
 
 **Incident pendant la vérification isolée de ce commit.** Le `git stash push --include-untracked` a échoué en partie — `File exists` sur un fichier de route nouvellement stagé, `Permission denied` sur un dossier non suivi — pendant qu'un serveur de développement tournait, et l'a fait planter. L'arbre est resté incohérent, un fichier stagé absent du disque et le travail de l'utilisateur dans le stash. Rien n'a été perdu : copie de sécurité hors de git, fichier remis sur disque depuis l'index, `stash pop` sans conflit, contenu vérifié identique. La vérification a été refaite sans serveur, et elle passe. **La cause est probable, non prouvée.**
 
@@ -111,7 +159,7 @@ Action de suivi :
 
 - **test de bout en bout par pilotage navigateur humain** — validé le 2026-09-19 —, sur `test-erase@edificeia.com` : « Supprimer définitivement » un objectif archivé depuis la carte Archives — un objectif `[TEST-CP4]` y est laissé archivé —, puis « Vider Objectifs » depuis Réglages. **Ce second geste détruit tous les objectifs du compte de test.** À contrôler ensuite en base : lignes disparues, une entrée de `personal_data_erasure_log` au bon compte, une de `personal_item_erasure_log` pour la suppression individuelle — contrôlé le 2026-09-20, voir l'encart ⚠️ plus haut ;
 - **push des commits d'Objectifs**, sur demande explicite : ce commit touche à la suppression physique et à la clé service-role, la règle permanente s'applique ;
-- restent ouvertes : valider le format des identifiants dans les quatre routes `/permanent` plus anciennes et dans les routes plus anciennes du pôle ; trancher `restrict` ou `no action` avant tout geste de suppression de compte ; rassembler les helpers de date copiés dans le pôle.
+- restent ouvertes : valider le format des identifiants dans les quatre routes `/permanent` plus anciennes — fait le 2026-09-20, voir l'entrée « validation UUID des routes /permanent » — et dans les autres routes plus anciennes du pôle ; trancher `restrict` ou `no action` avant tout geste de suppression de compte ; rassembler les helpers de date copiés dans le pôle.
 
 ## 2026-09-19 (module Objectifs : interface)
 
@@ -245,7 +293,7 @@ Action de suivi :
 
 - **test de bout en bout par pilotage navigateur humain** — validé le 2026-09-17 —, sur `test-erase@edificeia.com`, en supprimant « [TEST] Beta renommée ». Le plan n'attendait qu'une entrée bloquante, l'entrée archivée E1 ; **le refus en a listé deux** : E1, et une seconde entrée, probablement issue des tests de « sélecteur et affichage des catégories de Journal » — hypothèse non vérifiée en base. Résultat constaté : refus initial avec ces deux entrées, réassignation réussie sur les deux, suppression finale réussie avec le compte exact renvoyé par le serveur. **Ce test a consommé le cas de refus** ;
 - nettoyage possible, hors de ce commit : `formatJournalTimestamp` reste copié dans `PersonalJournalPanel.tsx` et `PersonalJournalCategoriesPanel.tsx`, et pourrait rejoindre `JournalCategoryControls.tsx`, qui supprime la raison de la copie ;
-- restent ouvertes, sans changement : trancher `restrict` ou `no action` avant tout geste de suppression de compte — voir l'entrée « clés étrangères composites » — et valider le format des identifiants dans les routes plus anciennes du pôle — voir l'entrée « socle serveur ».
+- restent ouvertes, sans changement : trancher `restrict` ou `no action` avant tout geste de suppression de compte — voir l'entrée « clés étrangères composites » — et valider le format des identifiants dans les routes plus anciennes du pôle — voir l'entrée « socle serveur » ; **fait le 2026-09-20 pour les quatre routes `/permanent`**, voir l'entrée « validation UUID des routes /permanent », les autres restant à reprendre.
 
 ## 2026-09-16 (sélecteur et affichage des catégories de Journal)
 
@@ -324,6 +372,8 @@ Résumé : store et routes des **catégories de Journal**, sans aucune interface
 - la **suppression est séquentielle**, pas atomique : la clé composite en `restrict` sert de filet, et un `23503` tardif devient un `409`, jamais une `500` ;
 - les nouvelles routes **valident le format UUID** avant Postgres ; les routes plus anciennes du pôle ne le font pas.
 
+> ⚠️ **La fin de cette ligne est en partie dépassée depuis le 2026-09-20** : les quatre routes `/permanent` de Notes, Journal, Habitudes et Tâches valident désormais le format UUID — voir l'entrée « validation UUID des routes /permanent ». Les autres routes plus anciennes ne le font toujours pas.
+
 Supprimer une catégorie est une suppression physique, hors de `data-erasure-store.ts` : ce fichier porte les gestes d'effacement de contenu, et une étiquette n'en est pas.
 
 Fichiers liés :
@@ -338,7 +388,7 @@ Impact : aucun à l'écran. Les liaisons deviennent possibles par l'API, et seul
 Action de suivi :
 
 - les écrans du chantier, dans l'ordre : gestion des catégories — faite le 2026-09-16, voir l'entrée « écran de gestion des catégories de Journal » —, puis sélecteur et affichage avec le `cascadeLabel` de Journal — faits le 2026-09-16, voir l'entrée « sélecteur et affichage des catégories de Journal » —, puis écran de blocage et de réassignation — fait le 2026-09-16, voir l'entrée « réassignation depuis l'écran de blocage des catégories de Journal » ;
-- valider le format des identifiants dans les routes plus anciennes du pôle, qui laissent un identifiant malformé finir en `500`.
+- valider le format des identifiants dans les routes plus anciennes du pôle, qui laissent un identifiant malformé finir en `500` — fait le 2026-09-20 pour les quatre routes `/permanent`, voir l'entrée « validation UUID des routes /permanent » ; reste ouvert pour les autres.
 
 ## 2026-09-15 (clés étrangères composites sur la liaison des catégories de Journal)
 

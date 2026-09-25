@@ -22,8 +22,8 @@ export const runtime = "nodejs";
 //      partage — pose des la conception, pas en correctif ;
 //   3. format UUID valide AVANT toute requete : cette route passe par la cle
 //      service-role, et un identifiant malforme atteindrait Postgres en 22P02,
-//      remonte en 500. Les quatre routes /permanent plus anciennes ne font pas
-//      ce controle ; elles restent a reprendre ;
+//      remonte en 500. Les quatre routes /permanent plus anciennes ont recu le
+//      meme controle le 2026-09-20, par isPersonalItemId (data-erasure.ts) ;
 //   4. filtre triple cote store : id + user_id + deleted_at non nul. Un objectif
 //      ACTIF ne peut pas etre supprime par cette route, meme en postant son id ;
 //   5. execution par la cle service-role, seule capable de supprimer :

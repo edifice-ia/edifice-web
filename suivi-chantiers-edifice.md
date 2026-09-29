@@ -1,6 +1,6 @@
 # Suivi des chantiers — L'Édifice
 
-*Chantiers 4 et 5 mis à jour le 24 août 2026, chantier 6 le 3 septembre 2026, vérifiés contre le code, l'historique git et la base. Une date du chantier 4 requalifiée le 14 septembre 2026, sans re-vérification du reste du chantier. Les chantiers 1, 2 et 3 datent du 28 juillet 2026 et n'ont pas été re-vérifiés depuis.*
+*Chantiers 4 et 5 mis à jour le 24 août 2026, chantier 6 le 3 septembre 2026, vérifiés contre le code, l'historique git et la base. Une date du chantier 4 requalifiée le 14 septembre 2026, sans re-vérification du reste du chantier. Chantier 7 ouvert le 28 septembre 2026, et une affirmation du chantier 6 corrigée le même jour. Les chantiers 1, 2 et 3 datent du 28 juillet 2026 et n'ont pas été re-vérifiés depuis.*
 
 *Principe de ce document, inchangé : chaque état est vérifié contre le code et l'historique git, jamais contre la version précédente de ce fichier.*
 
@@ -8,9 +8,10 @@
 
 1. **Chantier 2 — Audit de sécurité.** Des failles réelles restent ouvertes en production (routes OAuth Instagram/Pinterest sans authentification, table `content_assets` sans isolation utilisateur, modes debug non gatés sur plusieurs providers). Le Lot 1 est poussé, mais tant que les Lots 2 et 3 ne sont pas traités, l'exposition est active et en prod.
 2. **Chantier 1 — Module Vitals (étape 6, UI).** L'étape 5 (cron quotidien) est committée et poussée (`195aced`). Ce qui reste non committé est le volet suivant — le store de brief quotidien et sa route API — délibérément laissé de côté (voir Chantier 1).
-3. ~~**Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/`.**~~ **Terminé** le 24 août 2026 : dix routes converties, quatorze fichiers désormais conformes sous ce chemin. Voir plus bas.
-4. ~~**Chantier 6 — Privilèges hérités du défaut de schéma.**~~ **Terminé** le 30 août 2026, chantier imprévu : cinq tables corrigées et défaut du schéma restreint. Voir plus bas.
-5. ~~**Chantier 3 — Audit Observatoire.**~~ **Terminé** le 22 juillet 2026 (`4280a8d`), vérifié dans le code le 28 juillet. Voir plus bas.
+3. **Chantier 7 — Privilèges hérités sur neuf tables service-role.** Migration écrite le 28 septembre 2026, **non appliquée** : `authenticated` garde en base des privilèges que rien dans le code n'utilise. Voir plus bas.
+4. ~~**Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/`.**~~ **Terminé** le 24 août 2026 : dix routes converties, quatorze fichiers désormais conformes sous ce chemin. Voir plus bas.
+5. ~~**Chantier 6 — Privilèges hérités du défaut de schéma.**~~ **Terminé** le 30 août 2026, chantier imprévu : cinq tables corrigées et défaut du schéma restreint. Le même défaut subsiste sur d'autres tables : voir le chantier 7.
+6. ~~**Chantier 3 — Audit Observatoire.**~~ **Terminé** le 22 juillet 2026 (`4280a8d`), vérifié dans le code le 28 juillet. Voir plus bas.
 
 ---
 
@@ -124,7 +125,7 @@ Aucune divergence n'a été trouvée entre les dix routes : ni message différen
 
 **Cause** : le projet Supabase porte deux `ALTER DEFAULT PRIVILEGES`, posés par `postgres` et `supabase_admin`, qui accordent `arwdDxtm` à tous les rôles sur toute nouvelle table du schéma `public`. Les cinq migrations du pôle Personnel écrivaient `revoke all ... from anon` puis `grant select, insert, update ... to authenticated`, **sans jamais révoquer côté `authenticated`**. Or un `grant` est additif : il ajoute des privilèges, il n'en retire aucun. Le `grant` était donc un no-op, et le commentaire qui l'accompagnait — « pas de delete dans ce grant, délibérément » — décrivait l'intention, jamais l'effet.
 
-Le défaut remonte à `personal_notes` (2026-08-04), première migration du pôle ; les quatre suivantes l'ont recopié fidèlement. **Les cinq tables du pôle étaient les seules du dépôt dans ce cas** : les seize autres tables révoquent toutes `from authenticated` avant d'accorder.
+Le défaut remonte à `personal_notes` (2026-08-04), première migration du pôle ; les quatre suivantes l'ont recopié fidèlement. **Les cinq tables du pôle n'étaient pas les seules du dépôt dans ce cas.** D'après les migrations, sur les vingt-six autres tables existant alors, quinze révoquaient `from authenticated` avant d'accorder et **onze ne le faisaient pas** : `content_drafts` et ses trois tables liées, les trois tables `trajectoire_*`, les deux tables `personal_calendar_*`, `personal_daily_briefs` et `personal_garmin_daily_stats`. Ce chantier n'en a corrigé que cinq. Neuf des onze relèvent du chantier 7 ; les deux dernières restent ouvertes.
 
 **Ce qui n'était pas cassé, et c'est important pour calibrer la gravité.** Aucune suppression physique n'a jamais été possible. Vérifié par **test négatif réel** le 2026-08-24 : avec un vrai JWT `authenticated` obtenu par lien magique, un `DELETE` sur une ligne appartenant à l'utilisateur renvoie **0 ligne supprimée sans erreur de privilège** — signature exacte d'un privilège accordé et d'une policy absente. La protection tenait, mais par **une seule couche** au lieu des deux annoncées partout dans la documentation. C'est précisément la configuration qui a rendu l'incident `content_assets` du 2026-07-28 exploitable le jour où cette couche unique est tombée.
 
@@ -142,7 +143,42 @@ Les deux migrations sont **appliquées et vérifiées en base le 2026-08-30** �
 
 **Ce que ce chantier apprend, au-delà du correctif** : un commentaire de migration qui énonce une garantie ne la produit pas. Ceux du pôle décrivaient correctement la règle — « il faudrait ajouter à la fois le privilège et une policy » — tout en omettant l'instruction qui l'aurait rendue vraie. Seul un contrôle exécuté contre la base l'a montré, vingt jours plus tard.
 
-**Prochaine action concrète** : aucune. Le contrôle des grants doit rester dans les entrées `MANUAL_ACTIONS.md` des futures migrations — c'est lui qui a trouvé ce défaut.
+**Prochaine action concrète** : aucune sur le périmètre des cinq tables. Le contrôle des grants doit rester dans les entrées `MANUAL_ACTIONS.md` des futures migrations — c'est lui qui a trouvé ce défaut. Le même défaut sur les autres tables est traité au chantier 7.
+
+---
+
+## Chantier 7 — Privilèges hérités sur neuf tables service-role — MIGRATION ÉCRITE, NON APPLIQUÉE
+
+**Chantier imprévu**, ouvert le 28 septembre 2026, prolongement direct du chantier 6.
+
+**Origine** : le contrôle de sécurité des deux tables Calendrier, demandé le 2026-09-25 (requêtes `aclexplode` et `pg_policies` dans le SQL Editor), a été étendu aux tables qui ne sont accédées que par la clé service-role. Neuf sont concernées : `personal_calendar_events`, `personal_calendar_sync_state`, `content_drafts`, `content_draft_asset_links`, `content_draft_media_plans`, `content_draft_visual_scenes`, `trajectoire_projects`, `trajectoire_objectives`, `trajectoire_actions`. Les résultats bruts de ces contrôles sont dans le SQL Editor, non versionnés.
+
+**Cause** : celle du chantier 6. Les migrations de ces neuf tables écrivent `revoke all … from anon` puis `grant select, insert, update, delete … to authenticated`, sans jamais révoquer côté `authenticated` — et un `grant` est additif. Une table appliquée avant le 2026-08-30 a en outre hérité du défaut de schéma de `postgres`, vidé seulement ce jour-là et seulement pour les tables créées après. La date d'application de chacune des neuf n'est pas consignée : l'état réel est celui que lisent les contrôles `aclexplode` de `MANUAL_ACTIONS.md`.
+
+**Ce que la migration fait** : `revoke all on table public.<table> from anon, authenticated;` sur les neuf tables, dans une transaction, **sans aucun re-grant** — `supabase/migrations/20260928100000_revoke_client_privileges_on_service_role_only_tables.sql`. Le chantier 6 terminait par un `grant` parce que ses cinq tables sont lues par le client de session, où RLS est le garde réel. Celles-ci ne le sont pas. RLS et les policies ne sont pas touchées. Le script de re-grant est en commentaire à la fin du fichier, non appliqué, et ne restaure que les quatre privilèges annoncés par les migrations d'origine — pas `TRUNCATE`, `REFERENCES`, `TRIGGER` ni `MAINTAIN`.
+
+**Vérification préalable dans le code, faite le 2026-09-28**, noms de table dynamiques compris :
+
+- **Aucun accès par le client de session ni par le client navigateur.** Le client de session (`createClient` de `src/lib/supabase/server.ts`) n'est utilisé que par `app/login/actions.ts` et par les six stores de `lib/server/personal` (`notes`, `journal`, `journal-categories`, `habits`, `tasks`, `goals`) — aucun ne cite l'une des neuf tables. Toutes les autres importations de ce module sont `getCurrentUser()`, qui n'appelle que `auth.getUser()`. Le client navigateur (`src/lib/supabase/client.ts`) n'a **aucun importateur**. `lib/supabase.ts` exporte un client à clé anonyme que **personne n'importe**.
+- **Tous les accès aux neuf tables passent par un client service-role**, chaque fichier créant le sien avec `SUPABASE_SERVICE_ROLE_KEY`. Quinze fichiers sous `lib/server`.
+- **Noms de table dynamiques** — trois fichiers, hors stockage de fichiers : `deleteTrajectoireEntity` (`lib/server/trajectoire.ts:1677`) ne vise que les trois tables `trajectoire_*`, et c'est **le seul `DELETE` sur ces trois tables**, invisible à une recherche par nom littéral ; `data-erasure-store.ts` ne vise que des tables `personal_*` ; `observatory/read-model.ts` ne sonde que `short_video_publications`. Les `.from(bucket)` sont du stockage de fichiers, pas des tables.
+- **Limite de cette vérification** : c'est une lecture de code. Elle ne voit ni une requête construite hors du dépôt, ni un appel direct à l'API REST depuis un outil externe. Le test de fumée de `MANUAL_ACTIONS.md` existe pour la prendre en défaut.
+
+**Effet à connaître** : cinq autres tables — `content_assets`, `video_render_jobs`, `short_video_schedules`, `short_video_publications`, `publication_performance_snapshots` — portent des policies `to authenticated` dont une sous-requête lit `content_drafts` (et `content_draft_asset_links` pour `content_assets`). Une sous-requête de policy est évaluée avec les privilèges de l'appelant : après la révocation, une requête `authenticated` sur ces cinq tables échouera en « permission denied for table content_drafts » au lieu de renvoyer des lignes filtrées. Aucun code du dépôt n'émet cette requête, et l'échec est fermé. **Déduit du fonctionnement des policies, non testé.**
+
+**Constat hors périmètre, non corrigé** : `personal_daily_briefs` et `personal_garmin_daily_stats` présentent le même défaut — `revoke all … from anon` puis `grant select, insert, update, delete … to authenticated`, sans révocation côté `authenticated`. Elles n'étaient pas dans la demande. Leurs stores (`daily-briefs-store.ts`, `garmin-stats-store.ts`) utilisent la clé service-role ; le client de session ne les cite pas non plus.
+
+**Fait, pas une hypothèse** : sondées en lecture seule le 2026-09-29 (`limit 0`, aucune ligne demandée), **les deux tables n'existent pas dans la base réelle** — `PGRST205 Could not find the table … in the schema cache`, HTTP 404 sur chacune, contre une réponse `200` pour `personal_notes` sondée dans le même appel comme témoin. Cohérent avec le chantier 1 : le volet Vitals reste en pause, `daily-briefs-store.ts` modifié et `app/api/personal/daily-brief/` non suivis délibérément par `227fb7a`. Leurs migrations (`20260708100000`, `20260708110000`) ne portent donc pas encore le défaut en base — seulement sur le papier.
+
+**Condition avant réactivation du chantier Vitals** : corriger ces deux migrations — ajouter `revoke all … from anon, authenticated` avant le `grant` — **avant** que l'une ou l'autre soit appliquée. Une table qui n'existe pas encore en base n'a pas besoin d'un correctif après-coup comme celui du chantier 6 : le fichier de création peut être corrigé directement, sans migration séparée ni geste en production.
+
+**Points ouverts, consignés sans être corrigés** :
+
+- **quatre policies `{public}` sur `content_drafts`, absentes des migrations** : relevé en base par le mainteneur le 2026-09-28, créées hors du flux de migrations — la situation qu'a connue `content_assets_authenticated_delete` (voir `20260728210000`). Une policy `{public}` s'applique à tous les rôles, `anon` compris. La révocation de ce chantier les rend inatteignables pour `anon` et `authenticated`, mais elles **restent en base**, et personne ne sait ce qu'elles filtrent tant qu'on n'a pas lu leur `qual`. Le contenu exact de ces quatre policies n'est pas consigné dans le dépôt ;
+- **gardes en `403` écrits à la main sur les routes Calendrier** : `app/api/oauth/calendar/register-channel/route.ts` et `status/route.ts` appellent `getCurrentUser()` puis `canAccessPrivateCockpit(user)` et répondent `403` ; `callback/route.ts` redirige au lieu de répondre `403`. Aucune n'utilise `authorizeCockpitApiAccess()`, le helper que DEC-007 pose comme défaut ;
+- **revue de moindre privilège des autres tables** : le décompte du contrôle SQL, relevé en base par le mainteneur le 2026-09-28, en compte **18**. Une lecture des migrations en compte **25** hors ces neuf (34 tables en tout, vérifié le 2026-09-28). **5 des 7 d'écart sont expliqués** — `oauth_tokens`, `personal_data_erasure_log` et `personal_item_erasure_log` ne portent aucun grant à `authenticated` (leurs migrations révoquent des deux rôles sans rien re-accorder, patron opposé à celui des tables de ce chantier), et `personal_daily_briefs` / `personal_garmin_daily_stats` sont absentes de la base réelle — voir le constat ci-dessus. **2 restent non identifiés.** La liste des 25 n'est pas dressée ici.
+
+**Prochaine action concrète** : appliquer la migration selon l'entrée `MANUAL_ACTIONS.md` du 2026-09-28, avec les contrôles avant/après et le test de fumée. Pas de push : la migration contient `REVOKE`, la règle permanente s'applique.
 
 ---
 

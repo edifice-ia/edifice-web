@@ -1,7 +1,7 @@
 # Base de données
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-19
+Dernière mise à jour : 2026-09-28
 
 ## Sommaire
 
@@ -9,6 +9,7 @@ Dernière mise à jour : 2026-09-19
 - [Système principal](#système-principal)
 - [Tables connues](#tables-connues)
 - [Domaines de données](#domaines-de-données)
+- [Privilèges des tables accédées par la seule clé service-role](#privilèges-des-tables-accédées-par-la-seule-clé-service-role)
 - [Règles de sécurité](#règles-de-sécurité)
 - [Migrations](#migrations)
 - [Liens utiles](#liens-utiles)
@@ -43,6 +44,8 @@ Tables créées ou visibles dans les migrations :
 - `trajectoire_projects`
 - `trajectoire_objectives`
 - `trajectoire_actions`
+- `personal_calendar_sync_state`
+- `personal_calendar_events`
 - `personal_garmin_daily_stats`
 - `personal_daily_briefs`
 - `personal_notes`
@@ -153,6 +156,18 @@ Deux choix de conception y sont délibérés :
 Une entrée est écrite **par table effectivement vidée, et non par module** : un module à deux tables comme Habitudes produit deux entrées portant le même `module` et deux `table_name` distincts. C'est le sens de la colonne `table_name`, et c'est ce qui permet au journal de dire combien de réalisations sont parties avec les habitudes — le plus gros des deux volumes, qu'une entrée unique par module aurait tu.
 
 Le geste qui écrit ces entrées vise **un module à la fois** : `POST /api/personal/settings/erase` accepte `module` et non `modules`. Un effacement ne peut donc jamais produire d'entrées pour deux modules différents dans la même requête, et l'ordre d'écriture au sein d'un module est celui de la suppression — les tables dépendantes d'abord, la principale ensuite.
+
+## Privilèges des tables accédées par la seule clé service-role
+
+Neuf tables ne sont lues et écrites que par des clients service-role — vérifié par lecture du code le 2026-09-28, noms de table dynamiques compris : `personal_calendar_events`, `personal_calendar_sync_state`, `content_drafts`, `content_draft_asset_links`, `content_draft_media_plans`, `content_draft_visual_scenes`, `trajectoire_projects`, `trajectoire_objectives`, `trajectoire_actions`. Aucun client de session ni client navigateur ne les cite. **Pour elles, RLS est une défense en profondeur, pas le garde réel** — l'inverse des huit tables du pôle Personnel dont les stores utilisent le client de session.
+
+**Ce que disent leurs migrations** : RLS activée, `revoke all … from anon`, `grant select, insert, update, delete … to authenticated`, puis quatre policies `to authenticated` — `user_id = auth.uid()` pour `content_drafts`, `trajectoire_*` et `personal_calendar_*`, et une existence de brouillon appartenant à l'appelant pour les trois tables liées à `content_drafts`. Aucune ne révoque `from authenticated` : c'est le défaut du chantier 6, qui n'avait traité que cinq tables du pôle Personnel. Deux autres, `personal_daily_briefs` et `personal_garmin_daily_stats`, ont le même défaut et sont hors de cette section.
+
+**Ce que la migration `20260928100000_revoke_client_privileges_on_service_role_only_tables.sql` change** : `revoke all … from anon, authenticated` sur les neuf tables, **sans re-grant** — ce que le chantier 6 faisait pour les tables lues par le client de session, et que celles-ci n'ont pas à faire. Elle est **écrite le 2026-09-28 et non appliquée** ; son entrée `MANUAL_ACTIONS.md` porte les contrôles avant/après. Tant qu'elle ne l'est pas, l'état réel en base est celui que lisent les requêtes `aclexplode`, pas celui de ce paragraphe. RLS et les policies ne sont pas modifiées. Elles deviennent inatteignables pour les deux rôles clients, et restent comme seconde couche.
+
+**Effet à connaître** : les policies `to authenticated` de `content_assets`, `video_render_jobs`, `short_video_schedules`, `short_video_publications` et `publication_performance_snapshots` contiennent une sous-requête sur `content_drafts` (et sur `content_draft_asset_links` pour la première). Elle est évaluée avec les privilèges de l'appelant : une requête `authenticated` sur ces cinq tables échouera en « permission denied » plutôt que de renvoyer des lignes filtrées. Aucun code du dépôt n'émet cette requête. Déduit du fonctionnement des policies, non testé.
+
+**Point ouvert** : `content_drafts` porte en base quatre policies `{public}` absentes des migrations. Voir le chantier 7 de `suivi-chantiers-edifice.md`.
 
 ## Règles de sécurité
 

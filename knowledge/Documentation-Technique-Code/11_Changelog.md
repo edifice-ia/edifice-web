@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-09-20
+Dernière mise à jour : 2026-09-28
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-09-28 (chantier 7 : privilèges des neuf tables service-role, migration écrite)](#2026-09-28-chantier-7--privilèges-des-neuf-tables-service-role-migration-écrite)
 - [2026-09-20 (validation UUID des routes /permanent)](#2026-09-20-validation-uuid-des-routes-permanent)
 - [2026-09-19 (module Objectifs : suppression physique)](#2026-09-19-module-objectifs--suppression-physique)
 - [2026-09-19 (module Objectifs : interface)](#2026-09-19-module-objectifs--interface)
@@ -61,6 +62,47 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-09-28 (chantier 7 : privilèges des neuf tables service-role, migration écrite)
+
+Type : sécurité, base de données
+
+Résumé : **une migration retire à `anon` et `authenticated` tout privilège sur neuf tables qui ne sont accédées que par la clé service-role** — `20260928100000_revoke_client_privileges_on_service_role_only_tables.sql`. **Écrite, vérifiée en isolation, non appliquée** : l'application en base est une action manuelle (entrée `MANUAL_ACTIONS.md` du 2026-09-28). Les neuf tables : `personal_calendar_events`, `personal_calendar_sync_state`, `content_drafts`, `content_draft_asset_links`, `content_draft_media_plans`, `content_draft_visual_scenes`, `trajectoire_projects`, `trajectoire_objectives`, `trajectoire_actions`.
+
+**Origine** : le contrôle de sécurité des deux tables Calendrier demandé le 2026-09-25, étendu aux tables qui ne passent que par la clé service-role. Cause : celle du chantier 6 — `revoke all … from anon` puis `grant … to authenticated`, sans révoquer côté `authenticated`, et un `grant` est additif. Les résultats bruts du contrôle sont dans le SQL Editor, non versionnés.
+
+**Décisions portées par ce commit** :
+
+- **aucun re-grant.** Le chantier 6 terminait par un `grant` parce que ses stores utilisent le client de session. Ces tables n'ont aucun accès par un client de session ni navigateur — recherche faite le 2026-09-28, **noms de table dynamiques compris** ;
+- **le `DELETE` des trois tables `trajectoire_*` n'est visible que par la recherche dynamique** : `deleteTrajectoireEntity` (`lib/server/trajectoire.ts`) écrit `.from(table).delete()` avec un nom choisi à l'exécution, et une recherche par nom littéral ne le voit pas. C'est le seul `DELETE` sur ces trois tables ;
+- **RLS et policies inchangées**, retour arrière en commentaire à la fin du fichier, non appliqué, et qui ne restaure que les quatre privilèges annoncés par les migrations d'origine ;
+- **deux tables laissées hors du périmètre** — `personal_daily_briefs` et `personal_garmin_daily_stats` — qui présentent le même défaut. Elles n'étaient pas dans la demande.
+
+**Effet à connaître, déduit et non testé** : cinq autres tables — `content_assets`, `video_render_jobs`, `short_video_schedules`, `short_video_publications`, `publication_performance_snapshots` — ont des policies `to authenticated` dont une sous-requête lit `content_drafts`. Une requête `authenticated` sur elles échouera en « permission denied » au lieu de renvoyer des lignes filtrées. Aucun code ne l'émet.
+
+**Corrigé au passage, directement et sans encart** : `suivi-chantiers-edifice.md`, chantier 6, affirmait que les cinq tables du pôle Personnel étaient « les seules du dépôt » à ne pas révoquer `from authenticated`, et que « les seize autres tables » le faisaient toutes. **C'était faux dès l'écriture.** D'après les migrations, sur les vingt-six autres tables existant alors, quinze révoquaient et onze ne le faisaient pas. La phrase est réécrite à cet endroit. **Non corrigés, volontairement** : les mêmes affirmations vivent en commentaire dans deux migrations déjà appliquées, `20260824110000` (« seules à ne l'avoir jamais fait ») et `20260824120000` (« seize autres tables du dépôt »). Modifier un fichier de migration appliqué n'est pas anodin même pour un commentaire ; la migration de ce chantier porte la rectification.
+
+**Attribution imprécise relevée, non corrigée pour la même raison** : le commentaire du chantier 6 (`suivi-chantiers-edifice.md`, et les commentaires de `20260824110000`/`20260824120000`) attribue le défaut aux deux `ALTER DEFAULT PRIVILEGES` indifféremment, « posés par `postgres` et `supabase_admin` ». Le commentaire de la migration `personal_goals` (`20260917100000`) fait de même — « le défaut de schéma posé par `supabase_admin` ». Or un `ALTER DEFAULT PRIVILEGES` ne s'applique qu'aux objets créés **par le rôle qui l'a posé** : les migrations du dépôt s'exécutent en `postgres` dans le SQL Editor, c'est donc le défaut de `postgres` qui les concerne, celui vidé le 2026-08-30. Celui de `supabase_admin` ne concerne que les tables créées par l'outillage interne de Supabase, hors du flux de migrations — le résidu que `20260824120000` documente déjà comme hors de portée. La confusion n'a pas d'effet pratique connu : aucune table du dépôt n'est créée par `supabase_admin`. Ni `suivi-chantiers-edifice.md` (hors la section de ce chantier) ni les trois migrations citées ne sont modifiés pour cette imprécision.
+
+**Points ouverts, consignés sans être corrigés** :
+
+- quatre policies `{public}` sur `content_drafts`, relevé en base par le mainteneur le 2026-09-28, absentes des migrations ;
+- gardes en `403` écrits à la main sur les routes Calendrier, au lieu de `authorizeCockpitApiAccess()` ;
+- revue de moindre privilège des autres tables : 18 selon le contrôle SQL relevé en base par le mainteneur le 2026-09-28, 25 selon une lecture des migrations. 5 des 7 d'écart expliqués (`oauth_tokens`, `personal_data_erasure_log`, `personal_item_erasure_log`, et les deux tables Vitals non appliquées en base — voir l'entrée du 2026-09-28 dans `suivi-chantiers-edifice.md`), 2 non identifiés.
+
+Fichiers liés :
+
+- `supabase/migrations/20260928100000_revoke_client_privileges_on_service_role_only_tables.sql`
+- `MANUAL_ACTIONS.md`
+- `suivi-chantiers-edifice.md`, `knowledge/Documentation-Technique-Code/05_Database.md`, `11_Changelog.md`
+
+Impact : aucun tant que la migration n'est pas appliquée. Une fois appliquée, `anon` et `authenticated` n'ont plus aucun privilège sur ces neuf tables, et aucun écran ne doit changer : les accès passent par la clé service-role, qu'elle ne touche pas.
+
+Action de suivi :
+
+- **appliquer la migration** selon `MANUAL_ACTIONS.md`, avec les contrôles avant/après et le test de fumée ;
+- **push du commit, sur demande explicite** : la migration contient `REVOKE`, la règle permanente s'applique ;
+- **décider du sort** de `personal_daily_briefs` et `personal_garmin_daily_stats`.
 
 ## 2026-09-20 (validation UUID des routes /permanent)
 

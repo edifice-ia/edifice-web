@@ -53,6 +53,222 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-09-28 — Appliquer la migration de révocation des privilèges sur neuf tables service-role
+
+**Statut** : `pending`
+
+**Fichier** : `supabase/migrations/20260928100000_revoke_client_privileges_on_service_role_only_tables.sql`
+
+**Pourquoi c'est manuel** : nécessite un clic dans le SQL Editor Supabase, pas d'accès API direct pour ce type d'opération. Aucun CLI Supabase authentifié n'est configuré sur cette machine, et la clé service-role ne permet pas d'exécuter du DDL par l'API REST.
+
+**Bloque** : rien de fonctionnel. C'est un durcissement : tant qu'elle n'est pas appliquée, `authenticated` garde en base les privilèges que les migrations d'origine lui ont accordés, et pour les tables créées avant le 2026-08-30, ceux du défaut de schéma en plus.
+
+**À lire avant d'exécuter** :
+
+1. **La migration ne re-grante rien**, contrairement au chantier 6. Ces neuf tables ne sont accédées que par des clients service-role — vérifié par lecture du code le 2026-09-28, noms de table dynamiques compris. La clé service-role n'est pas affectée : elle contourne RLS et garde ses propres privilèges. Le test de fumée ci-dessous existe pour prendre en défaut cette lecture du code.
+2. **Effet de bord à connaître.** Cinq autres tables — `content_assets`, `video_render_jobs`, `short_video_schedules`, `short_video_publications`, `publication_performance_snapshots` — ont des policies `to authenticated` dont une sous-requête lit `content_drafts` (et `content_draft_asset_links` pour `content_assets`). Après la révocation, une requête `authenticated` sur ces cinq tables échouera en « permission denied for table content_drafts » au lieu de renvoyer des lignes filtrées. Aucun code du dépôt n'émet cette requête, et l'échec est fermé. Non testé : déduit du fonctionnement des policies.
+3. **Retour arrière** : le script de re-grant est en commentaire à la fin du fichier de migration, non appliqué. Il restaure `select, insert, update, delete` à `authenticated`, pas `TRUNCATE`, `REFERENCES`, `TRIGGER` ni `MAINTAIN`, voulu.
+4. **Compte de test** : les écritures du test de fumée se font sur `test-erase@edificeia.com`. Le compte `contact.edificeia@gmail.com` n'est jamais touché.
+
+**Étapes** :
+
+1. Ouvrir <https://supabase.com/dashboard>, sélectionner le projet de L'Édifice, puis « SQL Editor » dans la barre latérale.
+2. Cliquer « New query ».
+3. **Avant-état, existence des neuf tables** — sans quoi un résultat vide plus bas ne prouverait rien :
+
+`2026-09-28_0_existence_neuf_tables`
+
+```sql
+select count(*) as tables_trouvees
+from pg_class
+where relnamespace = 'public'::regnamespace
+  and relname in (
+    'personal_calendar_events', 'personal_calendar_sync_state',
+    'content_drafts', 'content_draft_asset_links',
+    'content_draft_media_plans', 'content_draft_visual_scenes',
+    'trajectoire_projects', 'trajectoire_objectives', 'trajectoire_actions'
+  );
+```
+
+Attendu : `9`. Sinon, ne pas continuer.
+
+4. **Avant-état, grants** — sert de référence, pas de valeur attendue. Conserver le résultat (capture ou copie) :
+
+`2026-09-28_1_avant_grants_neuf_tables`
+
+```sql
+select c.relname as table_name,
+       case a.grantee when 0 then 'PUBLIC' else pg_get_userbyid(a.grantee) end as grantee,
+       string_agg(a.privilege_type, ', ' order by a.privilege_type) as privileges
+from pg_class c
+cross join lateral aclexplode(c.relacl) a
+where c.relnamespace = 'public'::regnamespace
+  and c.relname in (
+    'personal_calendar_events', 'personal_calendar_sync_state',
+    'content_drafts', 'content_draft_asset_links',
+    'content_draft_media_plans', 'content_draft_visual_scenes',
+    'trajectoire_projects', 'trajectoire_objectives', 'trajectoire_actions'
+  )
+  and (a.grantee = 0 or pg_get_userbyid(a.grantee) in ('anon', 'authenticated'))
+group by 1, 2
+order by 1, 2;
+```
+
+5. **Avant-état, RLS et policies** — l'empreinte permet de comparer avant et après sans relire chaque policy. Conserver le résultat :
+
+`2026-09-28_2_avant_rls_policies_neuf_tables`
+
+```sql
+select c.relname as table_name,
+       c.relrowsecurity as rls_enabled,
+       c.relforcerowsecurity as rls_forced,
+       count(p.policyname) as policies,
+       md5(coalesce(string_agg(
+         p.policyname || '|' || p.cmd || '|' || p.roles::text || '|'
+           || coalesce(p.qual, '') || '|' || coalesce(p.with_check, ''),
+         E'\n' order by p.policyname), '')) as policies_fingerprint
+from pg_class c
+left join pg_policies p
+  on p.schemaname = 'public' and p.tablename = c.relname
+where c.relnamespace = 'public'::regnamespace
+  and c.relname in (
+    'personal_calendar_events', 'personal_calendar_sync_state',
+    'content_drafts', 'content_draft_asset_links',
+    'content_draft_media_plans', 'content_draft_visual_scenes',
+    'trajectoire_projects', 'trajectoire_objectives', 'trajectoire_actions'
+  )
+group by c.relname, c.relrowsecurity, c.relforcerowsecurity
+order by 1;
+```
+
+Attendu : neuf lignes, `rls_enabled` à `true` sur chacune. Le nombre de policies est **noté, pas jugé** : les migrations en écrivent quatre par table, et `content_drafts` en porte davantage en base (voir le chantier 7 de `suivi-chantiers-edifice.md`).
+
+6. Cliquer « New query », coller le contenu intégral de `20260928100000_revoke_client_privileges_on_service_role_only_tables.sql`, cliquer « Run ». Le fichier est dans une transaction et idempotent : le relancer ne casse rien.
+
+7. **Après application, grants** — la même requête que l'étape 4, sous un nouveau nom :
+
+`2026-09-28_3_apres_grants_neuf_tables`
+
+```sql
+select c.relname as table_name,
+       case a.grantee when 0 then 'PUBLIC' else pg_get_userbyid(a.grantee) end as grantee,
+       string_agg(a.privilege_type, ', ' order by a.privilege_type) as privileges
+from pg_class c
+cross join lateral aclexplode(c.relacl) a
+where c.relnamespace = 'public'::regnamespace
+  and c.relname in (
+    'personal_calendar_events', 'personal_calendar_sync_state',
+    'content_drafts', 'content_draft_asset_links',
+    'content_draft_media_plans', 'content_draft_visual_scenes',
+    'trajectoire_projects', 'trajectoire_objectives', 'trajectoire_actions'
+  )
+  and (a.grantee = 0 or pg_get_userbyid(a.grantee) in ('anon', 'authenticated'))
+group by 1, 2
+order by 1, 2;
+```
+
+Attendu : **zéro ligne**. Aucune ligne pour `anon`, `authenticated` ni `PUBLIC` sur les neuf tables. Une seule ligne est un échec, même si elle paraît inoffensive. Ne pas continuer, et **ne pas lancer le retour arrière** avant d'avoir compris : une ligne restante peut venir d'un troisième `ALTER DEFAULT PRIVILEGES` ou d'un grant posé hors des migrations.
+
+8. **Témoin** — un résultat vide à l'étape 7 doit venir de la révocation, pas d'une requête cassée. Les autres rôles doivent avoir gardé leurs privilèges :
+
+`2026-09-28_4_apres_temoin_autres_roles`
+
+```sql
+select c.relname as table_name,
+       pg_get_userbyid(a.grantee) as grantee,
+       string_agg(a.privilege_type, ', ' order by a.privilege_type) as privileges
+from pg_class c
+cross join lateral aclexplode(c.relacl) a
+where c.relnamespace = 'public'::regnamespace
+  and c.relname in (
+    'personal_calendar_events', 'personal_calendar_sync_state',
+    'content_drafts', 'content_draft_asset_links',
+    'content_draft_media_plans', 'content_draft_visual_scenes',
+    'trajectoire_projects', 'trajectoire_objectives', 'trajectoire_actions'
+  )
+  and a.grantee <> 0
+  and pg_get_userbyid(a.grantee) not in ('anon', 'authenticated')
+group by 1, 2
+order by 1, 2;
+```
+
+Attendu : sur **chacune des neuf tables**, au moins `postgres` et `service_role`. Toute autre ligne (`supabase_admin`, par exemple) est à lire et à noter, pas à traiter comme une erreur : la migration ne les touche pas.
+
+9. **Après application, privilèges de colonne** — `revoke all on table` ne retire pas un grant posé au niveau d'une colonne :
+
+`2026-09-28_5_apres_acl_colonnes`
+
+```sql
+select c.relname as table_name, a.attname as column_name, a.attacl
+from pg_attribute a
+join pg_class c on c.oid = a.attrelid
+where c.relnamespace = 'public'::regnamespace
+  and c.relname in (
+    'personal_calendar_events', 'personal_calendar_sync_state',
+    'content_drafts', 'content_draft_asset_links',
+    'content_draft_media_plans', 'content_draft_visual_scenes',
+    'trajectoire_projects', 'trajectoire_objectives', 'trajectoire_actions'
+  )
+  and a.attnum > 0
+  and not a.attisdropped
+  and a.attacl is not null
+order by 1, 2;
+```
+
+Attendu : **zéro ligne**.
+
+10. **Après application, RLS et policies inchangées** — la requête de l'étape 5, sous un nouveau nom :
+
+`2026-09-28_6_apres_rls_policies_neuf_tables`
+
+```sql
+select c.relname as table_name,
+       c.relrowsecurity as rls_enabled,
+       c.relforcerowsecurity as rls_forced,
+       count(p.policyname) as policies,
+       md5(coalesce(string_agg(
+         p.policyname || '|' || p.cmd || '|' || p.roles::text || '|'
+           || coalesce(p.qual, '') || '|' || coalesce(p.with_check, ''),
+         E'\n' order by p.policyname), '')) as policies_fingerprint
+from pg_class c
+left join pg_policies p
+  on p.schemaname = 'public' and p.tablename = c.relname
+where c.relnamespace = 'public'::regnamespace
+  and c.relname in (
+    'personal_calendar_events', 'personal_calendar_sync_state',
+    'content_drafts', 'content_draft_asset_links',
+    'content_draft_media_plans', 'content_draft_visual_scenes',
+    'trajectoire_projects', 'trajectoire_objectives', 'trajectoire_actions'
+  )
+group by c.relname, c.relrowsecurity, c.relforcerowsecurity
+order by 1;
+```
+
+Attendu : **identique à l'étape 5, ligne à ligne** — mêmes `rls_enabled`, même nombre de policies, même `policies_fingerprint` sur les neuf tables. La migration ne touche ni RLS ni les policies : la moindre différence est un échec.
+
+11. **Test de fumée**, dans cet ordre. Il sert à prendre en défaut la lecture du code qui a justifié de ne rien re-granter : un écran qui casse désigne un chemin que la recherche n'a pas vu.
+
+**11a. Calendrier** — avec le compte habituel, lecture seule. Ouvrir `/interface/personnel`, carte « Agenda du jour ». Attendu : la carte affiche ses événements ou son état vide, **sans message « Lecture personal_calendar_events impossible »** ni erreur. Puis ouvrir `/api/oauth/calendar/status` dans le navigateur, connecté : réponse `200`.
+
+**11b. Atelier de contenu** — avec le compte habituel, lecture seule : ouvrir `/interface/post-creation`. Attendu : la liste des brouillons se charge sans bandeau d'erreur. Ouvrir un brouillon existant, puis `/interface/post-creation/shorts/visuals` : les scènes et le plan média se chargent. **Aucune écriture n'est testée ici** : en créer une demanderait de générer du contenu, avec son coût, et supprimer un brouillon détruirait du contenu réel. Les écritures passent par la clé service-role, dont le témoin de l'étape 8 vérifie qu'elle a gardé ses privilèges.
+
+**11c. Trajectoire** — avec `test-erase@edificeia.com`, jamais avec `contact.edificeia@gmail.com`. Ouvrir `/interface/trajectoire`. Attendu : la page se charge sans erreur. Puis, dans l'ordre : « Ajouter un projet » nommé `[TEST-ACL] projet`, « Ajouter un objectif » `[TEST-ACL] objectif` sous ce projet, « Ajouter une action » `[TEST-ACL] action` sous cet objectif ; modifier le statut de l'action ; puis « Supprimer » l'action, l'objectif, le projet, en confirmant à chaque fois. Attendu : chaque geste réussit sans message d'erreur, et la page revient à son état initial. Cela couvre `select`, `insert`, `update` et `delete` sur les trois tables `trajectoire_*`, dont le `delete` qui passe par un nom de table dynamique.
+
+12. **Résidu** — contre-vérification du test de fumée :
+
+`2026-09-28_7_residus_trajectoire`
+
+```sql
+select
+  (select count(*) from public.trajectoire_projects where title like '[TEST-ACL]%') as projets,
+  (select count(*) from public.trajectoire_objectives where title like '[TEST-ACL]%') as objectifs,
+  (select count(*) from public.trajectoire_actions where title like '[TEST-ACL]%') as actions;
+```
+
+Attendu : `0`, `0`, `0`.
+
+**Vérification** : les étapes 3, 7, 8, 9, 10 et 12 renvoient exactement les valeurs attendues, et le test de fumée n'a affiché aucune erreur. Si une page casse, **relever d'abord la route et le message**, retrouver le fichier qui utilise un client de session ou navigateur sur ces tables, puis seulement envisager le retour arrière. Le compte `contact.edificeia@gmail.com` n'est jamais touché en écriture.
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`

@@ -1,7 +1,7 @@
 # Base de données
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-28
+Dernière mise à jour : 2026-10-04
 
 ## Sommaire
 
@@ -163,9 +163,11 @@ Neuf tables ne sont lues et écrites que par des clients service-role — vérif
 
 **Ce que disent leurs migrations** : RLS activée, `revoke all … from anon`, `grant select, insert, update, delete … to authenticated`, puis quatre policies `to authenticated` — `user_id = auth.uid()` pour `content_drafts`, `trajectoire_*` et `personal_calendar_*`, et une existence de brouillon appartenant à l'appelant pour les trois tables liées à `content_drafts`. Aucune ne révoque `from authenticated` : c'est le défaut du chantier 6, qui n'avait traité que cinq tables du pôle Personnel. Deux autres, `personal_daily_briefs` et `personal_garmin_daily_stats`, ont le même défaut et sont hors de cette section.
 
-**Ce que la migration `20260928100000_revoke_client_privileges_on_service_role_only_tables.sql` change** : `revoke all … from anon, authenticated` sur les neuf tables, **sans re-grant** — ce que le chantier 6 faisait pour les tables lues par le client de session, et que celles-ci n'ont pas à faire. Elle est **écrite le 2026-09-28 et non appliquée** ; son entrée `MANUAL_ACTIONS.md` porte les contrôles avant/après. Tant qu'elle ne l'est pas, l'état réel en base est celui que lisent les requêtes `aclexplode`, pas celui de ce paragraphe. RLS et les policies ne sont pas modifiées. Elles deviennent inatteignables pour les deux rôles clients, et restent comme seconde couche.
+**Ce que la migration `20260928100000_revoke_client_privileges_on_service_role_only_tables.sql` change** : `revoke all … from anon, authenticated` sur les neuf tables, **sans re-grant** — ce que le chantier 6 faisait pour les tables lues par le client de session, et que celles-ci n'ont pas à faire. Elle est **écrite le 2026-09-28, committée le 2026-09-29 (`be07b02`), appliquée en base et vérifiée** — compte rendu du 2026-10-04. **La date d'application n'est pas établie** : seules les bornes le sont, après le 2026-09-29 et au plus tard le 2026-10-04. Relevé en base par le mainteneur : plus aucun privilège pour `anon`, `authenticated` ni `PUBLIC` sur les neuf tables, `postgres` et `service_role` intacts, aucun privilège de colonne. RLS et les policies ne sont pas modifiées — les neuf empreintes de policies sont identiques avant et après. Elles sont désormais inatteignables pour les deux rôles clients, et restent comme seconde couche. Les contrôles et le test de fumée sont dans l'entrée archivée du 2026-09-28 de `MANUAL_ACTIONS.md`.
 
-**Effet à connaître** : les policies `to authenticated` de `content_assets`, `video_render_jobs`, `short_video_schedules`, `short_video_publications` et `publication_performance_snapshots` contiennent une sous-requête sur `content_drafts` (et sur `content_draft_asset_links` pour la première). Elle est évaluée avec les privilèges de l'appelant : une requête `authenticated` sur ces cinq tables échouera en « permission denied » plutôt que de renvoyer des lignes filtrées. Aucun code du dépôt n'émet cette requête. Déduit du fonctionnement des policies, non testé.
+**Effet à connaître** : les policies `to authenticated` de `content_assets`, `video_render_jobs`, `short_video_schedules`, `short_video_publications` et `publication_performance_snapshots` contiennent une sous-requête sur `content_drafts` (et sur `content_draft_asset_links` pour la première). Elle est évaluée avec les privilèges de l'appelant : une requête `authenticated` sur ces cinq tables échouera en « permission denied » plutôt que de renvoyer des lignes filtrées. Aucun code du dépôt n'émet cette requête. Déduit du fonctionnement des policies, **non testé après l'application de la migration**.
+
+**Limite du test de fumée** : il a exercé Trajectoire en écriture complète (`select`, `insert`, `update`, `delete`) et le Calendrier et l'Atelier de contenu en **lecture seule**. Les écritures de l'Atelier de contenu — sur `content_drafts` et les trois tables liées — n'ont pas été exercées ; seul le témoin des privilèges de `service_role` les couvre, indirectement.
 
 **Point ouvert** : `content_drafts` porte en base quatre policies `{public}` absentes des migrations. Voir le chantier 7 de `suivi-chantiers-edifice.md`.
 

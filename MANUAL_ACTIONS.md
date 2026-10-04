@@ -53,9 +53,62 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
-### 2026-09-28 — Appliquer la migration de révocation des privilèges sur neuf tables service-role
+### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
+
+**Pourquoi c'est manuel** : l'état d'avancement d'une app review TikTok ne se lit que dans le portail développeur TikTok, derrière une authentification interactive. Rien dans le dépôt ne l'indique — recherche faite le 2026-08-01 : aucun ticket, aucune date de soumission, aucun statut, ni dans le code, ni dans `knowledge/`, ni dans l'historique git. Le seul repère est la date d'introduction de l'exception, le 2026-07-28 (`2cf9316`), et celle de la mise en place de l'accès reviewer, entre le 2026-05-20 et le 2026-05-31.
+
+**Bloque** : rien de fonctionnel. C'est une exception de sécurité sans date d'expiration — le risque est qu'elle survive à sa raison d'être et devienne un écart inexpliqué.
+
+**Ce que l'exception autorise exactement** — mesuré le 2026-08-01, pour que la décision se prenne sur des faits et non sur le mot « exception » :
+
+- **Aucun accès anonyme.** Sans session, la route répond `403`, et le middleware redirige déjà vers `/login`. Le compromis ne porte que sur le filtre de rôle.
+- `canAccessPrivateCockpit(user)` vaut `getUserRole(user) !== "reviewer"` (`src/lib/auth/roles.ts`). L'écart entre ce garde et le garde strict est donc **exactement un rôle** : celui de `reviewer@edificeia.com`, compte créé et contrôlé par le projet.
+- La réponse ne contient **ni token, ni identifiant de compte, ni scope** : `{ present, storageEnabled, storageMode, expiresAt, updatedAt }`. Le reviewer voit qu'un token TikTok existe et depuis quand — strictement moins que ce que le flux OAuth et l'upload sandbox lui accordent déjà par ailleurs.
+
+**Pourquoi le durcissement ne peut pas être fait à l'aveugle** : `/tiktok-sandbox-test` rend `<TikTokConnectionControls />`, qui appelle cette route et **affiche les quatre champs**. Ajouter `canAccessPrivateCockpit` ferait répondre `403` au reviewer et casserait la « vérification du token stocké côté serveur » que la page lui annonce — pendant l'examen de cette même page.
+
+**Étapes** :
+
+1. Ouvrir le portail développeur TikTok et lire le statut de l'app review.
+2. **Si la review est terminée** (approuvée ou définitivement rejetée), appliquer le durcissement :
+   - retirer `"/api/oauth/tiktok/status"` de `reviewerAllowedPaths` dans `src/lib/supabase/proxy.ts` ;
+   - dans `app/api/oauth/tiktok/status/route.ts`, remplacer le garde par celui de `youtube/status` et `calendar/status` :
+     ```ts
+     if (!user || !canAccessPrivateCockpit(user)) {
+       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+     }
+     ```
+     avec `import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";` ;
+   - supprimer le bloc de commentaire d'exception devenu faux, et mettre à jour `DEC-007` dans `knowledge/Documentation-Technique-Code/03_Decisions.md`, qui cite cette route comme cas particulier assumé.
+   - décider au passage du sort des trois autres chemins encore dans `reviewerAllowedPaths` (`/api/oauth/tiktok/start`, `/callback`, `/upload-test`) et du compte `reviewer@edificeia.com` lui-même.
+3. **Si la review est encore en cours**, ne rien changer et repousser la relecture ; noter la date de relecture ici.
+
+**Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
+
+## Archive (done)
+
+### 2026-09-28 — Appliquer la migration de révocation des privilèges sur neuf tables service-role
+
+**Statut** : `done` — compte rendu du 2026-10-04
+
+**Date d'application : non établie avec certitude, et cette entrée refuse de la fixer.** Aucune commande disponible depuis cette machine ne peut la lire : un `revoke` exécuté dans le SQL Editor ne laisse aucun horodatage dans `pg_class`, et Supabase n'enregistre pas ce que le SQL Editor exécute dans le registre des migrations. Bornes vérifiées par commande : **après** le 2026-09-29, jour où cette entrée a été affichée pour exécution (horodatage de la conversation), et **au plus tard le 2026-10-04**, jour du compte rendu. Le commit de la migration, `be07b02`, date du 2026-09-29 à 10:15 (`git log`) — c'est le jour de son écriture, pas de son application. À remplacer par la date exacte si elle est retrouvée dans l'historique des requêtes du SQL Editor.
+
+**Résultat** — relevé en base par le mainteneur, compte rendu du 2026-10-04 ; l'agent n'a pas exécuté ces requêtes et ne les a pas rejouées :
+
+- **étape 3** : les neuf tables sont présentes ;
+- **étape 7** : plus aucun privilège pour `anon`, `authenticated` ni `PUBLIC` sur les neuf tables ;
+- **étape 8** : `postgres` et `service_role` intacts sur les neuf ;
+- **étape 9** : aucun privilège de colonne ;
+- **étape 10** : les neuf empreintes de policies sont identiques avant et après — RLS et policies inchangées ;
+- **étape 12** : aucun résidu `[TEST-ACL]` ;
+- **test de fumée** : carte « Agenda du jour » sans erreur ; Atelier de contenu en lecture sans erreur ; cycle complet projet, objectif, action puis suppressions sur Trajectoire avec `test-erase@edificeia.com`. Ce dernier exerce `select`, `insert`, `update` et `delete` sur les trois tables `trajectoire_*`, dont le `delete` à nom de table dynamique.
+
+**Deux limites, qui ne sont pas des échecs** :
+
+1. **L'effet de bord sur cinq tables n'a pas été testé.** `content_assets`, `video_render_jobs`, `short_video_schedules`, `short_video_publications` et `publication_performance_snapshots` ont des policies dont une sous-requête lit `content_drafts` (et `content_draft_asset_links` pour la première). Leur échec attendu en « permission denied » pour un appelant `authenticated` reste **déduit du fonctionnement des policies**. Aucun code du dépôt n'émet cette requête ; aucun test ne l'a confirmée ni infirmée.
+2. **Les écritures de l'Atelier de contenu n'ont pas été exercées par le test de fumée** — comme l'étape 11b le prévoyait : créer un brouillon demande de générer du contenu avec son coût, en supprimer un détruit du contenu réel. Elles sont couvertes par un seul indice indirect : le témoin de l'étape 8 montre que `service_role` a gardé ses privilèges. Aucune écriture sur `content_drafts` ni sur les trois tables liées n'a été observée après la révocation.
 
 **Fichier** : `supabase/migrations/20260928100000_revoke_client_privileges_on_service_role_only_tables.sql`
 
@@ -268,42 +321,6 @@ select
 Attendu : `0`, `0`, `0`.
 
 **Vérification** : les étapes 3, 7, 8, 9, 10 et 12 renvoient exactement les valeurs attendues, et le test de fumée n'a affiché aucune erreur. Si une page casse, **relever d'abord la route et le message**, retrouver le fichier qui utilise un client de session ou navigateur sur ces tables, puis seulement envisager le retour arrière. Le compte `contact.edificeia@gmail.com` n'est jamais touché en écriture.
-
-### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
-
-**Statut** : `pending`
-
-**Pourquoi c'est manuel** : l'état d'avancement d'une app review TikTok ne se lit que dans le portail développeur TikTok, derrière une authentification interactive. Rien dans le dépôt ne l'indique — recherche faite le 2026-08-01 : aucun ticket, aucune date de soumission, aucun statut, ni dans le code, ni dans `knowledge/`, ni dans l'historique git. Le seul repère est la date d'introduction de l'exception, le 2026-07-28 (`2cf9316`), et celle de la mise en place de l'accès reviewer, entre le 2026-05-20 et le 2026-05-31.
-
-**Bloque** : rien de fonctionnel. C'est une exception de sécurité sans date d'expiration — le risque est qu'elle survive à sa raison d'être et devienne un écart inexpliqué.
-
-**Ce que l'exception autorise exactement** — mesuré le 2026-08-01, pour que la décision se prenne sur des faits et non sur le mot « exception » :
-
-- **Aucun accès anonyme.** Sans session, la route répond `403`, et le middleware redirige déjà vers `/login`. Le compromis ne porte que sur le filtre de rôle.
-- `canAccessPrivateCockpit(user)` vaut `getUserRole(user) !== "reviewer"` (`src/lib/auth/roles.ts`). L'écart entre ce garde et le garde strict est donc **exactement un rôle** : celui de `reviewer@edificeia.com`, compte créé et contrôlé par le projet.
-- La réponse ne contient **ni token, ni identifiant de compte, ni scope** : `{ present, storageEnabled, storageMode, expiresAt, updatedAt }`. Le reviewer voit qu'un token TikTok existe et depuis quand — strictement moins que ce que le flux OAuth et l'upload sandbox lui accordent déjà par ailleurs.
-
-**Pourquoi le durcissement ne peut pas être fait à l'aveugle** : `/tiktok-sandbox-test` rend `<TikTokConnectionControls />`, qui appelle cette route et **affiche les quatre champs**. Ajouter `canAccessPrivateCockpit` ferait répondre `403` au reviewer et casserait la « vérification du token stocké côté serveur » que la page lui annonce — pendant l'examen de cette même page.
-
-**Étapes** :
-
-1. Ouvrir le portail développeur TikTok et lire le statut de l'app review.
-2. **Si la review est terminée** (approuvée ou définitivement rejetée), appliquer le durcissement :
-   - retirer `"/api/oauth/tiktok/status"` de `reviewerAllowedPaths` dans `src/lib/supabase/proxy.ts` ;
-   - dans `app/api/oauth/tiktok/status/route.ts`, remplacer le garde par celui de `youtube/status` et `calendar/status` :
-     ```ts
-     if (!user || !canAccessPrivateCockpit(user)) {
-       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
-     }
-     ```
-     avec `import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";` ;
-   - supprimer le bloc de commentaire d'exception devenu faux, et mettre à jour `DEC-007` dans `knowledge/Documentation-Technique-Code/03_Decisions.md`, qui cite cette route comme cas particulier assumé.
-   - décider au passage du sort des trois autres chemins encore dans `reviewerAllowedPaths` (`/api/oauth/tiktok/start`, `/callback`, `/upload-test`) et du compte `reviewer@edificeia.com` lui-même.
-3. **Si la review est encore en cours**, ne rien changer et repousser la relecture ; noter la date de relecture ici.
-
-**Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
-
-## Archive (done)
 
 ### 2026-09-17 — Appliquer la migration « module Objectifs »
 

@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-09-28
+Dernière mise à jour : 2026-10-04
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-10-04 (chantier 7 : migration appliquée en base)](#2026-10-04-chantier-7--migration-appliquée-en-base)
 - [2026-09-28 (chantier 7 : privilèges des neuf tables service-role, migration écrite)](#2026-09-28-chantier-7--privilèges-des-neuf-tables-service-role-migration-écrite)
 - [2026-09-20 (validation UUID des routes /permanent)](#2026-09-20-validation-uuid-des-routes-permanent)
 - [2026-09-19 (module Objectifs : suppression physique)](#2026-09-19-module-objectifs--suppression-physique)
@@ -63,7 +64,37 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
+## 2026-10-04 (chantier 7 : migration appliquée en base)
+
+Type : sécurité, base de données
+
+Résumé : **la migration `20260928100000` est appliquée en base et vérifiée** — compte rendu du mainteneur du 2026-10-04. `anon`, `authenticated` et `PUBLIC` n'ont plus aucun privilège sur les neuf tables. Aucun code ne change dans cette entrée : c'est la fin de vie de l'action manuelle ouverte le 2026-09-28.
+
+**La date d'application n'est pas établie.** Un `revoke` exécuté dans le SQL Editor ne laisse aucun horodatage lisible depuis cette machine. Les bornes sont vérifiées par commande : après le 2026-09-29 (jour de l'écriture du commit `be07b02`, 10:15, et de l'affichage de l'entrée pour exécution), au plus tard le 2026-10-04. Cette entrée porte la date du compte rendu, pas celle de l'application.
+
+**Résultats relevés en base par le mainteneur** (l'agent n'a exécuté aucune de ces requêtes) : les neuf tables présentes ; plus aucun privilège pour `anon`, `authenticated` ni `PUBLIC` ; `postgres` et `service_role` intacts sur les neuf ; aucun privilège de colonne ; les neuf empreintes de policies identiques avant et après ; aucun résidu `[TEST-ACL]`. **Test de fumée passé** : carte « Agenda du jour » sans erreur, Atelier de contenu en lecture sans erreur, cycle complet projet, objectif, action puis suppressions sur Trajectoire avec `test-erase@edificeia.com` — le seul parcours qui exerce `select`, `insert`, `update` et `delete`, dont le `delete` à nom de table dynamique.
+
+**Deux limites, qui ne sont pas des échecs** :
+
+- **l'effet de bord sur cinq tables n'a pas été testé** — `content_assets`, `video_render_jobs`, `short_video_schedules`, `short_video_publications`, `publication_performance_snapshots`, dont les policies lisent `content_drafts`. Leur refus attendu en « permission denied » pour un appelant `authenticated` reste déduit du fonctionnement des policies ;
+- **les écritures de l'Atelier de contenu n'ont pas été exercées par le test de fumée.** Aucune écriture sur `content_drafts` ni sur les trois tables liées n'a été observée après la révocation ; le témoin des privilèges de `service_role` ne les couvre qu'indirectement.
+
+Fichiers liés :
+
+- `MANUAL_ACTIONS.md` — entrée du 2026-09-28 passée en `done` et déplacée dans l'archive
+- `suivi-chantiers-edifice.md` — chantier 7
+- `knowledge/Documentation-Technique-Code/05_Database.md`, `11_Changelog.md`
+
+Impact : aucun changement de comportement observé. Les points ouverts du chantier 7 restent ouverts : quatre policies `{public}` sur `content_drafts`, gardes en `403` des routes Calendrier, revue de moindre privilège des autres tables, correction des migrations Vitals avant leur application.
+
+Action de suivi :
+
+- **push de `be07b02`**, sur demande explicite : la migration contient `REVOKE`, la règle permanente s'applique ;
+- décider s'il faut lever les deux limites (tester le refus attendu sur les cinq tables ; exercer une écriture de l'Atelier de contenu).
+
 ## 2026-09-28 (chantier 7 : privilèges des neuf tables service-role, migration écrite)
+
+> ⚠️ **État devenu faux depuis la rédaction de cette entrée** : la migration y est décrite comme « non appliquée ». Elle est **appliquée en base**, compte rendu du 2026-10-04 — voir l'entrée du 2026-10-04 ci-dessus. Le reste de l'entrée est inchangé et décrit l'état du 2026-09-28.
 
 Type : sécurité, base de données
 

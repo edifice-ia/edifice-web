@@ -1,6 +1,6 @@
 # Suivi des chantiers — L'Édifice
 
-*Chantiers 4 et 5 mis à jour le 24 août 2026, chantier 6 le 3 septembre 2026, vérifiés contre le code, l'historique git et la base. Une date du chantier 4 requalifiée le 14 septembre 2026, sans re-vérification du reste du chantier. Chantier 7 ouvert le 28 septembre 2026, et une affirmation du chantier 6 corrigée le même jour. Les chantiers 1, 2 et 3 datent du 28 juillet 2026 et n'ont pas été re-vérifiés depuis.*
+*Chantiers 4 et 5 mis à jour le 24 août 2026, chantier 6 le 3 septembre 2026, vérifiés contre le code, l'historique git et la base. Une date du chantier 4 requalifiée le 14 septembre 2026, sans re-vérification du reste du chantier. Chantier 7 ouvert le 28 septembre 2026, et une affirmation du chantier 6 corrigée le même jour ; migration du chantier 7 appliquée en base, compte rendu du 4 octobre 2026. Les chantiers 1, 2 et 3 datent du 28 juillet 2026 et n'ont pas été re-vérifiés depuis.*
 
 *Principe de ce document, inchangé : chaque état est vérifié contre le code et l'historique git, jamais contre la version précédente de ce fichier.*
 
@@ -8,7 +8,7 @@
 
 1. **Chantier 2 — Audit de sécurité.** Des failles réelles restent ouvertes en production (routes OAuth Instagram/Pinterest sans authentification, table `content_assets` sans isolation utilisateur, modes debug non gatés sur plusieurs providers). Le Lot 1 est poussé, mais tant que les Lots 2 et 3 ne sont pas traités, l'exposition est active et en prod.
 2. **Chantier 1 — Module Vitals (étape 6, UI).** L'étape 5 (cron quotidien) est committée et poussée (`195aced`). Ce qui reste non committé est le volet suivant — le store de brief quotidien et sa route API — délibérément laissé de côté (voir Chantier 1).
-3. **Chantier 7 — Privilèges hérités sur neuf tables service-role.** Migration écrite le 28 septembre 2026, **non appliquée** : `authenticated` garde en base des privilèges que rien dans le code n'utilise. Voir plus bas.
+3. **Chantier 7 — Privilèges hérités sur neuf tables service-role.** Migration écrite le 28 septembre 2026, **appliquée et vérifiée en base** (compte rendu du 4 octobre 2026) : `anon` et `authenticated` n'ont plus aucun privilège sur les neuf tables. Restent des points ouverts, dont deux limites de vérification. Voir plus bas.
 4. ~~**Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/`.**~~ **Terminé** le 24 août 2026 : dix routes converties, quatorze fichiers désormais conformes sous ce chemin. Voir plus bas.
 5. ~~**Chantier 6 — Privilèges hérités du défaut de schéma.**~~ **Terminé** le 30 août 2026, chantier imprévu : cinq tables corrigées et défaut du schéma restreint. Le même défaut subsiste sur d'autres tables : voir le chantier 7.
 6. ~~**Chantier 3 — Audit Observatoire.**~~ **Terminé** le 22 juillet 2026 (`4280a8d`), vérifié dans le code le 28 juillet. Voir plus bas.
@@ -147,9 +147,16 @@ Les deux migrations sont **appliquées et vérifiées en base le 2026-08-30** �
 
 ---
 
-## Chantier 7 — Privilèges hérités sur neuf tables service-role — MIGRATION ÉCRITE, NON APPLIQUÉE
+## Chantier 7 — Privilèges hérités sur neuf tables service-role — MIGRATION APPLIQUÉE, POINTS OUVERTS
 
 **Chantier imprévu**, ouvert le 28 septembre 2026, prolongement direct du chantier 6.
+
+**État** — migration écrite et committée le 2026-09-29 (`be07b02`), **appliquée en base et vérifiée**, compte rendu du 2026-10-04. **La date d'application n'est pas établie** : un `revoke` exécuté dans le SQL Editor ne laisse aucun horodatage lisible, et seules les bornes sont vérifiées — après le 2026-09-29, au plus tard le 2026-10-04. Résultats relevés en base par le mainteneur : les neuf tables présentes ; plus aucun privilège pour `anon`, `authenticated` ni `PUBLIC` ; `postgres` et `service_role` intacts sur les neuf ; aucun privilège de colonne ; les neuf empreintes de policies identiques avant et après ; aucun résidu `[TEST-ACL]`. Test de fumée passé : carte « Agenda du jour » sans erreur, Atelier de contenu en lecture sans erreur, cycle complet projet, objectif, action puis suppressions sur Trajectoire avec `test-erase@edificeia.com`. Détail dans l'entrée archivée du 2026-09-28 de `MANUAL_ACTIONS.md`.
+
+**Deux limites de cette vérification, non levées** :
+
+- **l'effet de bord sur cinq tables n'a pas été testé** — voir « Effet à connaître » plus bas : il reste déduit du fonctionnement des policies ;
+- **les écritures de l'Atelier de contenu n'ont pas été exercées par le test de fumée.** Aucune écriture sur `content_drafts` ni sur les trois tables liées n'a été observée après la révocation ; seul le témoin des privilèges de `service_role` les couvre, indirectement. La lecture de code qui justifie l'absence de re-grant n'a donc été prise en défaut par un test que sur Trajectoire (écritures comprises) et sur la lecture du Calendrier et de l'Atelier.
 
 **Origine** : le contrôle de sécurité des deux tables Calendrier, demandé le 2026-09-25 (requêtes `aclexplode` et `pg_policies` dans le SQL Editor), a été étendu aux tables qui ne sont accédées que par la clé service-role. Neuf sont concernées : `personal_calendar_events`, `personal_calendar_sync_state`, `content_drafts`, `content_draft_asset_links`, `content_draft_media_plans`, `content_draft_visual_scenes`, `trajectoire_projects`, `trajectoire_objectives`, `trajectoire_actions`. Les résultats bruts de ces contrôles sont dans le SQL Editor, non versionnés.
 
@@ -178,7 +185,7 @@ Les deux migrations sont **appliquées et vérifiées en base le 2026-08-30** �
 - **gardes en `403` écrits à la main sur les routes Calendrier** : `app/api/oauth/calendar/register-channel/route.ts` et `status/route.ts` appellent `getCurrentUser()` puis `canAccessPrivateCockpit(user)` et répondent `403` ; `callback/route.ts` redirige au lieu de répondre `403`. Aucune n'utilise `authorizeCockpitApiAccess()`, le helper que DEC-007 pose comme défaut ;
 - **revue de moindre privilège des autres tables** : le décompte du contrôle SQL, relevé en base par le mainteneur le 2026-09-28, en compte **18**. Une lecture des migrations en compte **25** hors ces neuf (34 tables en tout, vérifié le 2026-09-28). **5 des 7 d'écart sont expliqués** — `oauth_tokens`, `personal_data_erasure_log` et `personal_item_erasure_log` ne portent aucun grant à `authenticated` (leurs migrations révoquent des deux rôles sans rien re-accorder, patron opposé à celui des tables de ce chantier), et `personal_daily_briefs` / `personal_garmin_daily_stats` sont absentes de la base réelle — voir le constat ci-dessus. **2 restent non identifiés.** La liste des 25 n'est pas dressée ici.
 
-**Prochaine action concrète** : appliquer la migration selon l'entrée `MANUAL_ACTIONS.md` du 2026-09-28, avec les contrôles avant/après et le test de fumée. Pas de push : la migration contient `REVOKE`, la règle permanente s'applique.
+**Prochaine action concrète** : aucune sur la migration elle-même, appliquée. Restent, sans urgence fixée : les points ouverts ci-dessus, la condition de correction des migrations Vitals avant leur application, et la décision de lever ou non les deux limites de vérification (tester le refus attendu sur les cinq tables ; exercer une écriture de l'Atelier de contenu). Pas de push du commit `be07b02` sans demande explicite : la migration contient `REVOKE`, la règle permanente s'applique.
 
 ---
 

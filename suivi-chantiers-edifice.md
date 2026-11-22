@@ -30,13 +30,13 @@
 | --- | --- | --- |
 | 0 | Décisions et documentation | — **fait** |
 | 1 | Squelette de l'espace : route, layout, navigation intérieure, entrée `academy` dans les deux registres, états vides qui le disent. Aucune base de données | Audit clos (fait le 22 novembre 2026) ; validation explicite |
-| 2 | Hiérarchie pédagogique : programmes, matières, modules, chapitres, leçons, objectifs, ressources. Première migration — le choix « une table par niveau » ou arborescence unique est tranché ici | 1 |
+| 2 | Hiérarchie pédagogique : programmes, matières, modules, chapitres, leçons, objectifs, ressources. Première migration, **une table par niveau** (décidé le 22 novembre 2026, DEC-014) | 1 |
 | 3 | Calendrier d'Academy : séances planifiées, agenda Google superposé en lecture | 2 |
 | 4 | Notes et fiches de révision | 2 |
 | 5 | Quiz, exercices, évaluations, tentatives | 2 |
 | 6 | Révisions intelligentes (algorithme déterministe), progression et compétences calculées | 4, 5 |
 | 7 | Service commun IA, puis Professeur IA — dont la création d'un cours à partir d'un sujet demandé (voir ci-dessous) | DEC-015 ; clé et variable d'environnement (action manuelle) ; revue de sécurité ; étape 2 (structure où ranger le cours) ; fournisseur de recherche web à choisir |
-| 8 | Cycle de vie des données : suppression physique propre à Academy, export | Décision dédiée |
+| 8 | Cycle de vie des données : suppression physique propre à Academy (schéma de « Vider l'historique », journal d'effacement dédié — décidé le 22 novembre 2026, DEC-014), export | 2 à 6 |
 
 **Hors plan, décisions distinctes** : service Notifications, écriture dans Google Agenda (scope élargi), rattachement à Trajectoire (DEC-010).
 
@@ -50,7 +50,13 @@ Rien n'est construit. Deux préalables découlent de ces arbitrages : la structu
 
 **Règle de push** : toute étape qui contient une migration avec `GRANT`, `REVOKE` ou une policy reste en commit local, sans push automatique — règle permanente de `CLAUDE.md`.
 
-**Questions ouvertes, consignées dans DEC-014 et DEC-015** : modèle de la hiérarchie (une table par niveau, hypothèse retenue, ou arborescence unique) ; chemin de suppression physique d'Academy ; emplacement de l'historique des conversations du Professeur IA.
+**Questions ouvertes : aucune de principe — les trois sont closes le 22 novembre 2026** par le porteur du projet, notes datées sous DEC-014 et DEC-015 :
+
+- ~~modèle de la hiérarchie~~ → **une table par niveau** : curriculum, matière, module, chapitre, leçon ;
+- ~~chemin de suppression physique d'Academy~~ → **suppression logique par défaut ; suppression physique sur le schéma de « Vider l'historique » de Personnel, avec un journal d'effacement dédié**, sans modifier Personnel ;
+- ~~emplacement de l'historique du Professeur IA~~ → **dans le service commun IA**, avec les appels, coûts et limites, **séparé de l'historique de l'Assistant**, sans aucun mélange.
+
+Restent des détails de construction, rattachés à leur étape : la forme de la séparation des historiques (étape 7), l'emplacement de l'écran d'effacement et sa granularité (étape 8).
 
 **Prochaine action concrète** : validation explicite de l'étape 1 par le porteur du projet. Le préalable de sécurité est levé depuis la clôture de l'audit, le 22 novembre 2026 (chantier 2).
 

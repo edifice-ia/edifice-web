@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-22
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-22 (Academy : trois questions d'architecture tranchées)](#2026-11-22-academy--trois-questions-darchitecture-tranchées)
 - [2026-11-22 (Academy : création d'un cours à partir d'un sujet demandé, inscrite au plan)](#2026-11-22-academy--création-dun-cours-à-partir-dun-sujet-demandé-inscrite-au-plan)
 - [2026-11-22 (audit de sécurité déclaré clos)](#2026-11-22-audit-de-sécurité-déclaré-clos)
 - [2026-11-22 (CRON_SECRET comparé à temps constant)](#2026-11-22-cron_secret-comparé-à-temps-constant)
@@ -69,6 +70,23 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-22 (Academy : trois questions d'architecture tranchées)
+
+Type : architecture, documentation
+
+Résumé : les trois questions ouvertes de DEC-014 et DEC-015 sont tranchées par le porteur du projet. **Documentation uniquement** : aucun code, aucune migration, aucune table.
+
+- **Hiérarchie pédagogique : une table par niveau**, pour le curriculum, la matière, le module, le chapitre et la leçon (`academy_programs`, `academy_subjects`, `academy_units`, `academy_chapters`, `academy_lessons`). L'arborescence unique est écartée. Conséquence déduite, à porter dans la migration de l'étape 2 : le rattachement d'un module à une matière est facultatif, pour les formations indépendantes.
+- **Suppression physique propre à Academy** : suppression logique par défaut ; suppression physique sur le schéma de « Vider l'historique » de Personnel (DEC-012, DEC-013), avec un journal d'effacement dédié. Personnel n'est pas modifié.
+- **Historique du Professeur IA** : stocké dans le service commun IA, avec les appels, coûts et limites, et séparé de l'historique de l'Assistant, sans aucun mélange.
+
+Fichiers liés :
+
+- `knowledge/Documentation-Technique-Code/03_Decisions.md` — notes datées sous DEC-014 et DEC-015, texte d'origine conservé
+- `suivi-chantiers-edifice.md` — chantier 8 : lignes des étapes 2 et 8, questions ouvertes closes
+
+Impact : aucun sur le code. L'étape 2 dispose de son modèle de hiérarchie ; elle reste à lancer sur demande explicite, après l'étape 1.
 
 ## 2026-11-22 (Academy : création d'un cours à partir d'un sujet demandé, inscrite au plan)
 

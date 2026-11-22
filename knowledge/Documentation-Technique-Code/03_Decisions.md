@@ -423,6 +423,21 @@ Conséquences :
 - la priorité affichée dans `suivi-chantiers-edifice.md` devient le chantier 8, EDIFICE ACADEMY ;
 - tout écran d'Academy affiche ce qui existe réellement : une capacité non construite est signalée comme telle, jamais simulée.
 
+Note (2026-11-22) — **deux questions ouvertes de cette décision sont tranchées** par le porteur du projet. Le texte ci-dessus est conservé tel qu'il a été écrit.
+
+1. **Hiérarchie pédagogique : une table par niveau.** L'hypothèse retenue plus haut devient la décision, et l'arborescence unique est écartée. Les niveaux structurels sont le curriculum, la matière, le module, le chapitre et la leçon, chacun avec sa table : `academy_programs`, `academy_subjects`, `academy_units`, `academy_chapters`, `academy_lessons`. Le tableau des entités envisagées est confirmé pour ces cinq niveaux ; les autres entités du tableau restent envisagées, non définitives.
+   - `academy_programs` reste l'instance de l'espace et porte le curriculum ; la formation indépendante en est la variante `kind = formation`, sans matière.
+   - **Conséquence à porter dans la migration de l'étape 2, déduite et non arbitrée** : pour qu'une formation indépendante commence au niveau des modules, un module se rattache à son programme, et son rattachement à une matière est **facultatif**. Les autres liens de parenté sont obligatoires : chapitre → module, leçon → chapitre.
+   - Les exercices et évaluations ne forment pas un niveau de la hiérarchie : `academy_assessments` se rattache à un niveau, comme indiqué dans le tableau.
+2. **Suppression physique propre à Academy.**
+   - **Suppression logique par défaut** (`deleted_at`), comme le reste du dépôt.
+   - **Suppression physique sur le schéma de « Vider l'historique » de Personnel** ([DEC-012](#dec-012---la-suppression-physique-de-données-personnel-passe-par-un-chemin-unique-et-journalisé), [DEC-013](#dec-013---traitement-des-tables-dépendantes-lors-dun-effacement--suppression-explicite-actif)) : un chemin unique, une confirmation explicite, une liste blanche de tables résolue côté serveur, un filtre `user_id` centralisé dans une seule fonction de suppression, et une suppression explicite des tables dépendantes avant leur table principale.
+   - **Journal d'effacement dédié à Academy**, distinct de `personal_data_erasure_log` et `personal_item_erasure_log` : sans clé étrangère vers `auth.users`, sans contenu supprimé, une entrée par table vidée.
+   - **Ce n'est pas une extension de DEC-012**, qui reste propre au pôle Personnel. Personnel, `ERASABLE_MODULES` et l'onglet Personnel des Réglages ne sont pas modifiés : Academy reprend le schéma, il n'en réutilise pas le code.
+   - Restent à fixer à l'étape 8, sans être des questions de principe : l'emplacement de l'écran, et la granularité de l'effacement — par programme, par type de contenu, ou pour tout Academy.
+
+La troisième question ouverte — l'historique du Professeur IA — relève de [DEC-015](#dec-015---le-service-commun-ia-est-multi-fournisseurs-et-multi-modèles--révise-dec-011), où elle est tranchée.
+
 Fichiers liés :
 
 - `knowledge/Documentation-Strategique/Markdown/02-strategie-produit.md`, `10-architecture-systeme.md`, `22-espaces-et-marques.md`, `30-trajectoire.md`, `90-glossaire.md`
@@ -462,6 +477,14 @@ Note (2026-11-22) — **usage « création d'un cours à partir d'un sujet deman
 - **coûts et limites** (point 4) : reportés à la création de la fonctionnalité. Le principe de centralisation s'applique ; **aucun plafond chiffré** n'est fixé à ce stade.
 
 Cette note ne crée pas de décision nouvelle : elle précise un usage de DEC-015. Aucun code, aucune route, aucune table.
+
+Note (2026-11-22) — **la question ouverte sur l'historique des conversations est tranchée** par le porteur du projet :
+
+- **l'historique du Professeur IA est stocké dans le service commun IA**, avec les appels, les coûts et les limites qu'il centralise déjà (points 3 et 4). Il n'y a pas de table d'historique propre à Academy ;
+- **il est séparé de l'historique de l'Assistant** : aucun mélange entre les deux. Chaque conversation appartient à un seul usage. Le Professeur IA ne lit jamais l'historique de l'Assistant, et l'Assistant ne lit jamais celui du Professeur IA ;
+- règles héritées du dépôt pour la future table : `user_id` sur chaque ligne et RLS par propriétaire ([12-modele-de-donnees.md](../Documentation-Strategique/Markdown/12-modele-de-donnees.md), [13-securite-gouvernance.md](../Documentation-Strategique/Markdown/13-securite-gouvernance.md)).
+
+Ce que la note ne fixe pas : la forme de la séparation — une colonne d'usage filtrée systématiquement, ou des tables distinctes —, à trancher à l'étape 7 avec le schéma du service. **Le contenu d'une conversation n'est pas une donnée Academy** au sens des gestes de suppression de DEC-014 : son effacement relèvera du service commun.
 
 Fichiers liés :
 

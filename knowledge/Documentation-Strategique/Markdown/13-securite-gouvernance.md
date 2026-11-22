@@ -18,7 +18,7 @@ Ce document fixe les principes de sécurité et de gouvernance des données de L
 
 ## Contexte : priorité actuelle
 
-La sécurité n'est pas un chantier parmi d'autres en ce moment : c'est le chantier qui précède tous les autres. Un audit complet est en cours, et aucune nouvelle fonctionnalité ne démarre tant qu'il n'est pas clos — voir [02-strategie-produit.md](./02-strategie-produit.md). Construire de nouvelles surfaces sur une base dont les failles connues ne sont pas corrigées reviendrait à agrandir une maison dont les fondations n'ont pas été vérifiées.
+La sécurité n'est pas un chantier parmi d'autres en ce moment : c'est le chantier qui précède tous les autres. L'audit complet de sécurité est clos depuis le 2026-11-22, sous réserve de l'exception de garde TikTok, à réexaminer à la fin de la revue TikTok — voir le chantier 2 de [suivi-chantiers-edifice.md](../../../suivi-chantiers-edifice.md). La règle qu'il appliquait demeure : aucune nouvelle fonctionnalité ne démarre tant qu'un audit en cours n'est pas clos — voir [02-strategie-produit.md](./02-strategie-produit.md). Construire de nouvelles surfaces sur une base dont les failles connues ne sont pas corrigées reviendrait à agrandir une maison dont les fondations n'ont pas été vérifiées.
 
 ## Principes de sécurité
 

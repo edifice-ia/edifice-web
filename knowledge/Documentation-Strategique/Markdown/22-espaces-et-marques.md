@@ -81,7 +81,7 @@ CURRICULUM  (programme complet — l'instance de l'espace)
 
 Deux formes plus légères restent possibles, sans que la structure complète soit imposée — application directe du principe central, « rien n'est obligatoire » ([01-principes.md](./01-principes.md)) :
 
-- **la formation indépendante** : un programme qui commence au niveau des modules, sans curriculum ni matières au-dessus ;
+- **la formation indépendante** : un programme qui commence au niveau des modules, au sens où il **saute le niveau curriculum, pas celui des matières** : une formation est composée de matières, et chacun de ses modules appartient à une matière ;
 - **le parcours libre** : une suite ordonnée de leçons et d'évaluations choisies dans un ou plusieurs programmes. Le parcours **référence** ces éléments, il ne les possède ni ne les copie — la première règle d'or, à l'échelle d'Academy.
 
 « Module » a ici un sens pédagogique, distinct du module d'architecture de [10-architecture-systeme.md](./10-architecture-systeme.md) : à l'écran le libellé reste « Module », dans le code les deux sens ne se croisent jamais.

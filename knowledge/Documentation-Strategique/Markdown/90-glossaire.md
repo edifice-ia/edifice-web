@@ -24,7 +24,7 @@ Ce document rassemble les définitions courtes et canoniques du vocabulaire de L
 
 **Couche de configuration.** Mécanisme unique qui répond à la question « qu'est-ce qui est allumé pour cet utilisateur, dans ce contexte ? », accessible par trois entrées : le focus de l'Assistant, l'activation des modules dans Réglages, et l'onboarding public. Voir [11-modularite-configuration.md](./11-modularite-configuration.md).
 
-**Curriculum.** Programme d'apprentissage complet d'Academy, structuré en matières, modules, chapitres, cours et leçons, exercices et évaluations. Se distingue de la formation indépendante, qui commence au niveau des modules, et du parcours libre. Voir [22-espaces-et-marques.md](./22-espaces-et-marques.md).
+**Curriculum.** Programme d'apprentissage complet d'Academy, structuré en matières, modules, chapitres, cours et leçons, exercices et évaluations. Se distingue de la formation indépendante, qui commence au niveau des modules en sautant le niveau curriculum, et du parcours libre. Voir [22-espaces-et-marques.md](./22-espaces-et-marques.md).
 
 **Désactiver.** Geste qui coupe la synchronisation, les workers et l'affichage d'un module, sans détruire son historique — qui reste lisible par l'IA à la demande. Décision d'économie, jamais de vie privée. Voir [11-modularite-configuration.md](./11-modularite-configuration.md).
 
@@ -40,7 +40,7 @@ Ce document rassemble les définitions courtes et canoniques du vocabulaire de L
 
 **Focus.** Le filtre, porté par la couche de configuration, qui restreint l'ensemble des pôles, espaces et modules considérés comme pertinents dans un contexte donné — par exemple le focus perso ou pro de l'Assistant. Voir [11-modularite-configuration.md](./11-modularite-configuration.md).
 
-**Formation indépendante.** Programme d'apprentissage d'Academy qui commence au niveau des modules, sans curriculum ni matières au-dessus. Voir [22-espaces-et-marques.md](./22-espaces-et-marques.md).
+**Formation indépendante.** Programme d'apprentissage d'Academy qui commence au niveau des modules : il saute le niveau curriculum, pas celui des matières. Une formation est composée de matières, et chacun de ses modules appartient à une matière. Voir [22-espaces-et-marques.md](./22-espaces-et-marques.md).
 
 **Indice de récupération.** Donnée dérivée du module Sommeil, calculée à partir des métriques brutes de forme physique, utilisée pour prioriser les actions du jour. Voir [23-modules.md](./23-modules.md).
 

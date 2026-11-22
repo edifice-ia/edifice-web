@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-22
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-22 (Academy : module rattaché obligatoirement à une matière)](#2026-11-22-academy--module-rattaché-obligatoirement-à-une-matière)
 - [2026-11-22 (Academy : trois questions d'architecture tranchées)](#2026-11-22-academy--trois-questions-darchitecture-tranchées)
 - [2026-11-22 (Academy : création d'un cours à partir d'un sujet demandé, inscrite au plan)](#2026-11-22-academy--création-dun-cours-à-partir-dun-sujet-demandé-inscrite-au-plan)
 - [2026-11-22 (audit de sécurité déclaré clos)](#2026-11-22-audit-de-sécurité-déclaré-clos)
@@ -71,13 +72,32 @@ Chaque entrée devrait préciser :
 - impact ;
 - action de suivi si nécessaire.
 
+## 2026-11-22 (Academy : module rattaché obligatoirement à une matière)
+
+Type : architecture, documentation
+
+Résumé : correction de la note datée sous DEC-014 (`10d1500`). Elle déduisait, sans arbitrage, qu'un module pouvait se rattacher directement à son programme, avec une matière facultative. **Le porteur du projet a retenu l'inverse.** Documentation uniquement : aucun code, aucune migration.
+
+- **Tous les liens de parenté sont obligatoires** : programme → matière, matière → module, module → chapitre, chapitre → leçon.
+- **Une formation est composée de matières** ; chaque module appartient obligatoirement à une matière.
+- « Les formations indépendantes commencent au niveau des modules » signifie qu'elles **sautent le niveau curriculum, pas le niveau matière**. La formulation est clarifiée dans la vision, sans être supprimée.
+- **Formations courtes sans matière : reportées**, sans décision.
+
+Fichiers liés :
+
+- `knowledge/Documentation-Technique-Code/03_Decisions.md` — note sous DEC-014 corrigée ; texte d'origine de DEC-014 inchangé
+- `knowledge/Documentation-Strategique/Markdown/22-espaces-et-marques.md`, `90-glossaire.md`, et leurs PDF régénérés
+- `knowledge/Documentation-Technique-Code/11_Changelog.md` — l'entrée précédente porte un renvoi vers celle-ci
+
+Impact : aucun sur le code. Le modèle de l'étape 2 ne prévoit aucun rattachement direct d'un module à un programme.
+
 ## 2026-11-22 (Academy : trois questions d'architecture tranchées)
 
 Type : architecture, documentation
 
 Résumé : les trois questions ouvertes de DEC-014 et DEC-015 sont tranchées par le porteur du projet. **Documentation uniquement** : aucun code, aucune migration, aucune table.
 
-- **Hiérarchie pédagogique : une table par niveau**, pour le curriculum, la matière, le module, le chapitre et la leçon (`academy_programs`, `academy_subjects`, `academy_units`, `academy_chapters`, `academy_lessons`). L'arborescence unique est écartée. Conséquence déduite, à porter dans la migration de l'étape 2 : le rattachement d'un module à une matière est facultatif, pour les formations indépendantes.
+- **Hiérarchie pédagogique : une table par niveau**, pour le curriculum, la matière, le module, le chapitre et la leçon (`academy_programs`, `academy_subjects`, `academy_units`, `academy_chapters`, `academy_lessons`). L'arborescence unique est écartée. Conséquence déduite, à porter dans la migration de l'étape 2 : le rattachement d'un module à une matière est facultatif, pour les formations indépendantes. *(⚠️ Déduction retirée le même jour : voir l'entrée « module rattaché obligatoirement à une matière » ci-dessus.)*
 - **Suppression physique propre à Academy** : suppression logique par défaut ; suppression physique sur le schéma de « Vider l'historique » de Personnel (DEC-012, DEC-013), avec un journal d'effacement dédié. Personnel n'est pas modifié.
 - **Historique du Professeur IA** : stocké dans le service commun IA, avec les appels, coûts et limites, et séparé de l'historique de l'Assistant, sans aucun mélange.
 

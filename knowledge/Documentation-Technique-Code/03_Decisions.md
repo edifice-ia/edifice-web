@@ -426,8 +426,10 @@ Conséquences :
 Note (2026-11-22) — **deux questions ouvertes de cette décision sont tranchées** par le porteur du projet. Le texte ci-dessus est conservé tel qu'il a été écrit.
 
 1. **Hiérarchie pédagogique : une table par niveau.** L'hypothèse retenue plus haut devient la décision, et l'arborescence unique est écartée. Les niveaux structurels sont le curriculum, la matière, le module, le chapitre et la leçon, chacun avec sa table : `academy_programs`, `academy_subjects`, `academy_units`, `academy_chapters`, `academy_lessons`. Le tableau des entités envisagées est confirmé pour ces cinq niveaux ; les autres entités du tableau restent envisagées, non définitives.
-   - `academy_programs` reste l'instance de l'espace et porte le curriculum ; la formation indépendante en est la variante `kind = formation`, sans matière.
-   - **Conséquence à porter dans la migration de l'étape 2, déduite et non arbitrée** : pour qu'une formation indépendante commence au niveau des modules, un module se rattache à son programme, et son rattachement à une matière est **facultatif**. Les autres liens de parenté sont obligatoires : chapitre → module, leçon → chapitre.
+   - `academy_programs` reste l'instance de l'espace et porte le curriculum ; la formation indépendante en est la variante `kind = formation`.
+   - **Liens de parenté, tous obligatoires — décision du porteur du projet, précisée le 2026-11-22** : programme → matière, matière → module, module → chapitre, chapitre → leçon. **Une formation est composée de matières**, et chaque module appartient obligatoirement à une matière. « Les formations indépendantes commencent au niveau des modules » signifie qu'elles **sautent le niveau curriculum, pas le niveau matière**. Cette précision remplace la mention « Facultatif ; absent d'une formation indépendante » du tableau ci-dessus pour `academy_subjects`, qui reste lisible comme texte d'origine.
+   - **Formations courtes sans matière : reportées.** Aucune décision à ce stade ; le modèle de l'étape 2 ne les prévoit pas.
+   - *Une première version de cette note, du même jour (`10d1500`), déduisait l'inverse : un module rattaché directement à son programme, avec une matière facultative. Cette déduction n'avait pas été arbitrée ; elle est retirée.*
    - Les exercices et évaluations ne forment pas un niveau de la hiérarchie : `academy_assessments` se rattache à un niveau, comme indiqué dans le tableau.
 2. **Suppression physique propre à Academy.**
    - **Suppression logique par défaut** (`deleted_at`), comme le reste du dépôt.

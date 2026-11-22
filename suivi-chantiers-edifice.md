@@ -8,8 +8,8 @@
 
 *Réordonnées le 22 novembre 2026 : EDIFICE ACADEMY devient la priorité de développement et le pôle Personnel est mis en pause — [DEC-014](knowledge/Documentation-Technique-Code/03_Decisions.md). L'ordre ci-dessous distingue la priorité de développement de ce qui la bloque.*
 
-1. **Chantier 8 — EDIFICE ACADEMY.** Priorité de développement. Étape 0 (décisions et documentation) faite le 22 novembre 2026. **Développement fonctionnel bloqué** : l'étape 1 attend la clôture établie de l'audit de sécurité (point 2) et une validation explicite du porteur du projet. Voir plus bas.
-2. **Chantier 2 — Audit de sécurité : clôture non établie, faits réunis.** Re-vérifié le 22 novembre 2026 contre git, le code et les contrôles SQL en lecture seule exécutés par le mainteneur. Le seul écart réel trouvé — `pinterest_pins` lisible par tout compte connecté — est **corrigé et appliqué en base le même jour** (`20261122100000`), contrôles et test de fumée conformes. **Reste la décision écrite de clôture** du porteur du projet : entrée `pending` « Décider de la clôture de l'audit de sécurité » dans `MANUAL_ACTIONS.md`. Bloque le chantier 8.
+1. **Chantier 8 — EDIFICE ACADEMY.** Priorité de développement. Étape 0 (décisions et documentation) faite le 22 novembre 2026. Le préalable de sécurité est levé : audit clos le même jour (point 2). **L'étape 1 attend encore une validation explicite du porteur du projet.** Voir plus bas.
+2. ~~**Chantier 2 — Audit de sécurité.**~~ **Clos le 22 novembre 2026** par déclaration du porteur du projet, sous réserve de l'exception TikTok, à réexaminer à la fin de la revue. Les commits du correctif (`91cbfda`, `d3a6427`, `3e2047e`) sont locaux, non poussés : le correctif du `CRON_SECRET` n'est pas déployé tant qu'ils ne le sont pas. Voir plus bas.
 3. **Chantier 7 — Privilèges hérités sur neuf tables service-role.** Migration **appliquée et vérifiée en base** (compte rendu du 4 octobre 2026). Le 22 novembre 2026, deux de ses points ouverts sont levés : le contenu des quatre policies `{public}` de `content_drafts` est lu (restreint au propriétaire, à supprimer par la migration `20261122100000`), et les deux tables non identifiées sont `project_memory` et `project_memory_audit_log`. Restent les deux limites de vérification et les gardes Calendrier. Voir plus bas.
 4. ~~**Chantier 1 — Module Vitals (étape 6, UI).**~~ **En pause** avec le pôle Personnel depuis le 22 novembre 2026, et déjà de fait depuis juillet faute d'accès Garmin. Le travail non committé — `lib/server/personal/daily-briefs-store.ts` et `app/api/personal/daily-brief/` — reste hors de l'index, intact.
 5. ~~**Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/`.**~~ **Terminé** le 24 août 2026 : dix routes converties, quatorze fichiers désormais conformes sous ce chemin. Voir plus bas.
@@ -18,7 +18,7 @@
 
 ---
 
-## Chantier 8 — EDIFICE ACADEMY — ÉTAPE 0 FAITE, DÉVELOPPEMENT BLOQUÉ
+## Chantier 8 — EDIFICE ACADEMY — ÉTAPE 0 FAITE, ÉTAPE 1 EN ATTENTE DE VALIDATION
 
 **Objectif** : construire Academy, troisième espace de L'Édifice — environnement d'apprentissage autonome, accessible depuis la navigation principale, avec sa propre navigation intérieure. Cible : [22-espaces-et-marques.md](knowledge/Documentation-Strategique/Markdown/22-espaces-et-marques.md). Décisions : [DEC-014](knowledge/Documentation-Technique-Code/03_Decisions.md) (espace, priorité, pause de Personnel, hiérarchie pédagogique) et DEC-015 (service commun IA multi-fournisseurs, révise DEC-011).
 
@@ -29,7 +29,7 @@
 | Étape | Contenu | Prérequis |
 | --- | --- | --- |
 | 0 | Décisions et documentation | — **fait** |
-| 1 | Squelette de l'espace : route, layout, navigation intérieure, entrée `academy` dans les deux registres, états vides qui le disent. Aucune base de données | Audit clos ; validation explicite |
+| 1 | Squelette de l'espace : route, layout, navigation intérieure, entrée `academy` dans les deux registres, états vides qui le disent. Aucune base de données | Audit clos (fait le 22 novembre 2026) ; validation explicite |
 | 2 | Hiérarchie pédagogique : programmes, matières, modules, chapitres, leçons, objectifs, ressources. Première migration — le choix « une table par niveau » ou arborescence unique est tranché ici | 1 |
 | 3 | Calendrier d'Academy : séances planifiées, agenda Google superposé en lecture | 2 |
 | 4 | Notes et fiches de révision | 2 |
@@ -44,7 +44,7 @@
 
 **Questions ouvertes, consignées dans DEC-014 et DEC-015** : modèle de la hiérarchie (une table par niveau, hypothèse retenue, ou arborescence unique) ; chemin de suppression physique d'Academy ; emplacement de l'historique des conversations du Professeur IA.
 
-**Prochaine action concrète** : décision écrite du porteur du projet sur la clôture de l'audit — critère et sort du résiduel, entrée `pending` « Décider de la clôture de l'audit de sécurité » dans `MANUAL_ACTIONS.md`. La migration `20261122100000` est appliquée depuis le 22 novembre 2026. Ensuite seulement, validation explicite de l'étape 1.
+**Prochaine action concrète** : validation explicite de l'étape 1 par le porteur du projet. Le préalable de sécurité est levé depuis la clôture de l'audit, le 22 novembre 2026 (chantier 2).
 
 ---
 
@@ -106,7 +106,7 @@ Rendre l'un ou l'autre atomique demanderait une fonction Postgres `security defi
 
 ---
 
-## Chantier 2 — Audit de sécurité (le plus avancé)
+## Chantier 2 — Audit de sécurité — CLOS LE 22 NOVEMBRE 2026, SOUS RÉSERVE TIKTOK
 
 **Objectif** : corriger les failles trouvées par une revue de code indépendante sur les connexions OAuth en production (TikTok, Meta, YouTube).
 
@@ -193,6 +193,35 @@ Rédigée par l'agent à la demande du porteur du projet, sur la base des vérif
 - **une décision sur la comparaison du `CRON_SECRET`** des trois routes cron : soit *acceptée avec raison*, soit *traitée*, par passage à `timingSafeEqual` sur le patron de `app/api/webhooks/calendar/route.ts:10-17`, avec une échéance. Le traitement est une modification de code dans `app/api/internal/**`, donc du code sensible : commit local, sans push automatique.
 
 Dès que ce point est tranché, la déclaration devient « audit clos » à la date de la décision, les cinq points résiduels étant tous acceptés avec raison ci-dessus. L'étape 1 d'Academy reste ensuite soumise à une validation explicite.
+
+
+### Déclaration de clôture — 22 novembre 2026 : AUDIT CLOS
+
+*Déclaration du porteur du projet, reportée ici mot pour mot. Elle remplace la déclaration « non clos » de la section précédente, conservée pour l'historique.*
+
+**Date** : 2026-11-22
+
+**Critère retenu** : chaque route API porte un garde d'authentification, sauf les exceptions documentées (`/api/health`) ; aucun droit client n'est accordé à `anon` ni à `PUBLIC` ; aucune table du schéma `public` n'est sans RLS ; aucune règle d'accès n'est ouverte ; un secret entrant est comparé à temps constant (DEC-007).
+
+**Contrôles effectués** :
+
+- Contrôles SQL en lecture seule : droits conformes aux migrations, aucun droit `anon` ou `PUBLIC`, aucune table sans RLS.
+- Migration `20261122100000` (commits locaux `91cbfda` et `d3a6427`) : règle ouverte sur `pinterest_pins` retirée ; quatre règles non versionnées sur `content_drafts` retirées. Appliquée en base par le porteur du projet.
+- Comparaison du `CRON_SECRET` à temps constant dans les trois routes cron (commit local `3e2047e`). Tests et build passent en isolation.
+
+**Points résiduels** :
+
+1. Exception de garde sur `/api/oauth/tiktok/status` : acceptée avec raison. Aucun accès anonyme, un seul rôle concerné, aucun jeton ni identifiant dans la réponse. Elle reste acceptable tant que la revue TikTok n'est pas terminée ; elle sera durcie à la fin de la revue (entrée en attente du 2026-08-01).
+2. Gardes des routes Calendrier écrits à la main : acceptés avec raison. Refus effectif du reviewer, forme différente (redirection au lieu de 403 sur le callback).
+3. `/api/personal` hors de la liste de blocage du middleware : accepté avec raison. Les 25 routes refusent le reviewer dans leur propre code (`authorizeCockpitApiAccess`, 401 sans session, 403 pour le reviewer).
+4. Deux limites de vérification du chantier 7 : acceptées avec raison. Le refus attendu sur les tables concernées échoue de façon fermée, et aucun code n'émet ces requêtes.
+5. Modes debug et test : traité. Revérifié le 2026-11-22 : les routes OAuth exigent une session et `canAccessPrivateCockpit`, les routes de démo sont réservées aux rôles reviewer et admin en `dryRun`.
+
+**Constat annexe** : la branche debug YouTube de `[provider]/callback/route.ts` est du code mort, la route dédiée étant appelée à sa place. Consigné, non modifié.
+
+**Déclaration : audit clos au 2026-11-22, sous réserve de l'exception TikTok, qui doit être réexaminée à la fin de la revue.**
+
+**Ce que la clôture ne couvre pas** — note de l'agent, pour que la portée de la déclaration ne soit pas relue plus large qu'elle n'est : les commits `91cbfda`, `d3a6427` et `3e2047e` sont **locaux, non poussés**. La migration est appliquée en base, mais le correctif du `CRON_SECRET` n'est pas déployé tant que `3e2047e` n'est pas poussé : en production, les trois routes cron comparent encore le secret par `===` jusqu'au prochain déploiement. Le push relève de la règle permanente de `CLAUDE.md` : décision humaine explicite.
 
 ---
 

@@ -53,33 +53,6 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
-### 2026-11-22 — Décider de la clôture de l'audit de sécurité
-
-**Statut** : `pending`
-
-**Pourquoi c'est manuel** : la clôture n'est pas un constat mais un arbitrage du porteur du projet — aucun document n'a jamais fixé de critère de fin à l'audit (`suivi-chantiers-edifice.md`, chantier 2, point 1). L'agent peut rassembler les faits ; il ne peut pas décider à la place du porteur du projet quel risque résiduel est acceptable.
-
-**Bloque** : l'étape 1 du chantier 8 — EDIFICE ACADEMY —, et tout nouveau développement fonctionnel ([02-strategie-produit.md](knowledge/Documentation-Strategique/Markdown/02-strategie-produit.md)).
-
-**État des faits au 2026-11-22**, pour décider sur pièces :
-
-- lots 1 à 3 et re-audit du 28 juillet dans `origin/main` ; 87 routes API sur 88 portent un motif de garde, la dernière étant `/api/health`, exception documentée ;
-- contrôles SQL en lecture seule du 2026-11-22 : privilèges conformes aux migrations, aucun privilège `anon` ni `PUBLIC`, aucune table sans RLS, écart de décompte du chantier 7 expliqué ;
-- seul écart réel trouvé — `pinterest_pins` lisible par tout compte connecté — **corrigé et appliqué** le 2026-11-22 (`20261122100000`), avec les quatre policies non versionnées de `content_drafts`.
-
-**Étapes** — écrire, au chantier 2 de `suivi-chantiers-edifice.md` ou en le dictant à l'agent :
-
-1. **Le critère de clôture retenu.** Par exemple : « aucune route sans garde, aucun privilège client au-delà des migrations, aucune policy ouverte, aucune table sans RLS, constaté en base à la date de clôture ».
-2. **Le sort de chaque point résiduel**, accepté avec une raison ou traité avec une échéance :
-   - exception de garde de `/api/oauth/tiktok/status` (entrée `pending` du 2026-08-01, dépend de l'état de la review TikTok) ;
-   - gardes écrits à la main sur les routes Calendrier, au lieu de `authorizeCockpitApiAccess()` ;
-   - `/api/personal` absent de `reviewerBlockedPrefixes` dans le middleware (défense en profondeur) ;
-   - les deux limites de vérification du chantier 7 (refus attendu non testé sur cinq tables ; écritures de l'Atelier de contenu non exercées) ;
-   - le gating des modes debug, déclaré vérifié le 28 juillet et non re-vérifié depuis.
-3. **La déclaration** : audit clos à telle date, ou non clos avec ce qui manque.
-
-**Vérification** : le chantier 2 porte une décision datée, un critère écrit et un sort pour chacun des cinq points. L'étape 1 d'Academy ne démarre qu'ensuite, et sur validation explicite.
-
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
@@ -115,6 +88,33 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 **Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
 
 ## Archive (done)
+
+### 2026-11-22 — Décider de la clôture de l'audit de sécurité
+
+**Statut** : `done` — 2026-11-22. Le porteur du projet a déclaré l'audit **clos au 2026-11-22, sous réserve de l'exception TikTok**. La déclaration complète est au chantier 2 de `suivi-chantiers-edifice.md`.
+
+**Pourquoi c'est manuel** : la clôture n'est pas un constat mais un arbitrage du porteur du projet — aucun document n'a jamais fixé de critère de fin à l'audit (`suivi-chantiers-edifice.md`, chantier 2, point 1). L'agent peut rassembler les faits ; il ne peut pas décider à la place du porteur du projet quel risque résiduel est acceptable.
+
+**Bloquait** : l'étape 1 du chantier 8 — EDIFICE ACADEMY —, et tout nouveau développement fonctionnel ([02-strategie-produit.md](knowledge/Documentation-Strategique/Markdown/02-strategie-produit.md)).
+
+**État des faits au 2026-11-22**, pour décider sur pièces :
+
+- lots 1 à 3 et re-audit du 28 juillet dans `origin/main` ; 87 routes API sur 88 portent un motif de garde, la dernière étant `/api/health`, exception documentée ;
+- contrôles SQL en lecture seule du 2026-11-22 : privilèges conformes aux migrations, aucun privilège `anon` ni `PUBLIC`, aucune table sans RLS, écart de décompte du chantier 7 expliqué ;
+- seul écart réel trouvé — `pinterest_pins` lisible par tout compte connecté — **corrigé et appliqué** le 2026-11-22 (`20261122100000`), avec les quatre policies non versionnées de `content_drafts`.
+
+**Étapes** — écrire, au chantier 2 de `suivi-chantiers-edifice.md` ou en le dictant à l'agent :
+
+1. **Le critère de clôture retenu.** Par exemple : « aucune route sans garde, aucun privilège client au-delà des migrations, aucune policy ouverte, aucune table sans RLS, constaté en base à la date de clôture ».
+2. **Le sort de chaque point résiduel**, accepté avec une raison ou traité avec une échéance :
+   - exception de garde de `/api/oauth/tiktok/status` (entrée `pending` du 2026-08-01, dépend de l'état de la review TikTok) ;
+   - gardes écrits à la main sur les routes Calendrier, au lieu de `authorizeCockpitApiAccess()` ;
+   - `/api/personal` absent de `reviewerBlockedPrefixes` dans le middleware (défense en profondeur) ;
+   - les deux limites de vérification du chantier 7 (refus attendu non testé sur cinq tables ; écritures de l'Atelier de contenu non exercées) ;
+   - le gating des modes debug, déclaré vérifié le 28 juillet et non re-vérifié depuis.
+3. **La déclaration** : audit clos à telle date, ou non clos avec ce qui manque.
+
+**Vérification** : le chantier 2 porte une décision datée, un critère écrit et un sort pour chacun des cinq points. L'étape 1 d'Academy ne démarre qu'ensuite, et sur validation explicite.
 
 ### 2026-11-22 — Appliquer la migration 20261122100000
 

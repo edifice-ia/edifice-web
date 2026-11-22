@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-22
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-22 (audit de sécurité déclaré clos)](#2026-11-22-audit-de-sécurité-déclaré-clos)
 - [2026-11-22 (CRON_SECRET comparé à temps constant)](#2026-11-22-cron_secret-comparé-à-temps-constant)
 - [2026-11-22 (migration pinterest_pins / content_drafts appliquée en base)](#2026-11-22-migration-pinterest_pins--content_drafts-appliquée-en-base)
 - [2026-11-22 (contrôles SQL de clôture de l'audit, et migration pinterest_pins / content_drafts)](#2026-11-22-contrôles-sql-de-clôture-de-laudit-et-migration-pinterest_pins--content_drafts)
@@ -67,6 +68,25 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-22 (audit de sécurité déclaré clos)
+
+Type : sécurité
+
+Résumé : **le porteur du projet déclare l'audit de sécurité clos au 2026-11-22, sous réserve de l'exception TikTok**, à réexaminer à la fin de la revue TikTok. Déclaration reportée mot pour mot au chantier 2 de `suivi-chantiers-edifice.md`, avec son critère, ses contrôles et le sort des cinq points résiduels.
+
+Ce qui la fonde, tracé dans les entrées précédentes du même jour : les contrôles SQL en lecture seule, la migration `20261122100000` appliquée en base, et la comparaison du `CRON_SECRET` à temps constant.
+
+**Limite de portée** : `91cbfda`, `d3a6427` et `3e2047e` sont des commits locaux, non poussés. Le correctif du `CRON_SECRET` n'est donc pas en production tant que `3e2047e` n'est pas déployé.
+
+Fichiers liés :
+
+- `suivi-chantiers-edifice.md` — chantier 2 (déclaration), chantier 8 et priorités
+- `MANUAL_ACTIONS.md` — entrée « Décider de la clôture de l'audit de sécurité » passée en `done`
+
+Impact : le préalable de sécurité au développement fonctionnel ([02-strategie-produit.md](../Documentation-Strategique/Markdown/02-strategie-produit.md)) est levé. L'étape 1 d'Academy reste soumise à une validation explicite.
+
+Action de suivi : pousser les commits de sécurité, sur décision explicite ; réexaminer l'exception TikTok à la fin de la revue.
 
 ## 2026-11-22 (CRON_SECRET comparé à temps constant)
 

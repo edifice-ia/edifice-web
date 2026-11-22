@@ -413,7 +413,7 @@ Règles applicables à toutes ces tables, héritées du dépôt et non négociab
 
 Ce que cette décision ne fait pas :
 
-- **elle ne lance pas le développement.** [02-strategie-produit.md](../Documentation-Strategique/Markdown/02-strategie-produit.md) maintient la seconde règle de séquencement : aucun nouveau chantier fonctionnel tant que l'audit de sécurité n'est pas clos. Au 2026-11-22, sa clôture **n'est pas établie** — voir le chantier 2 de `suivi-chantiers-edifice.md` et l'entrée `pending` du même jour dans `MANUAL_ACTIONS.md` ;
+- **elle ne lance pas le développement.** [02-strategie-produit.md](../Documentation-Strategique/Markdown/02-strategie-produit.md) maintient la seconde règle de séquencement : aucun nouveau chantier fonctionnel tant que l'audit de sécurité n'est pas clos. Au 2026-11-22, sa clôture **n'est pas établie** — voir le chantier 2 de `suivi-chantiers-edifice.md` et l'entrée `pending` du même jour dans `MANUAL_ACTIONS.md` ; *mise à jour du même jour : l'audit est déclaré **clos au 2026-11-22**, sous réserve de l'exception TikTok, par le porteur du projet — déclaration au chantier 2. Ce préalable est levé ; la validation explicite de l'étape 1 reste requise* ;
 - elle ne crée aucune page, aucune route, aucune entrée de navigation, aucune migration, aucune table ;
 - elle ne modifie ni Personnel, ni Contenu, ni Trajectoire.
 

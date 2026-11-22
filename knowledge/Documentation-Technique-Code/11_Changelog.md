@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-22
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-22 (contrôles SQL de clôture de l'audit, et migration pinterest_pins / content_drafts)](#2026-11-22-contrôles-sql-de-clôture-de-laudit-et-migration-pinterest_pins--content_drafts)
 - [2026-11-22 (EDIFICE ACADEMY : étape 0, décisions et documentation)](#2026-11-22-edifice-academy--étape-0-décisions-et-documentation)
 - [2026-10-04 (chantier 7 : migration appliquée en base)](#2026-10-04-chantier-7--migration-appliquée-en-base)
 - [2026-09-28 (chantier 7 : privilèges des neuf tables service-role, migration écrite)](#2026-09-28-chantier-7--privilèges-des-neuf-tables-service-role-migration-écrite)
@@ -64,6 +65,30 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-22 (contrôles SQL de clôture de l'audit, et migration pinterest_pins / content_drafts)
+
+Type : sécurité, base de données
+
+Résumé : les quatre contrôles en lecture seule de l'entrée `MANUAL_ACTIONS.md` du même jour ont été **exécutés par le mainteneur** dans le SQL Editor, puis **comparés par l'agent** aux migrations du dépôt. L'agent n'a exécuté aucune requête.
+
+- **Privilèges : conformes.** Dix-huit lignes `authenticated`, chacune identique au dernier `grant` de sa migration ; aucune ligne `anon` ni `PUBLIC` ; aucune table sans RLS.
+- **Écart de décompte du chantier 7 : clos.** Les deux tables non identifiées sont `project_memory` et `project_memory_audit_log`.
+- **Quatre policies `{public}` de `content_drafts` : lues.** Restreintes au propriétaire et inatteignables, donc pas une fuite ; mais créées hors migrations.
+- **`pinterest_pins` : seul écart réel.** Policy `using (true)` et `SELECT` accordé à `authenticated`, versionnés mais contraires à `13-securite-gouvernance.md` : tout compte connecté, reviewer compris, lit toutes les épingles. Aucun code n'utilise ce privilège.
+
+Migration écrite : `20261122100000_restrict_pinterest_pins_and_drop_unversioned_content_drafts_policies.sql`. Elle supprime la policy ouverte et révoque `anon` et `authenticated` sur `pinterest_pins`, sans re-grant. Elle supprime aussi les quatre policies non versionnées de `content_drafts`. **Non appliquée.** Retour arrière en commentaire du fichier.
+
+Fichiers liés :
+
+- `supabase/migrations/20261122100000_restrict_pinterest_pins_and_drop_unversioned_content_drafts_policies.sql`
+- `MANUAL_ACTIONS.md` — contrôles passés en `done` avec leurs résultats ; nouvelle entrée `pending` pour appliquer la migration et décider de la clôture
+- `suivi-chantiers-edifice.md` — chantiers 2 et 7
+- `knowledge/Documentation-Technique-Code/05_Database.md`
+
+Impact : aucun tant que la migration n'est pas appliquée. Une fois appliquée, aucun effet attendu sur l'application : `pinterest_pins` n'est accédée que par la clé service-role.
+
+Action de suivi : appliquer la migration, faire le test de fumée Pinterest, puis décision écrite de clôture de l'audit. Commit local seulement : la migration contient `REVOKE` et `DROP POLICY`, la règle permanente de `CLAUDE.md` s'applique.
 
 ## 2026-11-22 (EDIFICE ACADEMY : étape 0, décisions et documentation)
 

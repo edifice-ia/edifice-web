@@ -177,7 +177,9 @@ Neuf tables ne sont lues et écrites que par des clients service-role — vérif
 
 **Limite du test de fumée** : il a exercé Trajectoire en écriture complète (`select`, `insert`, `update`, `delete`) et le Calendrier et l'Atelier de contenu en **lecture seule**. Les écritures de l'Atelier de contenu — sur `content_drafts` et les trois tables liées — n'ont pas été exercées ; seul le témoin des privilèges de `service_role` les couvre, indirectement.
 
-**Point ouvert** : `content_drafts` porte en base quatre policies `{public}` absentes des migrations. Voir le chantier 7 de `suivi-chantiers-edifice.md`.
+**Point ouvert** : `content_drafts` porte en base quatre policies `{public}` absentes des migrations. Lues le 2026-11-22 : restreintes au propriétaire et inatteignables, donc pas une fuite. Supprimées par `20261122100000_restrict_pinterest_pins_and_drop_unversioned_content_drafts_policies.sql`, **écrite, non appliquée**. Voir le chantier 2 de `suivi-chantiers-edifice.md`.
+
+**`pinterest_pins` — lecture ouverte, correction écrite, non appliquée.** Sa migration (`20260605110000`) accorde `SELECT` à `authenticated` et pose une policy `using (true)` : tout compte connecté lit toutes les épingles. Relevé en base le 2026-11-22. La table n'a pas de `user_id`, et elle n'est lue et écrite que par la clé service-role (`lib/server/pinterest-reviews.ts`, `lib/server/pinterest-publisher.ts`, `lib/pinterestLocalIndexes.ts`). La même migration `20261122100000_restrict_pinterest_pins_and_drop_unversioned_content_drafts_policies.sql` supprime la policy et révoque `anon` et `authenticated`, sans re-grant — le patron du chantier 7. Une fois appliquée, `pinterest_pins` rejoint les tables accédées par la seule clé service-role.
 
 ## Règles de sécurité
 

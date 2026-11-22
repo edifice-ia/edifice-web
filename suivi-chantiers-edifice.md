@@ -157,6 +157,39 @@ Faite pour lever le préalable de sécurité avant le chantier 8. Elle distingue
 
 **Reste pour clore** : la décision écrite du porteur du projet — point 1 (critère de clôture) et sort du résiduel connu. Entrée `pending` « Décider de la clôture de l'audit de sécurité » dans `MANUAL_ACTIONS.md`, qui rassemble les faits.
 
+### Décision de clôture — rédigée le 22 novembre 2026 : AUDIT NON CLOS
+
+Rédigée par l'agent à la demande du porteur du projet, sur la base des vérifications ci-dessous, faites en **lecture seule dans le code** le 22 novembre 2026. Aucune n'a été supposée ; chacune cite sa preuve.
+
+**Vérifications préalables**
+
+| Point | Vérifié | Preuve | Écart |
+| --- | --- | --- | --- |
+| a) Routes Calendrier écrites à la main : refus du reviewer | Oui | `app/api/oauth/calendar/status/route.ts:16-19` et `register-channel/route.ts:23-25` : `getCurrentUser()` + `canAccessPrivateCockpit` → **`403`**. `callback/route.ts:44-49` : même test → **redirection** vers le retour Connexions avec `connected=false`, avant tout échange de code, donc aucun jeton écrit. Le middleware redirige en amont le reviewer sur tout `/api/oauth/*` hors TikTok (`src/lib/supabase/proxy.ts:17-29`). `webhooks/calendar/route.ts:16,28,43` : secret entrant comparé par `timingSafeEqual`, `401`. `internal/cron/calendar-channel-renewal/route.ts:22-30,165` : `CRON_SECRET`, `401` | **Forme** : le callback redirige au lieu de répondre `403`, ce qui est l'usage d'un callback OAuth navigateur ; refus effectif. **Fond, hors des cinq points** : la route cron compare le secret par `===` (`:30`), pas à temps constant — voir plus bas |
+| b) Atelier de contenu : clé service-role seule | Oui | Les **13 fichiers** qui appellent `.from()` sur `content_drafts` ou ses trois tables liées créent tous un client service-role, par exemple `lib/server/content-workshop.ts:377`, `lib/server/media-pipeline.ts:317`, `lib/server/voice-pipeline.ts:59`, `lib/server/subtitle-pipeline.ts:118`, `lib/server/video-preparation.ts:102`, `lib/server/video-renderer.ts:83`, `lib/server/shorts-publication.ts:228`, `lib/server/shorts-scheduling.ts:110`, `lib/server/content-assets.ts:100`, `lib/server/cost-tracking.ts:134`, `lib/server/publication-performance.ts:196`, `lib/server/trajectoire.ts:242`, `lib/server/cockpit/read-only-state.ts:59`. Aucun n'importe le client de session ni le client navigateur. Les autres mentions des noms de table sont des chaînes de caractères : `lib/server/assistant-actions/shorts.ts:1098-1100`, `lib/server/assistant-workflows/engine.ts:521`, `lib/short-workflow.ts:322,341`, `app/api/content-workshop/drafts/[id]/route.ts:137`, `.../media/route.ts:76`, `ContentWorkshopClient.tsx:2552`. Les deux routes API n'importent que `getCurrentUser` | Aucun |
+| c) `/api/oauth/tiktok/status` : ni jeton ni identifiant | Oui | `app/api/oauth/tiktok/status/route.ts:37-43` renvoie `getOAuthTokenStatus("tiktok")` ; `lib/server/oauth/token-store.ts:433-439`, unique `return` de la fonction : `{ present, storageEnabled: true, storageMode: "supabase", expiresAt, updatedAt }`. Le jeton est lu (`:409`) mais seul `Boolean(data?.access_token)` en sort (`:425`). En cas d'erreur, la fonction lève une exception au message générique (`:421-423`) | Aucun |
+| d) État de la review TikTok | Non établi | `MANUAL_ACTIONS.md`, entrée `pending` du 2026-08-01 : l'état ne se lit que dans le portail développeur TikTok. Aucune trace de fin de review dans `MANUAL_ACTIONS.md` ni dans ce fichier | La review **n'est pas connue comme terminée**, donc l'exception reste acceptable sous sa condition de sortie. Si elle est terminée, l'exception doit être levée |
+
+**Critère de clôture retenu** : chaque route API porte un garde, sauf les exceptions documentées (`/api/health`).
+
+**Les cinq points résiduels**
+
+1. **Exception de garde `/api/oauth/tiktok/status`** — *accepté avec raison* : aucun accès anonyme ; l'écart avec le garde strict est un seul rôle, contrôlé par le projet ; la réponse ne contient ni jeton ni identifiant (point c). L'acceptation vaut **tant que la review TikTok n'est pas terminée**. Sa fin déclenche le durcissement décrit dans l'entrée `pending` du 2026-08-01.
+2. **Gardes des routes Calendrier écrits à la main** — *accepté avec raison* : `status` et `register-channel` répondent `403` au reviewer, `callback` le refuse par redirection avant tout échange de jeton (point a). L'écart avec `authorizeCockpitApiAccess()` est de forme : distinction `401`/`403`, factorisation.
+3. **`/api/personal` absent de `reviewerBlockedPrefixes`** — *accepté avec raison* : les 25 routes suivies sous `/api/personal` passent toutes par `authorizeCockpitApiAccess()`, qui répond `403` au reviewer (vérifié le 22 novembre 2026). Le préfixe dans le middleware ne serait qu'une défense en profondeur.
+4. **Deux limites de vérification du chantier 7** — *accepté avec raison* : le refus attendu sur les cinq tables échoue de façon fermée, et aucun code n'émet ces requêtes ; l'Atelier de contenu n'accède à ses tables que par la clé service-role (point b), que la révocation n'a pas touchée.
+5. **Gating des modes debug** — *accepté avec raison* : revérifié le 22 novembre 2026, les paramètres `debug=1` et `mode=test` des routes OAuth génériques exigent une session et `canAccessPrivateCockpit` (`app/api/oauth/[provider]/start/route.ts:57-61` pour les providers à state signé, `:81-86` pour les autres ; `callback/route.ts:40-46`). Une seule branche n'est pas gardée : `callback/route.ts:41` exempte `youtube` du contrôle en mode debug. Elle est **inatteignable** — la route statique `app/api/oauth/youtube/callback/route.ts` prime sur le segment dynamique `[provider]` —, et le contenu qu'elle renverrait ne porte que des booléens et un message (`:28-38`). Code mort à retirer à l'occasion, sans exposition. Les routes de test Instagram, Pinterest, YouTube et TikTok portent le garde complet. Les deux routes de démo sont réservées aux rôles reviewer et admin, en `dryRun` obligatoire.
+
+**Écart révélé par les vérifications, non résolu** — hors des cinq points, et c'est lui qui empêche la clôture :
+
+- **Comparaison du `CRON_SECRET` en `===`, et non à temps constant**, sur les trois routes cron : `app/api/internal/cron/calendar-channel-renewal/route.ts:30`, `process-scheduled-publications/route.ts`, `personal-daily-brief/route.ts`. [DEC-007](knowledge/Documentation-Technique-Code/03_Decisions.md) admet une route sans session à condition qu'elle valide un secret entrant **à temps constant** — ce que fait `webhooks/calendar` avec `timingSafeEqual`, et pas ces trois routes. Chacune porte bien un garde, et le critère de clôture est donc rempli à la lettre. Mais l'écart avec la décision du dépôt est réel. Le risque pratique est faible — attaque temporelle à distance sur un secret long —, ce qui relève d'une décision, pas d'une supposition.
+
+**Déclaration : audit non clos, il manque :**
+
+- **une décision sur la comparaison du `CRON_SECRET`** des trois routes cron : soit *acceptée avec raison*, soit *traitée*, par passage à `timingSafeEqual` sur le patron de `app/api/webhooks/calendar/route.ts:10-17`, avec une échéance. Le traitement est une modification de code dans `app/api/internal/**`, donc du code sensible : commit local, sans push automatique.
+
+Dès que ce point est tranché, la déclaration devient « audit clos » à la date de la décision, les cinq points résiduels étant tous acceptés avec raison ci-dessus. L'étape 1 d'Academy reste ensuite soumise à une validation explicite.
+
 ---
 
 ## Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/` — TERMINÉ

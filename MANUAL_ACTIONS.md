@@ -53,44 +53,32 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
-### 2026-11-22 — Appliquer la migration 20261122100000, puis décider de la clôture de l'audit de sécurité
+### 2026-11-22 — Décider de la clôture de l'audit de sécurité
 
 **Statut** : `pending`
 
-**Pourquoi c'est manuel** : appliquer une migration et lire l'état réel des policies et des privilèges passent par le SQL Editor du dashboard Supabase. L'agent n'a pas d'accès SQL au projet. La décision de clôture est un arbitrage du porteur du projet, pas un constat que l'agent peut prendre seul.
+**Pourquoi c'est manuel** : la clôture n'est pas un constat mais un arbitrage du porteur du projet — aucun document n'a jamais fixé de critère de fin à l'audit (`suivi-chantiers-edifice.md`, chantier 2, point 1). L'agent peut rassembler les faits ; il ne peut pas décider à la place du porteur du projet quel risque résiduel est acceptable.
 
-**Bloque** : la clôture de l'audit de sécurité (chantier 2), donc l'étape 1 du chantier 8 — EDIFICE ACADEMY.
+**Bloque** : l'étape 1 du chantier 8 — EDIFICE ACADEMY —, et tout nouveau développement fonctionnel ([02-strategie-produit.md](knowledge/Documentation-Strategique/Markdown/02-strategie-produit.md)).
 
-**Ce que fait la migration** : supprime la policy `pinterest_pins_authenticated_select` (`using (true)`) et révoque tout privilège de `anon` et `authenticated` sur `pinterest_pins` ; supprime les quatre policies `{public}` non versionnées de `content_drafts`. **Aucun effet attendu sur l'application** : `pinterest_pins` n'est lue et écrite que par la clé service-role (trois fichiers, vérifiés le 2026-11-22), et les quatre policies de `content_drafts` étaient déjà inatteignables. Détail et retour arrière en commentaire du fichier.
+**État des faits au 2026-11-22**, pour décider sur pièces :
 
-**Étapes** :
+- lots 1 à 3 et re-audit du 28 juillet dans `origin/main` ; 87 routes API sur 88 portent un motif de garde, la dernière étant `/api/health`, exception documentée ;
+- contrôles SQL en lecture seule du 2026-11-22 : privilèges conformes aux migrations, aucun privilège `anon` ni `PUBLIC`, aucune table sans RLS, écart de décompte du chantier 7 expliqué ;
+- seul écart réel trouvé — `pinterest_pins` lisible par tout compte connecté — **corrigé et appliqué** le 2026-11-22 (`20261122100000`), avec les quatre policies non versionnées de `content_drafts`.
 
-1. Ouvrir le SQL Editor du projet Supabase.
-2. **Témoin avant**, à garder :
-   ```sql
-   select tablename, policyname, roles, cmd, qual
-   from pg_policies
-   where schemaname = 'public' and tablename in ('pinterest_pins', 'content_drafts')
-   order by tablename, policyname;
-   ```
-3. Coller et exécuter le contenu intégral de `supabase/migrations/20261122100000_restrict_pinterest_pins_and_drop_unversioned_content_drafts_policies.sql`.
-4. Relancer la requête de l'étape 2, puis celle-ci :
-   ```sql
-   select c.relname as table_name,
-          case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end as grantee,
-          string_agg(a.privilege_type, ', ' order by a.privilege_type) as privileges
-   from pg_class c
-   join pg_namespace n on n.oid = c.relnamespace
-   cross join lateral aclexplode(c.relacl) a
-   where n.nspname = 'public'
-     and c.relname = 'pinterest_pins'
-     and (a.grantee = 0
-          or a.grantee in (select oid from pg_roles where rolname in ('anon', 'authenticated')));
-   ```
-5. **Test de fumée** : ouvrir `/interface/post-creation/pinterest`, vérifier que la bibliothèque d'épingles s'affiche comme avant, puis ouvrir le Publisher Pinterest (`/interface/publishers/pinterest`) en lecture.
-6. **Décision de clôture**, à écrire au chantier 2 de `suivi-chantiers-edifice.md` (ou à dicter à l'agent) : le critère de clôture retenu, et le sort du résiduel connu — exception de garde `/api/oauth/tiktok/status` (entrée `pending` du 2026-08-01), gardes écrits à la main sur les routes Calendrier, `/api/personal` absent de `reviewerBlockedPrefixes`, deux limites de vérification du chantier 7.
+**Étapes** — écrire, au chantier 2 de `suivi-chantiers-edifice.md` ou en le dictant à l'agent :
 
-**Vérification** : à l'étape 4, `content_drafts` ne porte plus que ses quatre policies `content_drafts_*_own`, `pinterest_pins` n'en porte plus aucune, et la requête de privilèges ne renvoie **aucune ligne**. À l'étape 5, aucune erreur. Le résultat de l'étape 4 est à transmettre à l'agent pour qu'il soit consigné ici.
+1. **Le critère de clôture retenu.** Par exemple : « aucune route sans garde, aucun privilège client au-delà des migrations, aucune policy ouverte, aucune table sans RLS, constaté en base à la date de clôture ».
+2. **Le sort de chaque point résiduel**, accepté avec une raison ou traité avec une échéance :
+   - exception de garde de `/api/oauth/tiktok/status` (entrée `pending` du 2026-08-01, dépend de l'état de la review TikTok) ;
+   - gardes écrits à la main sur les routes Calendrier, au lieu de `authorizeCockpitApiAccess()` ;
+   - `/api/personal` absent de `reviewerBlockedPrefixes` dans le middleware (défense en profondeur) ;
+   - les deux limites de vérification du chantier 7 (refus attendu non testé sur cinq tables ; écritures de l'Atelier de contenu non exercées) ;
+   - le gating des modes debug, déclaré vérifié le 28 juillet et non re-vérifié depuis.
+3. **La déclaration** : audit clos à telle date, ou non clos avec ce qui manque.
+
+**Vérification** : le chantier 2 porte une décision datée, un critère écrit et un sort pour chacun des cinq points. L'étape 1 d'Academy ne démarre qu'ensuite, et sur validation explicite.
 
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
@@ -127,6 +115,56 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 **Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
 
 ## Archive (done)
+
+### 2026-11-22 — Appliquer la migration 20261122100000
+
+**Statut** : `done` — 2026-11-22, appliquée par le mainteneur dans le SQL Editor, contrôles et test de fumée conformes. La décision de clôture de l'audit, qui figurait en étape 6, est sortie dans sa propre entrée `pending`.
+
+**Pourquoi c'est manuel** : appliquer une migration et lire l'état réel des policies et des privilèges passent par le SQL Editor du dashboard Supabase. L'agent n'a pas d'accès SQL au projet. La décision de clôture est un arbitrage du porteur du projet, pas un constat que l'agent peut prendre seul.
+
+**Bloquait** : la clôture de l'audit de sécurité (chantier 2), donc l'étape 1 du chantier 8 — EDIFICE ACADEMY.
+
+**Ce que fait la migration** : supprime la policy `pinterest_pins_authenticated_select` (`using (true)`) et révoque tout privilège de `anon` et `authenticated` sur `pinterest_pins` ; supprime les quatre policies `{public}` non versionnées de `content_drafts`. **Aucun effet attendu sur l'application** : `pinterest_pins` n'est lue et écrite que par la clé service-role (trois fichiers, vérifiés le 2026-11-22), et les quatre policies de `content_drafts` étaient déjà inatteignables. Détail et retour arrière en commentaire du fichier.
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. **Témoin avant**, à garder :
+   ```sql
+   select tablename, policyname, roles, cmd, qual
+   from pg_policies
+   where schemaname = 'public' and tablename in ('pinterest_pins', 'content_drafts')
+   order by tablename, policyname;
+   ```
+3. Coller et exécuter le contenu intégral de `supabase/migrations/20261122100000_restrict_pinterest_pins_and_drop_unversioned_content_drafts_policies.sql`.
+4. Relancer la requête de l'étape 2, puis celle-ci :
+   ```sql
+   select c.relname as table_name,
+          case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end as grantee,
+          string_agg(a.privilege_type, ', ' order by a.privilege_type) as privileges
+   from pg_class c
+   join pg_namespace n on n.oid = c.relnamespace
+   cross join lateral aclexplode(c.relacl) a
+   where n.nspname = 'public'
+     and c.relname = 'pinterest_pins'
+     and (a.grantee = 0
+          or a.grantee in (select oid from pg_roles where rolname in ('anon', 'authenticated')))
+   group by 1, 2;
+   ```
+   *(Correction du 2026-11-22 : la version d'origine de cette entrée omettait `group by 1, 2`, sans lequel `string_agg` à côté de colonnes non agrégées est refusé par Postgres. Le mainteneur a exécuté la version corrigée, transmise dans la conversation.)*
+5. **Test de fumée** : ouvrir `/interface/post-creation/pinterest`, vérifier que la bibliothèque d'épingles s'affiche comme avant, puis ouvrir le Publisher Pinterest (`/interface/publishers/pinterest`) en lecture.
+
+**Résultats** — 2026-11-22, exécutés par le mainteneur, transmis tels quels à l'agent :
+
+- **Témoin avant** (étape 2) : 9 lignes, conformes aux contrôles du même jour — les quatre policies `{public}` « Users can create / delete / read / update their own content drafts » et les quatre `content_drafts_*_own` sur `content_drafts`, plus `pinterest_pins_authenticated_select` (`{authenticated}`, `SELECT`, `qual = true`) sur `pinterest_pins`.
+- **Migration** (étape 3) : appliquée. Date d'application : 2026-11-22, déclarée par le mainteneur dans la conversation.
+- **Contrôle des policies après** (étape 4) : **4 lignes**, exactement `content_drafts_delete_own`, `content_drafts_insert_own`, `content_drafts_select_own`, `content_drafts_update_own`, toutes `{authenticated}`, filtre `user_id = auth.uid()`. Plus aucune policy `{public}` sur `content_drafts`, plus aucune policy sur `pinterest_pins`.
+- **Contrôle des privilèges après** (étape 4) : « Success », **aucune ligne** — ni `anon`, ni `authenticated`, ni `PUBLIC` sur `pinterest_pins`.
+- **Test de fumée** (étape 5) : `/interface/post-creation/pinterest` et `/interface/publishers/pinterest` **s'affichent sans erreur**. Test fait sur le site déployé ou en local, la migration ne changeant aucun code ; l'environnement exact n'est pas consigné.
+
+**Limite** : le test de fumée a exercé la **lecture** de `pinterest_pins` par la clé service-role, pas l'écriture (génération ou publication d'une épingle). La clé service-role n'étant pas touchée par la migration, l'écriture n'est pas concernée — déduit, non testé.
+
+**Vérification** : à l'étape 4, `content_drafts` ne porte plus que ses quatre policies `content_drafts_*_own`, `pinterest_pins` n'en porte plus aucune, et la requête de privilèges ne renvoie **aucune ligne**. À l'étape 5, aucune erreur. Le résultat de l'étape 4 est à transmettre à l'agent pour qu'il soit consigné ici.
 
 ### 2026-11-22 — Contrôles de clôture de l'audit de sécurité (préalable au chantier Academy)
 

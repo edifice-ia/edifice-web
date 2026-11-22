@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-22
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-22 (migration pinterest_pins / content_drafts appliquée en base)](#2026-11-22-migration-pinterest_pins--content_drafts-appliquée-en-base)
 - [2026-11-22 (contrôles SQL de clôture de l'audit, et migration pinterest_pins / content_drafts)](#2026-11-22-contrôles-sql-de-clôture-de-laudit-et-migration-pinterest_pins--content_drafts)
 - [2026-11-22 (EDIFICE ACADEMY : étape 0, décisions et documentation)](#2026-11-22-edifice-academy--étape-0-décisions-et-documentation)
 - [2026-10-04 (chantier 7 : migration appliquée en base)](#2026-10-04-chantier-7--migration-appliquée-en-base)
@@ -65,6 +66,28 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-22 (migration pinterest_pins / content_drafts appliquée en base)
+
+Type : sécurité, base de données
+
+Résumé : **la migration `20261122100000` est appliquée en base et vérifiée**, le jour même de son écriture, par le mainteneur dans le SQL Editor. L'agent n'a exécuté aucune requête ; il a comparé les résultats transmis aux valeurs attendues.
+
+- **Témoin avant** : 9 policies, conformes aux contrôles du même jour.
+- **Après** : `content_drafts` ne porte plus que ses quatre policies versionnées `content_drafts_*_own` ; `pinterest_pins` n'en porte plus aucune ; aucun privilège `anon`, `authenticated` ni `PUBLIC` sur `pinterest_pins`.
+- **Test de fumée** : bibliothèque Pinterest et Publisher Pinterest affichés sans erreur. La lecture par la clé service-role est exercée ; l'écriture ne l'est pas, déduite non concernée puisque la clé service-role n'est pas touchée.
+
+Correction au passage : la requête de privilèges de l'étape 4 de l'entrée `MANUAL_ACTIONS.md` omettait `group by 1, 2` et aurait été refusée par Postgres. Le mainteneur a exécuté la version corrigée ; l'entrée archivée est corrigée.
+
+Fichiers liés :
+
+- `MANUAL_ACTIONS.md` — entrée « Appliquer la migration 20261122100000 » passée en `done` avec ses résultats ; nouvelle entrée `pending` « Décider de la clôture de l'audit de sécurité »
+- `suivi-chantiers-edifice.md` — chantiers 2, 7 et 8
+- `knowledge/Documentation-Technique-Code/05_Database.md`
+
+Impact : `pinterest_pins` n'est plus lisible par un compte connecté hors clé service-role. Aucun changement de comportement de l'application.
+
+Action de suivi : la décision écrite de clôture de l'audit, qui reste le seul préalable de sécurité avant l'étape 1 d'Academy.
 
 ## 2026-11-22 (contrôles SQL de clôture de l'audit, et migration pinterest_pins / content_drafts)
 

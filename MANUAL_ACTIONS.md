@@ -61,6 +61,8 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 **Bloque** : rien de fonctionnel. C'est une exception de sécurité sans date d'expiration — le risque est qu'elle survive à sa raison d'être et devienne un écart inexpliqué.
 
+**Déclencheur** : relancer la demande de revue TikTok lors de la reprise du module de création de contenu (Atelier de contenu). Noter ici la date de la relance.
+
 **Ce que l'exception autorise exactement** — mesuré le 2026-08-01, pour que la décision se prenne sur des faits et non sur le mot « exception » :
 
 - **Aucun accès anonyme.** Sans session, la route répond `403`, et le middleware redirige déjà vers `/login`. Le compromis ne porte que sur le filtre de rôle.

@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "costs:check": "node scripts/cost-tracking-check.mjs",
+    "cron:auth:check": "node scripts/cron-auth-check.mjs",
     "docs:pdf": "node scripts/generate-strategic-pdf.mjs",
     "docs:pdf:check": "node scripts/generate-strategic-pdf.mjs --check",
     "garmin:oauth:check": "node scripts/garmin-oauth-pkce-check.mjs",

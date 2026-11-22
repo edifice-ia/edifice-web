@@ -1,20 +1,14 @@
 import { NextResponse } from "next/server";
 import { processScheduledInstagramPublications } from "@/lib/server/shorts-publication";
+import { isCronRequestAuthorized } from "@/src/lib/auth/cron-auth";
 
 export const runtime = "nodejs";
 
 function isAuthorized(request: Request) {
   // NOTE: This route is intended for Vercel Cron or an internal caller only.
   // Never call it from the browser; CRON_SECRET must stay server-side.
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) {
-    return false;
-  }
-
-  const authorization = request.headers.get("authorization") ?? "";
-  const headerSecret = request.headers.get("x-cron-secret") ?? "";
-
-  return authorization === `Bearer ${secret}` || headerSecret === secret;
+  // Comparaison a temps constant (DEC-007) : voir src/lib/auth/cron-auth.ts.
+  return isCronRequestAuthorized(request);
 }
 
 export async function GET(request: Request) {

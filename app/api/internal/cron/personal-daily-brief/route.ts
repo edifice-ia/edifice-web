@@ -1,5 +1,6 @@
 import { generateDailyBrief, todayInParis } from "@/lib/server/personal/daily-brief-engine";
 import { listPersonalGarminDailyStatsUserIds } from "@/lib/server/personal/garmin-stats-store";
+import { isCronRequestAuthorized } from "@/src/lib/auth/cron-auth";
 
 export const runtime = "nodejs";
 
@@ -10,15 +11,8 @@ export const runtime = "nodejs";
 export function isAuthorized(request: Request) {
   // NOTE: This route is intended for Vercel Cron or an internal caller only.
   // Never call it from the browser; CRON_SECRET must stay server-side.
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) {
-    return false;
-  }
-
-  const authorization = request.headers.get("authorization") ?? "";
-  const headerSecret = request.headers.get("x-cron-secret") ?? "";
-
-  return authorization === `Bearer ${secret}` || headerSecret === secret;
+  // Comparaison a temps constant (DEC-007) : voir src/lib/auth/cron-auth.ts.
+  return isCronRequestAuthorized(request);
 }
 
 // Vercel Cron schedules (vercel.json) are UTC-only and Hobby plan limits each

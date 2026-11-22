@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-22
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-22 (CRON_SECRET comparé à temps constant)](#2026-11-22-cron_secret-comparé-à-temps-constant)
 - [2026-11-22 (migration pinterest_pins / content_drafts appliquée en base)](#2026-11-22-migration-pinterest_pins--content_drafts-appliquée-en-base)
 - [2026-11-22 (contrôles SQL de clôture de l'audit, et migration pinterest_pins / content_drafts)](#2026-11-22-contrôles-sql-de-clôture-de-laudit-et-migration-pinterest_pins--content_drafts)
 - [2026-11-22 (EDIFICE ACADEMY : étape 0, décisions et documentation)](#2026-11-22-edifice-academy--étape-0-décisions-et-documentation)
@@ -66,6 +67,27 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-22 (CRON_SECRET comparé à temps constant)
+
+Type : sécurité
+
+Résumé : les trois routes cron internes — `calendar-channel-renewal`, `personal-daily-brief`, `process-scheduled-publications` — comparaient le `CRON_SECRET` par `===`. [DEC-007](./03_Decisions.md) admet une route sans session à condition qu'elle valide un secret entrant à temps constant. Écart relevé par les vérifications de clôture de l'audit du même jour.
+
+- **Nouveau helper** `isCronRequestAuthorized` dans `src/lib/auth/cron-auth.ts`, à côté des autres gardes. Il fait une vérification de longueur, puis `timingSafeEqual`, et évalue toujours les deux comparaisons, sans court-circuit.
+- **Les trois routes l'appellent.** Leur fonction `isAuthorized` reste en place, exportée là où elle l'était, comme simple délégation au helper.
+- **Sémantique inchangée** : `Authorization: Bearer <secret>` ou `x-cron-secret: <secret>`, `CRON_SECRET` trimmé, refus si absent ou vide.
+- **Nouveau script** `npm run cron:auth:check` : secret correct par chacun des deux en-têtes, secret faux de même longueur, longueurs différentes sans exception, `CRON_SECRET` absent ou vide, cas limites de l'ancienne sémantique.
+
+Fichiers liés :
+
+- `src/lib/auth/cron-auth.ts` (nouveau), `scripts/cron-auth-check.mjs` (nouveau), `package.json`
+- `app/api/internal/cron/calendar-channel-renewal/route.ts`, `app/api/internal/cron/personal-daily-brief/route.ts`, `app/api/internal/cron/process-scheduled-publications/route.ts`
+- `knowledge/Documentation-Technique-Code/10_Conventions.md`, `suivi-chantiers-edifice.md` (chantier 2)
+
+Impact : aucun changement pour un appelant légitime. Seule la durée de la comparaison change : elle ne dépend plus du contenu du secret proposé.
+
+Action de suivi : décision séparée de clôture de l'audit, une fois ce commit vérifié. Push sur demande explicite seulement : code de `app/api/internal/**`.
 
 ## 2026-11-22 (migration pinterest_pins / content_drafts appliquée en base)
 

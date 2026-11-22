@@ -10,6 +10,7 @@ import {
 } from "@/lib/server/calendar/calendar-sync-state-store";
 import { resolveCalendarWebhookAddress } from "@/lib/server/oauth/calendar-redirect";
 import { getOAuthToken } from "@/lib/server/oauth/token-store";
+import { isCronRequestAuthorized } from "@/src/lib/auth/cron-auth";
 
 export const runtime = "nodejs";
 
@@ -19,15 +20,8 @@ const RENEWAL_THRESHOLD_MS = 48 * 60 * 60 * 1000;
 // app/api/internal/cron/personal-daily-brief/route.ts) : jamais appelable
 // depuis le navigateur, le secret ne doit jamais quitter le serveur.
 export function isAuthorized(request: Request) {
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) {
-    return false;
-  }
-
-  const authorization = request.headers.get("authorization") ?? "";
-  const headerSecret = request.headers.get("x-cron-secret") ?? "";
-
-  return authorization === `Bearer ${secret}` || headerSecret === secret;
+  // Comparaison a temps constant (DEC-007) : voir src/lib/auth/cron-auth.ts.
+  return isCronRequestAuthorized(request);
 }
 
 // Meme raisonnement DST que personal-daily-brief/route.ts (isParisHour8) :

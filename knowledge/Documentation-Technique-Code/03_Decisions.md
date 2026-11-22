@@ -1,7 +1,7 @@
 # Décisions
 
 Statut : registre initial  
-Dernière mise à jour : 2026-09-09
+Dernière mise à jour : 2026-11-22
 
 ## Sommaire
 
@@ -211,6 +211,8 @@ Conséquences :
 - toute implémentation partielle de la couche de configuration qui ne viserait que les modules serait un sous-dimensionnement, à refaire ensuite ;
 - les surfaces que la cible rend invisibles restent visibles en attendant — voir la divergence assumée notée dans [06_Modules.md](./06_Modules.md).
 
+Note (2026-11-22) : avec la mise en pause de Personnel par [DEC-014](#dec-014---edifice-academy-devient-le-troisième-espace-et-la-priorité-de-développement--personnel-est-mis-en-pause), la condition de réouverture ci-dessus n'est plus atteignable tant que dure la pause. Elle est **suspendue, pas levée** : Academy ne rouvre aucune des trois absences, et n'introduit aucun mécanisme d'activation propre.
+
 Fichiers liés :
 
 - `lib/cockpit/navigation.ts`, `lib/cockpit/modules.ts`
@@ -244,7 +246,7 @@ Fichiers liés :
 ### DEC-011 - L'Assistant restera un moteur déterministe jusqu'à nouvel ordre — LLM prévu, pas construit maintenant
 
 Date : 2026-08-04  
-Statut : actif
+Statut : actif — **révisée le 2026-11-22 par [DEC-015](#dec-015---le-service-commun-ia-est-multi-fournisseurs-et-multi-modèles--révise-dec-011)** : l'Assistant reste déterministe et la consigne sur la cascade de mots-clés est maintenue ; le premier consommateur d'un LLM devient le Professeur IA d'Academy, par le service commun IA, et non plus les modules Personnel, en pause. Le texte ci-dessous est conservé tel qu'il a été écrit.
 
 Contexte : l'audit du pôle Assistant, mené le 2026-08-04, a établi que **l'Assistant n'appelle aucun LLM**. Ni Anthropic, ni OpenAI, ni aucun autre — vérifié de trois façons : aucun SDK dans `package.json`, aucune URL d'API de modèle sur ce chemin, et les occurrences de « openai » dans le moteur de workflow sont des estimations de coût, pas des appels.
 
@@ -358,6 +360,106 @@ Fichiers liés :
 - `supabase/migrations/20260806100000_create_personal_habits.sql` (la clé étrangère composite en cascade, premier cas)
 - `supabase/migrations/20260909110000_create_personal_journal_entry_categories.sql` (second cas, qui a fait basculer le statut)
 - `MANUAL_ACTIONS.md` (entrées du 2026-08-13 et du 2026-09-09, requêtes de contrôle de `confdeltype`)
+
+### DEC-014 - EDIFICE ACADEMY devient le troisième espace et la priorité de développement ; Personnel est mis en pause
+
+Date : 2026-11-22  
+Statut : actif — arbitrage du porteur du projet. **Aucune ligne de code n'en découle encore** : voir « Ce que cette décision ne fait pas ».
+
+Contexte : la documentation stratégique du 2026-08-01 fixait une règle de séquencement explicite, « finir le pôle Personnel avant tout le reste » ([02-strategie-produit.md](../Documentation-Strategique/Markdown/02-strategie-produit.md)), et ne connaissait que deux espaces, Contenu et Trajectoire ([10-architecture-systeme.md](../Documentation-Strategique/Markdown/10-architecture-systeme.md)). Le 2026-11-22, le porteur du projet arbitre en faveur d'un environnement d'apprentissage, EDIFICE ACADEMY, qui n'existe dans aucun document antérieur ni dans le code. Cette entrée trace l'arbitrage, ses conséquences sur les décisions existantes, et ce qui reste à trancher.
+
+Décision, en cinq points :
+
+1. **Academy est un espace, le troisième**, au sens de [10-architecture-systeme.md](../Documentation-Strategique/Markdown/10-architecture-systeme.md). Le test de décision de ce document le classe ainsi, et non comme module ni comme pôle : son contenu réel est fait d'instances que l'utilisateur crée et multiplie — des **programmes d'apprentissage** —, et la surface n'en est que le conteneur. Comme Trajectoire, il n'existe qu'un seul Academy dans la plateforme : c'est un **espace singleton**. Il est accessible directement depuis la navigation principale et porte **sa propre navigation intérieure** — tableau de bord pédagogique, calendrier, programmes, leçons et ressources, notes et fiches de révision, quiz, exercices et évaluations, révisions, progression et compétences, ressources pédagogiques, Professeur IA.
+2. **Academy devient la priorité principale de développement.** La règle « finir le pôle Personnel avant tout le reste » est **suspendue, pas abrogée** : son texte d'origine est conservé et daté dans [02-strategie-produit.md](../Documentation-Strategique/Markdown/02-strategie-produit.md) et [30-trajectoire.md](../Documentation-Strategique/Markdown/30-trajectoire.md).
+3. **Le pôle Personnel est mis en pause.** Ses cinq modules à saisie manuelle restent en service, dans l'état documenté dans [06_Modules.md](./06_Modules.md) ; aucun nouveau module n'y est construit tant que la pause dure. Le volet Vitals (chantier 1), déjà en pause, le reste. Les autres pôles et espaces sont inchangés.
+4. **La hiérarchie pédagogique cible est un curriculum structuré**, décrit dans [22-espaces-et-marques.md](../Documentation-Strategique/Markdown/22-espaces-et-marques.md) : curriculum ou programme complet → matières ou domaines → modules → chapitres → cours et leçons → exercices et évaluations. Les **formations indépendantes** et les **parcours libres** restent possibles. Un programme n'est donc pas réduit à une liste de formations.
+5. **Toute capacité IA d'Academy passe par le service commun IA**, multi-fournisseurs et multi-modèles, défini par [DEC-015](#dec-015---le-service-commun-ia-est-multi-fournisseurs-et-multi-modèles--révise-dec-011). Le Professeur IA en est un consommateur, jamais le porteur.
+
+**Contradictions avec l'existant, signalées et non masquées** :
+
+- **Règle de séquencement de [02-strategie-produit.md](../Documentation-Strategique/Markdown/02-strategie-produit.md).** Contredite frontalement ; c'est l'objet même de la décision. Le texte d'origine reste lisible, avec sa période de validité.
+- **[DEC-009](#dec-009---trois-absences-structurelles-assumées-jusquà-lachèvement-du-pôle-personnel).** Sa condition de réouverture — l'achèvement de Personnel — n'est plus atteignable tant que dure la pause. Les trois absences (Finances, marques, couche de configuration) **ne sont pas rouvertes par Academy** et restent de la dette documentée. Conséquence directe : Academy n'aura **aucun mécanisme d'activation propre**. Il sera visible en permanence, comme toutes les surfaces actuelles, son entrée étant écrite dans les deux registres statiques. Un réglage d'activation propre à Academy serait le « mécanisme de configuration parallèle » que la troisième règle d'or interdit.
+- **[DEC-011](#dec-011---lassistant-restera-un-moteur-déterministe-jusquà-nouvel-ordre--llm-prévu-pas-construit-maintenant).** Elle prévoyait le premier LLM pour l'Assistant et les modules Personnel. Le premier consommateur envisagé devient le Professeur IA. Révisée par DEC-015.
+- **Moindre privilège sur Google Agenda.** L'accès stocké est en lecture seule (`calendar.readonly`, `lib/server/calendar/calendar-oauth.ts`). « Planifier » dans le calendrier d'Academy signifie donc écrire **dans les données d'Academy**, et seulement superposer les événements Google en lecture. Écrire dans Google exigerait un scope élargi et un nouveau consentement OAuth : décision distincte, non prise.
+- **Notifications et bus d'événements.** Le catalogue en fait des services communs, mais aucun n'existe dans le code. Les rappels de séances et de révisions ne seront pas poussés tant que le service Notifications n'existe pas ; un module ne choisit jamais lui-même son canal d'envoi ([20-catalogue-services.md](../Documentation-Strategique/Markdown/20-catalogue-services.md)).
+- **Suppression physique.** [DEC-012](#dec-012---la-suppression-physique-de-données-personnel-passe-par-un-chemin-unique-et-journalisé) et `ERASABLE_MODULES` sont propres au pôle Personnel, dans `lib/personal/` et l'onglet Personnel des Réglages. Les étendre à Academy modifierait Personnel, ce que la pause exclut. Le chemin de suppression d'Academy fera l'objet d'une décision distincte, avant l'étape qui l'implémente.
+- **Vocabulaire.** « Module » désigne dans l'architecture un domaine de vie ([10-architecture-systeme.md](../Documentation-Strategique/Markdown/10-architecture-systeme.md)). Il désigne aussi, dans la hiérarchie pédagogique, un niveau d'un curriculum. Les deux sens ne doivent jamais se croiser dans le code : le niveau pédagogique y recevra un identifiant distinct (nom de travail : `unit`), le libellé « Module » restant celui de l'écran. Même précaution pour « Bibliothèque » : la Bibliothèque v1.0 a été reprise par Ressources (voir [06_Modules.md](./06_Modules.md)), d'où le nom de travail « ressources pédagogiques ».
+- **Source de vérité unique.** Les notes, objectifs et ressources d'Academy recoupent par leur nom Notes, Objectifs et Ressources. Ce sont des entités **pédagogiques** — une fiche rattachée à une leçon, un objectif rattaché à un niveau de curriculum —, pas un second point d'écriture d'une note personnelle ni d'un objectif personnel.
+
+**Entités envisagées — non définitives.** Aucune n'existe en base ni dans le code. Le modèle sera tranché, migration comprise, à l'étape qui le construit :
+
+| Niveau ou fonction | Entité envisagée | Remarque |
+|---|---|---|
+| Instance de l'espace | `academy_programs` | `kind` ∈ `curriculum` (programme complet) / `formation` (formation indépendante). **Remplace `academy_courses`** de la proposition d'architecture : « cours » désigne un niveau de la hiérarchie, la collision serait permanente. |
+| Matière ou domaine | `academy_subjects` | Facultatif ; absent d'une formation indépendante. |
+| Module pédagogique | `academy_units` | Nom de travail, voir la collision de vocabulaire. |
+| Chapitre | `academy_chapters` | — |
+| Cours et leçon | `academy_lessons` | Couvre les deux libellés ; reprend l'entité de la proposition. |
+| Exercice et évaluation | `academy_assessments` + `academy_questions` | Rattachés à un seul niveau de la hiérarchie : l'exercice à une leçon, l'évaluation à un chapitre, un module, une matière ou au programme. Reprend l'entité de la proposition, élargie. |
+| Parcours libre | `academy_paths` + `academy_path_items` | Liste ordonnée de **références** vers des leçons ou évaluations de n'importe quel programme. Le parcours lit, il ne possède pas. Reprend l'entité de la proposition, précisée. |
+| Objectifs pédagogiques | `academy_objectives` | Rattachés à un niveau de la hiérarchie. |
+| Compétences | `academy_skills` + liaison | — |
+| Tentatives | `academy_attempts` + réponses | — |
+| Révisions | `academy_review_items` + `academy_review_logs` | Algorithme déterministe, sans IA. |
+| Calendrier | `academy_sessions` | Cours, séances de travail, révisions, évaluations. |
+| Notes et fiches | `academy_notes` | `kind` ∈ `note` / `fiche`. |
+| Ressources pédagogiques | `academy_resources` | Lien, fichier dans Supabase Storage, ou texte. |
+| Professeur IA | historique de conversation | Porté par le service commun IA ou par Academy : à trancher avec DEC-015. |
+
+**Question ouverte, la plus structurante pour le modèle** : une table par niveau, chaque niveau intermédiaire pouvant être absent, ou une table d'arborescence unique portant un type de niveau. **Hypothèse retenue à ce stade : une table par niveau**, parce que [12-modele-de-donnees.md](../Documentation-Strategique/Markdown/12-modele-de-donnees.md) veut des relations explicites et que chaque niveau porte des attributs distincts. Hypothèse à confirmer avant toute migration.
+
+Règles applicables à toutes ces tables, héritées du dépôt et non négociables : `user_id` sur chaque table, dépendantes comprises ([DEC-013](#dec-013---traitement-des-tables-dépendantes-lors-dun-effacement--suppression-explicite-actif)) ; `created_at`, `updated_at`, `deleted_at` (suppression logique par défaut) ; clés étrangères composites `(id, user_id)` entre tables Academy ; RLS par propriétaire ; `revoke all … from anon, authenticated` **avant** tout `grant`, leçon des chantiers 6 et 7 ; aucun `DELETE` accordé ; **aucun `projet_id` ni `marque_id`** ([DEC-010](#dec-010---aucun-rattachement-marqueprojet-tant-que-le-concept-nexiste-pas-en-code)) ; progression et niveau de compétence **calculés, jamais stockés**, sur le patron du module Objectifs.
+
+Ce que cette décision ne fait pas :
+
+- **elle ne lance pas le développement.** [02-strategie-produit.md](../Documentation-Strategique/Markdown/02-strategie-produit.md) maintient la seconde règle de séquencement : aucun nouveau chantier fonctionnel tant que l'audit de sécurité n'est pas clos. Au 2026-11-22, sa clôture **n'est pas établie** — voir le chantier 2 de `suivi-chantiers-edifice.md` et l'entrée `pending` du même jour dans `MANUAL_ACTIONS.md` ;
+- elle ne crée aucune page, aucune route, aucune entrée de navigation, aucune migration, aucune table ;
+- elle ne modifie ni Personnel, ni Contenu, ni Trajectoire.
+
+Conséquences :
+
+- l'étape 1 du chantier Academy (squelette de l'espace, sans base de données) attend la clôture établie de l'audit **et** une validation explicite du porteur du projet ;
+- la priorité affichée dans `suivi-chantiers-edifice.md` devient le chantier 8, EDIFICE ACADEMY ;
+- tout écran d'Academy affiche ce qui existe réellement : une capacité non construite est signalée comme telle, jamais simulée.
+
+Fichiers liés :
+
+- `knowledge/Documentation-Strategique/Markdown/02-strategie-produit.md`, `10-architecture-systeme.md`, `22-espaces-et-marques.md`, `30-trajectoire.md`, `90-glossaire.md`
+- `knowledge/Documentation-Technique-Code/05_Database.md`, `06_Modules.md`
+- `suivi-chantiers-edifice.md` (chantier 8)
+
+### DEC-015 - Le service commun IA est multi-fournisseurs et multi-modèles — révise DEC-011
+
+Date : 2026-11-22  
+Statut : actif — orientation d'architecture. **Aucun fournisseur n'est branché, aucune clé n'est créée.**
+
+Contexte : [DEC-011](#dec-011---lassistant-restera-un-moteur-déterministe-jusquà-nouvel-ordre--llm-prévu-pas-construit-maintenant) constate qu'aucun LLM n'est appelé dans le dépôt et reporte leur introduction. [20-catalogue-services.md](../Documentation-Strategique/Markdown/20-catalogue-services.md) fait de l'IA un service commun unique, « un cerveau, plusieurs portées », et [14-integrations.md](../Documentation-Strategique/Markdown/14-integrations.md) cite Anthropic (Claude) comme moteur principal et OpenAI comme capacité complémentaire, « pour éviter une dépendance unique ». [DEC-014](#dec-014---edifice-academy-devient-le-troisième-espace-et-la-priorité-de-développement--personnel-est-mis-en-pause) introduit un consommateur concret, le Professeur IA. Rien ne disait encore **comment** le service serait construit, ni comment éviter qu'une première intégration l'enferme dans un fournisseur.
+
+Décision :
+
+1. **Un seul point d'accès aux modèles pour toute la plateforme**, côté serveur. Aucun pôle, espace ou module n'importe un SDK de fournisseur, ne lit une clé de fournisseur, ni ne construit une requête propre à un fournisseur. Academy, l'Assistant et tout consommateur futur appellent le service en nommant un **usage** — par exemple « professeur », « assistant » ou « génération de quiz » —, jamais un modèle.
+2. **Des adaptateurs par fournisseur, derrière un contrat neutre.** Les types propres à un fournisseur — format des messages, des outils, des erreurs, de l'usage en tokens — ne sortent pas de son adaptateur. Claude peut être le premier fournisseur branché ; il ne devient **pas une dépendance structurelle** : retirer son adaptateur ne doit casser que les usages qui lui sont routés, et ceux-ci doivent pouvoir être reroutés vers un autre fournisseur sans toucher au code consommateur.
+3. **Routage par usage, centralisé.** Le choix du fournisseur et du modèle pour un usage, ses limites (plafond de coût, de tokens, de fréquence) et ses paramètres vivent au même endroit. Tant que la couche de configuration unique n'existe pas ([DEC-009](#dec-009---trois-absences-structurelles-assumées-jusquà-lachèvement-du-pôle-personnel), point 3), ce routage est un **registre statique côté serveur**, sur le modèle de `lib/personal/connectors/registry.ts` — et **pas** un écran de réglages : un réglage propre au service IA serait un mécanisme de configuration parallèle, que la troisième règle d'or interdit. Le registre a vocation à être repris par la couche de configuration le jour où elle existera.
+4. **Coûts, limites et traçabilité centralisés.** Chaque appel est enregistré dans `cost_events` via `recordCostEvent` (`lib/server/cost-tracking.ts`), donc visible dans l'Observatoire, et journalisé avec son usage, son fournisseur et son modèle. Un usage qui dépasse son plafond est refusé par le service, pas par le consommateur. Les clés vivent exclusivement dans des variables d'environnement, une par fournisseur ([13-securite-gouvernance.md](../Documentation-Strategique/Markdown/13-securite-gouvernance.md)).
+5. **Point de validation humaine défini par usage, avant livraison** ([01-principes.md](../Documentation-Strategique/Markdown/01-principes.md), « L'IA augmente, elle ne remplace pas »). Pour le Professeur IA : il explique, propose une fiche, un quiz ou une planification ; **rien de ce qu'il propose n'est enregistré dans Academy sans confirmation explicite**.
+
+Ce que DEC-015 change à DEC-011 :
+
+- DEC-011 reste valable pour l'Assistant : il **reste déterministe** tant que son propre chantier n'est pas ouvert, et la consigne de **ne pas étendre la cascade de mots-clés** est maintenue ;
+- le jour où l'Assistant passera à un LLM, il utilisera ce service commun, pas un moteur propre ;
+- le premier consommateur envisagé devient le Professeur IA d'Academy, et non plus les modules Personnel, en pause ([DEC-014](#dec-014---edifice-academy-devient-le-troisième-espace-et-la-priorité-de-développement--personnel-est-mis-en-pause)) ;
+- les points que DEC-011 posait comme préalables restent entiers : coût à mesurer et plafonner, gestion d'erreur et de latence, **historique de conversation à construire de zéro**.
+
+Ce que cette décision ne fait pas : aucun SDK ajouté à `package.json`, aucune variable d'environnement créée, aucun fichier sous `lib/server/` ; le chemin du service n'est pas fixé. Le premier branchement réel est une étape distincte du chantier Academy. Il demandera une action manuelle — création de la clé et de la variable d'environnement dans Vercel —, et une revue de sécurité, puisqu'il manipule un secret.
+
+**Question ouverte** : l'historique des conversations — table du service commun, portée par usage, ou table propre à Academy. À trancher avant l'étape du Professeur IA.
+
+Fichiers liés :
+
+- `knowledge/Documentation-Strategique/Markdown/20-catalogue-services.md` (section IA)
+- `lib/server/cost-tracking.ts` (existant, à réutiliser)
+- `lib/personal/connectors/registry.ts` (patron de registre statique)
 
 ## Décisions à confirmer
 

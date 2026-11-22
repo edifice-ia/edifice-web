@@ -1,7 +1,7 @@
 # Trajectoire
 
 Statut : source de vérité
-Dernière mise à jour : 2026-08-01
+Dernière mise à jour : 2026-11-22
 
 ## Sommaire
 
@@ -34,7 +34,9 @@ La strate stratégique de Trajectoire agrège les objectifs en lecture, mais ell
 
 ## Roadmap — court terme
 
-**Finir le pôle Personnel.** Priorité numéro un avant tout autre chantier fonctionnel — voir [02-strategie-produit.md](./02-strategie-produit.md). C'est le socle sur lequel repose l'épreuve de l'usage quotidien.
+**Construire Academy.** Priorité numéro un depuis le 2026-11-22 — voir [02-strategie-produit.md](./02-strategie-produit.md) pour l'arbitrage et [22-espaces-et-marques.md](./22-espaces-et-marques.md) pour la cible. Le chantier avance par étapes, chacune utilisable seule : la cible complète n'est pas un lot unique. Son premier jalon fonctionnel attend la clôture de l'audit de sécurité, ci-dessous.
+
+**Personnel en pause.** Priorité numéro un du 2026-08-01 au 2026-11-22, sous la forme « Finir le pôle Personnel » : le socle sur lequel repose l'épreuve de l'usage quotidien. Ses modules déjà construits restent en service ; aucun nouveau module n'y est ajouté pendant la pause. La reprise est une décision à prendre, pas une échéance.
 
 **Clore l'audit de sécurité.** Aucune nouvelle fonctionnalité ne démarre tant qu'il n'est pas clos — voir [13-securite-gouvernance.md](./13-securite-gouvernance.md).
 
@@ -55,6 +57,8 @@ Généraliser l'onboarding public par questionnaire, une fois la couche de confi
 **La dette de sécurité retarde indéfiniment les nouvelles fonctionnalités.** Mitigation : le séquencement est strict et borné — l'audit se clôt avant que quoi que ce soit d'autre reprenne, pas de chantier parallèle qui dilue la priorité.
 
 **La dépendance à un fournisseur bloqué gèle une capacité entière.** Le cas Garmin illustre le risque. Mitigation : un contournement indépendant de l'approbation du fournisseur — Health Auto Export — est déjà actif plutôt qu'attendu.
+
+**La priorité donnée à Academy laisse le socle Personnel inachevé.** Le brief, la priorisation par l'énergie et la consolidation des pôles de lecture reposent sur Personnel ; la pause les laisse en l'état. Mitigation : la pause est explicite et datée, ses conséquences sont écrites plutôt que découvertes, et Academy est construit pour être lisible par ces mêmes surfaces le jour où elles reprendront — voir [22-espaces-et-marques.md](./22-espaces-et-marques.md).
 
 **Construire pour un public qui n'existe pas encore.** Mitigation : simplicité avant généricité — voir [01-principes.md](./01-principes.md) — et séquencement construire-pour-moi-puis-généraliser — voir [02-strategie-produit.md](./02-strategie-produit.md).
 

@@ -1,7 +1,7 @@
 # Stratégie produit
 
 Statut : source de vérité
-Dernière mise à jour : 2026-08-01
+Dernière mise à jour : 2026-11-22
 
 ## Sommaire
 
@@ -38,6 +38,10 @@ C'est le pari stratégique central de cette section : en construisant un moteur 
 
 Deux règles de séquencement gouvernent le travail en cours, avant toute autre priorité.
 
-**Finir le pôle Personnel avant tout le reste.** Personnel est le socle sur lequel repose l'usage quotidien réel décrit plus haut — c'est là que vivent l'énergie, le sommeil, les routines, les objectifs personnels, les données qui permettent de vérifier si L'Édifice tient sa promesse au jour le jour. Tant que ce socle n'est pas terminé, le deuxième temps de la séquence — l'épreuve de l'usage quotidien — reste incomplet, et toute généralisation ou extension ailleurs se construirait sur un usage réel encore partiel.
+**Academy d'abord, Personnel en pause — depuis le 2026-11-22.** EDIFICE ACADEMY, troisième espace de L'Édifice — voir [22-espaces-et-marques.md](./22-espaces-et-marques.md) —, devient la priorité principale de développement. Le pôle Personnel est mis en pause : ses modules déjà construits restent en service, aucun nouveau module n'y est ajouté tant que la pause dure. C'est un arbitrage du porteur du projet, tracé avec ses conséquences dans le registre de décisions technique, [DEC-014](../../Documentation-Technique-Code/03_Decisions.md). Il **suspend** la règle de séquencement qui suit sans l'effacer : son texte est conservé ci-dessous, avec sa période de validité, parce qu'il explique pourquoi Personnel était prioritaire et ce que sa mise en pause laisse inachevé — l'épreuve de l'usage quotidien sur le socle Personnel reste incomplète.
+
+La seconde règle, l'audit de sécurité avant toute nouvelle fonctionnalité, **n'est pas suspendue** : elle s'applique à Academy comme à tout le reste.
+
+**Finir le pôle Personnel avant tout le reste** — règle en vigueur du 2026-08-01 au 2026-11-22, suspendue depuis par la priorité donnée à Academy. Personnel est le socle sur lequel repose l'usage quotidien réel décrit plus haut — c'est là que vivent l'énergie, le sommeil, les routines, les objectifs personnels, les données qui permettent de vérifier si L'Édifice tient sa promesse au jour le jour. Tant que ce socle n'est pas terminé, le deuxième temps de la séquence — l'épreuve de l'usage quotidien — reste incomplet, et toute généralisation ou extension ailleurs se construirait sur un usage réel encore partiel.
 
 **L'audit de sécurité précède toute nouvelle fonctionnalité.** La souveraineté des données n'est pas une fonctionnalité qu'on ajoute après coup — voir [01-principes.md](./01-principes.md). Construire de nouvelles surfaces sur une base dont les failles connues ne sont pas corrigées reviendrait à agrandir une maison dont les fondations n'ont pas été vérifiées. Aucun nouveau chantier fonctionnel ne démarre tant qu'un audit de sécurité en cours n'est pas clos.

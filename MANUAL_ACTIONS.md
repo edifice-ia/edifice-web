@@ -53,6 +53,72 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-11-22 — Contrôles de clôture de l'audit de sécurité (préalable au chantier Academy)
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : les quatre contrôles portent sur l'état réel de la base — policies, privilèges de table, RLS — et ne se lisent que par une requête SQL sur le projet Supabase, depuis le SQL Editor du dashboard. L'agent n'a pas d'accès SQL direct : les variables serveur ne sont pas exposées dans son environnement. Les fichiers de `supabase/migrations` ne prouvent rien sur l'état de la base, qui en a déjà divergé deux fois — policy `content_assets_authenticated_delete` le 2026-07-28, quatre policies `{public}` sur `content_drafts` le 2026-09-28. **Les quatre requêtes sont en lecture seule** : elles ne modifient rien.
+
+**Bloque** : la clôture de l'audit de sécurité (chantier 2 de `suivi-chantiers-edifice.md`), donc le démarrage de tout développement fonctionnel, dont l'étape 1 du chantier 8 — EDIFICE ACADEMY. La clôture demande en plus une décision écrite du porteur du projet ; ces contrôles en sont la base factuelle, pas le substitut.
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. **Contenu des policies de `content_drafts`** — les quatre policies `{public}` absentes des migrations :
+   ```sql
+   select policyname, roles, cmd, permissive, qual, with_check
+   from pg_policies
+   where schemaname = 'public' and tablename = 'content_drafts'
+   order by policyname;
+   ```
+3. **Toute policy ouverte ou applicable à tous les rôles**, sur tout le schéma :
+   ```sql
+   select tablename, policyname, roles, cmd, qual, with_check
+   from pg_policies
+   where schemaname = 'public'
+     and ('public' = any(roles) or qual = 'true' or with_check = 'true')
+   order by tablename, policyname;
+   ```
+4. **Privilèges de table accordés à `anon`, `authenticated` et `PUBLIC`**, sur tout le schéma :
+   ```sql
+   select c.relname as table_name,
+          case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end as grantee,
+          string_agg(a.privilege_type, ', ' order by a.privilege_type) as privileges
+   from pg_class c
+   join pg_namespace n on n.oid = c.relnamespace
+   cross join lateral aclexplode(c.relacl) a
+   where n.nspname = 'public'
+     and c.relkind = 'r'
+     and (a.grantee = 0
+          or a.grantee in (select oid from pg_roles where rolname in ('anon', 'authenticated')))
+   group by 1, 2
+   order by 1, 2;
+   ```
+5. **Tables sans RLS** :
+   ```sql
+   select c.relname
+   from pg_class c
+   join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity
+   order by 1;
+   ```
+6. Copier les quatre résultats tels quels dans la conversation avec l'agent, ou les coller sous cette entrée, pour qu'ils soient consignés dans le dépôt. Les résultats bruts restés dans le SQL Editor ne sont pas versionnés, et c'est ce qui laisse aujourd'hui les quatre policies de `content_drafts` sans contenu connu.
+
+**Vérification** — ce qui est attendu, et ce qui demande une explication :
+
+- étape 2 : lire `qual` et `with_check` de chaque policy. Une policy qui ne restreint pas au propriétaire est à supprimer **par migration versionnée**, pas dans le SQL Editor ;
+- étape 3 : **aucune ligne attendue hors les quatre policies de `content_drafts`** déjà lues à l'étape 2. Toute autre ligne est un objet à expliquer ;
+- étape 4 : `anon` et `PUBLIC` ne doivent apparaître **nulle part**. Pour `authenticated`, chaque ligne doit correspondre **exactement** au dernier `grant` de la migration de la table — ni plus, ni moins. Valeurs attendues d'après les migrations, pour les huit tables du pôle Personnel lues par le client de session :
+  - `personal_notes`, `personal_journal_entries`, `personal_habits`, `personal_tasks`, `personal_goals` : `INSERT, SELECT, UPDATE` ;
+  - `personal_habit_completions`, `personal_journal_entry_categories` : `DELETE, INSERT, SELECT` ;
+  - `personal_journal_categories` : `DELETE, INSERT, SELECT, UPDATE` ;
+  - les neuf tables du chantier 7, `oauth_tokens`, `personal_data_erasure_log` et `personal_item_erasure_log` : **aucune ligne**.
+
+  Toute ligne qui porte `TRUNCATE`, `REFERENCES`, `TRIGGER` ou `MAINTAIN`, ou qui dépasse le `grant` de sa migration, est le défaut des chantiers 6 et 7. C'est ce contrôle qui identifie les deux tables non expliquées de la revue de moindre privilège du chantier 7 ;
+- étape 5 : **aucune ligne attendue**.
+
+Une fois les résultats consignés et expliqués, la clôture reste une **décision écrite du porteur du projet**, à inscrire au chantier 2 : critère de clôture retenu, sort du résiduel connu (exception TikTok, gardes Calendrier écrits à la main, `/api/personal` absent de `reviewerBlockedPrefixes`, limites de vérification du chantier 7).
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`

@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-09-20
+Dernière mise à jour : 2026-11-22
 
 ## Sommaire
 
@@ -13,6 +13,7 @@ Dernière mise à jour : 2026-09-20
 - [Modules de publication](#modules-de-publication)
 - [Modules d'observation](#modules-dobservation)
 - [Modules personnels](#modules-personnels)
+- [Espace Academy — décidé, non construit](#espace-academy--décidé-non-construit)
 - [Service renderer](#service-renderer)
 - [Liens utiles](#liens-utiles)
 - [À mettre à jour](#à-mettre-à-jour)
@@ -32,7 +33,7 @@ Point central de conversation, analyse et orchestration. Il s'appuie sur :
 - `lib/server/assistant-workflows/engine.ts`
 - `components/cockpit/AssistantCommandCenter.tsx`
 
-**Ce module n'appelle aucun LLM.** `answerConversation` est une cascade de correspondance de mots-clés qui assemble du texte à partir d'un contexte pré-calculé, sans prompt, sans modèle et sans `tools`. Il n'y a pas non plus d'historique de conversation, et `buildProjectContext()` ne prend aucun `userId` — le contexte est entièrement projet, sans rien de Personnel ni de Trajectoire. Constat de l'audit du 2026-08-04, état assumé et non défaut : voir [Décisions](./03_Decisions.md) DEC-011, qui porte aussi la consigne de **ne pas étendre cette cascade** pour y brancher la lecture d'un module.
+**Ce module n'appelle aucun LLM.** `answerConversation` est une cascade de correspondance de mots-clés qui assemble du texte à partir d'un contexte pré-calculé, sans prompt, sans modèle et sans `tools`. Il n'y a pas non plus d'historique de conversation, et `buildProjectContext()` ne prend aucun `userId` — le contexte est entièrement projet, sans rien de Personnel ni de Trajectoire. Constat de l'audit du 2026-08-04, état assumé et non défaut : voir [Décisions](./03_Decisions.md) DEC-011, qui porte aussi la consigne de **ne pas étendre cette cascade** pour y brancher la lecture d'un module. Depuis le 2026-11-22, DEC-015 précise la forme du futur service commun IA, multi-fournisseurs, que l'Assistant utilisera le jour où il passera à un LLM ; l'état décrit ici est inchangé.
 
 ### Cockpit général
 
@@ -252,6 +253,8 @@ Le calcul de progression retenue est **implémenté deux fois** : `retainedObjec
 ## Modules personnels
 
 ### Personnel
+
+> **En pause depuis le 2026-11-22** — [Décisions](./03_Decisions.md) DEC-014. Les cinq modules à saisie manuelle décrits ci-dessous restent en service, dans l'état documenté ; aucun nouveau module n'est construit pendant la pause, Nutrition compris. Le volet Vitals, déjà en pause, le reste. Cette section décrit l'état du code, que la pause ne modifie pas.
 
 OS personnel distinct du cockpit éditorial : suivi d'énergie, sommeil, sport, objectifs, routines, journal et notes. Sert de surface de lecture pour des connecteurs de données externes et de croisement en lecture seule avec Trajectoire.
 
@@ -646,6 +649,33 @@ Branchée le 2026-09-19. Objectifs est une **table unique**, comme Notes et Tâc
 > ⚠️ **Deux affirmations de cette sous-section sont dépassées depuis le 2026-09-19** : « Le `POST` de « Vider l'historique » n'a pas été exercé » — vrai du seul test de contrat — et « Aucun test de bout en bout de ces deux gestes n'a encore été mené ». Le test de bout en bout par pilotage navigateur humain a exercé les deux gestes sur le compte de test — 13:35:14 UTC pour « Supprimer définitivement », 13:35:53 UTC pour « Vider Objectifs », **horodatages lus en base** — et validé aussi l'interface : création avec virgule, refus à quatre décimales, mise à jour de valeur, archivage et restauration. Relecture en base le 2026-09-20 : 13 contrôles sur 13 — table vidée pour ce compte, une entrée `personal_item_erasure_log` et une entrée `personal_data_erasure_log` (`deleted_count` à 4), toutes deux au bon compte et sans contenu.
 >
 > **Limites** : l'isolation entre comptes n'a pas été re-testée — établie par construction, non par un test à deux comptes — ; et `personal_data_erasure_log` ne compte qu'une seule entrée pour ce compte, explication vraisemblable liée aux recréations successives du compte, **non vérifiée**. Voir le changelog, entrée « module Objectifs : suppression physique ».
+
+## Espace Academy — décidé, non construit
+
+Troisième espace de la plateforme, priorité de développement depuis le 2026-11-22 : voir [Décisions](./03_Decisions.md) DEC-014 et DEC-015, et la cible dans [22-espaces-et-marques.md](../Documentation-Strategique/Markdown/22-espaces-et-marques.md).
+
+**État réel du code au 2026-11-22 : rien.** Aucune route sous `app/interface`, aucune route API, aucun fichier sous `lib/`, aucune entrée dans `cockpitNavigation` ni dans `cockpitModules`, aucune table. Recherche faite le même jour sur « academy », « académie » et « academie » dans tout le dépôt : aucune occurrence hors de la documentation. Cette section existe pour que l'espace ne soit ni redécouvert comme un oubli, ni décrit ailleurs comme existant.
+
+**Ce que le code existant offre déjà, vérifié le 2026-11-22**, et qui servira à la construction :
+
+- **authentification des pages** : `app/interface/layout.tsx` appelle `requirePrivateCockpitAccess()` pour toute page sous `/interface`, et le middleware bloque `/interface` pour le rôle reviewer. Une route `/interface/academy` en hérite sans écrire de garde ;
+- **authentification des routes API** : `authorizeCockpitApiAccess()` (`src/lib/auth/api-guards.ts`), garde par défaut de DEC-007 ;
+- **navigation principale** : `CockpitSidebar` surligne déjà une entrée pour toutes ses sous-routes, par préfixe. Une entrée unique suffit ; la navigation intérieure d'Academy vivra dans son propre layout, pas dans `children` ;
+- **agenda externe en lecture** : `readCalendarEventsForParisRange()` (`lib/server/calendar/calendar-events-store.ts`), déjà partagée entre le Cockpit et Personnel. Scope `calendar.readonly` : Academy ne pourra pas écrire dans Google. La fonction ne prend pas de `userId` — hypothèse mono-utilisateur assumée ailleurs dans le dépôt ;
+- **coûts** : `recordCostEvent()` (`lib/server/cost-tracking.ts`) et la table `cost_events`, lus par l'Observatoire.
+
+**Ce qui n'existe pas et que la cible suppose** : le service commun IA (aucun SDK de modèle dans `package.json`), le service Notifications, le bus d'événements, la couche de configuration unique (DEC-009). Aucun n'est rouvert par DEC-014 ; le service IA est cadré par DEC-015 sans être construit.
+
+**Points de conception déjà fixés**, pour que la construction ne les retranche pas :
+
+- même identifiant `academy` dans `cockpitNavigation` et `cockpitModules` : DEC-009 relève que ces deux registres divergent, il ne faut pas ajouter une divergence. `cockpitModules` est lu par le contexte de l'Assistant (`build-project-context.ts`) et par la page Accueil : l'ajout y fera apparaître Academy, ce qui est attendu ;
+- aucun mécanisme d'activation propre à Academy ;
+- primitives d'interface propres à Academy, sans importer celles de Personnel, en pause, ni celles du cockpit ;
+- le niveau pédagogique « module » reçoit un identifiant de code distinct du module d'architecture (nom de travail `unit`) ;
+- planification stockée dans Academy, agenda Google superposé en lecture seule ;
+- toute capacité IA passe par le service commun ; aucun appel de fournisseur dans Academy.
+
+**Plan d'étapes et blocage** : voir le chantier 8 de `suivi-chantiers-edifice.md`. L'étape 1 attend la clôture établie de l'audit de sécurité et une validation explicite.
 
 ## Service renderer
 

@@ -1,7 +1,7 @@
 # Espaces et marques
 
 Statut : source de vérité
-Dernière mise à jour : 2026-08-01
+Dernière mise à jour : 2026-11-22
 
 ## Sommaire
 
@@ -10,11 +10,14 @@ Dernière mise à jour : 2026-08-01
 - [Anatomie type d'une marque](#anatomie-type-dune-marque)
 - [Statuts de maturité](#statuts-de-maturité)
 - [Une cible, pas un chantier court terme](#une-cible-pas-un-chantier-court-terme)
+- [Espace Academy](#espace-academy)
+  - [La hiérarchie pédagogique](#la-hiérarchie-pédagogique)
+  - [Ce qu'Academy compose](#ce-quacademy-compose)
 - [Espace Trajectoire](#espace-trajectoire)
 
 ## Rôle du document
 
-Ce document décrit les deux espaces de L'Édifice — conteneurs d'instances duplicables au sens défini dans [10-architecture-systeme.md](./10-architecture-systeme.md), que ce document ne redéfinit pas. La première partie détaille l'espace Contenu et l'anatomie type d'une marque. La seconde renvoie à [30-trajectoire.md](./30-trajectoire.md) pour le détail de l'espace Trajectoire.
+Ce document décrit les trois espaces de L'Édifice — conteneurs d'instances duplicables au sens défini dans [10-architecture-systeme.md](./10-architecture-systeme.md), que ce document ne redéfinit pas. La première partie détaille l'espace Contenu et l'anatomie type d'une marque. La deuxième décrit l'espace Academy et sa hiérarchie pédagogique. La troisième renvoie à [30-trajectoire.md](./30-trajectoire.md) pour le détail de l'espace Trajectoire.
 
 ## Espace Contenu
 
@@ -53,7 +56,49 @@ Chaque fonction ci-dessus porte un statut réel, pas une promesse :
 
 ## Une cible, pas un chantier court terme
 
-Cette anatomie complète est la vision cible de ce que doit devenir une marque dans L'Édifice — elle n'est pas la prochaine chose à construire. La priorité actuelle reste de finir le pôle Personnel avant tout nouveau chantier fonctionnel, voir [02-strategie-produit.md](./02-strategie-produit.md). Poser cette anatomie maintenant sert à donner une direction claire à ce que chaque brique deviendra, pas à annoncer un calendrier de livraison.
+Cette anatomie complète est la vision cible de ce que doit devenir une marque dans L'Édifice — elle n'est pas la prochaine chose à construire. La priorité actuelle est Academy, le pôle Personnel étant en pause depuis le 2026-11-22 — voir [02-strategie-produit.md](./02-strategie-produit.md) ; la priorité n'est en tout cas pas l'anatomie de marque. Poser cette anatomie maintenant sert à donner une direction claire à ce que chaque brique deviendra, pas à annoncer un calendrier de livraison.
+
+## Espace Academy
+
+Academy est le troisième espace de L'Édifice, ajouté le 2026-11-22 et prioritaire depuis cette date — voir [02-strategie-produit.md](./02-strategie-produit.md). C'est un environnement d'apprentissage autonome : accessible depuis la navigation principale, doté de sa propre navigation intérieure. Comme Trajectoire, c'est un **espace singleton** au sens de [10-architecture-systeme.md](./10-architecture-systeme.md) : ses instances — des programmes d'apprentissage — se créent et se multiplient, le conteneur reste unique.
+
+**Au 2026-11-22, rien n'est construit.** Tout ce qui suit est la cible, et chaque fonction porte le statut **Futur** au sens des statuts de maturité ci-dessus.
+
+### La hiérarchie pédagogique
+
+Un programme d'apprentissage n'est pas une liste de formations. La structure cible est un **curriculum** hiérarchique, à six niveaux :
+
+```text
+CURRICULUM  (programme complet — l'instance de l'espace)
+  -> MATIERES ou domaines d'apprentissage
+       -> MODULES
+            -> CHAPITRES
+                 -> COURS et LECONS
+                      -> EXERCICES et EVALUATIONS
+```
+
+**Les exercices et évaluations ne sont pas tous au dernier niveau.** Un exercice accompagne une leçon ; une évaluation peut porter sur un chapitre, un module, une matière ou le curriculum entier. Le schéma ci-dessus donne la profondeur, pas la seule place des évaluations.
+
+Deux formes plus légères restent possibles, sans que la structure complète soit imposée — application directe du principe central, « rien n'est obligatoire » ([01-principes.md](./01-principes.md)) :
+
+- **la formation indépendante** : un programme qui commence au niveau des modules, sans curriculum ni matières au-dessus ;
+- **le parcours libre** : une suite ordonnée de leçons et d'évaluations choisies dans un ou plusieurs programmes. Le parcours **référence** ces éléments, il ne les possède ni ne les copie — la première règle d'or, à l'échelle d'Academy.
+
+« Module » a ici un sens pédagogique, distinct du module d'architecture de [10-architecture-systeme.md](./10-architecture-systeme.md) : à l'écran le libellé reste « Module », dans le code les deux sens ne se croisent jamais.
+
+### Ce qu'Academy compose
+
+Sa navigation intérieure donne plusieurs vues sur les mêmes programmes :
+
+- **tableau de bord pédagogique** et **suivi de progression et des compétences** : des vues calculées en lecture. Une progression ne se saisit pas, elle se déduit de ce qui a été fait ;
+- **calendrier d'Academy** : planification des cours, des séances de travail, des révisions et des évaluations. Les séances planifiées sont des données d'Academy. L'agenda externe, synchronisé en lecture seule, peut s'y superposer pour montrer le temps déjà engagé ; Academy n'y écrit pas — voir le principe de moindre privilège dans [13-securite-gouvernance.md](./13-securite-gouvernance.md) ;
+- **programmes et objectifs pédagogiques**, **leçons et ressources pédagogiques**, **notes et fiches de révision**, **quiz, exercices et évaluations** : le contenu des programmes ;
+- **révisions intelligentes** : une planification des révisions calculée à partir des résultats passés. C'est un calcul, pas une décision : il relève du principe « tout automatiser », pas de l'IA ;
+- **Professeur IA** : un usage du service commun IA, voir [20-catalogue-services.md](./20-catalogue-services.md). Academy ne porte aucun moteur IA propre. Le professeur explique et propose ; rien de ce qu'il propose n'entre dans un programme sans validation explicite.
+
+**Ce qu'Academy rend possible ailleurs** — la question que [01-principes.md](./01-principes.md) impose à toute nouvelle capacité : pour l'Assistant, une donnée d'apprentissage lisible en portée large ; pour le brief, la charge de séances et de révisions du jour, à croiser avec l'énergie et l'agenda ; pour l'Observatoire, le coût des usages IA d'Academy, centralisé par le service commun. Aucune de ces lectures n'existe aujourd'hui : elles sont la condition pour qu'Academy ne devienne pas un silo de plus.
+
+**Ce qu'Academy ne fait pas** : il ne rattache aucun programme à une marque ni à un projet tant que ces entités n'existent pas en code, et il n'introduit aucun mécanisme d'activation propre — l'activation passera par la couche de configuration unique, comme pour toute autre surface ([11-modularite-configuration.md](./11-modularite-configuration.md)).
 
 ## Espace Trajectoire
 

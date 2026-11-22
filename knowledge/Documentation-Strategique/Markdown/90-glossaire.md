@@ -1,7 +1,7 @@
 # Glossaire
 
 Statut : source de vérité
-Dernière mise à jour : 2026-08-01
+Dernière mise à jour : 2026-11-22
 
 ## Sommaire
 
@@ -14,6 +14,8 @@ Ce document rassemble les définitions courtes et canoniques du vocabulaire de L
 
 ## Glossaire
 
+**Academy.** Troisième espace de L'Édifice, singleton : environnement d'apprentissage autonome, avec sa propre navigation intérieure, qui contient des programmes d'apprentissage. Prioritaire depuis le 2026-11-22. Voir [22-espaces-et-marques.md](./22-espaces-et-marques.md).
+
 **Assistant.** Pôle transversal au-dessus de la capacité IA en portée large. Voit tout, en focus : priorise le contexte actif sans cloisonnement dur, sans jamais posséder ce qu'il lit. Voir [21-poles.md](./21-poles.md).
 
 **Brief du jour.** Vue calculée en lecture, montée par Accueil au démarrage, qui s'adapte aux modules activés et affiche les recommandations de l'IA en portée perso. Voir [21-poles.md](./21-poles.md).
@@ -22,13 +24,15 @@ Ce document rassemble les définitions courtes et canoniques du vocabulaire de L
 
 **Couche de configuration.** Mécanisme unique qui répond à la question « qu'est-ce qui est allumé pour cet utilisateur, dans ce contexte ? », accessible par trois entrées : le focus de l'Assistant, l'activation des modules dans Réglages, et l'onboarding public. Voir [11-modularite-configuration.md](./11-modularite-configuration.md).
 
+**Curriculum.** Programme d'apprentissage complet d'Academy, structuré en matières, modules, chapitres, cours et leçons, exercices et évaluations. Se distingue de la formation indépendante, qui commence au niveau des modules, et du parcours libre. Voir [22-espaces-et-marques.md](./22-espaces-et-marques.md).
+
 **Désactiver.** Geste qui coupe la synchronisation, les workers et l'affichage d'un module, sans détruire son historique — qui reste lisible par l'IA à la demande. Décision d'économie, jamais de vie privée. Voir [11-modularite-configuration.md](./11-modularite-configuration.md).
 
 **Dette de sommeil.** Écart cumulé entre le sommeil réellement obtenu et le sommeil nécessaire à une récupération complète, mesuré par le module Sommeil pour informer la priorisation par l'énergie. Voir [23-modules.md](./23-modules.md).
 
-**Espace.** Conteneur d'instances duplicables, par opposition au pôle qui est une surface unique. Contenu et Trajectoire sont les deux espaces de L'Édifice. Voir [10-architecture-systeme.md](./10-architecture-systeme.md).
+**Espace.** Conteneur d'instances duplicables, par opposition au pôle qui est une surface unique. Contenu, Trajectoire et Academy sont les trois espaces de L'Édifice. Voir [10-architecture-systeme.md](./10-architecture-systeme.md).
 
-**Espace singleton.** Un espace dont le contenu suit la logique d'instances duplicables, mais dont le conteneur lui-même n'existe qu'en un seul exemplaire. Trajectoire est le seul espace singleton de L'Édifice. Voir [10-architecture-systeme.md](./10-architecture-systeme.md).
+**Espace singleton.** Un espace dont le contenu suit la logique d'instances duplicables, mais dont le conteneur lui-même n'existe qu'en un seul exemplaire. Trajectoire et Academy sont les deux espaces singletons de L'Édifice. Voir [10-architecture-systeme.md](./10-architecture-systeme.md).
 
 **Event bus.** Service commun qui fait circuler les événements d'un composant producteur vers tout composant abonné, sans lien direct entre eux. Voir [10-architecture-systeme.md](./10-architecture-systeme.md).
 
@@ -36,21 +40,29 @@ Ce document rassemble les définitions courtes et canoniques du vocabulaire de L
 
 **Focus.** Le filtre, porté par la couche de configuration, qui restreint l'ensemble des pôles, espaces et modules considérés comme pertinents dans un contexte donné — par exemple le focus perso ou pro de l'Assistant. Voir [11-modularite-configuration.md](./11-modularite-configuration.md).
 
+**Formation indépendante.** Programme d'apprentissage d'Academy qui commence au niveau des modules, sans curriculum ni matières au-dessus. Voir [22-espaces-et-marques.md](./22-espaces-et-marques.md).
+
 **Indice de récupération.** Donnée dérivée du module Sommeil, calculée à partir des métriques brutes de forme physique, utilisée pour prioriser les actions du jour. Voir [23-modules.md](./23-modules.md).
 
 **Marque.** Instance concrète de l'espace Contenu — par exemple Lignes Intérieures ou Tarot & Divination. Compose des services communs avec ses propres données ; ne recode rien. Voir [22-espaces-et-marques.md](./22-espaces-et-marques.md).
 
 **Masquer.** Geste qui retire un module de la navigation sans toucher à sa synchronisation ni à ses workers, qui continuent de tourner. Un geste de rangement, sans conséquence sur le coût ni sur la donnée. Voir [11-modularite-configuration.md](./11-modularite-configuration.md).
 
-**Module.** Domaine de vie qui produit de la donnée métier et se consulte, composé à l'intérieur d'un pôle ou d'un espace plutôt qu'affiché seul. Voir [10-architecture-systeme.md](./10-architecture-systeme.md).
+**Module.** Domaine de vie qui produit de la donnée métier et se consulte, composé à l'intérieur d'un pôle ou d'un espace plutôt qu'affiché seul. À ne pas confondre avec le niveau « module » d'un curriculum d'Academy, qui est une subdivision pédagogique. Voir [10-architecture-systeme.md](./10-architecture-systeme.md).
 
 **Niveau de confiance.** Le degré d'autonomie accordé à une action ou une automatisation. Il grandit avec ce que le système prouve, jamais accordé par défaut. Voir [00-manifeste.md](./00-manifeste.md).
 
 **Niveau d'énergie.** L'état réel de la personne — sommeil, charge, récupération — croisé avec ce qui est possible, pour décider ce qui mérite d'être fait aujourd'hui. Voir [01-principes.md](./01-principes.md).
 
+**Parcours libre.** Suite ordonnée de leçons et d'évaluations choisies dans un ou plusieurs programmes d'Academy, qu'elle référence sans les posséder ni les copier. Voir [22-espaces-et-marques.md](./22-espaces-et-marques.md).
+
 **Plateforme.** L'Édifice lui-même : le niveau qui contient tout ce qui suit, sans valeur métier propre. Voir [10-architecture-systeme.md](./10-architecture-systeme.md).
 
 **Pôle.** Surface unique, non duplicable, qui compose des modules et des services communs. Il en existe cinq : Accueil, Personnel, Assistant, Observatoire, Finances. Voir [10-architecture-systeme.md](./10-architecture-systeme.md).
+
+**Professeur IA.** Usage du service commun IA dans Academy : explique et propose, n'enregistre rien sans validation explicite. Academy ne porte aucun moteur IA propre. Voir [20-catalogue-services.md](./20-catalogue-services.md).
+
+**Programme d'apprentissage.** Instance concrète de l'espace Academy : un curriculum complet ou une formation indépendante. Voir [22-espaces-et-marques.md](./22-espaces-et-marques.md).
 
 **Projet.** Instance concrète de l'espace Trajectoire, racine d'une hiérarchie propre faite d'objectifs et d'actions. Voir [12-modele-de-donnees.md](./12-modele-de-donnees.md).
 

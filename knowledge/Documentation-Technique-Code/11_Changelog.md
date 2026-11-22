@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-10-04
+Dernière mise à jour : 2026-11-22
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-22 (EDIFICE ACADEMY : étape 0, décisions et documentation)](#2026-11-22-edifice-academy--étape-0-décisions-et-documentation)
 - [2026-10-04 (chantier 7 : migration appliquée en base)](#2026-10-04-chantier-7--migration-appliquée-en-base)
 - [2026-09-28 (chantier 7 : privilèges des neuf tables service-role, migration écrite)](#2026-09-28-chantier-7--privilèges-des-neuf-tables-service-role-migration-écrite)
 - [2026-09-20 (validation UUID des routes /permanent)](#2026-09-20-validation-uuid-des-routes-permanent)
@@ -63,6 +64,34 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-22 (EDIFICE ACADEMY : étape 0, décisions et documentation)
+
+Type : architecture, produit, documentation, sécurité
+
+Résumé : **EDIFICE ACADEMY devient le troisième espace de L'Édifice et la priorité de développement ; le pôle Personnel est mis en pause.** Arbitrage du porteur du projet, formalisé en deux décisions. **Aucun code, aucune migration, aucune table** : Academy n'existe ni dans le code ni en base.
+
+- **DEC-014** : Academy est un espace singleton, avec sa propre navigation intérieure ; il devient la priorité ; Personnel est en pause ; la hiérarchie pédagogique est un curriculum à six niveaux, avec formations indépendantes et parcours libres. La décision liste les contradictions avec l'existant, les entités envisagées — non définitives, `academy_courses` remplacée par `academy_programs` pour éviter la collision avec le niveau « cours » — et ce qu'elle ne fait pas.
+- **DEC-015** : le service commun IA est multi-fournisseurs et multi-modèles. Un consommateur nomme un usage, jamais un modèle ; coûts, limites et journalisation centralisés ; Claude premier fournisseur envisageable, pas dépendance structurelle. **Révise DEC-011**, sans effacer son texte.
+- **Règle « finir Personnel avant tout le reste » suspendue, pas abrogée** : son texte est conservé et daté dans `02-strategie-produit.md` et `30-trajectoire.md`. La seconde règle — l'audit de sécurité avant toute nouvelle fonctionnalité — **reste en vigueur**.
+- **Statut de l'audit de sécurité re-vérifié** : clôture **non établie**. Les lots du chantier 2 et le re-audit `2cf9316` sont dans `origin/main`, et 87 des 88 routes API suivies portent un motif de garde, le seul manquant étant `/api/health`, exception documentée. Mais aucun critère de clôture n'existe, et des objets de sécurité de la base restent au contenu inconnu. Le développement fonctionnel reste donc bloqué. Constat au passage : `be07b02` est déjà dans `origin/main`, alors que le chantier 7 en réservait le push à une demande explicite.
+
+Fichiers liés :
+
+- `knowledge/Documentation-Technique-Code/03_Decisions.md` — DEC-014, DEC-015 ; notes de révision sur DEC-009 et DEC-011
+- `knowledge/Documentation-Technique-Code/05_Database.md` — domaine Academy, sans table
+- `knowledge/Documentation-Technique-Code/06_Modules.md` — section « Espace Academy — décidé, non construit » ; Personnel marqué en pause ; renvoi à DEC-015 dans la section Assistant
+- `knowledge/Documentation-Strategique/Markdown/` : `02-strategie-produit.md`, `10-architecture-systeme.md`, `20-catalogue-services.md`, `22-espaces-et-marques.md`, `30-trajectoire.md`, `90-glossaire.md`, et leurs six PDF régénérés
+- `suivi-chantiers-edifice.md` — chantier 8, priorités réordonnées, re-vérification du chantier 2
+- `MANUAL_ACTIONS.md` — entrée `pending` du 2026-11-22, contrôles de clôture de l'audit
+
+Impact : aucun changement de comportement. La navigation, les registres, Personnel, Contenu et Trajectoire sont inchangés.
+
+Action de suivi :
+
+- contrôles en lecture seule de l'entrée `MANUAL_ACTIONS.md` du 2026-11-22, puis décision écrite du porteur du projet sur la clôture de l'audit ;
+- validation explicite de l'étape 1 du chantier 8, une fois l'audit clos ;
+- points de cohérence laissés ouverts : `12-modele-de-donnees.md` ne cite pas encore le programme d'apprentissage parmi les entités primaires, à faire avec la première migration ; `14-integrations.md` décrit Claude comme « moteur IA principal de l'Assistant », compatible avec DEC-015 mais à relire au premier branchement ; `CLAUDE.md` affirme qu'aucun outil de rendu PDF n'existe, alors que `npm run docs:pdf` existe depuis le 2026-08-01.
 
 ## 2026-10-04 (chantier 7 : migration appliquée en base)
 

@@ -1,7 +1,7 @@
 # Architecture système
 
 Statut : source de vérité — document clé de voûte
-Dernière mise à jour : 2026-08-01
+Dernière mise à jour : 2026-11-22
 
 ## Sommaire
 
@@ -13,7 +13,7 @@ Dernière mise à jour : 2026-08-01
 
 ## Rôle du document
 
-Ce document définit la structure sur laquelle tous les autres documents s'appuient : la hiérarchie Plateforme → Services communs → Modules → Pôles/Espaces → Marques & Projets. Toute décision de conception qui touche à « où range-t-on cette chose » doit pouvoir se trancher en lisant ce document. Il ne détaille ni la couche de configuration — voir [11-modularite-configuration.md](./11-modularite-configuration.md) — ni le modèle de données entité par entité — voir [12-modele-de-donnees.md](./12-modele-de-donnees.md).
+Ce document définit la structure sur laquelle tous les autres documents s'appuient : la hiérarchie Plateforme → Services communs → Modules → Pôles/Espaces → Marques, Projets & Programmes. Toute décision de conception qui touche à « où range-t-on cette chose » doit pouvoir se trancher en lisant ce document. Il ne détaille ni la couche de configuration — voir [11-modularite-configuration.md](./11-modularite-configuration.md) — ni le modèle de données entité par entité — voir [12-modele-de-donnees.md](./12-modele-de-donnees.md).
 
 ## La hiérarchie en cinq niveaux
 
@@ -43,19 +43,21 @@ Ce niveau distingue deux natures de surfaces, toutes deux composées de modules 
 
 **Pôle : surface unique, non duplicable, qui compose des modules et services.** Il en existe exactement un exemplaire par plateforme. Les 5 pôles : Accueil, Personnel, Assistant, Observatoire, Finances.
 
-**Espace : conteneur d'instances duplicables.** Sa raison d'être n'est pas de composer des modules pour offrir une vue, mais d'accueillir un nombre variable d'instances que l'utilisateur crée, fait vivre et peut multiplier : Contenu (contient N marques) et Trajectoire (contient N projets).
+**Espace : conteneur d'instances duplicables.** Sa raison d'être n'est pas de composer des modules pour offrir une vue, mais d'accueillir un nombre variable d'instances que l'utilisateur crée, fait vivre et peut multiplier : Contenu (contient N marques), Trajectoire (contient N projets) et, depuis le 2026-11-22, Academy (contient N programmes d'apprentissage).
 
 **Test de décision.** Une surface qui compose des modules et services pour donner une vue, sans elle-même contenir d'instances qu'on crée et qu'on duplique, est un pôle. Une surface dont le contenu réel est fait d'instances qu'on crée, duplique et fait vivre indépendamment est un espace — l'espace n'est que le conteneur, l'instance porte la valeur.
 
 **Le cas Trajectoire : espace singleton.** Trajectoire contient des instances duplicables — des projets — ce qui en fait un espace par nature, pas un pôle. Mais il n'existe qu'un seul Trajectoire dans toute la plateforme : sa cardinalité au niveau du conteneur est celle d'un pôle, même si son contenu suit la logique d'un espace. D'où le terme d'espace singleton : espace par nature de son contenu, singleton par cardinalité du conteneur. Trajectoire porte en plus une strate stratégique qui agrège en lecture les projets qu'il contient, sans jamais les posséder — cette strate applique la première règle d'or (voir [01-principes.md](./01-principes.md)) : elle lit, elle ne possède pas.
 
+**Le cas Academy : troisième espace, lui aussi singleton.** Academy contient des programmes d'apprentissage — un curriculum complet ou une formation indépendante —, que l'utilisateur crée et multiplie : c'est un espace par nature. Comme Trajectoire, il n'en existe qu'un seul dans la plateforme. Il est accessible directement depuis la navigation principale et porte sa propre navigation intérieure, parce qu'il compose à l'intérieur de lui-même plusieurs vues sur ses instances — tableau de bord, calendrier, progression, révisions. Ces vues lisent les programmes, elles ne les possèdent pas — la première règle d'or, appliquée comme à la strate stratégique de Trajectoire. Academy consomme les services communs, IA comprise, sans en recoder aucun. Sa structure pédagogique est décrite dans [22-espaces-et-marques.md](./22-espaces-et-marques.md).
+
 **Une note de nommage.** « Pôle » et « espace » sont du vocabulaire d'architecture — il sert la documentation et le code. À l'écran, les noms sont nus, sans préfixe : on affiche « Personnel », jamais « Pôle Personnel ».
 
 **Hors taxonomie.** Réglages et Ressources sont deux surfaces uniques supplémentaires de la plateforme. Elles ne sont comptées ni parmi les 5 pôles ni parmi les espaces : ce sont des surfaces système — l'une pour la configuration, l'autre pour la ressource documentaire — dont le détail relève d'autres documents.
 
-### 5. Marques et Projets
+### 5. Marques, Projets et Programmes
 
-Les marques et les projets sont les instances concrètes qui vivent à l'intérieur d'un espace : une marque dans Contenu (par exemple Lignes Intérieures, Tarot & Divination, Future Influenceuse IA), un projet dans Trajectoire. Une instance compose des services communs avec ses propres données ; elle ne recode rien de ce qui existe déjà en dessous.
+Les marques, les projets et les programmes d'apprentissage sont les instances concrètes qui vivent à l'intérieur d'un espace : une marque dans Contenu (par exemple Lignes Intérieures, Tarot & Divination, Future Influenceuse IA), un projet dans Trajectoire, un programme dans Academy. Une instance compose des services communs avec ses propres données ; elle ne recode rien de ce qui existe déjà en dessous.
 
 ## Carte complète
 
@@ -79,16 +81,16 @@ Les marques et les projets sont les instances concrètes qui vivent à l'intéri
   └─────────┴───────────┴───────────┴──────────────┴──────────┘
 
   ESPACES  (conteneurs d'instances duplicables)
-  ┌────────────────────────────┬────────────────────────────────┐
-  │ Contenu                    │ Trajectoire (espace singleton) │
-  │  -> N marques              │  -> N projets                  │
-  │     Lignes Interieures     │     + strate strategique       │
-  │     Tarot & Divination     │       (lecture agregee,        │
-  │     Future Influenceuse IA │       cf. regle d'or n.1)      │
-  └────────────────────────────┴────────────────────────────────┘
+  ┌────────────────────────────┬────────────────────────────────┬──────────────────────────────┐
+  │ Contenu                    │ Trajectoire (espace singleton) │ Academy (espace singleton)   │
+  │  -> N marques              │  -> N projets                  │  -> N programmes             │
+  │     Lignes Interieures     │     + strate strategique       │     curriculum ou formation  │
+  │     Tarot & Divination     │       (lecture agregee,        │  + navigation interieure     │
+  │     Future Influenceuse IA │       cf. regle d'or n.1)      │    (vues en lecture)         │
+  └────────────────────────────┴────────────────────────────────┴──────────────────────────────┘
                               |
                               v
-  MARQUES & PROJETS  (instances concretes)
+  MARQUES, PROJETS & PROGRAMMES  (instances concretes)
   composent des services communs avec leurs propres donnees ;
   ne recodent rien.
 

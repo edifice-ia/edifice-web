@@ -1,17 +1,50 @@
 # Suivi des chantiers — L'Édifice
 
-*Chantiers 4 et 5 mis à jour le 24 août 2026, chantier 6 le 3 septembre 2026, vérifiés contre le code, l'historique git et la base. Une date du chantier 4 requalifiée le 14 septembre 2026, sans re-vérification du reste du chantier. Chantier 7 ouvert le 28 septembre 2026, et une affirmation du chantier 6 corrigée le même jour ; migration du chantier 7 appliquée en base, compte rendu du 4 octobre 2026. Les chantiers 1, 2 et 3 datent du 28 juillet 2026 et n'ont pas été re-vérifiés depuis.*
+*Chantiers 4 et 5 mis à jour le 24 août 2026, chantier 6 le 3 septembre 2026, vérifiés contre le code, l'historique git et la base. Une date du chantier 4 requalifiée le 14 septembre 2026, sans re-vérification du reste du chantier. Chantier 7 ouvert le 28 septembre 2026, et une affirmation du chantier 6 corrigée le même jour ; migration du chantier 7 appliquée en base, compte rendu du 4 octobre 2026. Les chantiers 1, 2 et 3 datent du 28 juillet 2026 et n'ont pas été re-vérifiés depuis. Chantier 8 (EDIFICE ACADEMY) ouvert le 22 novembre 2026 ; le même jour, le statut du chantier 2 est re-vérifié contre git et le code, et la priorité des chantiers change (DEC-014).*
 
 *Principe de ce document, inchangé : chaque état est vérifié contre le code et l'historique git, jamais contre la version précédente de ce fichier.*
 
 ## Priorités (par urgence réelle)
 
-1. **Chantier 2 — Audit de sécurité.** Des failles réelles restent ouvertes en production (routes OAuth Instagram/Pinterest sans authentification, table `content_assets` sans isolation utilisateur, modes debug non gatés sur plusieurs providers). Le Lot 1 est poussé, mais tant que les Lots 2 et 3 ne sont pas traités, l'exposition est active et en prod.
-2. **Chantier 1 — Module Vitals (étape 6, UI).** L'étape 5 (cron quotidien) est committée et poussée (`195aced`). Ce qui reste non committé est le volet suivant — le store de brief quotidien et sa route API — délibérément laissé de côté (voir Chantier 1).
-3. **Chantier 7 — Privilèges hérités sur neuf tables service-role.** Migration écrite le 28 septembre 2026, **appliquée et vérifiée en base** (compte rendu du 4 octobre 2026) : `anon` et `authenticated` n'ont plus aucun privilège sur les neuf tables. Restent des points ouverts, dont deux limites de vérification. Voir plus bas.
-4. ~~**Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/`.**~~ **Terminé** le 24 août 2026 : dix routes converties, quatorze fichiers désormais conformes sous ce chemin. Voir plus bas.
-5. ~~**Chantier 6 — Privilèges hérités du défaut de schéma.**~~ **Terminé** le 30 août 2026, chantier imprévu : cinq tables corrigées et défaut du schéma restreint. Le même défaut subsiste sur d'autres tables : voir le chantier 7.
-6. ~~**Chantier 3 — Audit Observatoire.**~~ **Terminé** le 22 juillet 2026 (`4280a8d`), vérifié dans le code le 28 juillet. Voir plus bas.
+*Réordonnées le 22 novembre 2026 : EDIFICE ACADEMY devient la priorité de développement et le pôle Personnel est mis en pause — [DEC-014](knowledge/Documentation-Technique-Code/03_Decisions.md). L'ordre ci-dessous distingue la priorité de développement de ce qui la bloque.*
+
+1. **Chantier 8 — EDIFICE ACADEMY.** Priorité de développement. Étape 0 (décisions et documentation) faite le 22 novembre 2026. **Développement fonctionnel bloqué** : l'étape 1 attend la clôture établie de l'audit de sécurité (point 2) et une validation explicite du porteur du projet. Voir plus bas.
+2. **Chantier 2 — Audit de sécurité : clôture non établie.** Re-vérifié le 22 novembre 2026 : les trois lots et le re-audit du 28 juillet sont dans `origin/main`, et la vérification `content_assets` est faite et consignée. Mais aucun critère de clôture n'a jamais été écrit, et le chantier 7 laisse en base des objets de sécurité au contenu inconnu. Bloque le chantier 8. Voir plus bas et l'entrée `pending` du 22 novembre 2026 dans `MANUAL_ACTIONS.md`.
+3. **Chantier 7 — Privilèges hérités sur neuf tables service-role.** Migration écrite le 28 septembre 2026, **appliquée et vérifiée en base** (compte rendu du 4 octobre 2026) : `anon` et `authenticated` n'ont plus aucun privilège sur les neuf tables. Restent des points ouverts, dont deux limites de vérification et quatre policies `{public}` au contenu non consigné — ce dernier point fait partie de ce qui empêche de clore l'audit. Voir plus bas.
+4. ~~**Chantier 1 — Module Vitals (étape 6, UI).**~~ **En pause** avec le pôle Personnel depuis le 22 novembre 2026, et déjà de fait depuis juillet faute d'accès Garmin. Le travail non committé — `lib/server/personal/daily-briefs-store.ts` et `app/api/personal/daily-brief/` — reste hors de l'index, intact.
+5. ~~**Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/`.**~~ **Terminé** le 24 août 2026 : dix routes converties, quatorze fichiers désormais conformes sous ce chemin. Voir plus bas.
+6. ~~**Chantier 6 — Privilèges hérités du défaut de schéma.**~~ **Terminé** le 30 août 2026, chantier imprévu : cinq tables corrigées et défaut du schéma restreint. Le même défaut subsiste sur d'autres tables : voir le chantier 7.
+7. ~~**Chantier 3 — Audit Observatoire.**~~ **Terminé** le 22 juillet 2026 (`4280a8d`), vérifié dans le code le 28 juillet. Voir plus bas.
+
+---
+
+## Chantier 8 — EDIFICE ACADEMY — ÉTAPE 0 FAITE, DÉVELOPPEMENT BLOQUÉ
+
+**Objectif** : construire Academy, troisième espace de L'Édifice — environnement d'apprentissage autonome, accessible depuis la navigation principale, avec sa propre navigation intérieure. Cible : [22-espaces-et-marques.md](knowledge/Documentation-Strategique/Markdown/22-espaces-et-marques.md). Décisions : [DEC-014](knowledge/Documentation-Technique-Code/03_Decisions.md) (espace, priorité, pause de Personnel, hiérarchie pédagogique) et DEC-015 (service commun IA multi-fournisseurs, révise DEC-011).
+
+**État au 22 novembre 2026** : étape 0 faite — décisions et documentation, aucun code. **Rien n'existe dans le code ni en base** : vérifié par recherche sur « academy » / « académie » dans tout le dépôt.
+
+**Plan par étapes**, chacune utilisable seule. Chaque étape est commitée avec sa documentation, vérifiée en isolation, puis testée par contrat et de bout en bout :
+
+| Étape | Contenu | Prérequis |
+| --- | --- | --- |
+| 0 | Décisions et documentation | — **fait** |
+| 1 | Squelette de l'espace : route, layout, navigation intérieure, entrée `academy` dans les deux registres, états vides qui le disent. Aucune base de données | Audit clos ; validation explicite |
+| 2 | Hiérarchie pédagogique : programmes, matières, modules, chapitres, leçons, objectifs, ressources. Première migration — le choix « une table par niveau » ou arborescence unique est tranché ici | 1 |
+| 3 | Calendrier d'Academy : séances planifiées, agenda Google superposé en lecture | 2 |
+| 4 | Notes et fiches de révision | 2 |
+| 5 | Quiz, exercices, évaluations, tentatives | 2 |
+| 6 | Révisions intelligentes (algorithme déterministe), progression et compétences calculées | 4, 5 |
+| 7 | Service commun IA, puis Professeur IA | DEC-015 ; clé et variable d'environnement (action manuelle) ; revue de sécurité |
+| 8 | Cycle de vie des données : suppression physique propre à Academy, export | Décision dédiée |
+
+**Hors plan, décisions distinctes** : service Notifications, écriture dans Google Agenda (scope élargi), rattachement à Trajectoire (DEC-010).
+
+**Règle de push** : toute étape qui contient une migration avec `GRANT`, `REVOKE` ou une policy reste en commit local, sans push automatique — règle permanente de `CLAUDE.md`.
+
+**Questions ouvertes, consignées dans DEC-014 et DEC-015** : modèle de la hiérarchie (une table par niveau, hypothèse retenue, ou arborescence unique) ; chemin de suppression physique d'Academy ; emplacement de l'historique des conversations du Professeur IA.
+
+**Prochaine action concrète** : faire établir la clôture de l'audit de sécurité — contrôles de l'entrée `pending` du 22 novembre 2026 dans `MANUAL_ACTIONS.md`, puis décision du porteur du projet sur les points résiduels. Ensuite seulement, validation explicite de l'étape 1.
 
 ---
 
@@ -58,6 +91,8 @@ Rendre l'un ou l'autre atomique demanderait une fonction Postgres `security defi
 
 ## Chantier 1 — Module Personnel/Vitals (intégration Garmin)
 
+> **En pause depuis le 22 novembre 2026**, avec le pôle Personnel — [DEC-014](knowledge/Documentation-Technique-Code/03_Decisions.md). Le contenu ci-dessous date du 28 juillet 2026 et n'est pas re-vérifié.
+
 **Objectif** : croiser les données de forme physique (sommeil, récupération, HRV) avec Trajectoire pour proposer chaque jour un ordre de priorité des actions selon la forme réelle.
 
 **État actuel** :
@@ -82,7 +117,36 @@ Rendre l'un ou l'autre atomique demanderait une fonction Postgres `security defi
 - Gating des modes debug/test : en place sur tous les providers, vérifié le 28 juillet.
 - Re-audit du 28 juillet (`2cf9316`, **local, non poussé**) : six routes API répondaient encore sans session, dont `/api/oauth/youtube/status` et `/api/oauth/calendar/status` qui rafraîchissaient le token stocké et renvoyaient l'identité de la chaîne YouTube / de l'agenda principal. Plus l'OAuth Garmin, oublié du Lot 1 : `start` sans authentification et état PKCE non lié à un utilisateur. Corrigés, documentés en DEC-007.
 
+> ⚠️ **Les deux actions ci-dessous sont faites ; elles sont conservées pour l'historique.** Re-vérification du 22 novembre 2026, ci-après.
+
 **Prochaine action concrète** : relire `2cf9316` puis pousser. Ensuite, vérifier dans le SQL Editor Supabase que les policies RLS `content_assets` sont réellement appliquées — c'est le dernier point du Lot 2 qui ne peut pas être clos depuis le dépôt, et tant qu'il ne l'est pas, la table peut encore être en `using(true)` en production.
+
+### Re-vérification du 22 novembre 2026 — clôture NON établie
+
+Faite pour lever le préalable de sécurité avant le chantier 8. Elle distingue ce que l'agent a **constaté** de ce qui n'est que **consigné**.
+
+**Constaté par l'agent, ce jour, contre git et le code** :
+
+- `985d919` (Lot 1, 2026-07-15), `13a5145` (Lot 3, 2026-07-21), `aeaec7a` (Lot 2, policies, 2026-07-21) et `2cf9316` (re-audit, 2026-07-28) sont tous contenus dans `origin/main` (`git branch -r --contains`). « Relire `2cf9316` puis pousser » est donc fait ; la relecture elle-même n'a laissé aucune trace écrite ;
+- la migration corrective de la policy de suppression, `20260728210000_scope_content_assets_delete_policy_to_owner.sql`, est présente dans `supabase/migrations` ;
+- sur les 88 fichiers `route.ts` suivis par git sous `app/api`, **87 portent un motif de garde** — `authorizeCockpitApiAccess`, `getCurrentUser`, `canAccessPrivateCockpit`, ou une validation de secret. Le seul sans motif est `/api/health`, exception documentée par DEC-007. Limite : c'est une recherche de motif, pas une relecture ; elle prouve la présence d'un garde, pas sa justesse. Le seul fichier de route non suivi, `app/api/personal/daily-brief/route.ts`, n'est pas déployé ;
+- `main` et `origin/main` pointent sur le même commit (`1ecaf85`) : `be07b02`, que le chantier 7 demandait de ne pas pousser sans demande explicite, est **déjà dans `origin/main`**. Qui l'a poussé, et à quelle date, n'est pas établi depuis le dépôt.
+
+**Consigné, non re-vérifiable par l'agent** — pas d'accès SQL à la base :
+
+- la vérification `content_assets` du 2026-07-28 (entrée archivée de `MANUAL_ACTIONS.md`) : policies resserrées, et une policy `_delete` hors migrations, en `qual = true`, trouvée puis corrigée. Le résultat est détaillé et daté, mais il date de près de quatre mois ;
+- le gating des modes debug sur tous les providers, déclaré vérifié le 28 juillet, non re-vérifié depuis.
+
+**Ce qui empêche de déclarer l'audit clos** :
+
+1. **aucun critère de clôture n'a jamais été écrit.** [13-securite-gouvernance.md](knowledge/Documentation-Strategique/Markdown/13-securite-gouvernance.md) parle d'« un audit complet en cours » sans en fixer le périmètre ; ce chantier liste des lots, pas une condition de fin ;
+2. **quatre policies `{public}` sur `content_drafts`, absentes des migrations, au contenu non consigné** (chantier 7). Elles sont inatteignables pour `anon` et `authenticated` depuis la révocation, mais personne ne sait ce qu'elles filtrent. C'est le même motif que la policy `_delete` de `content_assets` — un objet de sécurité créé hors migrations ;
+3. **deux tables non identifiées** dans l'écart de décompte de la revue de moindre privilège (chantier 7) ;
+4. **la base a déjà divergé des migrations deux fois.** Une vérification de quatre mois ne prouve pas l'état présent.
+
+**Résiduel connu, à accepter ou traiter par décision** — ce n'est pas une faille ouverte, mais aucun n'a de date de fin : l'exception de garde de `/api/oauth/tiktok/status`, avec une entrée `pending` depuis le 2026-08-01 ; les gardes écrits à la main sur les routes Calendrier ; l'absence de `/api/personal` dans `reviewerBlockedPrefixes`, défense en profondeur seulement ; les deux limites de vérification du chantier 7.
+
+**Ce qu'il faut pour clore** : les contrôles en lecture seule de l'entrée `pending` du 22 novembre 2026 dans `MANUAL_ACTIONS.md`, qui couvrent les points 2 à 4 ; puis une décision écrite du porteur du projet qui fixe le critère du point 1 et statue sur le résiduel. **Tant que ce n'est pas fait, le développement fonctionnel reste bloqué**, chantier 8 compris — [02-strategie-produit.md](knowledge/Documentation-Strategique/Markdown/02-strategie-produit.md).
 
 ---
 
@@ -185,7 +249,7 @@ Les deux migrations sont **appliquées et vérifiées en base le 2026-08-30** �
 - **gardes en `403` écrits à la main sur les routes Calendrier** : `app/api/oauth/calendar/register-channel/route.ts` et `status/route.ts` appellent `getCurrentUser()` puis `canAccessPrivateCockpit(user)` et répondent `403` ; `callback/route.ts` redirige au lieu de répondre `403`. Aucune n'utilise `authorizeCockpitApiAccess()`, le helper que DEC-007 pose comme défaut ;
 - **revue de moindre privilège des autres tables** : le décompte du contrôle SQL, relevé en base par le mainteneur le 2026-09-28, en compte **18**. Une lecture des migrations en compte **25** hors ces neuf (34 tables en tout, vérifié le 2026-09-28). **5 des 7 d'écart sont expliqués** — `oauth_tokens`, `personal_data_erasure_log` et `personal_item_erasure_log` ne portent aucun grant à `authenticated` (leurs migrations révoquent des deux rôles sans rien re-accorder, patron opposé à celui des tables de ce chantier), et `personal_daily_briefs` / `personal_garmin_daily_stats` sont absentes de la base réelle — voir le constat ci-dessus. **2 restent non identifiés.** La liste des 25 n'est pas dressée ici.
 
-**Prochaine action concrète** : aucune sur la migration elle-même, appliquée. Restent, sans urgence fixée : les points ouverts ci-dessus, la condition de correction des migrations Vitals avant leur application, et la décision de lever ou non les deux limites de vérification (tester le refus attendu sur les cinq tables ; exercer une écriture de l'Atelier de contenu). Pas de push du commit `be07b02` sans demande explicite : la migration contient `REVOKE`, la règle permanente s'applique.
+**Prochaine action concrète** : aucune sur la migration elle-même, appliquée. Restent, sans urgence fixée : les points ouverts ci-dessus, la condition de correction des migrations Vitals avant leur application, et la décision de lever ou non les deux limites de vérification (tester le refus attendu sur les cinq tables ; exercer une écriture de l'Atelier de contenu). Pas de push du commit `be07b02` sans demande explicite : la migration contient `REVOKE`, la règle permanente s'applique. *(Constat du 22 novembre 2026 : `be07b02` est déjà dans `origin/main`, voir la re-vérification du chantier 2.)*
 
 ---
 

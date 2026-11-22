@@ -1,7 +1,7 @@
 # Base de données
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-10-04
+Dernière mise à jour : 2026-11-22
 
 ## Sommaire
 
@@ -156,6 +156,14 @@ Deux choix de conception y sont délibérés :
 Une entrée est écrite **par table effectivement vidée, et non par module** : un module à deux tables comme Habitudes produit deux entrées portant le même `module` et deux `table_name` distincts. C'est le sens de la colonne `table_name`, et c'est ce qui permet au journal de dire combien de réalisations sont parties avec les habitudes — le plus gros des deux volumes, qu'une entrée unique par module aurait tu.
 
 Le geste qui écrit ces entrées vise **un module à la fois** : `POST /api/personal/settings/erase` accepte `module` et non `modules`. Un effacement ne peut donc jamais produire d'entrées pour deux modules différents dans la même requête, et l'ordre d'écriture au sein d'un module est celui de la suppression — les tables dépendantes d'abord, la principale ensuite.
+
+### Academy
+
+**Aucune table.** L'espace Academy est décidé le 2026-11-22 — [Décisions](./03_Decisions.md) DEC-014 — mais aucune migration ne le concerne : aucun fichier de `supabase/migrations` ne contient « academy », vérifié le même jour.
+
+Les entités envisagées, leur articulation avec la hiérarchie pédagogique et les règles qu'elles devront respecter sont tenues dans DEC-014 et **dans cette seule entrée**, pour ne pas faire exister ici, sous forme de liste de tables, un schéma qui n'est pas tranché. Cette page ne décrira les tables Academy qu'au commit de leur migration, comme pour tout autre domaine.
+
+Deux rappels pour ce futur schéma, issus de l'historique de ce document : `revoke all … from anon, authenticated` **avant** tout `grant` — un `grant` est additif, voir la section suivante et les chantiers 6 et 7 de `suivi-chantiers-edifice.md` — et `user_id` porté par chaque table, dépendantes comprises ([DEC-013](./03_Decisions.md)).
 
 ## Privilèges des tables accédées par la seule clé service-role
 

@@ -1,7 +1,7 @@
 # Catalogue des services communs
 
 Statut : source de vérité
-Dernière mise à jour : 2026-08-01
+Dernière mise à jour : 2026-11-22
 
 ## Sommaire
 
@@ -76,9 +76,22 @@ C'est la différence entre construire un CRM pour chaque marque et brancher chaq
 
 **Rôle.** Fournir la capacité de raisonnement et de génération qui alimente aussi bien un brief borné qu'une conversation transversale. Un cerveau, plusieurs portées.
 
-**Consommé par.** Accueil, avec une portée étroite bornée au contexte du jour pour construire le brief ; Assistant, avec une portée large, transversale à toute la plateforme ; et tout module qui a ponctuellement besoin d'une génération.
+**Consommé par.** Accueil, avec une portée étroite bornée au contexte du jour pour construire le brief ; Assistant, avec une portée large, transversale à toute la plateforme ; Academy, pour le Professeur IA — voir [22-espaces-et-marques.md](./22-espaces-et-marques.md) ; et tout module qui a ponctuellement besoin d'une génération.
 
-**Ce qu'il mutualise.** Le moteur lui-même. Il n'existe pas un moteur pour le brief et un autre pour l'Assistant — seulement une portée différente donnée à la même capacité selon le contexte qui l'invoque.
+**Ce qu'il mutualise.** Le moteur lui-même. Il n'existe pas un moteur pour le brief, un autre pour l'Assistant et un troisième pour Academy — seulement une portée différente donnée à la même capacité selon le contexte qui l'invoque.
+
+**Multi-fournisseurs et multi-modèles.** « Un seul moteur » désigne un seul point d'accès, pas un seul fournisseur. Le service mutualise aussi l'accès aux modèles eux-mêmes, et c'est ce qui empêche L'Édifice de s'enfermer dans l'un d'eux :
+
+- **un consommateur nomme un usage, jamais un modèle.** Le choix du fournisseur et du modèle pour cet usage est fait par le service, à un seul endroit ;
+- **aucun consommateur ne parle directement à un fournisseur** : ni bibliothèque propre à un fournisseur, ni clé, ni format de requête. Ces détails restent dans le service, un fournisseur à la fois ;
+- **la configuration, les coûts, les limites et la journalisation des appels sont centralisés** : un plafond se fixe par usage et s'applique dans le service, et chaque appel laisse une trace de coût lisible depuis Observatoire ;
+- **aucun fournisseur n'est une dépendance structurelle.** Claude peut être le premier fournisseur branché — voir [14-integrations.md](./14-integrations.md) —, mais retirer un fournisseur ne doit casser que les usages qui lui sont routés, et ces usages doivent pouvoir être reroutés sans toucher aux surfaces qui les invoquent.
+
+Le choix du modèle par usage fait partie de ce que gouverne la couche de configuration unique — voir [11-modularite-configuration.md](./11-modularite-configuration.md) —, au même titre que le focus de l'Assistant. Il n'a pas de mécanisme de réglage qui lui soit propre.
+
+Chaque usage définit, avant d'être livré, son point de validation humaine — voir le principe « L'IA augmente, elle ne remplace pas » dans [01-principes.md](./01-principes.md).
+
+**État réel au 2026-11-22.** Aucun fournisseur n'est branché : le service n'existe pas encore dans le code. Ce qui précède est la forme qu'il doit prendre dès son premier branchement, pas une description de l'existant.
 
 ## Automatisations
 

@@ -488,6 +488,15 @@ Note (2026-11-22) — **la question ouverte sur l'historique des conversations e
 
 Ce que la note ne fixe pas : la forme de la séparation — une colonne d'usage filtrée systématiquement, ou des tables distinctes —, à trancher à l'étape 7 avec le schéma du service. **Le contenu d'une conversation n'est pas une donnée Academy** au sens des gestes de suppression de DEC-014 : son effacement relèvera du service commun.
 
+Note (2026-11-22) — **critères de choix du fournisseur de recherche web** pour l'usage « création d'un cours à partir d'un sujet demandé ». Arbitrages du porteur du projet, qui complètent les points 1 à 4 ci-dessus. **Aucun fournisseur n'est choisi.**
+
+1. **La recherche passe par le service commun IA.** Aucun fournisseur n'est codé en dur : en changer doit rester une modification de configuration, comme pour un modèle (points 1 à 3).
+2. **Le fournisseur renvoie les URL et les extraits**, pour que la comparaison des sources et la validation humaine soient vérifiables : chaque affirmation du brouillon doit pouvoir être rapprochée de son extrait et de son adresse.
+3. **Le fournisseur ne conserve pas les requêtes ni les résultats pour entraîner ses modèles.** À vérifier dans ses conditions **au moment du choix**, pas avant : des conditions lues aujourd'hui pourraient avoir changé d'ici là.
+4. **Un plafond de dépense par demande**, à fixer à la création de la fonctionnalité, appliqué par le service commun (point 4).
+
+**Le choix du fournisseur est reporté à la création de la fonctionnalité.** Il se fera sur une recherche des offres et des conditions en vigueur à ce moment, **avec ses sources citées**, et sera consigné ici avec la date de lecture des conditions.
+
 Fichiers liés :
 
 - `knowledge/Documentation-Strategique/Markdown/20-catalogue-services.md` (section IA)

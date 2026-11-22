@@ -35,7 +35,7 @@
 | 4 | Notes et fiches de révision | 2 |
 | 5 | Quiz, exercices, évaluations, tentatives | 2 |
 | 6 | Révisions intelligentes (algorithme déterministe), progression et compétences calculées | 4, 5 |
-| 7 | Service commun IA, puis Professeur IA — dont la création d'un cours à partir d'un sujet demandé (voir ci-dessous) | DEC-015 ; clé et variable d'environnement (action manuelle) ; revue de sécurité ; étape 2 (structure où ranger le cours) ; fournisseur de recherche web à choisir |
+| 7 | Service commun IA, puis Professeur IA — dont la création d'un cours à partir d'un sujet demandé (voir ci-dessous) | DEC-015 ; clé et variable d'environnement (action manuelle) ; revue de sécurité ; étape 2 (structure où ranger le cours) ; fournisseur de recherche web à choisir (critères de choix : note du 22 novembre 2026 sous DEC-015) |
 | 8 | Cycle de vie des données : suppression physique propre à Academy (schéma de « Vider l'historique », journal d'effacement dédié — décidé le 22 novembre 2026, DEC-014), export | 2 à 6 |
 
 **Hors plan, décisions distinctes** : service Notifications, écriture dans Google Agenda (scope élargi), rattachement à Trajectoire (DEC-010).

@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-22
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-22 (Academy : critères de choix du fournisseur de recherche web)](#2026-11-22-academy--critères-de-choix-du-fournisseur-de-recherche-web)
 - [2026-11-22 (Academy : module rattaché obligatoirement à une matière)](#2026-11-22-academy--module-rattaché-obligatoirement-à-une-matière)
 - [2026-11-22 (Academy : trois questions d'architecture tranchées)](#2026-11-22-academy--trois-questions-darchitecture-tranchées)
 - [2026-11-22 (Academy : création d'un cours à partir d'un sujet demandé, inscrite au plan)](#2026-11-22-academy--création-dun-cours-à-partir-dun-sujet-demandé-inscrite-au-plan)
@@ -71,6 +72,26 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-22 (Academy : critères de choix du fournisseur de recherche web)
+
+Type : architecture, documentation
+
+Résumé : critères de choix du fournisseur de recherche web pour la création d'un cours à partir d'un sujet demandé, consignés en note datée sous DEC-015. **Aucun fournisseur n'est choisi, aucun code n'est écrit.**
+
+- La recherche passe par le service commun IA ; aucun fournisseur n'est codé en dur, et en changer reste une modification de configuration.
+- Le fournisseur renvoie les URL et les extraits, pour que la comparaison des sources et la validation humaine soient vérifiables.
+- Le fournisseur ne conserve pas les requêtes ni les résultats pour entraîner ses modèles. Ce point sera vérifié dans ses conditions au moment du choix.
+- Un plafond de dépense par demande, à fixer à la création de la fonctionnalité.
+
+Le choix lui-même est reporté à la création de la fonctionnalité. Il s'appuiera sur une recherche sourcée des offres et des conditions en vigueur à ce moment.
+
+Fichiers liés :
+
+- `knowledge/Documentation-Technique-Code/03_Decisions.md` — note datée sous DEC-015
+- `suivi-chantiers-edifice.md` — chantier 8, ligne de l'étape 7 : renvoi vers les critères
+
+Impact : aucun sur le code.
 
 ## 2026-11-22 (Academy : module rattaché obligatoirement à une matière)
 

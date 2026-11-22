@@ -392,7 +392,7 @@ Décision, en cinq points :
 | Niveau ou fonction | Entité envisagée | Remarque |
 |---|---|---|
 | Instance de l'espace | `academy_programs` | `kind` ∈ `curriculum` (programme complet) / `formation` (formation indépendante). **Remplace `academy_courses`** de la proposition d'architecture : « cours » désigne un niveau de la hiérarchie, la collision serait permanente. |
-| Matière ou domaine | `academy_subjects` | Facultatif ; absent d'une formation indépendante. |
+| Matière ou domaine | `academy_subjects` | Facultatif ; absent d'une formation indépendante. *(superseded par la note du 2026-11-22)* |
 | Module pédagogique | `academy_units` | Nom de travail, voir la collision de vocabulaire. |
 | Chapitre | `academy_chapters` | — |
 | Cours et leçon | `academy_lessons` | Couvre les deux libellés ; reprend l'entité de la proposition. |

@@ -35,10 +35,18 @@
 | 4 | Notes et fiches de révision | 2 |
 | 5 | Quiz, exercices, évaluations, tentatives | 2 |
 | 6 | Révisions intelligentes (algorithme déterministe), progression et compétences calculées | 4, 5 |
-| 7 | Service commun IA, puis Professeur IA | DEC-015 ; clé et variable d'environnement (action manuelle) ; revue de sécurité |
+| 7 | Service commun IA, puis Professeur IA — dont la création d'un cours à partir d'un sujet demandé (voir ci-dessous) | DEC-015 ; clé et variable d'environnement (action manuelle) ; revue de sécurité ; étape 2 (structure où ranger le cours) ; fournisseur de recherche web à choisir |
 | 8 | Cycle de vie des données : suppression physique propre à Academy, export | Décision dédiée |
 
 **Hors plan, décisions distinctes** : service Notifications, écriture dans Google Agenda (scope élargi), rattachement à Trajectoire (DEC-010).
+
+**Fonctionnalité inscrite le 22 novembre 2026 — créer un cours à partir d'un sujet demandé.** Rattachée à l'**étape 7** : c'est un usage du service commun IA, au même titre que le Professeur IA, et non une capacité propre à Academy. Elle n'entre donc pas dans les hors-plan. Trois arbitrages du porteur du projet, consignés aussi sous [DEC-015](knowledge/Documentation-Technique-Code/03_Decisions.md) :
+
+1. **Validation humaine obligatoire.** L'IA produit un brouillon de cours, présenté comme une proposition. Rien n'est enregistré en base sans validation explicite de l'utilisateur.
+2. **Source : recherche sur le web, avec comparaison de plusieurs sources** avant de retenir une information, pour éviter les fausses informations. Chaque affirmation du brouillon est rattachée à ses sources, qui restent consultables au moment de la validation.
+3. **Coûts et limites reportés à la création de la fonctionnalité.** Le principe « coûts et limites centralisés » de DEC-015 s'applique ; aucun plafond chiffré n'est fixé pour l'instant.
+
+Rien n'est construit. Deux préalables découlent de ces arbitrages : la structure pédagogique de l'étape 2, dans laquelle le cours validé sera rangé ; et le choix d'un fournisseur de recherche web, nouvelle intégration tierce à documenter le moment venu, avec son coût et le moindre privilège.
 
 **Règle de push** : toute étape qui contient une migration avec `GRANT`, `REVOKE` ou une policy reste en commit local, sans push automatique — règle permanente de `CLAUDE.md`.
 

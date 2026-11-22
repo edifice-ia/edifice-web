@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-22
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-22 (Academy : création d'un cours à partir d'un sujet demandé, inscrite au plan)](#2026-11-22-academy--création-dun-cours-à-partir-dun-sujet-demandé-inscrite-au-plan)
 - [2026-11-22 (audit de sécurité déclaré clos)](#2026-11-22-audit-de-sécurité-déclaré-clos)
 - [2026-11-22 (CRON_SECRET comparé à temps constant)](#2026-11-22-cron_secret-comparé-à-temps-constant)
 - [2026-11-22 (migration pinterest_pins / content_drafts appliquée en base)](#2026-11-22-migration-pinterest_pins--content_drafts-appliquée-en-base)
@@ -68,6 +69,27 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-22 (Academy : création d'un cours à partir d'un sujet demandé, inscrite au plan)
+
+Type : produit, documentation
+
+Résumé : la fonctionnalité « créer un cours à partir d'un sujet demandé » est inscrite au plan d'EDIFICE ACADEMY, **à l'étape 7** (service commun IA, puis Professeur IA), dont elle est un usage. **Documentation uniquement** : aucun code, aucune route, aucune table.
+
+Trois arbitrages du porteur du projet :
+
+- **validation humaine obligatoire** : l'IA produit un brouillon de cours proposé, et rien n'est enregistré en base sans validation explicite ;
+- **sources** : recherche sur le web, avec comparaison de plusieurs sources avant de retenir une information ; chaque affirmation du brouillon est rattachée à ses sources, consultables lors de la validation ;
+- **coûts et limites** : reportés à la création de la fonctionnalité, sous le principe de centralisation de DEC-015, sans plafond chiffré pour l'instant.
+
+Le plan d'étapes d'Academy ne vit pas dans `knowledge/` mais au chantier 8 de `suivi-chantiers-edifice.md`, à la racine du dépôt ; les entités envisagées sont dans DEC-014. C'est là que la fonctionnalité est inscrite.
+
+Fichiers liés :
+
+- `suivi-chantiers-edifice.md` — chantier 8, ligne de l'étape 7 et paragraphe dédié
+- `knowledge/Documentation-Technique-Code/03_Decisions.md` — note datée sous DEC-015
+
+Impact : aucun sur le code. Deux préalables nouveaux pour l'étape 7 : la structure pédagogique de l'étape 2, où le cours validé sera rangé, et le choix d'un fournisseur de recherche web, intégration tierce à documenter.
 
 ## 2026-11-22 (audit de sécurité déclaré clos)
 

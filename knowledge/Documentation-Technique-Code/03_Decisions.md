@@ -455,6 +455,14 @@ Ce que cette décision ne fait pas : aucun SDK ajouté à `package.json`, aucune
 
 **Question ouverte** : l'historique des conversations — table du service commun, portée par usage, ou table propre à Academy. À trancher avant l'étape du Professeur IA.
 
+Note (2026-11-22) — **usage « création d'un cours à partir d'un sujet demandé »**, inscrit à l'étape 7 du chantier Academy (`suivi-chantiers-edifice.md`, chantier 8). Arbitrages du porteur du projet, qui appliquent directement les points 4 et 5 ci-dessus :
+
+- **point de validation humaine** (point 5) : l'IA produit un brouillon de cours proposé ; **rien n'est enregistré en base sans validation explicite** de l'utilisateur ;
+- **sources** : recherche sur le web, avec **comparaison de plusieurs sources** avant de retenir une information. Chaque affirmation du brouillon est rattachée à ses sources, consultables lors de la validation. La recherche web est une capacité du service commun, pas d'Academy : son fournisseur sera routé comme les modèles, et son choix est une intégration tierce à documenter ;
+- **coûts et limites** (point 4) : reportés à la création de la fonctionnalité. Le principe de centralisation s'applique ; **aucun plafond chiffré** n'est fixé à ce stade.
+
+Cette note ne crée pas de décision nouvelle : elle précise un usage de DEC-015. Aucun code, aucune route, aucune table.
+
 Fichiers liés :
 
 - `knowledge/Documentation-Strategique/Markdown/20-catalogue-services.md` (section IA)

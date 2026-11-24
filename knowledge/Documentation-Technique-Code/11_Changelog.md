@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-24 (Academy : isolation côté base des modules, chapitres et leçons)](#2026-11-24-academy--isolation-côté-base-des-modules-chapitres-et-leçons)
 - [2026-11-24 (Academy : routes testées à la main)](#2026-11-24-academy--routes-testées-à-la-main)
 - [2026-11-24 (Academy : routes API de la hiérarchie)](#2026-11-24-academy--routes-api-de-la-hiérarchie)
 - [2026-11-24 (Academy : validation et store de la hiérarchie)](#2026-11-24-academy--validation-et-store-de-la-hiérarchie)
@@ -79,6 +80,25 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-24 (Academy : isolation côté base des modules, chapitres et leçons)
+
+Type : sécurité
+
+Résumé : test d'isolation SQL de `academy_units`, `academy_chapters` et `academy_lessons`, exécuté par Vincent dans le SQL Editor sous `postgres`, **conforme**. L'agent a écrit le script et consigné les résultats ; il n'a exécuté aucune requête.
+
+- Contrôle préalable : `auth.users` sans autre colonne obligatoire que `id`, sans déclencheur.
+- Chaque compte crée sa chaîne (`1 / 1 / 1`) ; les trois insertions de B sous les parents de A sont refusées en `23503` par `academy_units_subject_fk`, `academy_chapters_unit_fk`, `academy_lessons_chapter_fk` ; vues croisées `0 / 0 / 0` dans les deux sens.
+- Transaction terminée par `rollback` ; contrôle après coup à `0` partout.
+
+Avec le test précédent, l'isolation côté base est éprouvée sur les cinq tables. **Non couvert** : cascade à l'usage ; règle d'accès en modification côté base sur ces trois tables.
+
+Fichiers liés :
+
+- `MANUAL_ACTIONS.md` — entrée archivée « Tester l'isolation SQL des tables academy_units, academy_chapters et academy_lessons »
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : aucun sur le code. Prochaine étape : interface de l'étape 2a, sur demande explicite.
 
 ## 2026-11-24 (Academy : routes testées à la main)
 

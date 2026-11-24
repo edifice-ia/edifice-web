@@ -39,6 +39,23 @@
 | 7 | Service commun IA, puis Professeur IA — dont la création d'un cours à partir d'un sujet demandé (voir ci-dessous) | DEC-015 ; clé et variable d'environnement (action manuelle) ; revue de sécurité ; étape 2 (structure où ranger le cours) ; fournisseur de recherche web à choisir (critères de choix : note du 22 novembre 2026 sous DEC-015) |
 | 8 | Cycle de vie des données : suppression physique propre à Academy (schéma de « Vider l'historique », journal d'effacement dédié — décidé le 22 novembre 2026, DEC-014), export | 2 à 6 |
 
+**Journal de temps (temps actif déclaré par le porteur du projet, arrondi à la demi-heure)**
+
+| Date | Plage déclarée | Durée | Travail |
+|---|---|---|---|
+| 2026-11-22 | jusqu'à 21 h (début non précisé, premier commit à 19 h 02) | environ 2 h | étape 0, audit de sécurité, clôture |
+| 2026-11-24 | 9 h 30 à 12 h | 2 h 30 | CRON_SECRET, étape 1, migration 2a |
+| 2026-11-24 | 14 h 30 à 15 h 30 | environ 1 h | isolation, validation, store, audit des routes |
+| **Total** | | **environ 5 h 30** | |
+
+**Estimation restante**, à la date du 2026-11-24 : environ 2 à 3 h pour la fin de l'étape 2a (routes, tests de contrat, tests d'isolation à la main, interface), hors étapes 2b et 3 à 8. Estimation indicative, qui peut évoluer.
+
+Règles du journal :
+
+- chaque ligne est ajoutée à la fin de chaque session, avec la plage déclarée par le porteur du projet ;
+- l'agent ne mesure rien : il recopie ce qui est déclaré ;
+- le total est mis à jour à chaque ajout.
+
 **Étape 2a — isolation côté base vérifiée le 2026-11-24 (academy_subjects) ; routes et cascade à l'usage non testées.** Test du SQL Editor, exécuté par le porteur du projet : B ne voit ni ne modifie le programme de A, et la clé composite de `academy_subjects` refuse en `23503` un enfant de B sous le programme de A ; aucun résidu après `rollback`. Les tables `academy_units`, `academy_chapters` et `academy_lessons` ne sont pas testées individuellement. Détail dans l'entrée archivée du 24 novembre 2026 de `MANUAL_ACTIONS.md`.
 
 **Étape 1 — constat en production, 24 novembre 2026** : après le déploiement de `2a3f82f` en production (`dpl_FAubGHeHg5TBg8GULs8aK3bR7nrc`), la page `/interface/academy` s'affiche avec son bloc « pas encore construit », et le menu principal présente une seule entrée « Academy », active sur les sous-pages. Constaté par le porteur du projet, dans le navigateur. Ce constat ne porte que sur l'interface, et sur ces deux points : aucune donnée, aucune table, aucune route API n'est concernée.

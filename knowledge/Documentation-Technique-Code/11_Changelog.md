@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-24 (Academy : étape 1, squelette de l'espace)](#2026-11-24-academy--étape-1-squelette-de-lespace)
 - [2026-11-24 (CRON_SECRET absent en production, créé et redéployé)](#2026-11-24-cron_secret-absent-en-production-créé-et-redéployé)
 - [2026-11-22 (Academy : critères de choix du fournisseur de recherche web)](#2026-11-22-academy--critères-de-choix-du-fournisseur-de-recherche-web)
 - [2026-11-22 (Academy : module rattaché obligatoirement à une matière)](#2026-11-22-academy--module-rattaché-obligatoirement-à-une-matière)
@@ -73,6 +74,26 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-24 (Academy : étape 1, squelette de l'espace)
+
+Type : produit, interface
+
+Résumé : **étape 1 du chantier 8 faite.** L'espace Academy existe comme squelette : une route, un layout, une navigation intérieure de dix sections, et une entrée dans le menu principal. **Aucune donnée, aucune table, aucune migration, aucune route API, aucun appel à un fournisseur d'IA.** Chaque page annonce qu'elle n'est pas encore construite, et à quelle étape elle le sera.
+
+- `lib/academy/sections.ts` : liste unique des sections, dont dérivent la navigation et les pages.
+- `app/interface/academy/` : `layout.tsx`, `AcademyNav.tsx`, `AcademyPrimitives.tsx`, `page.tsx` (tableau de bord), `[section]/page.tsx` (neuf sections, `404` pour un segment inconnu).
+- `lib/cockpit/navigation.ts`, `lib/cockpit/modules.ts` : entrée `academy`, même identifiant dans les deux, statut `En cours`, sans sous-entrées dans le menu principal.
+- Accès : aucun garde nouveau ; le layout `/interface` et le middleware s'appliquent.
+
+Vérification : `tsc --noEmit`, `eslint` et le build passent. Rendu contrôlé sur le serveur de développement local, avec la session du propriétaire : dix routes en `200`, `404` sur un segment inconnu, redirection vers `/login` sans session, navigation intérieure présente, menu principal avec une seule entrée « Academy ». Un espace manquant dans la ligne « Étape N du plan » a été trouvé à ce contrôle et corrigé avant le commit. **Non vérifié** : le rendu en production.
+
+Fichiers liés :
+
+- `knowledge/Documentation-Technique-Code/06_Modules.md` — section « Espace Academy — squelette construit, sans données »
+- `suivi-chantiers-edifice.md` — chantier 8, étape 1 faite
+
+Impact : nouvelle entrée « Academy » dans le menu latéral et sur la page Accueil ; l'Assistant compte Academy parmi les modules « en cours ». Aucun autre module n'est modifié.
 
 ## 2026-11-24 (CRON_SECRET absent en production, créé et redéployé)
 

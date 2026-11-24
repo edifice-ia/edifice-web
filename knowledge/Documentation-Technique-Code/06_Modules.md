@@ -1,7 +1,7 @@
 # Modules
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-11-22
+Dernière mise à jour : 2026-11-24
 
 ## Sommaire
 
@@ -13,7 +13,7 @@ Dernière mise à jour : 2026-11-22
 - [Modules de publication](#modules-de-publication)
 - [Modules d'observation](#modules-dobservation)
 - [Modules personnels](#modules-personnels)
-- [Espace Academy — décidé, non construit](#espace-academy--décidé-non-construit)
+- [Espace Academy — squelette construit, sans données](#espace-academy--squelette-construit-sans-données)
 - [Service renderer](#service-renderer)
 - [Liens utiles](#liens-utiles)
 - [À mettre à jour](#à-mettre-à-jour)
@@ -650,11 +650,28 @@ Branchée le 2026-09-19. Objectifs est une **table unique**, comme Notes et Tâc
 >
 > **Limites** : l'isolation entre comptes n'a pas été re-testée — établie par construction, non par un test à deux comptes — ; et `personal_data_erasure_log` ne compte qu'une seule entrée pour ce compte, explication vraisemblable liée aux recréations successives du compte, **non vérifiée**. Voir le changelog, entrée « module Objectifs : suppression physique ».
 
-## Espace Academy — décidé, non construit
+## Espace Academy — squelette construit, sans données
 
 Troisième espace de la plateforme, priorité de développement depuis le 2026-11-22 : voir [Décisions](./03_Decisions.md) DEC-014 et DEC-015, et la cible dans [22-espaces-et-marques.md](../Documentation-Strategique/Markdown/22-espaces-et-marques.md).
 
-**État réel du code au 2026-11-22 : rien.** Aucune route sous `app/interface`, aucune route API, aucun fichier sous `lib/`, aucune entrée dans `cockpitNavigation` ni dans `cockpitModules`, aucune table. Recherche faite le même jour sur « academy », « académie » et « academie » dans tout le dépôt : aucune occurrence hors de la documentation. Cette section existe pour que l'espace ne soit ni redécouvert comme un oubli, ni décrit ailleurs comme existant.
+**État réel du code au 2026-11-24 : un squelette, sans aucune donnée** (étape 1 du chantier 8). Aucune route API, aucune table, aucune migration, aucun appel à un fournisseur d'IA. *Jusqu'au 2026-11-24, cette section disait « rien » : aucune route, aucun fichier, aucune entrée de registre — vérifié le 2026-11-22 par recherche sur « academy » dans tout le dépôt.*
+
+Fichiers :
+
+- `lib/academy/sections.ts` — **liste unique** des dix sections : identifiant, segment d'URL, libellé, ce que la section fera, et l'étape du chantier 8 qui la construira. La navigation intérieure et les pages en dérivent ; il n'existe pas d'énumération parallèle ;
+- `app/interface/academy/layout.tsx` — en-tête de l'espace et navigation intérieure. Aucun garde propre : l'accès passe par `app/interface/layout.tsx` (`requirePrivateCockpitAccess`) et par le middleware ;
+- `app/interface/academy/AcademyNav.tsx` — navigation intérieure (composant client, `usePathname`), qui marque la section active par `aria-current` ;
+- `app/interface/academy/AcademyPrimitives.tsx` — `AcademyHeader` et `AcademyNotBuilt`, primitives propres à Academy, sans import de Personnel ni du cockpit ;
+- `app/interface/academy/page.tsx` — tableau de bord ; `app/interface/academy/[section]/page.tsx` — une seule page pour les neuf autres sections, `404` pour tout segment absent de la liste ;
+- `lib/cockpit/navigation.ts` et `lib/cockpit/modules.ts` — entrée `academy`, **même identifiant dans les deux**, statut `En cours`. L'entrée du menu principal n'a pas d'enfants.
+
+**Ce que chaque page affiche** : « Pas encore construit », le fait qu'aucune donnée n'y est enregistrée ni calculée, ce que la section fera, et l'étape du plan qui la construira. Aucune donnée d'exemple, aucun contenu qui ressemble à du réel.
+
+**Routes** : `/interface/academy` (tableau de bord), et `/interface/academy/{calendrier,programmes,lecons,notes,evaluations,revisions,progression,ressources,professeur}`.
+
+**Effet de bord attendu** : `cockpitModules` étant lu par `build-project-context.ts`, l'Assistant compte désormais Academy parmi les modules « en cours ». Le code de l'Assistant n'est pas modifié.
+
+**Vérifié le 2026-11-24, sur le serveur de développement local, session du propriétaire** : les dix routes répondent `200` avec le bon titre de page ; un segment inconnu répond `404` ; sans session, `/interface/academy` redirige vers `/login` ; la navigation intérieure liste les dix sections et marque la section courante ; le menu principal affiche une seule entrée « Academy », active sur toutes les sous-pages, sans les sections ; aucune erreur serveur. **Non vérifié** : le rendu en production, après push et déploiement.
 
 **Ce que le code existant offre déjà, vérifié le 2026-11-22**, et qui servira à la construction :
 
@@ -675,7 +692,7 @@ Troisième espace de la plateforme, priorité de développement depuis le 2026-1
 - planification stockée dans Academy, agenda Google superposé en lecture seule ;
 - toute capacité IA passe par le service commun ; aucun appel de fournisseur dans Academy.
 
-**Plan d'étapes et blocage** : voir le chantier 8 de `suivi-chantiers-edifice.md`. L'étape 1 attend la clôture établie de l'audit de sécurité et une validation explicite.
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. L'étape 1 est faite ; l'étape 2 attend une demande explicite.
 
 ## Service renderer
 

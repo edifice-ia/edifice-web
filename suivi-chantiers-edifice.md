@@ -8,7 +8,7 @@
 
 *Réordonnées le 22 novembre 2026 : EDIFICE ACADEMY devient la priorité de développement et le pôle Personnel est mis en pause — [DEC-014](knowledge/Documentation-Technique-Code/03_Decisions.md). L'ordre ci-dessous distingue la priorité de développement de ce qui la bloque.*
 
-1. **Chantier 8 — EDIFICE ACADEMY.** Priorité de développement. Étape 0 (décisions et documentation) faite le 22 novembre 2026. Le préalable de sécurité est levé : audit clos le même jour (point 2). **L'étape 1 attend encore une validation explicite du porteur du projet.** Voir plus bas.
+1. **Chantier 8 — EDIFICE ACADEMY.** Priorité de développement. Étape 0 faite le 22 novembre 2026 ; **étape 1 (squelette, sans données) faite le 24 novembre 2026**. L'étape 2 attend une demande explicite du porteur du projet. Voir plus bas.
 2. ~~**Chantier 2 — Audit de sécurité.**~~ **Clos le 22 novembre 2026** par déclaration du porteur du projet, sous réserve de l'exception TikTok, à réexaminer à la fin de la revue. Les commits du correctif (`91cbfda`, `d3a6427`, `3e2047e`) sont locaux, non poussés : le correctif du `CRON_SECRET` n'est pas déployé tant qu'ils ne le sont pas. Voir plus bas.
 3. **Chantier 7 — Privilèges hérités sur neuf tables service-role.** Migration **appliquée et vérifiée en base** (compte rendu du 4 octobre 2026). Le 22 novembre 2026, deux de ses points ouverts sont levés : le contenu des quatre policies `{public}` de `content_drafts` est lu (restreint au propriétaire, à supprimer par la migration `20261122100000`), et les deux tables non identifiées sont `project_memory` et `project_memory_audit_log`. Restent les deux limites de vérification et les gardes Calendrier. Voir plus bas.
 4. ~~**Chantier 1 — Module Vitals (étape 6, UI).**~~ **En pause** avec le pôle Personnel depuis le 22 novembre 2026, et déjà de fait depuis juillet faute d'accès Garmin. Le travail non committé — `lib/server/personal/daily-briefs-store.ts` et `app/api/personal/daily-brief/` — reste hors de l'index, intact.
@@ -18,7 +18,7 @@
 
 ---
 
-## Chantier 8 — EDIFICE ACADEMY — ÉTAPE 0 FAITE, ÉTAPE 1 EN ATTENTE DE VALIDATION
+## Chantier 8 — EDIFICE ACADEMY — ÉTAPES 0 ET 1 FAITES
 
 **Objectif** : construire Academy, troisième espace de L'Édifice — environnement d'apprentissage autonome, accessible depuis la navigation principale, avec sa propre navigation intérieure. Cible : [22-espaces-et-marques.md](knowledge/Documentation-Strategique/Markdown/22-espaces-et-marques.md). Décisions : [DEC-014](knowledge/Documentation-Technique-Code/03_Decisions.md) (espace, priorité, pause de Personnel, hiérarchie pédagogique) et DEC-015 (service commun IA multi-fournisseurs, révise DEC-011).
 
@@ -29,7 +29,7 @@
 | Étape | Contenu | Prérequis |
 | --- | --- | --- |
 | 0 | Décisions et documentation | — **fait** |
-| 1 | Squelette de l'espace : route, layout, navigation intérieure, entrée `academy` dans les deux registres, états vides qui le disent. Aucune base de données | Audit clos (fait le 22 novembre 2026) ; validation explicite |
+| 1 | Squelette de l'espace : route, layout, navigation intérieure, entrée `academy` dans les deux registres, états vides qui le disent. Aucune base de données | **fait le 24 novembre 2026** — commit « feat(academy): squelette de l'espace Academy, sans donnees » |
 | 2 | Hiérarchie pédagogique : programmes, matières, modules, chapitres, leçons, objectifs, ressources. Première migration, **une table par niveau** (décidé le 22 novembre 2026, DEC-014) | 1 |
 | 3 | Calendrier d'Academy : séances planifiées, agenda Google superposé en lecture | 2 |
 | 4 | Notes et fiches de révision | 2 |
@@ -58,7 +58,7 @@ Rien n'est construit. Deux préalables découlent de ces arbitrages : la structu
 
 Restent des détails de construction, rattachés à leur étape : la forme de la séparation des historiques (étape 7), l'emplacement de l'écran d'effacement et sa granularité (étape 8).
 
-**Prochaine action concrète** : validation explicite de l'étape 1 par le porteur du projet. Le préalable de sécurité est levé depuis la clôture de l'audit, le 22 novembre 2026 (chantier 2).
+**Prochaine action concrète** : étape 2, sur demande explicite du porteur du projet. L'étape 1 est faite le 24 novembre 2026 : le hash de son commit n'est pas inscrit ici, un commit ne pouvant pas contenir son propre hash ; il se retrouve par `git log --grep "squelette de l'espace Academy"`. Détail dans la section « Espace Academy » de `06_Modules.md`.
 
 ---
 

@@ -72,6 +72,17 @@ export const cockpitNavigation: CockpitNavItem[] = [
     showStatus: true,
   },
   {
+    // Meme identifiant que dans cockpitModules (DEC-009 releve que les deux
+    // registres divergent ailleurs). Pas d'enfants : la navigation interieure
+    // vit dans app/interface/academy/layout.tsx.
+    id: "academy",
+    href: "/interface/academy",
+    label: "Academy",
+    description: "Apprentissage, squelette sans donnees",
+    status: "En cours",
+    showStatus: true,
+  },
+  {
     id: "personnel",
     href: "/interface/personnel",
     label: "Personnel",

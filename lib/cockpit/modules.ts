@@ -56,6 +56,14 @@ export const cockpitModules: CockpitModule[] = [
     accent: "blue",
   },
   {
+    id: "academy",
+    title: "Academy",
+    description:
+      "Environnement d'apprentissage. Squelette en construction, aucune donnee.",
+    href: "/interface/academy",
+    status: "En cours",
+  },
+  {
     id: "personnel-light",
     title: "Personnel",
     description: "Vision du jour, routines, notes, energie et objectifs.",

@@ -38,6 +38,8 @@
 | 7 | Service commun IA, puis Professeur IA — dont la création d'un cours à partir d'un sujet demandé (voir ci-dessous) | DEC-015 ; clé et variable d'environnement (action manuelle) ; revue de sécurité ; étape 2 (structure où ranger le cours) ; fournisseur de recherche web à choisir (critères de choix : note du 22 novembre 2026 sous DEC-015) |
 | 8 | Cycle de vie des données : suppression physique propre à Academy (schéma de « Vider l'historique », journal d'effacement dédié — décidé le 22 novembre 2026, DEC-014), export | 2 à 6 |
 
+**Étape 1 — constat en production, 24 novembre 2026** : après le déploiement de `2a3f82f` en production (`dpl_FAubGHeHg5TBg8GULs8aK3bR7nrc`), la page `/interface/academy` s'affiche avec son bloc « pas encore construit », et le menu principal présente une seule entrée « Academy », active sur les sous-pages. Constaté par le porteur du projet, dans le navigateur. Ce constat ne porte que sur l'interface, et sur ces deux points : aucune donnée, aucune table, aucune route API n'est concernée.
+
 **Hors plan, décisions distinctes** : service Notifications, écriture dans Google Agenda (scope élargi), rattachement à Trajectoire (DEC-010).
 
 **Fonctionnalité inscrite le 22 novembre 2026 — créer un cours à partir d'un sujet demandé.** Rattachée à l'**étape 7** : c'est un usage du service commun IA, au même titre que le Professeur IA, et non une capacité propre à Academy. Elle n'entre donc pas dans les hors-plan. Trois arbitrages du porteur du projet, consignés aussi sous [DEC-015](knowledge/Documentation-Technique-Code/03_Decisions.md) :

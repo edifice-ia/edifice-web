@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-24 (Academy : migration 2a appliquée en base)](#2026-11-24-academy--migration-2a-appliquée-en-base)
 - [2026-11-24 (Academy : migration 2a, hiérarchie pédagogique)](#2026-11-24-academy--migration-2a-hiérarchie-pédagogique)
 - [2026-11-24 (Academy : étape 1, squelette de l'espace)](#2026-11-24-academy--étape-1-squelette-de-lespace)
 - [2026-11-24 (CRON_SECRET absent en production, créé et redéployé)](#2026-11-24-cron_secret-absent-en-production-créé-et-redéployé)
@@ -75,6 +76,26 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-24 (Academy : migration 2a appliquée en base)
+
+Type : base de données, sécurité
+
+Résumé : **la migration `20261124120000_create_academy_hierarchy.sql` est appliquée en base**, le jour même de son écriture, par le porteur du projet dans le SQL Editor. L'agent n'a exécuté aucune requête ; il consigne les résultats transmis.
+
+- Témoin avant : aucune table `academy_*`. Application : « Success. No rows returned ».
+- Droits : cinq lignes `authenticated` → `INSERT, SELECT, UPDATE` ; rien pour `anon` ni `PUBLIC` ; aucun `DELETE`.
+- RLS activée sur les cinq tables ; quinze règles d'accès `{authenticated}` sur `user_id = auth.uid()`.
+- Contraintes : clés primaires, `unique (id, user_id)`, références à `auth.users` en cascade, `check` attendus, quatre clés composites en cascade.
+
+**Portée** : contrôles **structurels** seulement. L'isolation entre utilisateurs et la cascade à l'usage ne sont pas testées.
+
+Fichiers liés :
+
+- `MANUAL_ACTIONS.md` — entrée « Appliquer la migration Academy (hiérarchie 2a) » passée en `done` et archivée
+- `suivi-chantiers-edifice.md` — chantier 8, étape 2a
+
+Impact : les cinq tables existent en base ; aucun code ne les utilise encore.
 
 ## 2026-11-24 (Academy : migration 2a, hiérarchie pédagogique)
 

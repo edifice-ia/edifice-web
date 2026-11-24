@@ -46,7 +46,8 @@
 | 2026-11-22 | jusqu'à 21 h (début non précisé, premier commit à 19 h 02) | environ 2 h | étape 0, audit de sécurité, clôture |
 | 2026-11-24 | 9 h 30 à 12 h | 2 h 30 | CRON_SECRET, étape 1, migration 2a |
 | 2026-11-24 | 14 h 30 à 15 h 30 | environ 1 h | isolation, validation, store, audit des routes |
-| **Total** | | **environ 5 h 30** | |
+| 2026-11-24 | 15 h 30 à 16 h 25 | environ 55 min | tests des routes consignés, nettoyage des données de test, isolation SQL des tables enfants, test de modification écrit |
+| **Total** | | **environ 6 h 25** | |
 
 **Estimation restante**, à la date du 2026-11-24 : environ 2 à 3 h pour la fin de l'étape 2a : tests des routes déjà écrites (commit 32c6f72), tests d'isolation à la main, interface, hors étapes 2b et 3 à 8. Estimation indicative, qui peut évoluer.
 

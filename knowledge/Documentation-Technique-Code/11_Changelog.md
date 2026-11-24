@@ -1,12 +1,13 @@
 # Changelog
 
 Statut : journal initial  
-Dernière mise à jour : 2026-11-22
+Dernière mise à jour : 2026-11-24
 
 ## Sommaire
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-24 (CRON_SECRET absent en production, créé et redéployé)](#2026-11-24-cron_secret-absent-en-production-créé-et-redéployé)
 - [2026-11-22 (Academy : critères de choix du fournisseur de recherche web)](#2026-11-22-academy--critères-de-choix-du-fournisseur-de-recherche-web)
 - [2026-11-22 (Academy : module rattaché obligatoirement à une matière)](#2026-11-22-academy--module-rattaché-obligatoirement-à-une-matière)
 - [2026-11-22 (Academy : trois questions d'architecture tranchées)](#2026-11-22-academy--trois-questions-darchitecture-tranchées)
@@ -72,6 +73,23 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-24 (CRON_SECRET absent en production, créé et redéployé)
+
+Type : sécurité, exploitation
+
+Résumé : en cherchant à vérifier le correctif `3e2047e` en production, l'agent a constaté que **`CRON_SECRET` n'existait pas dans les variables du projet Vercel** : 31 variables lues sans leurs valeurs, aucune masquée. Les trois routes cron refusent tout appel sans ce secret, et Vercel Cron n'envoie aucun en-tête d'authentification sans lui. Les appels planifiés recevaient donc vraisemblablement tous `401`. Ce n'est pas une régression du correctif. Depuis quand la variable manquait : non établi.
+
+- Variable créée par le mainteneur le 2026-11-24, en Production seulement.
+- Production redéployée à l'identique par l'agent, sur accord explicite : `dpl_HHRwrtnSNBpwNjfGWttzKvmBQoxE`, commit `712ec92`, `READY`. Sans secret, les trois routes répondent toujours `401`.
+- **Non vérifié** : l'acceptation du vrai secret. Entrée `pending` dans `MANUAL_ACTIONS.md`.
+
+Fichiers liés :
+
+- `MANUAL_ACTIONS.md` — entrée archivée (création et redéploiement) et entrée `pending` (vérification), datées du 2026-11-24
+- `suivi-chantiers-edifice.md` — chantier 2, suivi du 24 novembre 2026
+
+Impact : les routes cron peuvent désormais être autorisées par Vercel Cron. Première exécution réelle attendue pour `process-scheduled-publications` le 2026-11-25 à 02:00 UTC : elle publiera tout ce qui est programmé et dont l'heure est passée.
 
 ## 2026-11-22 (Academy : critères de choix du fournisseur de recherche web)
 

@@ -237,6 +237,17 @@ Dès que ce point est tranché, la déclaration devient « audit clos » à la d
 
 **Ce que la clôture ne couvre pas** — note de l'agent, pour que la portée de la déclaration ne soit pas relue plus large qu'elle n'est : les commits `91cbfda`, `d3a6427` et `3e2047e` sont **locaux, non poussés**. La migration est appliquée en base, mais le correctif du `CRON_SECRET` n'est pas déployé tant que `3e2047e` n'est pas poussé : en production, les trois routes cron comparent encore le secret par `===` jusqu'au prochain déploiement. Le push relève de la règle permanente de `CLAUDE.md` : décision humaine explicite.
 
+
+### Suivi du 24 novembre 2026 — `CRON_SECRET` absent en production, créé et redéployé
+
+*Hors du périmètre de la déclaration de clôture : ce point est fonctionnel, pas une faille. Il ne rouvre pas l'audit.*
+
+- **Constat** : le 24 novembre vers 08:52 UTC, aucune variable `CRON_SECRET` dans le projet Vercel, parmi 31 variables, sans valeur de production masquée. Les trois routes cron refusent tout appel sans ce secret, et Vercel Cron n'envoie pas d'en-tête sans lui : **les appels de Vercel Cron recevaient vraisemblablement tous `401`**. Les publications programmées ne partaient donc pas, et le renouvellement des canaux de l'agenda ne se faisait pas. Ce n'est pas une régression de `3e2047e` : l'ancien code se comportait de même. **Depuis quand, non établi.**
+- **Correction** : variable créée par le porteur du projet (Production seulement, vers 08:58 UTC), puis production redéployée à l'identique : `dpl_HHRwrtnSNBpwNjfGWttzKvmBQoxE`, commit `712ec92`, `READY` sur `www.edificeia.com`. Sans secret, les trois routes répondent toujours `401`.
+- **Reste à vérifier** : l'acceptation du vrai secret, par un **Run** sur `calendar-channel-renewal` et la lecture du code HTTP dans l'onglet Logs de Vercel. Voir l'entrée `pending` du 24 novembre 2026 dans `MANUAL_ACTIONS.md`.
+- **Créneaux du 23 et du 24 novembre** : aucune trace consultable (rétention d'une heure sur l'offre Hobby, aucun code HTTP dans les logs accessibles à l'agent). Aucun succès n'en est déduit.
+- **Vigilance** : première exécution avec un secret valide de `process-scheduled-publications` le 25 novembre à 02:00 UTC. Elle publiera d'un coup tout ce qui est programmé et dont l'heure est passée.
+
 ---
 
 ## Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/` — TERMINÉ

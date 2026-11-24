@@ -53,6 +53,24 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-11-24 — Vérifier que Vercel Cron passe avec le vrai `CRON_SECRET`
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : seul Vercel connaît la valeur de `CRON_SECRET`, et l'agent ne la lit pas. Les logs que l'agent peut consulter (API runtime logs, offre Hobby) ne contiennent pas de code HTTP et ne remontent qu'une heure ; une réponse `200` silencieuse n'y laisse aucune trace. Le code HTTP d'un appel cron ne se lit que dans l'onglet Logs du tableau de bord Vercel, derrière une authentification interactive.
+
+**Bloque** : la preuve, en conditions réelles, que les trois routes cron acceptent le vrai secret depuis sa création le 2026-11-24 (entrée archivée du même jour). Ne bloque aucun développement.
+
+**À savoir avant le 2026-11-25 à 02:00 UTC (03:00 à Paris)** : `process-scheduled-publications` tournera pour la première fois avec un secret valide, si le test ci-dessous confirme l'acceptation. Elle publie sur Instagram toutes les publications programmées dont l'heure est passée. Si des publications anciennes sont restées en file, elles partiront toutes ensemble. À vérifier avant cette heure si ce n'est pas voulu.
+
+**Étapes** :
+
+1. Ouvrir https://vercel.com/edifice-ias-projects/edifice-web/settings/cron-jobs.
+2. Sur la ligne `/api/internal/cron/calendar-channel-renewal`, cliquer **Run**. En dehors de 5h à Paris, la route ne fait rien et répond `{ ok: true, skipped: true }`. **Ne pas** lancer `process-scheduled-publications`, qui publierait réellement.
+3. Ouvrir aussitôt https://vercel.com/edifice-ias-projects/edifice-web/logs, environnement Production, et relever le code HTTP de la requête `/api/internal/cron/calendar-channel-renewal`.
+
+**Vérification** : code **`200`**. Un `401` voudrait dire que Vercel n'envoie pas le secret, ou que la valeur ne correspond pas : vérifier que `CRON_SECRET` existe toujours dans le projet, en Production, et qu'un déploiement a été construit après sa dernière modification. Transmettre le code obtenu à l'agent, pour qu'il le consigne au chantier 2.
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
@@ -90,6 +108,21 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 **Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
 
 ## Archive (done)
+
+### 2026-11-24 — Créer `CRON_SECRET` dans les variables de production Vercel, puis redéployer
+
+**Statut** : `done` — 2026-11-24. Variable créée par le mainteneur ; production redéployée par l'agent, sur son accord explicite.
+
+**Pourquoi c'est manuel** : la valeur d'un secret de production ne doit passer ni par l'agent ni par le dépôt. Elle se crée dans le tableau de bord Vercel.
+
+**Constat qui l'a déclenchée** : le 2026-11-24 vers 08:52 UTC, la liste des variables du projet `edifice-web`, lue sans les valeurs (`decrypt: false`), comptait 31 variables, **dont aucune nommée `CRON_SECRET`**, avec `hiddenProductionEnvCount: 0`. Or les trois routes cron refusent tout appel quand `CRON_SECRET` est absent, et Vercel Cron n'envoie l'en-tête `Authorization: Bearer` que si la variable existe. **Conséquence probable : tous les appels de Vercel Cron recevaient `401`.** `process-scheduled-publications` ne publiait donc rien, `calendar-channel-renewal` ne renouvelait pas les canaux, et `personal-daily-brief` ne générait pas de brief. **Ce n'est pas une régression du correctif `3e2047e`** : l'ancien code refusait de la même façon un secret absent. Depuis quand la variable manquait, **non établi** : l'agent n'a pas accès à l'historique des variables. Limite du constat : les variables partagées au niveau de l'équipe Vercel n'apparaissent pas dans cette liste.
+
+**Ce qui a été fait** :
+
+1. Le mainteneur a créé `CRON_SECRET` dans le projet, type `sensitive`, **environnement Production seulement**. Constaté par l'agent, sans lecture de la valeur : présente le 2026-11-24, création vers 08:58 UTC.
+2. Le déploiement en ligne (`dpl_HrSL9sLokbvxNDbHzwtJJvaqsUXs`, commit `712ec92`) datait d'avant la variable. L'agent l'a redéployé à l'identique : **`dpl_HHRwrtnSNBpwNjfGWttzKvmBQoxE`**, même commit, `READY`, et il sert `www.edificeia.com` et `edificeia.com`.
+
+**Vérification** : sans secret, les trois routes cron répondent toujours `401` sur `www.edificeia.com` après le redéploiement, constaté par l'agent. **L'acceptation du vrai secret n'est pas encore vérifiée** : voir l'entrée `pending` du même jour.
 
 ### 2026-11-22 — Décider de la clôture de l'audit de sécurité
 

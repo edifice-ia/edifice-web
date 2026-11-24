@@ -53,6 +53,185 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-11-24 — Tester l'isolation SQL des tables academy_units, academy_chapters et academy_lessons
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : seul le SQL Editor peut exécuter ce test sur la base réelle, et aucune base de test n'est disponible depuis le dépôt (ni CLI Supabase, ni `psql`, ni Docker sur cette machine). L'agent n'a pas d'accès SQL au projet. **À exécuter par Vincent, porteur du projet**, dans le SQL Editor, sous le rôle `postgres`.
+
+**Bloque** : rien d'immédiat — les routes sont déjà testées à la main, isolation comprise (entrée archivée « Tester les routes Academy : contrat, masquage, isolation »). Ce test comble le trou laissé par l'entrée archivée « Vérifier l'isolation entre deux utilisateurs sur les tables Academy », qui n'a éprouvé que `academy_programs` et la clé composite de `academy_subjects`. **À faire avant l'interface de l'étape 2a.**
+
+**Portée** : pour chacune des trois tables `academy_units`, `academy_chapters` et `academy_lessons` :
+
+1. **une ligne est insérée sous le compte A**, par A lui-même (rôle `authenticated`, règle d'accès appliquée) ;
+2. **une insertion du compte B sous le parent de A doit échouer** — module de B sous la matière de A, chapitre de B sous le module de A, leçon de B sous le chapitre de A. Le parent est désigné par son identifiant exact, relevé sous `postgres` : la clé composite `(parent_id, user_id)` est donc réellement éprouvée. Attendu : `23503` (violation de clé composite) ; un `42501` (refus par la règle d'accès) est aussi un refus valable, consigné tel quel ;
+3. **A ne voit aucune ligne de B**, et réciproquement : chacun crée sa propre chaîne complète, programme → matière → module → chapitre → leçon, et compte les lignes de l'autre.
+
+**Sans effet durable** : le script écrit, mais **uniquement dans une transaction terminée par `rollback`**. Les deux comptes de test sont créés dans `auth.users` au début de la transaction, sous `postgres`, avec des identifiants fictifs réservés à ce test (`…000c` pour A, `…000d` pour B), différents de ceux du test du 2026-11-24 ; le `rollback` final retire comptes et lignes. Aucun compte réel n'est utilisé, et aucune donnée existante n'est lue ni modifiée. Le contrôle de l'étape 5 vérifie qu'il ne reste rien.
+
+Chaque insertion de B attendue en échec est placée dans un bloc `do` qui **capture** le refus et l'enregistre, pour que l'erreur attendue n'interrompe pas la transaction avant la synthèse et le `rollback`. Si une insertion réussit, le bloc lève « ECHEC DU TEST », et toute la transaction est annulée.
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. **Contrôle préalable, en lecture seule** — déjà conforme le 2026-11-24 (seule `id` obligatoire, aucun déclencheur), à relancer pour s'assurer que rien n'a changé :
+   ```sql
+   select column_name, data_type
+   from information_schema.columns
+   where table_schema = 'auth' and table_name = 'users'
+     and is_nullable = 'NO' and column_default is null
+   order by ordinal_position;
+
+   select tgname, tgenabled
+   from pg_trigger
+   where tgrelid = 'auth.users'::regclass and not tgisinternal;
+   ```
+   Attendu : `id` seul dans la première requête, aucun déclencheur dans la seconde. **Sinon, s'arrêter** et le transmettre à l'agent.
+3. Lancer le script ci-dessous **en une seule exécution**. Si une instruction échoue hors des blocs `do` (par exemple `permission denied`, ou « ECHEC DU TEST »), s'arrêter et transmettre le message : la transaction est annulée, rien n'est écrit.
+4. Relever le résultat de la requête de synthèse — le SQL Editor n'affiche que le résultat de la dernière instruction qui en renvoie un, d'où la synthèse placée juste avant le `rollback`.
+5. **Contrôle après coup, en lecture seule** :
+   ```sql
+   select
+     (select count(*) from auth.users where id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as utilisateurs_de_test_restants,
+     (select count(*) from public.academy_programs where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as programmes,
+     (select count(*) from public.academy_subjects where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as matieres,
+     (select count(*) from public.academy_units where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as modules,
+     (select count(*) from public.academy_chapters where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as chapitres,
+     (select count(*) from public.academy_lessons where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as lecons;
+   ```
+   Attendu : `0` partout.
+6. Transmettre les deux résultats, tels quels, à l'agent pour consignation.
+
+```sql
+begin;
+
+-- Sous le role postgres du SQL Editor : creation des deux comptes de test.
+-- Annules par le rollback final.
+insert into auth.users (id) values
+  ('00000000-0000-0000-0000-00000000000c'),
+  ('00000000-0000-0000-0000-00000000000d');
+
+-- Compte A : chaine complete, sous son propre role (regle d'acces appliquee).
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title)
+values ('00000000-0000-0000-0000-00000000000c', 'formation', 'Programme de A');
+insert into public.academy_subjects (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'Matiere de A' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_units (user_id, subject_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'Module de A' from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_chapters (user_id, unit_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'Chapitre de A' from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_lessons (user_id, chapter_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'Lecon de A' from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c';
+reset role;
+
+-- Compte B : sa propre chaine complete, sous son propre role.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title)
+values ('00000000-0000-0000-0000-00000000000d', 'formation', 'Programme de B');
+insert into public.academy_subjects (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000d', id, 'Matiere de B' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000d';
+insert into public.academy_units (user_id, subject_id, title)
+select '00000000-0000-0000-0000-00000000000d', id, 'Module de B' from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000d';
+insert into public.academy_chapters (user_id, unit_id, title)
+select '00000000-0000-0000-0000-00000000000d', id, 'Chapitre de B' from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000d';
+insert into public.academy_lessons (user_id, chapter_id, title)
+select '00000000-0000-0000-0000-00000000000d', id, 'Lecon de B' from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000d';
+reset role;
+
+-- Sous postgres (proprietaire des tables, hors regle d'acces) : releve des
+-- identifiants des parents de A, que B va viser tels quels.
+select set_config('academy_test.subject_a',
+  (select id::text from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c'), true);
+select set_config('academy_test.unit_a',
+  (select id::text from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c'), true);
+select set_config('academy_test.chapter_a',
+  (select id::text from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c'), true);
+
+-- Bascule sur B : insertions sous les parents de A. Attendu : refus (23503, ou 42501).
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}', true);
+set local role authenticated;
+
+do $$
+begin
+  insert into public.academy_units (user_id, subject_id, title)
+  values ('00000000-0000-0000-0000-00000000000d', current_setting('academy_test.subject_a')::uuid, 'Intrusion');
+  raise exception 'ECHEC DU TEST : module de B accepte sous la matiere de A.';
+exception
+  when foreign_key_violation or insufficient_privilege then
+    perform set_config('academy_test.unit_b', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+
+do $$
+begin
+  insert into public.academy_chapters (user_id, unit_id, title)
+  values ('00000000-0000-0000-0000-00000000000d', current_setting('academy_test.unit_a')::uuid, 'Intrusion');
+  raise exception 'ECHEC DU TEST : chapitre de B accepte sous le module de A.';
+exception
+  when foreign_key_violation or insufficient_privilege then
+    perform set_config('academy_test.chapter_b', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+
+do $$
+begin
+  insert into public.academy_lessons (user_id, chapter_id, title)
+  values ('00000000-0000-0000-0000-00000000000d', current_setting('academy_test.chapter_a')::uuid, 'Intrusion');
+  raise exception 'ECHEC DU TEST : lecon de B acceptee sous le chapitre de A.';
+exception
+  when foreign_key_violation or insufficient_privilege then
+    perform set_config('academy_test.lesson_b', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+
+-- B compte les lignes de A. Attendu : 0 / 0 / 0.
+select set_config('academy_test.b_voit_a', format('%s / %s / %s',
+  (select count(*) from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c'),
+  (select count(*) from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c'),
+  (select count(*) from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c')), true);
+reset role;
+
+-- Bascule sur A : A compte les lignes de B. Attendu : 0 / 0 / 0.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', true);
+set local role authenticated;
+select set_config('academy_test.a_voit_b', format('%s / %s / %s',
+  (select count(*) from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000d'),
+  (select count(*) from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000d'),
+  (select count(*) from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000d')), true);
+reset role;
+
+-- Synthese, sous postgres.
+select
+  format('%s / %s / %s',
+    (select count(*) from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c'),
+    (select count(*) from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c'),
+    (select count(*) from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c')) as lignes_de_a_modules_chapitres_lecons,
+  format('%s / %s / %s',
+    (select count(*) from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000d'),
+    (select count(*) from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000d'),
+    (select count(*) from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000d')) as lignes_de_b_modules_chapitres_lecons,
+  current_setting('academy_test.unit_b', true) as module_de_b_sous_matiere_de_a,
+  current_setting('academy_test.chapter_b', true) as chapitre_de_b_sous_module_de_a,
+  current_setting('academy_test.lesson_b', true) as lecon_de_b_sous_chapitre_de_a,
+  current_setting('academy_test.a_voit_b', true) as lignes_de_b_vues_par_a,
+  current_setting('academy_test.b_voit_a', true) as lignes_de_a_vues_par_b;
+
+rollback;
+```
+
+**Résultat attendu de la synthèse** :
+
+- `lignes_de_a_…` et `lignes_de_b_…` : `1 / 1 / 1` — chaque compte a bien créé sa ligne dans chacune des trois tables (sinon le test ne prouve rien) ;
+- les trois insertions de B : `23503`, avec respectivement `academy_units_subject_fk`, `academy_chapters_unit_fk` et `academy_lessons_chapter_fk` dans le message ; un `42501` est aussi un refus, à consigner tel quel ;
+- `lignes_de_b_vues_par_a` et `lignes_de_a_vues_par_b` : `0 / 0 / 0`.
+
+**Vérification** : synthèse conforme à l'attendu ci-dessus, et contrôle de l'étape 5 à `0` partout. Si un résultat diffère, s'arrêter et le signaler. **Ne pas corriger les politiques dans la foulée.**
+
+*Écrit le 2026-11-24 par l'agent, sans exécution.*
+
 ### 2026-11-24 — Nettoyer les données de test Academy après les tests de routes
 
 **Statut** : `pending`

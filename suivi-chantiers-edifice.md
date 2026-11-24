@@ -82,7 +82,7 @@ Rien n'est construit. Deux préalables découlent de ces arbitrages : la structu
 
 Restent des détails de construction, rattachés à leur étape : la forme de la séparation des historiques (étape 7), l'emplacement de l'écran d'effacement et sa granularité (étape 8).
 
-**Prochaine action concrète** : nettoyer les données de test (entrée `pending` de `MANUAL_ACTIONS.md`, cible `test-erase@edificeia.com`) ; écrire l'entrée d'isolation côté base pour `academy_units`, `academy_chapters`, `academy_lessons` ; puis interface, sur demande explicite. Routes testées à la main le 24 novembre 2026, conformes. Routes écrites le 24 novembre 2026 (commit retrouvable par `git log --grep "routes API de la hierarchie"`). Validation et store poussés le 24 novembre 2026. La migration 2a est appliquée et contrôlée depuis le 24 novembre 2026. L'étape 1 est faite le 24 novembre 2026 (commit retrouvable par `git log --grep "squelette de l'espace Academy"`).
+**Prochaine action concrète** : nettoyer les données de test (entrée `pending` de `MANUAL_ACTIONS.md`, cible `test-erase@edificeia.com`) ; exécuter le test d'isolation côté base de `academy_units`, `academy_chapters`, `academy_lessons` (entrée `pending` de `MANUAL_ACTIONS.md`, écrite le 24 novembre 2026) ; puis interface, sur demande explicite. Routes testées à la main le 24 novembre 2026, conformes. Routes écrites le 24 novembre 2026 (commit retrouvable par `git log --grep "routes API de la hierarchie"`). Validation et store poussés le 24 novembre 2026. La migration 2a est appliquée et contrôlée depuis le 24 novembre 2026. L'étape 1 est faite le 24 novembre 2026 (commit retrouvable par `git log --grep "squelette de l'espace Academy"`).
 
 **Dettes relevées le 24 novembre 2026, non traitées** :
 

@@ -232,19 +232,57 @@ rollback;
 
 *Écrit le 2026-11-24 par l'agent, sans exécution.*
 
-### 2026-11-24 — Nettoyer les données de test Academy après les tests de routes
+### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
 
+**Pourquoi c'est manuel** : l'état d'avancement d'une app review TikTok ne se lit que dans le portail développeur TikTok, derrière une authentification interactive. Rien dans le dépôt ne l'indique — recherche faite le 2026-08-01 : aucun ticket, aucune date de soumission, aucun statut, ni dans le code, ni dans `knowledge/`, ni dans l'historique git. Le seul repère est la date d'introduction de l'exception, le 2026-07-28 (`2cf9316`), et celle de la mise en place de l'accès reviewer, entre le 2026-05-20 et le 2026-05-31.
+
+**Bloque** : rien de fonctionnel. C'est une exception de sécurité sans date d'expiration — le risque est qu'elle survive à sa raison d'être et devienne un écart inexpliqué.
+
+**Déclencheur** : relancer la demande de revue TikTok lors de la reprise du module de création de contenu (Atelier de contenu). Noter ici la date de la relance.
+
+**Ce que l'exception autorise exactement** — mesuré le 2026-08-01, pour que la décision se prenne sur des faits et non sur le mot « exception » :
+
+- **Aucun accès anonyme.** Sans session, la route répond `403`, et le middleware redirige déjà vers `/login`. Le compromis ne porte que sur le filtre de rôle.
+- `canAccessPrivateCockpit(user)` vaut `getUserRole(user) !== "reviewer"` (`src/lib/auth/roles.ts`). L'écart entre ce garde et le garde strict est donc **exactement un rôle** : celui de `reviewer@edificeia.com`, compte créé et contrôlé par le projet.
+- La réponse ne contient **ni token, ni identifiant de compte, ni scope** : `{ present, storageEnabled, storageMode, expiresAt, updatedAt }`. Le reviewer voit qu'un token TikTok existe et depuis quand — strictement moins que ce que le flux OAuth et l'upload sandbox lui accordent déjà par ailleurs.
+
+**Pourquoi le durcissement ne peut pas être fait à l'aveugle** : `/tiktok-sandbox-test` rend `<TikTokConnectionControls />`, qui appelle cette route et **affiche les quatre champs**. Ajouter `canAccessPrivateCockpit` ferait répondre `403` au reviewer et casserait la « vérification du token stocké côté serveur » que la page lui annonce — pendant l'examen de cette même page.
+
+**Étapes** :
+
+1. Ouvrir le portail développeur TikTok et lire le statut de l'app review.
+2. **Si la review est terminée** (approuvée ou définitivement rejetée), appliquer le durcissement :
+   - retirer `"/api/oauth/tiktok/status"` de `reviewerAllowedPaths` dans `src/lib/supabase/proxy.ts` ;
+   - dans `app/api/oauth/tiktok/status/route.ts`, remplacer le garde par celui de `youtube/status` et `calendar/status` :
+     ```ts
+     if (!user || !canAccessPrivateCockpit(user)) {
+       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+     }
+     ```
+     avec `import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";` ;
+   - supprimer le bloc de commentaire d'exception devenu faux, et mettre à jour `DEC-007` dans `knowledge/Documentation-Technique-Code/03_Decisions.md`, qui cite cette route comme cas particulier assumé.
+   - décider au passage du sort des trois autres chemins encore dans `reviewerAllowedPaths` (`/api/oauth/tiktok/start`, `/callback`, `/upload-test`) et du compte `reviewer@edificeia.com` lui-même.
+3. **Si la review est encore en cours**, ne rien changer et repousser la relecture ; noter la date de relecture ici.
+
+**Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
+
+## Archive (done)
+
+### 2026-11-24 — Nettoyer les données de test Academy après les tests de routes
+
+**Statut** : `done` — 2026-11-24, **avec un écart** : une leçon de plus que prévu a été supprimée sans avoir été identifiée (voir « Exécution »). Suppression exécutée par Vincent, porteur du projet ; l'agent n'a exécuté aucune requête.
+
 **Pourquoi c'est manuel** : il n'existe pas de suppression physique dans Academy — les tables `academy_*` n'accordent pas `DELETE` à `authenticated`, et le chemin de suppression de l'étape 8 n'est pas écrit —, et seul le SQL Editor, sous le rôle `postgres`, peut supprimer les données de test du compte. L'agent n'a pas d'accès SQL au projet.
 
-**Bloque** : rien. **À faire avant toute mise en production d'un usage réel de la hiérarchie**, et après les tests de contrat et d'isolation des routes.
+**Bloquait** : rien. **À faire avant toute mise en production d'un usage réel de la hiérarchie**, et après les tests de contrat et d'isolation des routes.
 
 **Cible corrigée le 2026-11-24 : `test-erase@edificeia.com`, et non `academy@edificeia.com`.** Les tests de contrat des routes ont créé leurs données sous `test-erase@edificeia.com`, par erreur de départ, corrigée ensuite (entrée archivée « Tester les routes Academy » du même jour). `academy@edificeia.com` n'a servi qu'au second compte des tests d'isolation, où aucune écriture n'a réussi : il ne porte aucune donnée Academy à supprimer — à confirmer par le comptage, relancé sur son adresse si besoin.
 
 **Portée** : supprime **toutes** les lignes des cinq tables `academy_*` du seul compte `test-erase@edificeia.com`. Aucun autre compte n'est touché : chaque `delete` filtre sur l'identifiant de ce compte, résolu par son adresse. Si l'adresse ne correspond à aucun compte, l'identifiant est nul et aucune ligne n'est supprimée ; si elle en désigne plusieurs, la sous-requête échoue et la transaction est annulée. **Seules les tables `academy_*` sont visées** : les données Personnel de ce compte, qui sert aussi aux tests d'effacement, ne sont pas touchées.
 
-**Données de test connues à supprimer**, créées sous `test-erase@edificeia.com` le 2026-11-24 :
+**Données de test connues à supprimer**, relevées avant l'exécution, créées sous `test-erase@edificeia.com` le 2026-11-24 :
 
 - programme `39e6135b-2a79-4f48-8f9e-0581dec2d233` ;
 - matière `636e01ff-7b78-4d2d-a15a-534de0edb7ad` ;
@@ -254,6 +292,17 @@ rollback;
 - leçon `c73fa183-3235-4d74-ba59-4fb05a4a1775`.
 
 Le module en double n'ayant pas d'identifiant relevé, la suppression vise **toutes** les lignes `academy_*` du compte plutôt qu'une liste d'identifiants : elle l'emporte avec le reste. Le comptage de l'étape 2 doit donc montrer au moins 1 programme, 1 matière, 2 modules, 1 chapitre et 1 leçon ; un volume supérieur signale d'autres données Academy sur ce compte, à examiner avant la suppression.
+
+**Exécution** — 2026-11-24, résultats transmis par Vincent (l'agent n'a exécuté aucune requête) :
+
+- **Comptage avant suppression** (étape 2) : une seule ligne, pour `test-erase@edificeia.com` — **1 programme, 1 matière, 2 modules, 1 chapitre, 2 leçons**.
+- **Écart constaté** : le comptage attendu était **1 leçon**, il en a trouvé **2**. La procédure demandait d'examiner tout volume supérieur avant la suppression ; **cela n'a pas été fait** : la seconde leçon n'a pas été identifiée — une requête de listage était préparée, mais n'a pas été exécutée, la suppression ayant été lancée avant.
+- **Suppression** (étape 3) : bloc `begin` … `commit` exécuté en entier dans le SQL Editor, sous le rôle `postgres`, sans erreur signalée.
+- **Comptage après suppression** (étape 4) : `0` dans les cinq tables, sur la même ligne de compte — `user_id` `a144c044-0621-405c-809c-78127fde3a4d`.
+
+**Conséquence** : la leçon en trop **n'est plus vérifiable** — ni son identifiant, ni son titre, ni son origine ne pourront être retrouvés. Elle appartenait au compte `test-erase@edificeia.com`, dont l'usage de test est confirmé par Vincent ; elle ne peut donc pas être une donnée réelle d'un autre compte, la suppression filtrant sur ce seul `user_id`. **La suppression n'est pas conforme à la procédure sur ce point** : le volume supérieur à l'attendu devait être examiné avant l'étape 3. Les volumes des autres tables correspondaient à l'attendu.
+
+**Leçon pour la suite** : un écart au comptage arrête la procédure tant que la ligne en trop n'est pas identifiée.
 
 **Étapes** :
 
@@ -296,45 +345,7 @@ Le module en double n'ayant pas d'identifiant relevé, la suppression vise **tou
 
 **Vérification** : le comptage de l'étape 2, relancé, renvoie `0` pour chaque table, sur la même ligne de compte.
 
-*Écrit le 2026-11-24 par l'agent, sans exécution ; cible corrigée le même jour, toujours sans exécution.*
-
-### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
-
-**Statut** : `pending`
-
-**Pourquoi c'est manuel** : l'état d'avancement d'une app review TikTok ne se lit que dans le portail développeur TikTok, derrière une authentification interactive. Rien dans le dépôt ne l'indique — recherche faite le 2026-08-01 : aucun ticket, aucune date de soumission, aucun statut, ni dans le code, ni dans `knowledge/`, ni dans l'historique git. Le seul repère est la date d'introduction de l'exception, le 2026-07-28 (`2cf9316`), et celle de la mise en place de l'accès reviewer, entre le 2026-05-20 et le 2026-05-31.
-
-**Bloque** : rien de fonctionnel. C'est une exception de sécurité sans date d'expiration — le risque est qu'elle survive à sa raison d'être et devienne un écart inexpliqué.
-
-**Déclencheur** : relancer la demande de revue TikTok lors de la reprise du module de création de contenu (Atelier de contenu). Noter ici la date de la relance.
-
-**Ce que l'exception autorise exactement** — mesuré le 2026-08-01, pour que la décision se prenne sur des faits et non sur le mot « exception » :
-
-- **Aucun accès anonyme.** Sans session, la route répond `403`, et le middleware redirige déjà vers `/login`. Le compromis ne porte que sur le filtre de rôle.
-- `canAccessPrivateCockpit(user)` vaut `getUserRole(user) !== "reviewer"` (`src/lib/auth/roles.ts`). L'écart entre ce garde et le garde strict est donc **exactement un rôle** : celui de `reviewer@edificeia.com`, compte créé et contrôlé par le projet.
-- La réponse ne contient **ni token, ni identifiant de compte, ni scope** : `{ present, storageEnabled, storageMode, expiresAt, updatedAt }`. Le reviewer voit qu'un token TikTok existe et depuis quand — strictement moins que ce que le flux OAuth et l'upload sandbox lui accordent déjà par ailleurs.
-
-**Pourquoi le durcissement ne peut pas être fait à l'aveugle** : `/tiktok-sandbox-test` rend `<TikTokConnectionControls />`, qui appelle cette route et **affiche les quatre champs**. Ajouter `canAccessPrivateCockpit` ferait répondre `403` au reviewer et casserait la « vérification du token stocké côté serveur » que la page lui annonce — pendant l'examen de cette même page.
-
-**Étapes** :
-
-1. Ouvrir le portail développeur TikTok et lire le statut de l'app review.
-2. **Si la review est terminée** (approuvée ou définitivement rejetée), appliquer le durcissement :
-   - retirer `"/api/oauth/tiktok/status"` de `reviewerAllowedPaths` dans `src/lib/supabase/proxy.ts` ;
-   - dans `app/api/oauth/tiktok/status/route.ts`, remplacer le garde par celui de `youtube/status` et `calendar/status` :
-     ```ts
-     if (!user || !canAccessPrivateCockpit(user)) {
-       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
-     }
-     ```
-     avec `import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";` ;
-   - supprimer le bloc de commentaire d'exception devenu faux, et mettre à jour `DEC-007` dans `knowledge/Documentation-Technique-Code/03_Decisions.md`, qui cite cette route comme cas particulier assumé.
-   - décider au passage du sort des trois autres chemins encore dans `reviewerAllowedPaths` (`/api/oauth/tiktok/start`, `/callback`, `/upload-test`) et du compte `reviewer@edificeia.com` lui-même.
-3. **Si la review est encore en cours**, ne rien changer et repousser la relecture ; noter la date de relecture ici.
-
-**Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
-
-## Archive (done)
+*Écrit le 2026-11-24 par l'agent, sans exécution ; cible corrigée le même jour ; exécution par Vincent consignée le même jour.*
 
 ### 2026-11-24 — Tester les routes Academy : contrat, masquage, isolation
 

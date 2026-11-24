@@ -1,7 +1,7 @@
 # Sécurité et gouvernance
 
 Statut : source de vérité
-Dernière mise à jour : 2026-08-01
+Dernière mise à jour : 2026-11-22
 
 ## Sommaire
 

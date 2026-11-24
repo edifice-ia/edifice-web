@@ -61,59 +61,121 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 **Bloque** : la mise en service des routes Academy de l'étape 2a suite. **Ne pas les déployer avant un résultat conforme.**
 
-**⚠️ Ne pas exécuter en l'état — deux défauts relevés par l'agent, à arbitrer par le porteur du projet.** Le script ci-dessous est consigné tel qu'il a été fourni, logique inchangée. À la lecture, sans exécution :
+**⚠️ Ne pas exécuter en l'état — version corrigée le 2026-11-24, en attente de validation par le porteur du projet.** Aucune requête de cette entrée n'a été exécutée par l'agent.
 
-1. **L'insertion de A échouera** (résultat attendu n° 1). `academy_programs.user_id` référence `auth.users(id)`, et `00000000-0000-0000-0000-00000000000a` n'existe pas dans `auth.users` : l'`insert` sera refusé en `23503` (violation de clé étrangère), la transaction sera interrompue, et aucun contrôle suivant ne s'exécutera. Corrections possibles : (a) créer A et B dans `auth.users` au début de la transaction, sous le rôle `postgres` du SQL Editor et avant `set local role authenticated`, le `rollback` final les retirant ; ou (b) utiliser deux comptes réels existants.
-2. **L'insertion d'un enfant par B sous le parent de A n'éprouve pas la clé composite** (résultat attendu n° 4). Son `select … from public.academy_programs where p.user_id = A` s'exécute sous le rôle de B : la règle d'accès `academy_programs_select_own` lui masque les lignes de A, le `select` ne renvoie rien, et l'`insert` insère **zéro ligne, sans erreur**. Le résultat n° 4 (« échoue ») ne se produira pas. Pour éprouver la clé composite, il faudrait insérer avec l'identifiant littéral du programme de A, relevé à l'étape de A.
+*Révision du 2026-11-24.* La première version du script, consignée par `e03c182`, avait deux défauts relevés à la lecture : l'insertion de A échouait sur la clé étrangère vers `auth.users`, les identifiants de test n'y existant pas ; et l'insertion d'un enfant par B passait par un `select` filtré par la règle d'accès de B, qui ne renvoyait rien — zéro ligne insérée, sans erreur, donc sans éprouver la clé composite. La version ci-dessous corrige les deux, à la demande du porteur du projet :
 
-Le résultat n° 3 est cohérent avec les règles d'accès : sous le rôle de B, l'`update` ne voit aucune ligne de A et **ne modifie aucune ligne, sans erreur** — c'est le second cas que le résultat attendu prévoit.
+- **A et B sont créés dans `auth.users`** au début de la transaction, sous le rôle `postgres` du SQL Editor, avant toute bascule vers `authenticated`, avec la seule colonne obligatoire attendue (`id`). Le `rollback` final les retire.
+- **L'identifiant du programme de A est relevé sous `postgres`**, après l'insertion de A et avant la bascule vers B, et conservé dans un paramètre de transaction (`set_config('academy_test.program_a', …, true)`). B l'utilise **tel quel** comme `program_id` : la clé composite `(program_id, user_id)` est alors réellement éprouvée. Les contrôles de clé étrangère s'exécutent hors RLS : l'erreur `23503` doit apparaître.
+- L'insertion de B est placée dans un bloc `do` qui **capture** le `23503` et l'enregistre, pour que l'erreur attendue n'interrompe pas la transaction avant la synthèse et le `rollback`. Si l'insertion réussit, le bloc lève une erreur explicite (« ECHEC DU TEST »), et la transaction est annulée.
+- Une **requête de synthèse**, sous `postgres`, réunit les résultats avant le `rollback`, et une **requête de contrôle** après le `rollback` vérifie qu'il ne reste rien.
 
-**Étapes** — une fois le script corrigé et validé par le porteur du projet :
+**Étapes** — une fois cette version validée par le porteur du projet :
 
 1. Ouvrir le SQL Editor du projet Supabase.
-2. Lancer le script ci-dessous **en une seule exécution**.
-3. Transmettre les résultats, tels quels, au porteur du projet pour consignation.
+2. **Contrôle préalable, en lecture seule** — colonnes `not null` sans valeur par défaut de `auth.users`, et déclencheurs posés sur la table :
+   ```sql
+   select column_name, data_type
+   from information_schema.columns
+   where table_schema = 'auth' and table_name = 'users'
+     and is_nullable = 'NO' and column_default is null
+   order by ordinal_position;
+
+   select tgname, tgenabled
+   from pg_trigger
+   where tgrelid = 'auth.users'::regclass and not tgisinternal;
+   ```
+   Attendu : `id` seul dans la première requête, et aucun déclencheur dans la seconde (aucune migration du dépôt n'en pose sur `auth.users`). **Si une autre colonne apparaît, ou un déclencheur, s'arrêter** et le transmettre : l'insertion du script devra être adaptée.
+3. Lancer le script ci-dessous **en une seule exécution**. Si la première instruction échoue (par exemple `permission denied for table users`), s'arrêter et le transmettre : la transaction est annulée, rien n'est écrit, et la création des utilisateurs de test devra être revue.
+4. Relever le résultat de la requête de synthèse, puis lancer la requête de contrôle de l'étape 5.
+5. **Contrôle après coup, en lecture seule** :
+   ```sql
+   select
+     (select count(*) from auth.users where id in ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b')) as utilisateurs_de_test_restants,
+     (select count(*) from public.academy_programs where user_id in ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b')) as programmes_de_test_restants,
+     (select count(*) from public.academy_subjects where user_id in ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b')) as matieres_de_test_restantes;
+   ```
+6. Transmettre les résultats, tels quels, au porteur du projet pour consignation.
 
 ```sql
 begin;
 
--- Utilisateur A et utilisateur B : deux identifiants fictifs de test.
--- Ces lignes sont annulées par rollback : aucune donnée ne reste.
+-- Sous le role postgres du SQL Editor : creation des deux utilisateurs de test.
+-- Seule la colonne obligatoire attendue (id) ; verifier l'etape 2 avant.
+-- Annules par le rollback final.
+insert into auth.users (id) values
+  ('00000000-0000-0000-0000-00000000000a'),
+  ('00000000-0000-0000-0000-00000000000b');
+
+-- Utilisateur A : creation d'un programme sous son propre role.
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', true);
 set local role authenticated;
 insert into public.academy_programs (user_id, kind, title)
 values ('00000000-0000-0000-0000-00000000000a', 'formation', 'Programme de A')
 returning id;
 
--- Bascule sur B : A n'est plus visible.
+-- Retour sous postgres : releve de l'identifiant du programme de A, avant la
+-- bascule sur B (postgres, proprietaire des tables, n'est pas soumis a RLS).
 reset role;
+select set_config(
+  'academy_test.program_a',
+  (select id::text from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000a'),
+  true
+);
+
+-- Bascule sur B : A n'est plus visible.
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}', true);
 set local role authenticated;
 
 -- Attendu : 0 ligne.
-select count(*) as lignes_visibles_par_b from public.academy_programs
-where user_id = '00000000-0000-0000-0000-00000000000a';
+select set_config(
+  'academy_test.count_b',
+  (select count(*)::text from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000a'),
+  true
+);
 
--- Attendu : erreur de violation de règle (aucune ligne modifiée).
+-- Attendu : aucune ligne modifiee (la regle d'acces masque A a B).
 update public.academy_programs set title = 'Piratage'
 where user_id = '00000000-0000-0000-0000-00000000000a';
 
--- Attendu : erreur, la clé composite refuse un enfant sous le parent de A.
-insert into public.academy_subjects (user_id, program_id, title)
-select '00000000-0000-0000-0000-00000000000b', p.id, 'Intrusion'
-from public.academy_programs p
-where p.user_id = '00000000-0000-0000-0000-00000000000a';
+-- Attendu : erreur 23503, la cle composite (program_id, user_id) refuse un
+-- enfant de B sous le programme de A, identifiant exact.
+do $$
+begin
+  insert into public.academy_subjects (user_id, program_id, title)
+  values (
+    '00000000-0000-0000-0000-00000000000b',
+    current_setting('academy_test.program_a')::uuid,
+    'Intrusion'
+  );
+  raise exception 'ECHEC DU TEST : l''insertion de B sous le programme de A a ete acceptee.';
+exception
+  when foreign_key_violation then
+    perform set_config('academy_test.insert_b', '23503 ' || sqlerrm, true);
+end;
+$$;
+
+-- Synthese, sous postgres.
+reset role;
+select
+  current_setting('academy_test.program_a', true) as programme_a,
+  current_setting('academy_test.count_b', true) as lignes_visibles_par_b,
+  (select title from public.academy_programs
+   where id = current_setting('academy_test.program_a')::uuid) as titre_programme_a_apres_update_b,
+  current_setting('academy_test.insert_b', true) as insertion_enfant_par_b;
 
 rollback;
 ```
 
 **Résultats attendus, à transmettre tels quels** :
 
-1. L'insert de A renvoie un identifiant, sans erreur.
-2. Le count pour B renvoie 0.
-3. L'update de B échoue, ou ne modifie aucune ligne (préciser lequel).
-4. L'insert d'enfant de B sous le parent de A échoue (préciser le message).
-5. Le rollback est exécuté : aucune ligne ne reste en base.
+1. L'insert de A renvoie un identifiant, sans erreur : `programme_a` est un UUID.
+2. Le count pour B renvoie 0 : `lignes_visibles_par_b` = `0`.
+3. L'update de B ne modifie aucune ligne, sans erreur : `titre_programme_a_apres_update_b` = `Programme de A`, inchangé. (Préciser si l'éditeur a signalé une erreur à cette instruction.)
+4. L'insert d'enfant de B sous le programme de A échoue en **23503** (violation de clé étrangère) : `insertion_enfant_par_b` commence par `23503`, suivi du message de Postgres, qui doit citer `academy_subjects_program_fk`. Transmettre le message complet. Toute erreur « ECHEC DU TEST » est un résultat non conforme.
+5. Le rollback est exécuté : la requête de contrôle de l'étape 5 renvoie `0`, `0`, `0`.
+
+**Limite connue, non vérifiée par l'agent** : selon son mode d'affichage, le SQL Editor peut ne montrer que le résultat de la dernière instruction exécutée. Si la synthèse n'apparaît pas, le transmettre tel quel au porteur du projet plutôt que de modifier le script ; la requête de contrôle de l'étape 5 reste valable dans tous les cas.
 
 **Vérification** : si un résultat diffère, arrêter et le signaler au porteur du projet. **Ne pas corriger les politiques dans la foulée.**
 

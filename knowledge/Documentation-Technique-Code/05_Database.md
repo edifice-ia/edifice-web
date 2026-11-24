@@ -161,7 +161,7 @@ Le geste qui écrit ces entrées vise **un module à la fois** : `POST /api/pers
 
 *Jusqu'au 2026-11-24, cette section disait « aucune table » ; la migration ci-dessous est la première du domaine.*
 
-**Cinq tables, migration appliquée en base le 2026-11-24, contrôles structurels conformes (tests fonctionnels non faits)** — `supabase/migrations/20261124120000_create_academy_hierarchy.sql`, commit local du 2026-11-24. **Elles n'existent pas en base tant que l'entrée `pending` du même jour dans `MANUAL_ACTIONS.md` n'est pas faite.**
+**Cinq tables, migration appliquée en base le 2026-11-24, contrôles structurels conformes (tests fonctionnels non faits)** — `supabase/migrations/20261124120000_create_academy_hierarchy.sql`, commit local du 2026-11-24. **Les cinq tables existent en base depuis le 2026-11-24, après application manuelle dans le SQL Editor** (entrée archivée du même jour dans `MANUAL_ACTIONS.md`).
 
 | Table | Niveau | Parent (clé composite, obligatoire) | Colonnes propres |
 |---|---|---|---|

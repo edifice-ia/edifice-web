@@ -61,7 +61,7 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 **Bloque** : la mise en service des routes Academy de l'étape 2a suite. **Ne pas les déployer avant un résultat conforme.**
 
-**Version corrigée validée par le porteur du projet le 2026-11-24 : prête à exécuter.** Aucune requête de cette entrée n'a été exécutée par l'agent. *(Jusqu'à cette validation, l'entrée portait la mention « ne pas exécuter en l'état ».)*
+**Validé par le porteur du projet le 2026-11-24 ; exécution autorisée.** Aucune requête de cette entrée n'a été exécutée par l'agent. *(Jusqu'à cette validation, l'entrée portait la mention « ne pas exécuter en l'état ».)*
 
 *Révision du 2026-11-24.* La première version du script, consignée par `e03c182`, avait deux défauts relevés à la lecture : l'insertion de A échouait sur la clé étrangère vers `auth.users`, les identifiants de test n'y existant pas ; et l'insertion d'un enfant par B passait par un `select` filtré par la règle d'accès de B, qui ne renvoyait rien — zéro ligne insérée, sans erreur, donc sans éprouver la clé composite. La version ci-dessous corrige les deux, à la demande du porteur du projet :
 
@@ -69,6 +69,13 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 - **L'identifiant du programme de A est relevé sous `postgres`**, après l'insertion de A et avant la bascule vers B, et conservé dans un paramètre de transaction (`set_config('academy_test.program_a', …, true)`). B l'utilise **tel quel** comme `program_id` : la clé composite `(program_id, user_id)` est alors réellement éprouvée. Les contrôles de clé étrangère s'exécutent hors RLS : l'erreur `23503` doit apparaître.
 - L'insertion de B est placée dans un bloc `do` qui **capture** le `23503` et l'enregistre, pour que l'erreur attendue n'interrompe pas la transaction avant la synthèse et le `rollback`. Si l'insertion réussit, le bloc lève une erreur explicite (« ECHEC DU TEST »), et la transaction est annulée.
 - Une **requête de synthèse**, sous `postgres`, réunit les résultats avant le `rollback`, et une **requête de contrôle** après le `rollback` vérifie qu'il ne reste rien.
+
+**Résultats des contrôles préalables** — 2026-11-24, transmis par le porteur du projet (étape 2) :
+
+- colonnes `not null` sans valeur par défaut sur `auth.users` : seulement `id` — **conforme** ;
+- déclencheurs sur `auth.users` : aucun — **conforme**.
+
+Les résultats des étapes 3 à 5 restent à transmettre par le porteur du projet ; ils seront consignés ici ensuite.
 
 **Étapes** :
 

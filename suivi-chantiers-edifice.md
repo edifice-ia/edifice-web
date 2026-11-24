@@ -30,7 +30,7 @@
 | --- | --- | --- |
 | 0 | Décisions et documentation | — **fait** |
 | 1 | Squelette de l'espace : route, layout, navigation intérieure, entrée `academy` dans les deux registres, états vides qui le disent. Aucune base de données | **fait le 24 novembre 2026** — commit « feat(academy): squelette de l'espace Academy, sans donnees » |
-| 2a | Hiérarchie pédagogique : programmes, matières, modules, chapitres, leçons. Migration **une table par niveau** (DEC-014) | **appliquée en base le 24 novembre 2026, contrôlée** (contrôles structurels : droits, RLS, règles d'accès, contraintes ; tests fonctionnels non faits) — commit « feat(academy): migration 2a, hierarchie pedagogique », non poussé ; détail dans l'entrée archivée du 24 novembre 2026 de `MANUAL_ACTIONS.md` |
+| 2a | Hiérarchie pédagogique : programmes, matières, modules, chapitres, leçons. Migration **une table par niveau** (DEC-014) | **appliquée en base le 24 novembre 2026, contrôlée** (contrôles structurels : droits, RLS, règles d'accès, contraintes ; tests fonctionnels non faits) — commit « feat(academy): migration 2a, hierarchie pedagogique », non poussé ; détail dans l'entrée archivée du 24 novembre 2026 de `MANUAL_ACTIONS.md` ; **validation et store faits en local le 24 novembre 2026** — commit « feat(academy): validation et store de la hierarchie pedagogique » ; routes et interface à venir |
 | 2b | Objectifs pédagogiques et ressources pédagogiques (reportés de l'étape 2) | 2a |
 | 3 | Calendrier d'Academy : séances planifiées, agenda Google superposé en lecture | 2 |
 | 4 | Notes et fiches de révision | 2 |
@@ -61,7 +61,12 @@ Rien n'est construit. Deux préalables découlent de ces arbitrages : la structu
 
 Restent des détails de construction, rattachés à leur étape : la forme de la séparation des historiques (étape 7), l'emplacement de l'écran d'effacement et sa granularité (étape 8).
 
-**Prochaine action concrète** : store, routes et interface de la hiérarchie (suite de l'étape 2a), sur demande explicite ; les tests fonctionnels — isolation entre utilisateurs, cascade — viendront avec eux. La migration 2a est appliquée et contrôlée depuis le 24 novembre 2026. L'étape 1 est faite le 24 novembre 2026 (commit retrouvable par `git log --grep "squelette de l'espace Academy"`).
+**Prochaine action concrète** : routes API de la hiérarchie, puis interface, sur demande explicite ; les tests fonctionnels — isolation entre utilisateurs, cascade — viendront avec les routes. Validation et store faits en local le 24 novembre 2026 (commit retrouvable par `git log --grep "validation et store de la hierarchie"`). La migration 2a est appliquée et contrôlée depuis le 24 novembre 2026. L'étape 1 est faite le 24 novembre 2026 (commit retrouvable par `git log --grep "squelette de l'espace Academy"`).
+
+**Dettes relevées le 24 novembre 2026, non traitées** :
+
+- **`isUuid` en quatrième copie** : `lib/academy/hierarchy.ts`, après `lib/personal/goals.ts`, `lib/personal/journal-categories.ts` et `lib/personal/data-erasure.ts`. Copie volontaire, pour qu'Academy ne dépende pas de Personnel, en pause. Le regroupement en un utilitaire partagé demande un commit dédié, qui touchera les trois copies de Personnel.
+- **Message d'erreur brut des routes Objectifs** : `app/api/personal/goals/route.ts` et `app/api/personal/goals/[id]/route.ts`, comme `[id]/restore` et `[id]/permanent`, renvoient au client `error.message` dans leurs réponses `500`, donc le message brut de Postgres quand il en remonte un. Le store d'Academy ne reprend pas ce patron. Correction à faire dans un commit dédié, hors du chantier 8, Personnel étant en pause.
 
 ---
 

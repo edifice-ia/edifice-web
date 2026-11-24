@@ -177,7 +177,7 @@ Contraintes : titre non vide, au plus 200 caractères ; description nulle ou non
 
 Index partiels `where deleted_at is null` : `(user_id, created_at desc)` sur les programmes, `(parent_id, position)` sur chaque niveau enfant.
 
-Droits : RLS activée ; `revoke all … from anon, authenticated` **avant** le `grant` ; `SELECT`, `INSERT`, `UPDATE` à `authenticated`, **aucun `DELETE`** ; trois policies par table, `select_own`, `insert_own` et `update_own`, toutes sur `user_id = auth.uid()`. RLS sera le garde réel : les futurs stores utiliseront le client de session, comme ceux du pôle Personnel.
+Droits : RLS activée ; `revoke all … from anon, authenticated` **avant** le `grant` ; `SELECT`, `INSERT`, `UPDATE` à `authenticated`, **aucun `DELETE`** ; trois policies par table, `select_own`, `insert_own` et `update_own`, toutes sur `user_id = auth.uid()`. RLS est le garde réel : le store `lib/server/academy/hierarchy-store.ts` (2026-11-24) accède à ces tables par le **client de session**, jamais par la clé service-role, comme ceux du pôle Personnel, et filtre en plus chaque requête sur `user_id`.
 
 **Archivage** : archiver un parent n'archive pas ses enfants ; c'est la lecture qui les masque. **Ordre** : `position`, puis `created_at`. Voir la note du 2026-11-24 sous DEC-014 dans [Décisions](./03_Decisions.md).
 

@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-24 (Academy : validation et store de la hiérarchie)](#2026-11-24-academy--validation-et-store-de-la-hiérarchie)
 - [2026-11-24 (Academy : migration 2a appliquée en base)](#2026-11-24-academy--migration-2a-appliquée-en-base)
 - [2026-11-24 (Academy : migration 2a, hiérarchie pédagogique)](#2026-11-24-academy--migration-2a-hiérarchie-pédagogique)
 - [2026-11-24 (Academy : étape 1, squelette de l'espace)](#2026-11-24-academy--étape-1-squelette-de-lespace)
@@ -76,6 +77,28 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-24 (Academy : validation et store de la hiérarchie)
+
+Type : produit, sécurité
+
+Résumé : première partie de la suite de l'étape 2a. Elle pose la validation et le store de la hiérarchie pédagogique, **sans route ni interface**.
+
+- `lib/academy/hierarchy.ts` : module pur. Types, limites, validation de création et de mise à jour par niveau, `filterLiveTree` (masquage des descendants d'un élément archivé), `isUuid` en copie locale.
+- `lib/server/academy/hierarchy-store.ts` : client de session uniquement, filtre `user_id` sur chaque requête, `LEVEL_CONFIG` interne (aucun nom de table venu de l'extérieur), `resolveLiveChain`, création avec position calculée, mise à jour, archivage, restauration refusée sous un ancêtre archivé, lecture de l'arbre et d'une leçon, programmes vivants et archivés. Codes `ok` / `invalid` / `not_found`, jamais l'erreur brute de la base ; `AcademyStoreError` générique en cas de panne.
+- `scripts/academy-hierarchy-check.mjs`, `npm run academy:hierarchy:check` : 106 vérifications sans base, dont le masquage à chaque niveau.
+
+**Non vérifié** : le store contre une vraie base (aucune base de test, aucune route ne l'appelle encore), l'isolation entre utilisateurs, la cascade à l'usage.
+
+Dettes consignées au chantier 8 : `isUuid` en quatrième copie ; message d'erreur brut des routes Objectifs.
+
+Fichiers liés :
+
+- `lib/academy/hierarchy.ts`, `lib/server/academy/hierarchy-store.ts`, `scripts/academy-hierarchy-check.mjs`, `package.json`
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `05_Database.md`
+- `suivi-chantiers-edifice.md` — chantier 8, étape 2a et dettes
+
+Impact : aucun en production, aucun code appelant. Commit local seulement : ce code décide de qui peut lire quoi, la règle permanente de `CLAUDE.md` s'applique.
 
 ## 2026-11-24 (Academy : migration 2a appliquée en base)
 

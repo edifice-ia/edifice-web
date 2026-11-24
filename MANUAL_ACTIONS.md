@@ -53,6 +53,69 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-11-24 — Appliquer la migration Academy (hiérarchie 2a)
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : appliquer une migration et lire l'état réel des droits, des policies et des contraintes passent par le SQL Editor du dashboard Supabase. L'agent n'a pas d'accès SQL au projet, et aucune base de test locale n'existe sur cette machine (ni CLI Supabase, ni `psql`, ni Docker) : **la migration n'a été exécutée nulle part**.
+
+**Bloque** : le store, les routes et l'interface de la hiérarchie pédagogique (suite de l'étape 2 du chantier 8).
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. **Témoin avant** — aucune table `academy_*` ne doit exister :
+   ```sql
+   select tablename from pg_tables
+   where schemaname = 'public' and tablename like 'academy\_%'
+   order by 1;
+   ```
+   Attendu : aucune ligne.
+3. Coller et exécuter le contenu intégral de `supabase/migrations/20261124120000_create_academy_hierarchy.sql`. Il est enveloppé dans `begin; … commit;` : une erreur annule tout.
+4. **Droits** — exactement `INSERT, SELECT, UPDATE` pour `authenticated`, rien pour `anon` ni `PUBLIC` :
+   ```sql
+   select c.relname as table_name,
+          case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end as grantee,
+          string_agg(a.privilege_type, ', ' order by a.privilege_type) as privileges
+   from pg_class c
+   join pg_namespace n on n.oid = c.relnamespace
+   cross join lateral aclexplode(c.relacl) a
+   where n.nspname = 'public'
+     and c.relname in ('academy_programs', 'academy_subjects', 'academy_units', 'academy_chapters', 'academy_lessons')
+     and (a.grantee = 0
+          or a.grantee in (select oid from pg_roles where rolname in ('anon', 'authenticated')))
+   group by 1, 2
+   order by 1, 2;
+   ```
+   Attendu : cinq lignes, une par table, toutes `authenticated` → `INSERT, SELECT, UPDATE`. Aucune ligne `anon` ni `PUBLIC`, aucun `DELETE`.
+5. **RLS et policies** — trois par table, toutes sur le propriétaire :
+   ```sql
+   select c.relname, c.relrowsecurity
+   from pg_class c join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public' and c.relname in ('academy_programs', 'academy_subjects', 'academy_units', 'academy_chapters', 'academy_lessons')
+   order by 1;
+
+   select tablename, policyname, roles, cmd, qual, with_check
+   from pg_policies
+   where schemaname = 'public' and tablename in ('academy_programs', 'academy_subjects', 'academy_units', 'academy_chapters', 'academy_lessons')
+   order by tablename, policyname;
+   ```
+   Attendu : `relrowsecurity = true` sur les cinq ; quinze policies `<table>_insert_own`, `_select_own`, `_update_own`, rôle `{authenticated}`, `qual` et `with_check` à `(user_id = auth.uid())` (ou nuls selon la commande) ; aucune autre.
+6. **Contraintes** — clés composites et `check` :
+   ```sql
+   select conrelid::regclass as table_name, conname, contype, confdeltype,
+          pg_get_constraintdef(oid) as definition
+   from pg_constraint
+   where conrelid in ('public.academy_programs'::regclass, 'public.academy_subjects'::regclass,
+                      'public.academy_units'::regclass, 'public.academy_chapters'::regclass,
+                      'public.academy_lessons'::regclass)
+   order by 1, 2;
+   ```
+   Attendu : sur chaque table, `<table>_id_user_id_key` (`contype = u`) ; quatre clés étrangères `academy_subjects_program_fk`, `academy_units_subject_fk`, `academy_chapters_unit_fk`, `academy_lessons_chapter_fk` (`contype = f`, `confdeltype = c`, sur `(…_id, user_id)`) ; les `check` de titre, description ou contenu, de position, et `academy_programs_kind_known`.
+7. Transmettre les résultats des étapes 2, 4, 5 et 6 à l'agent, pour qu'ils soient consignés ici.
+
+**Vérification** : les résultats correspondent aux attendus ci-dessus. Tout écart — un `DELETE`, un privilège `anon`, une policy en trop, une clé étrangère absente — est à signaler avant toute écriture applicative.
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`

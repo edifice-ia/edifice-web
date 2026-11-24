@@ -30,7 +30,8 @@
 | --- | --- | --- |
 | 0 | Décisions et documentation | — **fait** |
 | 1 | Squelette de l'espace : route, layout, navigation intérieure, entrée `academy` dans les deux registres, états vides qui le disent. Aucune base de données | **fait le 24 novembre 2026** — commit « feat(academy): squelette de l'espace Academy, sans donnees » |
-| 2 | Hiérarchie pédagogique : programmes, matières, modules, chapitres, leçons, objectifs, ressources. Première migration, **une table par niveau** (décidé le 22 novembre 2026, DEC-014) | 1 |
+| 2a | Hiérarchie pédagogique : programmes, matières, modules, chapitres, leçons. Migration **une table par niveau** (DEC-014) | **migration écrite, commit local du 24 novembre 2026, non appliquée, non poussée** — commit « feat(academy): migration 2a, hierarchie pedagogique » ; application : entrée `pending` de `MANUAL_ACTIONS.md` |
+| 2b | Objectifs pédagogiques et ressources pédagogiques (reportés de l'étape 2) | 2a |
 | 3 | Calendrier d'Academy : séances planifiées, agenda Google superposé en lecture | 2 |
 | 4 | Notes et fiches de révision | 2 |
 | 5 | Quiz, exercices, évaluations, tentatives | 2 |
@@ -60,7 +61,7 @@ Rien n'est construit. Deux préalables découlent de ces arbitrages : la structu
 
 Restent des détails de construction, rattachés à leur étape : la forme de la séparation des historiques (étape 7), l'emplacement de l'écran d'effacement et sa granularité (étape 8).
 
-**Prochaine action concrète** : étape 2, sur demande explicite du porteur du projet. L'étape 1 est faite le 24 novembre 2026 : le hash de son commit n'est pas inscrit ici, un commit ne pouvant pas contenir son propre hash ; il se retrouve par `git log --grep "squelette de l'espace Academy"`. Détail dans la section « Espace Academy » de `06_Modules.md`.
+**Prochaine action concrète** : appliquer la migration 2a dans le SQL Editor (entrée `pending` du 24 novembre 2026 dans `MANUAL_ACTIONS.md`), puis consigner les contrôles. Ensuite : store, routes et interface de la hiérarchie, sur demande explicite. L'étape 1 est faite le 24 novembre 2026 (commit retrouvable par `git log --grep "squelette de l'espace Academy"`).
 
 ---
 

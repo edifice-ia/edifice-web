@@ -694,7 +694,9 @@ Fichiers :
 - planification stockée dans Academy, agenda Google superposé en lecture seule ;
 - toute capacité IA passe par le service commun ; aucun appel de fournisseur dans Academy.
 
-**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. L'étape 1 est faite ; l'étape 2 attend une demande explicite.
+**Étape 2a — migration écrite, non appliquée (2026-11-24)** : `supabase/migrations/20261124120000_create_academy_hierarchy.sql` crée les cinq tables de la hiérarchie pédagogique — programmes, matières, modules, chapitres, leçons. Détail dans [Base de données](./05_Database.md), section Academy. Aucune table n'existe en base tant que la migration n'est pas appliquée ; aucun store, aucune route, aucune interface ne les utilise encore. Les pages du squelette restent sans données.
+
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a écrite en local ; étape 2b (objectifs, ressources) à faire.
 
 ## Service renderer
 

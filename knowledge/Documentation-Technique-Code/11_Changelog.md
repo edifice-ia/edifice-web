@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-24 (Academy : migration 2a, hiérarchie pédagogique)](#2026-11-24-academy--migration-2a-hiérarchie-pédagogique)
 - [2026-11-24 (Academy : étape 1, squelette de l'espace)](#2026-11-24-academy--étape-1-squelette-de-lespace)
 - [2026-11-24 (CRON_SECRET absent en production, créé et redéployé)](#2026-11-24-cron_secret-absent-en-production-créé-et-redéployé)
 - [2026-11-22 (Academy : critères de choix du fournisseur de recherche web)](#2026-11-22-academy--critères-de-choix-du-fournisseur-de-recherche-web)
@@ -74,6 +75,30 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-24 (Academy : migration 2a, hiérarchie pédagogique)
+
+Type : base de données, sécurité
+
+Résumé : **migration écrite, non appliquée** : `supabase/migrations/20261124120000_create_academy_hierarchy.sql`. Elle crée cinq tables, une par niveau : `academy_programs`, `academy_subjects`, `academy_units`, `academy_chapters`, `academy_lessons`.
+
+- Liens de parenté obligatoires, par clés composites `(parent_id, user_id)` ; `on delete cascade` en filet de sécurité seulement.
+- `user_id`, `created_at`, `updated_at`, `deleted_at` sur chaque table ; `position` sans unicité ; `kind` simple étiquette ; pas de statut ni de dates.
+- RLS ; `revoke all … from anon, authenticated` avant le `grant` ; `SELECT`, `INSERT`, `UPDATE` à `authenticated`, aucun `DELETE` ; quinze policies, toutes sur `user_id = auth.uid()`.
+- Archivage d'un parent : les enfants ne sont pas archivés, la lecture les masque (note sous DEC-014).
+- Objectifs et ressources reportés en 2b.
+
+**Vérification** : relecture mécanique de la migration — les cinq `revoke` précèdent les cinq `grant`, aucun `DELETE`, quinze policies sur la seule condition `user_id = auth.uid()`, cinq tables, déclencheurs, fonctions et index, une transaction. **Non appliquée sur une base de test** : aucune base locale n'est disponible (ni CLI Supabase, ni `psql`, ni Docker). L'application et ses contrôles sont dans l'entrée `pending` du 2026-11-24 de `MANUAL_ACTIONS.md`.
+
+Fichiers liés :
+
+- `supabase/migrations/20261124120000_create_academy_hierarchy.sql`
+- `MANUAL_ACTIONS.md` — entrée `pending` « Appliquer la migration Academy (hiérarchie 2a) »
+- `knowledge/Documentation-Technique-Code/05_Database.md`, `03_Decisions.md` (note sous DEC-014), `06_Modules.md`
+- `knowledge/Documentation-Strategique/Markdown/12-modele-de-donnees.md` et son PDF — entité Programme et hiérarchie
+- `suivi-chantiers-edifice.md` — chantier 8 : étape 2 découpée en 2a et 2b
+
+Impact : aucun tant que la migration n'est pas appliquée. Commit local seulement : la migration contient `GRANT`, `REVOKE` et des policies, la règle permanente de `CLAUDE.md` s'applique.
 
 ## 2026-11-24 (Academy : étape 1, squelette de l'espace)
 

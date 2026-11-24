@@ -1,7 +1,7 @@
 # Base de données
 
 Statut : source de vérité initiale  
-Dernière mise à jour : 2026-11-22
+Dernière mise à jour : 2026-11-24
 
 ## Sommaire
 
@@ -159,11 +159,29 @@ Le geste qui écrit ces entrées vise **un module à la fois** : `POST /api/pers
 
 ### Academy
 
-**Aucune table.** L'espace Academy est décidé le 2026-11-22 — [Décisions](./03_Decisions.md) DEC-014 — mais aucune migration ne le concerne : aucun fichier de `supabase/migrations` ne contient « academy », vérifié le même jour.
+*Jusqu'au 2026-11-24, cette section disait « aucune table » ; la migration ci-dessous est la première du domaine.*
 
-Les entités envisagées, leur articulation avec la hiérarchie pédagogique et les règles qu'elles devront respecter sont tenues dans DEC-014 et **dans cette seule entrée**, pour ne pas faire exister ici, sous forme de liste de tables, un schéma qui n'est pas tranché. Cette page ne décrira les tables Academy qu'au commit de leur migration, comme pour tout autre domaine.
+**Cinq tables, migration écrite et non appliquée** — `supabase/migrations/20261124120000_create_academy_hierarchy.sql`, commit local du 2026-11-24. **Elles n'existent pas en base tant que l'entrée `pending` du même jour dans `MANUAL_ACTIONS.md` n'est pas faite.**
 
-Deux rappels pour ce futur schéma, issus de l'historique de ce document : `revoke all … from anon, authenticated` **avant** tout `grant` — un `grant` est additif, voir la section suivante et les chantiers 6 et 7 de `suivi-chantiers-edifice.md` — et `user_id` porté par chaque table, dépendantes comprises ([DEC-013](./03_Decisions.md)).
+| Table | Niveau | Parent (clé composite, obligatoire) | Colonnes propres |
+|---|---|---|---|
+| `academy_programs` | programme : curriculum ou formation | aucun | `kind` (`curriculum` / `formation`), `title`, `description` |
+| `academy_subjects` | matière | `(program_id, user_id)` → `academy_programs` | `title`, `description`, `position` |
+| `academy_units` | module pédagogique | `(subject_id, user_id)` → `academy_subjects` | `title`, `description`, `position` |
+| `academy_chapters` | chapitre | `(unit_id, user_id)` → `academy_units` | `title`, `description`, `position` |
+| `academy_lessons` | cours ou leçon | `(chapter_id, user_id)` → `academy_chapters` | `title`, `content` (Markdown, facultatif), `position` |
+
+Colonnes communes : `id`, `user_id` (référence `auth.users`, en cascade), `created_at`, `updated_at` (déclencheur `set_<table>_updated_at`), `deleted_at`. Chaque table porte `unique (id, user_id)`, cible des clés composites `<table>_<parent>_fk`, en `on delete cascade` comme filet de sécurité seulement : la suppression physique, à l'étape 8, supprimera les enfants explicitement (DEC-013).
+
+Contraintes : titre non vide, au plus 200 caractères ; description nulle ou non vide, au plus 2 000 ; contenu de leçon nul ou non vide, au plus 100 000 ; `position >= 0`, sans unicité ; `kind` dans sa liste. **`kind` est une étiquette** : aucune règle de données n'en dépend.
+
+Index partiels `where deleted_at is null` : `(user_id, created_at desc)` sur les programmes, `(parent_id, position)` sur chaque niveau enfant.
+
+Droits : RLS activée ; `revoke all … from anon, authenticated` **avant** le `grant` ; `SELECT`, `INSERT`, `UPDATE` à `authenticated`, **aucun `DELETE`** ; trois policies par table, `select_own`, `insert_own` et `update_own`, toutes sur `user_id = auth.uid()`. RLS sera le garde réel : les futurs stores utiliseront le client de session, comme ceux du pôle Personnel.
+
+**Archivage** : archiver un parent n'archive pas ses enfants ; c'est la lecture qui les masque. **Ordre** : `position`, puis `created_at`. Voir la note du 2026-11-24 sous DEC-014 dans [Décisions](./03_Decisions.md).
+
+Hors de cette migration, étape 2b : `academy_objectives` et `academy_resources`.
 
 ## Privilèges des tables accédées par la seule clé service-role
 

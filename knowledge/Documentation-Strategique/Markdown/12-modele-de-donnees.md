@@ -1,7 +1,7 @@
 # Modèle de données
 
 Statut : source de vérité
-Dernière mise à jour : 2026-08-01
+Dernière mise à jour : 2026-11-24
 
 ## Sommaire
 
@@ -32,6 +32,8 @@ Toutes les données de L'Édifice vivent dans une seule base relationnelle. Il n
 **Objectif.** Rattaché à un Projet. Un projet peut porter plusieurs objectifs.
 
 **Action.** Rattachée à un Objectif. La feuille de la hiérarchie Projet → Objectif → Action.
+
+**Programme d'apprentissage.** Instance concrète de l'espace Academy : un curriculum ou une formation indépendante — voir [22-espaces-et-marques.md](./22-espaces-et-marques.md). Racine d'une hiérarchie pédagogique stricte, un niveau par entité : Programme → Matière → Module → Chapitre → Leçon. Chaque lien de parenté est obligatoire, et chaque niveau porte lui aussi l'identifiant utilisateur. La distinction curriculum / formation est une étiquette, sans effet sur la structure.
 
 **Donnée de module.** Entité générique pour désigner toute donnée métier produite par un module — une nuit de sommeil, une tâche, une entrée de journal. Chaque module possède ses propres tables et son propre schéma, mais toutes partagent le même principe de rattachement : un identifiant utilisateur systématique, et, quand la donnée sert un contexte précis, un rattachement optionnel à une Marque ou à un Projet.
 
@@ -79,6 +81,16 @@ UTILISATEUR (id)
   |        +--< OBJECTIF (projet_id, nom, progress)
   |                 |
   |                 +--< ACTION (objectif_id, effort_level, statut)
+  |
+  +--< PROGRAMME (utilisateur_id, type, titre)
+  |        |
+  |        +--< MATIERE (programme_id, position)
+  |                 |
+  |                 +--< MODULE (matiere_id, position)
+  |                          |
+  |                          +--< CHAPITRE (module_id, position)
+  |                                   |
+  |                                   +--< LECON (chapitre_id, position, contenu)
   |
   +--< EVENEMENT (utilisateur_id, type, source, horodatage, payload)
 ```

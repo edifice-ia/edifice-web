@@ -1,7 +1,7 @@
 # Décisions
 
 Statut : registre initial  
-Dernière mise à jour : 2026-11-22
+Dernière mise à jour : 2026-11-24
 
 ## Sommaire
 
@@ -439,6 +439,13 @@ Note (2026-11-22) — **deux questions ouvertes de cette décision sont tranché
    - Restent à fixer à l'étape 8, sans être des questions de principe : l'emplacement de l'écran, et la granularité de l'effacement — par programme, par type de contenu, ou pour tout Academy.
 
 La troisième question ouverte — l'historique du Professeur IA — relève de [DEC-015](#dec-015---le-service-commun-ia-est-multi-fournisseurs-et-multi-modèles--révise-dec-011), où elle est tranchée.
+
+Note (2026-11-24) — **archivage et ordre dans la hiérarchie**, arbitrés par le porteur du projet pour la migration 2a (`20261124120000_create_academy_hierarchy.sql`) :
+
+- **Archivage** : archiver un parent (`deleted_at`) **n'archive pas ses enfants**. Aucune cascade logique ni aucun déclencheur ; c'est la **lecture** qui masque les enfants d'un parent archivé, et la restauration du parent les fait réapparaître. Ce masquage est à la charge du store de l'étape 2.
+- **Ordre** : `position integer not null default 0`, `>= 0`, **sans contrainte d'unicité**. Tri par `position`, puis `created_at`.
+- **Pas de statut ni de dates de programme** : la progression sera calculée (étape 6), la planification relèvera du calendrier (étape 3).
+- **Découpage de l'étape 2** : 2a, la hiérarchie (cinq tables) ; 2b, les objectifs et les ressources pédagogiques, reportés.
 
 Fichiers liés :
 

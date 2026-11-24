@@ -53,6 +53,286 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-11-24 — Tester la modification (update) de l'isolation SQL sur academy_units, academy_chapters et academy_lessons
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : seul le SQL Editor peut exécuter ce test sur la base réelle, et aucune base de test n'est disponible depuis le dépôt (ni CLI Supabase, ni `psql`, ni Docker sur cette machine). L'agent n'a pas d'accès SQL au projet. **À exécuter par Vincent, porteur du projet**, dans le SQL Editor, sous le rôle `postgres`.
+
+**Bloque** : rien d'immédiat. Ce test comble le dernier point ouvert de l'isolation côté base relevé le 2026-11-24 : la règle d'accès en **modification** sur les trois tables enfants, que le test d'insertion du même jour ne tentait pas. Côté base, elle n'est éprouvée que sur `academy_programs` ; côté routes, par les tests à la main.
+
+**Ce que dit la migration** (`20261124120000_create_academy_hierarchy.sql`, relue le 2026-11-24 sans exécution) : pour chacune des trois tables, la règle `academy_<table>_update_own` est `for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid())`, et la clé composite `(parent_id, user_id)` vers `(id, user_id)` du parent ne précise pas d'`on update` : elle est donc contrôlée à chaque modification de la ligne enfant. Attendus déduits, que ce test doit confirmer :
+
+- **(a)** B rattache **sa propre ligne** au parent de A : la règle d'accès l'accepte (la ligne reste à B), la clé composite refuse — **`23503`** ;
+- **(b)** B tente de modifier **une ligne de A** : la clause `using` la rend invisible à B — **0 ligne affectée**, sans erreur ;
+- **(c)** B passe le `user_id` de **sa propre ligne** à celui de A : la clause `with check` refuse la nouvelle ligne — **`42501`** (« new row violates row-level security policy »). Le contrôle de la règle d'accès précède celui des clés étrangères ; un `23503` à cette étape serait un refus, mais **pas par la règle d'accès** : à signaler.
+
+**Sans effet durable** : même modèle que le test d'insertion du 2026-11-24. Le script écrit **uniquement dans une transaction terminée par `rollback`** ; les comptes fictifs `…000c` (A) et `…000d` (B) sont créés dans `auth.users` au début de la transaction, sous `postgres`, et retirés par le `rollback`. Aucun compte réel n'est utilisé, aucune donnée existante n'est lue ni modifiée.
+
+Chaque tentative de B est placée dans un bloc `do` :
+
+- (a) et (c) capturent le refus attendu et l'enregistrent ; si la modification passe, le bloc lève « ECHEC DU TEST » — y compris si elle n'affecte aucune ligne, ce qui signalerait que B ne voit pas sa propre ligne ;
+- (b) compte les lignes affectées (`get diagnostics`) ; s'il y en a au moins une, le bloc lève « ECHEC DU TEST ».
+
+« ECHEC DU TEST » n'est capté par aucun bloc : il interrompt toute la transaction, annulée, et le SQL Editor l'affiche à la place de la synthèse.
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. **Contrôle préalable, en lecture seule** — déjà conforme le 2026-11-24 (seule `id` obligatoire, aucun déclencheur), à relancer pour s'assurer que rien n'a changé :
+   ```sql
+   select column_name, data_type
+   from information_schema.columns
+   where table_schema = 'auth' and table_name = 'users'
+     and is_nullable = 'NO' and column_default is null
+   order by ordinal_position;
+
+   select tgname, tgenabled
+   from pg_trigger
+   where tgrelid = 'auth.users'::regclass and not tgisinternal;
+   ```
+   Attendu : `id` seul dans la première requête, aucune ligne dans la seconde. **Sinon, s'arrêter** et le transmettre à l'agent.
+3. Lancer le script ci-dessous **en une seule exécution**. Si une erreur s'affiche à la place de la synthèse (« ECHEC DU TEST », `permission denied`…), s'arrêter et transmettre le message tel quel : la transaction est annulée, rien n'est écrit.
+4. Relever le résultat de la synthèse.
+5. **Contrôle après coup, en lecture seule** :
+   ```sql
+   select
+     (select count(*) from auth.users where id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as utilisateurs_de_test_restants,
+     (select count(*) from public.academy_programs where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as programmes,
+     (select count(*) from public.academy_subjects where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as matieres,
+     (select count(*) from public.academy_units where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as modules,
+     (select count(*) from public.academy_chapters where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as chapitres,
+     (select count(*) from public.academy_lessons where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as lecons;
+   ```
+   Attendu : `0` partout.
+6. Transmettre les résultats, tels quels, à l'agent pour consignation.
+
+```sql
+begin;
+
+-- Sous le role postgres du SQL Editor : creation des deux comptes de test.
+-- Annules par le rollback final.
+insert into auth.users (id) values
+  ('00000000-0000-0000-0000-00000000000c'),
+  ('00000000-0000-0000-0000-00000000000d');
+
+-- Compte A : chaine complete, sous son propre role (regle d'acces appliquee).
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title)
+values ('00000000-0000-0000-0000-00000000000c', 'formation', 'Programme de A');
+insert into public.academy_subjects (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'Matiere de A' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_units (user_id, subject_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'Module de A' from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_chapters (user_id, unit_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'Chapitre de A' from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_lessons (user_id, chapter_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'Lecon de A' from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c';
+reset role;
+
+-- Compte B : sa propre chaine complete, sous son propre role.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title)
+values ('00000000-0000-0000-0000-00000000000d', 'formation', 'Programme de B');
+insert into public.academy_subjects (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000d', id, 'Matiere de B' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000d';
+insert into public.academy_units (user_id, subject_id, title)
+select '00000000-0000-0000-0000-00000000000d', id, 'Module de B' from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000d';
+insert into public.academy_chapters (user_id, unit_id, title)
+select '00000000-0000-0000-0000-00000000000d', id, 'Chapitre de B' from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000d';
+insert into public.academy_lessons (user_id, chapter_id, title)
+select '00000000-0000-0000-0000-00000000000d', id, 'Lecon de B' from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000d';
+reset role;
+
+-- Sous postgres (proprietaire des tables, hors regle d'acces) : releve des
+-- identifiants de A, que B va viser tels quels.
+select set_config('academy_test.subject_a',
+  (select id::text from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c'), true);
+select set_config('academy_test.unit_a',
+  (select id::text from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c'), true);
+select set_config('academy_test.chapter_a',
+  (select id::text from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c'), true);
+select set_config('academy_test.lesson_a',
+  (select id::text from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c'), true);
+
+-- Bascule sur B : trois tentatives de modification par table.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}', true);
+set local role authenticated;
+
+-- academy_units
+-- (a) B rattache sa propre ligne au parent de A. Attendu : 23503.
+do $$
+begin
+  update public.academy_units
+  set subject_id = current_setting('academy_test.subject_a')::uuid
+  where user_id = '00000000-0000-0000-0000-00000000000d';
+  raise exception 'ECHEC DU TEST (a) : module de B rattache(e) sous la matiere de A.';
+exception
+  when foreign_key_violation or insufficient_privilege then
+    perform set_config('academy_test.units_a', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+
+-- (b) B tente de modifier la ligne de A. Attendu : 0 ligne affectee.
+do $$
+declare
+  n integer;
+begin
+  update public.academy_units
+  set title = 'Piratage'
+  where id = current_setting('academy_test.unit_a')::uuid;
+  get diagnostics n = row_count;
+  if n <> 0 then
+    raise exception 'ECHEC DU TEST (b) : B a modifie % ligne(s) de A dans academy_units.', n;
+  end if;
+  perform set_config('academy_test.units_b', n::text || ' ligne affectee', true);
+end;
+$$;
+
+-- (c) B donne sa propre ligne a A (user_id). Attendu : 42501.
+do $$
+begin
+  update public.academy_units
+  set user_id = '00000000-0000-0000-0000-00000000000c'
+  where user_id = '00000000-0000-0000-0000-00000000000d';
+  raise exception 'ECHEC DU TEST (c) : module de B reaffecte(e) au compte A.';
+exception
+  when insufficient_privilege or foreign_key_violation then
+    perform set_config('academy_test.units_c', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+
+-- academy_chapters
+-- (a) B rattache sa propre ligne au parent de A. Attendu : 23503.
+do $$
+begin
+  update public.academy_chapters
+  set unit_id = current_setting('academy_test.unit_a')::uuid
+  where user_id = '00000000-0000-0000-0000-00000000000d';
+  raise exception 'ECHEC DU TEST (a) : chapitre de B rattache(e) sous le module de A.';
+exception
+  when foreign_key_violation or insufficient_privilege then
+    perform set_config('academy_test.chapters_a', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+
+-- (b) B tente de modifier la ligne de A. Attendu : 0 ligne affectee.
+do $$
+declare
+  n integer;
+begin
+  update public.academy_chapters
+  set title = 'Piratage'
+  where id = current_setting('academy_test.chapter_a')::uuid;
+  get diagnostics n = row_count;
+  if n <> 0 then
+    raise exception 'ECHEC DU TEST (b) : B a modifie % ligne(s) de A dans academy_chapters.', n;
+  end if;
+  perform set_config('academy_test.chapters_b', n::text || ' ligne affectee', true);
+end;
+$$;
+
+-- (c) B donne sa propre ligne a A (user_id). Attendu : 42501.
+do $$
+begin
+  update public.academy_chapters
+  set user_id = '00000000-0000-0000-0000-00000000000c'
+  where user_id = '00000000-0000-0000-0000-00000000000d';
+  raise exception 'ECHEC DU TEST (c) : chapitre de B reaffecte(e) au compte A.';
+exception
+  when insufficient_privilege or foreign_key_violation then
+    perform set_config('academy_test.chapters_c', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+
+-- academy_lessons
+-- (a) B rattache sa propre ligne au parent de A. Attendu : 23503.
+do $$
+begin
+  update public.academy_lessons
+  set chapter_id = current_setting('academy_test.chapter_a')::uuid
+  where user_id = '00000000-0000-0000-0000-00000000000d';
+  raise exception 'ECHEC DU TEST (a) : lecon de B rattache(e) sous le chapitre de A.';
+exception
+  when foreign_key_violation or insufficient_privilege then
+    perform set_config('academy_test.lessons_a', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+
+-- (b) B tente de modifier la ligne de A. Attendu : 0 ligne affectee.
+do $$
+declare
+  n integer;
+begin
+  update public.academy_lessons
+  set title = 'Piratage'
+  where id = current_setting('academy_test.lesson_a')::uuid;
+  get diagnostics n = row_count;
+  if n <> 0 then
+    raise exception 'ECHEC DU TEST (b) : B a modifie % ligne(s) de A dans academy_lessons.', n;
+  end if;
+  perform set_config('academy_test.lessons_b', n::text || ' ligne affectee', true);
+end;
+$$;
+
+-- (c) B donne sa propre ligne a A (user_id). Attendu : 42501.
+do $$
+begin
+  update public.academy_lessons
+  set user_id = '00000000-0000-0000-0000-00000000000c'
+  where user_id = '00000000-0000-0000-0000-00000000000d';
+  raise exception 'ECHEC DU TEST (c) : lecon de B reaffecte(e) au compte A.';
+exception
+  when insufficient_privilege or foreign_key_violation then
+    perform set_config('academy_test.lessons_c', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+
+reset role;
+
+-- Synthese, sous postgres. Les lignes de A et de B doivent etre intactes.
+select
+  current_setting('academy_test.units_a', true) as module_a_parent_de_a,
+  current_setting('academy_test.units_b', true) as module_b_ligne_de_a,
+  current_setting('academy_test.units_c', true) as module_c_user_id_de_a,
+  current_setting('academy_test.chapters_a', true) as chapitre_a_parent_de_a,
+  current_setting('academy_test.chapters_b', true) as chapitre_b_ligne_de_a,
+  current_setting('academy_test.chapters_c', true) as chapitre_c_user_id_de_a,
+  current_setting('academy_test.lessons_a', true) as lecon_a_parent_de_a,
+  current_setting('academy_test.lessons_b', true) as lecon_b_ligne_de_a,
+  current_setting('academy_test.lessons_c', true) as lecon_c_user_id_de_a,
+  format('%s / %s / %s',
+    (select title from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c'),
+    (select title from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c'),
+    (select title from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c')) as titres_de_a,
+  format('%s / %s / %s',
+    (select count(*) from public.academy_units u
+       join public.academy_subjects s on s.id = u.subject_id and s.user_id = u.user_id
+     where u.user_id = '00000000-0000-0000-0000-00000000000d'),
+    (select count(*) from public.academy_chapters c
+       join public.academy_units u on u.id = c.unit_id and u.user_id = c.user_id
+     where c.user_id = '00000000-0000-0000-0000-00000000000d'),
+    (select count(*) from public.academy_lessons l
+       join public.academy_chapters c on c.id = l.chapter_id and c.user_id = l.user_id
+     where l.user_id = '00000000-0000-0000-0000-00000000000d')) as lignes_de_b_sous_parents_de_b;
+
+rollback;
+```
+
+**Résultat attendu de la synthèse** :
+
+- `*_a_parent_de_a` (module, chapitre, leçon) : `23503`, avec respectivement `academy_units_subject_fk`, `academy_chapters_unit_fk` et `academy_lessons_chapter_fk` dans le message ;
+- `*_b_ligne_de_a` : `0 ligne affectee` pour les trois tables ;
+- `*_c_user_id_de_a` : `42501`, « new row violates row-level security policy for table … » pour les trois tables ;
+- `titres_de_a` : `Module de A / Chapitre de A / Lecon de A` — inchangés ;
+- `lignes_de_b_sous_parents_de_b` : `1 / 1 / 1` — les lignes de B sont restées sous leurs propres parents.
+
+**Vérification** : synthèse conforme à l'attendu ci-dessus, et contrôle de l'étape 5 à `0` partout. Si un résultat diffère, s'arrêter et le signaler. **Ne pas corriger les politiques dans la foulée.**
+
+*Écrit le 2026-11-24 par l'agent, sans exécution.*
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`

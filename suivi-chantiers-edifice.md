@@ -235,6 +235,13 @@ Dès que ce point est tranché, la déclaration devient « audit clos » à la d
 
 **Constat annexe** : la branche debug YouTube de `[provider]/callback/route.ts` est du code mort, la route dédiée étant appelée à sa place. Consigné, non modifié.
 
+**Dette YouTube — détail, 24 novembre 2026** (signalée, non traitée) :
+
+- la condition `if (provider.key !== "youtube")` de `app/api/oauth/[provider]/callback/route.ts`, ligne 41, dispense YouTube du contrôle d'accès en mode debug ;
+- cette branche ne s'exécute jamais : la route dédiée `app/api/oauth/youtube/callback/route.ts` passe avant la route générique `[provider]` ;
+- elle ne renverrait de toute façon que des booléens et un message ;
+- son retrait est une modification de code, à faire dans un commit séparé et validé.
+
 **Déclaration : audit clos au 2026-11-22, sous réserve de l'exception TikTok, qui doit être réexaminée à la fin de la revue.**
 
 **Ce que la clôture ne couvre pas** — note de l'agent, pour que la portée de la déclaration ne soit pas relue plus large qu'elle n'est : les commits `91cbfda`, `d3a6427` et `3e2047e` sont **locaux, non poussés**. La migration est appliquée en base, mais le correctif du `CRON_SECRET` n'est pas déployé tant que `3e2047e` n'est pas poussé : en production, les trois routes cron comparent encore le secret par `===` jusqu'au prochain déploiement. Le push relève de la règle permanente de `CLAUDE.md` : décision humaine explicite.

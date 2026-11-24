@@ -61,7 +61,7 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 **Bloque** : la mise en service des routes Academy de l'étape 2a suite. **Ne pas les déployer avant un résultat conforme.**
 
-**⚠️ Ne pas exécuter en l'état — version corrigée le 2026-11-24, en attente de validation par le porteur du projet.** Aucune requête de cette entrée n'a été exécutée par l'agent.
+**Version corrigée validée par le porteur du projet le 2026-11-24 : prête à exécuter.** Aucune requête de cette entrée n'a été exécutée par l'agent. *(Jusqu'à cette validation, l'entrée portait la mention « ne pas exécuter en l'état ».)*
 
 *Révision du 2026-11-24.* La première version du script, consignée par `e03c182`, avait deux défauts relevés à la lecture : l'insertion de A échouait sur la clé étrangère vers `auth.users`, les identifiants de test n'y existant pas ; et l'insertion d'un enfant par B passait par un `select` filtré par la règle d'accès de B, qui ne renvoyait rien — zéro ligne insérée, sans erreur, donc sans éprouver la clé composite. La version ci-dessous corrige les deux, à la demande du porteur du projet :
 
@@ -70,7 +70,7 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 - L'insertion de B est placée dans un bloc `do` qui **capture** le `23503` et l'enregistre, pour que l'erreur attendue n'interrompe pas la transaction avant la synthèse et le `rollback`. Si l'insertion réussit, le bloc lève une erreur explicite (« ECHEC DU TEST »), et la transaction est annulée.
 - Une **requête de synthèse**, sous `postgres`, réunit les résultats avant le `rollback`, et une **requête de contrôle** après le `rollback` vérifie qu'il ne reste rien.
 
-**Étapes** — une fois cette version validée par le porteur du projet :
+**Étapes** :
 
 1. Ouvrir le SQL Editor du projet Supabase.
 2. **Contrôle préalable, en lecture seule** — colonnes `not null` sans valeur par défaut de `auth.users`, et déclencheurs posés sur la table :

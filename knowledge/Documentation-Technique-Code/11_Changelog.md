@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-24 (Academy : routes testées à la main)](#2026-11-24-academy--routes-testées-à-la-main)
 - [2026-11-24 (Academy : routes API de la hiérarchie)](#2026-11-24-academy--routes-api-de-la-hiérarchie)
 - [2026-11-24 (Academy : validation et store de la hiérarchie)](#2026-11-24-academy--validation-et-store-de-la-hiérarchie)
 - [2026-11-24 (Academy : migration 2a appliquée en base)](#2026-11-24-academy--migration-2a-appliquée-en-base)
@@ -78,6 +79,26 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-24 (Academy : routes testées à la main)
+
+Type : sécurité, produit
+
+Résumé : les routes Academy sont **testées à la main, conformes**, par le porteur du projet, dans la console du navigateur sur le serveur local. L'agent consigne les résultats transmis ; il n'a fait aucun appel ni aucune requête.
+
+- **Contrat** : créations en `201` aux cinq niveaux, arbre et leçon en `200`, `401` sans session.
+- **Masquage** : un module archivé masque son chapitre et sa leçon (`404` en écriture et en restauration) ; sa restauration rétablit tout.
+- **Isolation** entre `test-erase@edificeia.com` (créations) et `academy@edificeia.com` (tentatives) : tout en `404`, malformé en `404`, JSON invalide en `400`, aucune écriture réussie.
+- `GET` sur `chapters/[id]` en `405` : voulu, ce fichier n'exporte que `PATCH` et `DELETE`.
+
+Données de test créées sous `test-erase@edificeia.com` par erreur de départ : l'entrée de nettoyage `pending` est réorientée vers ce compte, avec la liste des identifiants, dont un module en double non relevé. **Non couvert** : isolation côté base de `academy_units`, `academy_chapters` et `academy_lessons`.
+
+Fichiers liés :
+
+- `MANUAL_ACTIONS.md` — entrée archivée « Tester les routes Academy : contrat, masquage, isolation » ; entrée `pending` de nettoyage réorientée
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : aucun sur le code.
 
 ## 2026-11-24 (Academy : routes API de la hiérarchie)
 

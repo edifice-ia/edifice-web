@@ -61,7 +61,20 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 **Bloque** : rien. **À faire avant toute mise en production d'un usage réel de la hiérarchie**, et après les tests de contrat et d'isolation des routes.
 
-**Portée** : supprime **toutes** les lignes des cinq tables `academy_*` du seul compte `academy@edificeia.com`, compte réservé aux tests Academy (entrée archivée du même jour). Aucun autre compte n'est touché : chaque `delete` filtre sur l'identifiant de ce compte, résolu par son adresse. Si l'adresse ne correspond à aucun compte, l'identifiant est nul et aucune ligne n'est supprimée.
+**Cible corrigée le 2026-11-24 : `test-erase@edificeia.com`, et non `academy@edificeia.com`.** Les tests de contrat des routes ont créé leurs données sous `test-erase@edificeia.com`, par erreur de départ, corrigée ensuite (entrée archivée « Tester les routes Academy » du même jour). `academy@edificeia.com` n'a servi qu'au second compte des tests d'isolation, où aucune écriture n'a réussi : il ne porte aucune donnée Academy à supprimer — à confirmer par le comptage, relancé sur son adresse si besoin.
+
+**Portée** : supprime **toutes** les lignes des cinq tables `academy_*` du seul compte `test-erase@edificeia.com`. Aucun autre compte n'est touché : chaque `delete` filtre sur l'identifiant de ce compte, résolu par son adresse. Si l'adresse ne correspond à aucun compte, l'identifiant est nul et aucune ligne n'est supprimée ; si elle en désigne plusieurs, la sous-requête échoue et la transaction est annulée. **Seules les tables `academy_*` sont visées** : les données Personnel de ce compte, qui sert aussi aux tests d'effacement, ne sont pas touchées.
+
+**Données de test connues à supprimer**, créées sous `test-erase@edificeia.com` le 2026-11-24 :
+
+- programme `39e6135b-2a79-4f48-8f9e-0581dec2d233` ;
+- matière `636e01ff-7b78-4d2d-a15a-534de0edb7ad` ;
+- module de test `5623505a-94b7-4ad7-9dee-3b5edbe5dd6a` ;
+- **un premier module de test, en double, dont l'identifiant n'a pas été relevé** ;
+- chapitre `d4fe188e-ee7a-4141-98ef-f89bcaceba5b` ;
+- leçon `c73fa183-3235-4d74-ba59-4fb05a4a1775`.
+
+Le module en double n'ayant pas d'identifiant relevé, la suppression vise **toutes** les lignes `academy_*` du compte plutôt qu'une liste d'identifiants : elle l'emporte avec le reste. Le comptage de l'étape 2 doit donc montrer au moins 1 programme, 1 matière, 2 modules, 1 chapitre et 1 leçon ; un volume supérieur signale d'autres données Academy sur ce compte, à examiner avant la suppression.
 
 **Étapes** :
 
@@ -76,7 +89,7 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
      (select count(*) from public.academy_chapters c where c.user_id = u.id) as chapitres,
      (select count(*) from public.academy_lessons l where l.user_id = u.id) as lecons
    from auth.users u
-   where u.email = 'academy@edificeia.com';
+   where u.email = 'test-erase@edificeia.com';
    ```
    Attendu : **une seule ligne**. Aucune ligne, ou plusieurs : s'arrêter et le signaler. Relire les volumes avant l'étape 3.
 3. **Suppression**, après relecture du comptage — dans l'ordre inverse des dépendances, leçons d'abord, programmes en dernier, dans une seule transaction. **Action irréversible.**
@@ -84,19 +97,19 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
    begin;
 
    delete from public.academy_lessons
-   where user_id = (select id from auth.users where email = 'academy@edificeia.com');
+   where user_id = (select id from auth.users where email = 'test-erase@edificeia.com');
 
    delete from public.academy_chapters
-   where user_id = (select id from auth.users where email = 'academy@edificeia.com');
+   where user_id = (select id from auth.users where email = 'test-erase@edificeia.com');
 
    delete from public.academy_units
-   where user_id = (select id from auth.users where email = 'academy@edificeia.com');
+   where user_id = (select id from auth.users where email = 'test-erase@edificeia.com');
 
    delete from public.academy_subjects
-   where user_id = (select id from auth.users where email = 'academy@edificeia.com');
+   where user_id = (select id from auth.users where email = 'test-erase@edificeia.com');
 
    delete from public.academy_programs
-   where user_id = (select id from auth.users where email = 'academy@edificeia.com');
+   where user_id = (select id from auth.users where email = 'test-erase@edificeia.com');
 
    commit;
    ```
@@ -104,7 +117,7 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 **Vérification** : le comptage de l'étape 2, relancé, renvoie `0` pour chaque table, sur la même ligne de compte.
 
-*Écrit le 2026-11-24 par l'agent, sans exécution.*
+*Écrit le 2026-11-24 par l'agent, sans exécution ; cible corrigée le même jour, toujours sans exécution.*
 
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
@@ -143,6 +156,54 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 **Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
 
 ## Archive (done)
+
+### 2026-11-24 — Tester les routes Academy : contrat, masquage, isolation
+
+**Statut** : `done` — 2026-11-24. Tests faits à la main par le porteur du projet, dans la console du navigateur, sur le serveur local (`localhost:3000`). Résultats transmis à l'agent, qui n'a fait aucun appel ni aucune requête.
+
+**Pourquoi c'est manuel** : les tests demandent deux sessions authentifiées de deux comptes distincts, ouvertes par le porteur du projet ; l'agent ne saisit pas d'identifiants.
+
+**Compte des créations : `test-erase@edificeia.com`**, et non `academy@edificeia.com` — erreur de départ, corrigée ensuite. Ce compte sert aussi aux tests d'effacement du pôle Personnel : l'entrée de nettoyage ne vise que ses tables `academy_*`.
+
+**Données créées sous `test-erase@edificeia.com`** :
+
+- programme `39e6135b-2a79-4f48-8f9e-0581dec2d233` ;
+- matière `636e01ff-7b78-4d2d-a15a-534de0edb7ad` ;
+- module de test `5623505a-94b7-4ad7-9dee-3b5edbe5dd6a` ;
+- **un premier module de test, en double, dont l'identifiant n'a pas été relevé** ;
+- chapitre `d4fe188e-ee7a-4141-98ef-f89bcaceba5b` ;
+- leçon `c73fa183-3235-4d74-ba59-4fb05a4a1775`.
+
+**Contrat** :
+
+- `POST` programme, matière, module, chapitre, leçon : `201` ;
+- `GET` arbre du programme : `200`, cinq niveaux ;
+- `GET` leçon : `200`, avec son contenu ;
+- `GET` sans session : `401` ;
+- `GET` sur `/api/academy/chapters/[id]` : `405` — **voulu** : ce fichier n'exporte que `PATCH` et `DELETE`, conformément au plan validé, où seuls le programme (arbre) et la leçon (contenu) se lisent par identifiant. Next.js répond `405` à une méthode non exportée, sans exécuter de handler ni renvoyer de donnée.
+
+**Masquage** :
+
+- archivage du module : `200` ;
+- après archivage, le chapitre et la leçon sont absents de l'arbre ;
+- `PATCH`, `DELETE` et restauration du chapitre : `404` ;
+- restauration du module : `200` ;
+- après restauration, tout est de nouveau visible.
+
+**Isolation** — second compte `academy@edificeia.com`, fenêtre privée, identifiants de `test-erase@edificeia.com` :
+
+- `GET` arbre, `GET` leçon, `PATCH` programme, `DELETE` et restauration du module, création de matière, de chapitre et de leçon sous les parents de `test-erase`, `PATCH` leçon : tous **`404`** ;
+- identifiant malformé : `404` ;
+- JSON invalide : `400` ;
+- **aucune écriture réussie.**
+
+**Non couvert** :
+
+- l'isolation **côté base** de `academy_units`, `academy_chapters` et `academy_lessons` : le script SQL du 2026-11-24 n'a éprouvé que `academy_programs` et la clé composite de `academy_subjects`. **Entrée distincte à ajouter** ;
+- au niveau des routes, l'isolation porte sur les opérations listées ci-dessus, pas sur toutes les combinaisons méthode × niveau ;
+- la cascade à l'usage — rien n'est supprimé physiquement par les routes.
+
+**Suite** : nettoyage des données de test, entrée `pending` « Nettoyer les données de test Academy après les tests de routes ».
 
 ### 2026-11-24 — Créer le compte de test dédié à Academy
 

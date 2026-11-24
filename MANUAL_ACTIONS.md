@@ -53,6 +53,59 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-11-24 — Nettoyer les données de test Academy après les tests de routes
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : il n'existe pas de suppression physique dans Academy — les tables `academy_*` n'accordent pas `DELETE` à `authenticated`, et le chemin de suppression de l'étape 8 n'est pas écrit —, et seul le SQL Editor, sous le rôle `postgres`, peut supprimer les données de test du compte. L'agent n'a pas d'accès SQL au projet.
+
+**Bloque** : rien. **À faire avant toute mise en production d'un usage réel de la hiérarchie**, et après les tests de contrat et d'isolation des routes.
+
+**Portée** : supprime **toutes** les lignes des cinq tables `academy_*` du seul compte `academy@edificeia.com`, compte réservé aux tests Academy (entrée archivée du même jour). Aucun autre compte n'est touché : chaque `delete` filtre sur l'identifiant de ce compte, résolu par son adresse. Si l'adresse ne correspond à aucun compte, l'identifiant est nul et aucune ligne n'est supprimée.
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. **Comptage, en lecture seule** — vérifier que le compte existe une seule fois, et relever les volumes :
+   ```sql
+   select
+     u.id as user_id,
+     (select count(*) from public.academy_programs p where p.user_id = u.id) as programmes,
+     (select count(*) from public.academy_subjects s where s.user_id = u.id) as matieres,
+     (select count(*) from public.academy_units n where n.user_id = u.id) as modules,
+     (select count(*) from public.academy_chapters c where c.user_id = u.id) as chapitres,
+     (select count(*) from public.academy_lessons l where l.user_id = u.id) as lecons
+   from auth.users u
+   where u.email = 'academy@edificeia.com';
+   ```
+   Attendu : **une seule ligne**. Aucune ligne, ou plusieurs : s'arrêter et le signaler. Relire les volumes avant l'étape 3.
+3. **Suppression**, après relecture du comptage — dans l'ordre inverse des dépendances, leçons d'abord, programmes en dernier, dans une seule transaction. **Action irréversible.**
+   ```sql
+   begin;
+
+   delete from public.academy_lessons
+   where user_id = (select id from auth.users where email = 'academy@edificeia.com');
+
+   delete from public.academy_chapters
+   where user_id = (select id from auth.users where email = 'academy@edificeia.com');
+
+   delete from public.academy_units
+   where user_id = (select id from auth.users where email = 'academy@edificeia.com');
+
+   delete from public.academy_subjects
+   where user_id = (select id from auth.users where email = 'academy@edificeia.com');
+
+   delete from public.academy_programs
+   where user_id = (select id from auth.users where email = 'academy@edificeia.com');
+
+   commit;
+   ```
+4. Relancer le comptage de l'étape 2, puis transmettre les deux comptages à l'agent pour consignation.
+
+**Vérification** : le comptage de l'étape 2, relancé, renvoie `0` pour chaque table, sur la même ligne de compte.
+
+*Écrit le 2026-11-24 par l'agent, sans exécution.*
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
@@ -90,6 +143,25 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 **Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
 
 ## Archive (done)
+
+### 2026-11-24 — Créer le compte de test dédié à Academy
+
+**Statut** : `done` — 2026-11-24, compte créé par le porteur du projet.
+
+**Pourquoi c'est manuel** : la création d'un compte et le choix de son mot de passe passent par l'authentification de l'application ou le dashboard Supabase, et un mot de passe ne doit passer ni par l'agent ni par le dépôt.
+
+**Compte** : `academy@edificeia.com`. **Le mot de passe n'est consigné nulle part**, ni dans ce fichier ni ailleurs dans le dépôt.
+
+**Usage** : tests d'isolation et de contrat des routes Academy (étape 2a du chantier 8), **et rien d'autre**. Ne pas le réutiliser pour un autre test.
+
+**Distinction avec les autres comptes de test du dépôt** :
+
+- `test-erase@edificeia.com` : tests de l'effacement du pôle Personnel (« Vider l'historique », suppression définitive d'un élément archivé). À ne pas utiliser pour Academy.
+- `contact.edificeia@gmail.com` : compte sur lequel les dix catégories de Journal ont été amorcées (entrée archivée du 2026-09-09). À ne pas utiliser pour Academy.
+
+Séparer les comptes garde chaque test lisible : les données de test Academy ne se mêlent ni aux données d'effacement, ni aux catégories de Journal, et leur nettoyage — entrée `pending` du même jour — ne vise que ce compte.
+
+**Vérification** : aucune par l'agent — la création est déclarée par le porteur du projet. Le comptage de l'entrée de nettoyage, en lecture seule, confirme l'existence du compte par son adresse.
 
 ### 2026-11-24 — Vérifier l'isolation entre deux utilisateurs sur les tables Academy
 

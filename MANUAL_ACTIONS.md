@@ -53,6 +53,70 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-11-24 — Vérifier l'isolation entre deux utilisateurs sur les tables Academy
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : seul le SQL Editor peut exécuter ce test sur la base réelle, et aucune base de test n'est disponible depuis le dépôt (ni CLI Supabase, ni `psql`, ni Docker sur cette machine). L'agent n'a pas d'accès SQL au projet.
+
+**Bloque** : la mise en service des routes Academy de l'étape 2a suite. **Ne pas les déployer avant un résultat conforme.**
+
+**⚠️ Ne pas exécuter en l'état — deux défauts relevés par l'agent, à arbitrer par le porteur du projet.** Le script ci-dessous est consigné tel qu'il a été fourni, logique inchangée. À la lecture, sans exécution :
+
+1. **L'insertion de A échouera** (résultat attendu n° 1). `academy_programs.user_id` référence `auth.users(id)`, et `00000000-0000-0000-0000-00000000000a` n'existe pas dans `auth.users` : l'`insert` sera refusé en `23503` (violation de clé étrangère), la transaction sera interrompue, et aucun contrôle suivant ne s'exécutera. Corrections possibles : (a) créer A et B dans `auth.users` au début de la transaction, sous le rôle `postgres` du SQL Editor et avant `set local role authenticated`, le `rollback` final les retirant ; ou (b) utiliser deux comptes réels existants.
+2. **L'insertion d'un enfant par B sous le parent de A n'éprouve pas la clé composite** (résultat attendu n° 4). Son `select … from public.academy_programs where p.user_id = A` s'exécute sous le rôle de B : la règle d'accès `academy_programs_select_own` lui masque les lignes de A, le `select` ne renvoie rien, et l'`insert` insère **zéro ligne, sans erreur**. Le résultat n° 4 (« échoue ») ne se produira pas. Pour éprouver la clé composite, il faudrait insérer avec l'identifiant littéral du programme de A, relevé à l'étape de A.
+
+Le résultat n° 3 est cohérent avec les règles d'accès : sous le rôle de B, l'`update` ne voit aucune ligne de A et **ne modifie aucune ligne, sans erreur** — c'est le second cas que le résultat attendu prévoit.
+
+**Étapes** — une fois le script corrigé et validé par le porteur du projet :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. Lancer le script ci-dessous **en une seule exécution**.
+3. Transmettre les résultats, tels quels, au porteur du projet pour consignation.
+
+```sql
+begin;
+
+-- Utilisateur A et utilisateur B : deux identifiants fictifs de test.
+-- Ces lignes sont annulées par rollback : aucune donnée ne reste.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title)
+values ('00000000-0000-0000-0000-00000000000a', 'formation', 'Programme de A')
+returning id;
+
+-- Bascule sur B : A n'est plus visible.
+reset role;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}', true);
+set local role authenticated;
+
+-- Attendu : 0 ligne.
+select count(*) as lignes_visibles_par_b from public.academy_programs
+where user_id = '00000000-0000-0000-0000-00000000000a';
+
+-- Attendu : erreur de violation de règle (aucune ligne modifiée).
+update public.academy_programs set title = 'Piratage'
+where user_id = '00000000-0000-0000-0000-00000000000a';
+
+-- Attendu : erreur, la clé composite refuse un enfant sous le parent de A.
+insert into public.academy_subjects (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000b', p.id, 'Intrusion'
+from public.academy_programs p
+where p.user_id = '00000000-0000-0000-0000-00000000000a';
+
+rollback;
+```
+
+**Résultats attendus, à transmettre tels quels** :
+
+1. L'insert de A renvoie un identifiant, sans erreur.
+2. Le count pour B renvoie 0.
+3. L'update de B échoue, ou ne modifie aucune ligne (préciser lequel).
+4. L'insert d'enfant de B sous le parent de A échoue (préciser le message).
+5. Le rollback est exécuté : aucune ligne ne reste en base.
+
+**Vérification** : si un résultat diffère, arrêter et le signaler au porteur du projet. **Ne pas corriger les politiques dans la foulée.**
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`

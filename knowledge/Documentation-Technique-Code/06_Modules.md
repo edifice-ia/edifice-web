@@ -671,7 +671,9 @@ Fichiers :
 
 **Effet de bord attendu** : `cockpitModules` étant lu par `build-project-context.ts`, l'Assistant compte désormais Academy parmi les modules « en cours ». Le code de l'Assistant n'est pas modifié.
 
-**Vérifié le 2026-11-24, sur le serveur de développement local, session du propriétaire** : les dix routes répondent `200` avec le bon titre de page ; un segment inconnu répond `404` ; sans session, `/interface/academy` redirige vers `/login` ; la navigation intérieure liste les dix sections et marque la section courante ; le menu principal affiche une seule entrée « Academy », active sur toutes les sous-pages, sans les sections ; aucune erreur serveur. **Non vérifié** : le rendu en production, après push et déploiement.
+**Vérifié le 2026-11-24, sur le serveur de développement local, session du propriétaire** : les dix routes répondent `200` avec le bon titre de page ; un segment inconnu répond `404` ; sans session, `/interface/academy` redirige vers `/login` ; la navigation intérieure liste les dix sections et marque la section courante ; le menu principal affiche une seule entrée « Academy », active sur toutes les sous-pages, sans les sections ; aucune erreur serveur. *Le rendu en production n'était pas vérifié à l'écriture de ce paragraphe : voir ci-dessous.*
+
+**Vérifié en production le 2026-11-24** : déploiement `dpl_FAubGHeHg5TBg8GULs8aK3bR7nrc` (commit `2a3f82f`), `READY` sur `www.edificeia.com`. Sans session, `/interface/academy`, une section et un segment inconnu répondent `307` vers `/login` — constaté par l'agent. Rendu des pages avec la session du propriétaire vérifié par le porteur du projet, résultat transmis à l'agent.
 
 **Ce que le code existant offre déjà, vérifié le 2026-11-22**, et qui servira à la construction :
 

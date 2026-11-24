@@ -86,7 +86,9 @@ Résumé : **étape 1 du chantier 8 faite.** L'espace Academy existe comme squel
 - `lib/cockpit/navigation.ts`, `lib/cockpit/modules.ts` : entrée `academy`, même identifiant dans les deux, statut `En cours`, sans sous-entrées dans le menu principal.
 - Accès : aucun garde nouveau ; le layout `/interface` et le middleware s'appliquent.
 
-Vérification : `tsc --noEmit`, `eslint` et le build passent. Rendu contrôlé sur le serveur de développement local, avec la session du propriétaire : dix routes en `200`, `404` sur un segment inconnu, redirection vers `/login` sans session, navigation intérieure présente, menu principal avec une seule entrée « Academy ». Un espace manquant dans la ligne « Étape N du plan » a été trouvé à ce contrôle et corrigé avant le commit. **Non vérifié** : le rendu en production.
+Vérification : `tsc --noEmit`, `eslint` et le build passent. Rendu contrôlé sur le serveur de développement local, avec la session du propriétaire : dix routes en `200`, `404` sur un segment inconnu, redirection vers `/login` sans session, navigation intérieure présente, menu principal avec une seule entrée « Academy ». Un espace manquant dans la ligne « Étape N du plan » a été trouvé à ce contrôle et corrigé avant le commit. **Non vérifié** au moment du commit : le rendu en production.
+
+**Mise à jour du même jour — vérifié en production** : déploiement `dpl_FAubGHeHg5TBg8GULs8aK3bR7nrc` (commit `2a3f82f`), `READY` sur `www.edificeia.com`. Sans session, `/interface/academy`, une section et un segment inconnu répondent `307` vers `/login` — constaté par l'agent. Rendu des pages avec la session du propriétaire vérifié par le porteur du projet, résultat transmis à l'agent.
 
 Fichiers liés :
 

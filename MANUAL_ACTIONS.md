@@ -53,24 +53,6 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
-### 2026-11-24 — Vérifier que Vercel Cron passe avec le vrai `CRON_SECRET`
-
-**Statut** : `pending`
-
-**Pourquoi c'est manuel** : seul Vercel connaît la valeur de `CRON_SECRET`, et l'agent ne la lit pas. Les logs que l'agent peut consulter (API runtime logs, offre Hobby) ne contiennent pas de code HTTP et ne remontent qu'une heure ; une réponse `200` silencieuse n'y laisse aucune trace. Le code HTTP d'un appel cron ne se lit que dans l'onglet Logs du tableau de bord Vercel, derrière une authentification interactive.
-
-**Bloque** : la preuve, en conditions réelles, que les trois routes cron acceptent le vrai secret depuis sa création le 2026-11-24 (entrée archivée du même jour). Ne bloque aucun développement.
-
-**À savoir avant le 2026-11-25 à 02:00 UTC (03:00 à Paris)** : `process-scheduled-publications` tournera pour la première fois avec un secret valide, si le test ci-dessous confirme l'acceptation. Elle publie sur Instagram toutes les publications programmées dont l'heure est passée. Si des publications anciennes sont restées en file, elles partiront toutes ensemble. À vérifier avant cette heure si ce n'est pas voulu.
-
-**Étapes** :
-
-1. Ouvrir https://vercel.com/edifice-ias-projects/edifice-web/settings/cron-jobs.
-2. Sur la ligne `/api/internal/cron/calendar-channel-renewal`, cliquer **Run**. En dehors de 5h à Paris, la route ne fait rien et répond `{ ok: true, skipped: true }`. **Ne pas** lancer `process-scheduled-publications`, qui publierait réellement.
-3. Ouvrir aussitôt https://vercel.com/edifice-ias-projects/edifice-web/logs, environnement Production, et relever le code HTTP de la requête `/api/internal/cron/calendar-channel-renewal`.
-
-**Vérification** : code **`200`**. Un `401` voudrait dire que Vercel n'envoie pas le secret, ou que la valeur ne correspond pas : vérifier que `CRON_SECRET` existe toujours dans le projet, en Production, et qu'un déploiement a été construit après sa dernière modification. Transmettre le code obtenu à l'agent, pour qu'il le consigne au chantier 2.
-
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
@@ -108,6 +90,26 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 **Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
 
 ## Archive (done)
+
+### 2026-11-24 — Vérifier que Vercel Cron passe avec le vrai `CRON_SECRET`
+
+**Statut** : `done` — 2026-11-24. Run lancé par le mainteneur sur `calendar-channel-renewal` : **`200`**, code lu dans le tableau de bord Vercel et transmis à l'agent.
+
+**Pourquoi c'est manuel** : seul Vercel connaît la valeur de `CRON_SECRET`, et l'agent ne la lit pas. Les logs que l'agent peut consulter (API runtime logs, offre Hobby) ne contiennent pas de code HTTP et ne remontent qu'une heure ; une réponse `200` silencieuse n'y laisse aucune trace. Le code HTTP d'un appel cron ne se lit que dans l'onglet Logs du tableau de bord Vercel, derrière une authentification interactive.
+
+**Bloquait** : la preuve, en conditions réelles, que les trois routes cron acceptent le vrai secret depuis sa création le 2026-11-24 (entrée archivée du même jour). Ne bloque aucun développement.
+
+**À savoir avant le 2026-11-25 à 02:00 UTC (03:00 à Paris)** : `process-scheduled-publications` tournera pour la première fois avec un secret valide, si le test ci-dessous confirme l'acceptation. Elle publie sur Instagram toutes les publications programmées dont l'heure est passée. Si des publications anciennes sont restées en file, elles partiront toutes ensemble. À vérifier avant cette heure si ce n'est pas voulu.
+
+**Étapes** :
+
+1. Ouvrir https://vercel.com/edifice-ias-projects/edifice-web/settings/cron-jobs.
+2. Sur la ligne `/api/internal/cron/calendar-channel-renewal`, cliquer **Run**. En dehors de 5h à Paris, la route ne fait rien et répond `{ ok: true, skipped: true }`. **Ne pas** lancer `process-scheduled-publications`, qui publierait réellement.
+3. Ouvrir aussitôt https://vercel.com/edifice-ias-projects/edifice-web/logs, environnement Production, et relever le code HTTP de la requête `/api/internal/cron/calendar-channel-renewal`.
+
+**Vérification** : code **`200`**. Un `401` voudrait dire que Vercel n'envoie pas le secret, ou que la valeur ne correspond pas : vérifier que `CRON_SECRET` existe toujours dans le projet, en Production, et qu'un déploiement a été construit après sa dernière modification. Transmettre le code obtenu à l'agent, pour qu'il le consigne au chantier 2.
+
+**Résultat** — 2026-11-24 : **`200`** sur `/api/internal/cron/calendar-channel-renewal`, appel déclenché par Vercel avec le vrai `CRON_SECRET`, sur le déploiement `dpl_HHRwrtnSNBpwNjfGWttzKvmBQoxE`. Le vrai secret est accepté par le nouveau code, et le refus sans secret reste `401`. Limite : seule cette route a été exercée. Les deux autres partagent le même helper (`isCronRequestAuthorized`) et la même variable, mais n'ont pas été appelées : `process-scheduled-publications` volontairement, puisqu'elle publie.
 
 ### 2026-11-24 — Créer `CRON_SECRET` dans les variables de production Vercel, puis redéployer
 

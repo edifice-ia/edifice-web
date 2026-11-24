@@ -82,11 +82,11 @@ Résumé : en cherchant à vérifier le correctif `3e2047e` en production, l'age
 
 - Variable créée par le mainteneur le 2026-11-24, en Production seulement.
 - Production redéployée à l'identique par l'agent, sur accord explicite : `dpl_HHRwrtnSNBpwNjfGWttzKvmBQoxE`, commit `712ec92`, `READY`. Sans secret, les trois routes répondent toujours `401`.
-- **Non vérifié** : l'acceptation du vrai secret. Entrée `pending` dans `MANUAL_ACTIONS.md`.
+- **Vérifié le même jour** : Run sur `calendar-channel-renewal` lancé par le mainteneur, **`200`** lu dans les logs Vercel. Le vrai secret est accepté. Seule cette route a été exercée.
 
 Fichiers liés :
 
-- `MANUAL_ACTIONS.md` — entrée archivée (création et redéploiement) et entrée `pending` (vérification), datées du 2026-11-24
+- `MANUAL_ACTIONS.md` — deux entrées archivées du 2026-11-24 : création et redéploiement, puis vérification (`200`)
 - `suivi-chantiers-edifice.md` — chantier 2, suivi du 24 novembre 2026
 
 Impact : les routes cron peuvent désormais être autorisées par Vercel Cron. Première exécution réelle attendue pour `process-scheduled-publications` le 2026-11-25 à 02:00 UTC : elle publiera tout ce qui est programmé et dont l'heure est passée.

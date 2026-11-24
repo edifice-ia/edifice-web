@@ -83,6 +83,7 @@ Résumé : en cherchant à vérifier le correctif `3e2047e` en production, l'age
 - Variable créée par le mainteneur le 2026-11-24, en Production seulement.
 - Production redéployée à l'identique par l'agent, sur accord explicite : `dpl_HHRwrtnSNBpwNjfGWttzKvmBQoxE`, commit `712ec92`, `READY`. Sans secret, les trois routes répondent toujours `401`.
 - **Vérifié le même jour** : Run sur `calendar-channel-renewal` lancé par le mainteneur, **`200`** lu dans les logs Vercel. Le vrai secret est accepté. Seule cette route a été exercée.
+- Renvoi : l'état exact de cette vérification — Run sur le déploiement `dpl_HHRwrtnSNBpwNjfGWttzKvmBQoxE` et non sur celui en ligne, aucun appel planifié vérifié — est consigné au chantier 2 de `suivi-chantiers-edifice.md`, entrée « État de la vérification du `CRON_SECRET` — 24 novembre 2026 ».
 
 Fichiers liés :
 

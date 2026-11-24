@@ -248,6 +248,17 @@ Dès que ce point est tranché, la déclaration devient « audit clos » à la d
 - **Créneaux du 23 et du 24 novembre** : aucune trace consultable (rétention d'une heure sur l'offre Hobby, aucun code HTTP dans les logs accessibles à l'agent). Aucun succès n'en est déduit.
 - **Vigilance** : première exécution avec un secret valide de `process-scheduled-publications` le 25 novembre à 02:00 UTC. Elle publiera d'un coup tout ce qui est programmé et dont l'heure est passée.
 
+
+### État de la vérification du `CRON_SECRET` — 24 novembre 2026
+
+*Ce qui est observé, et rien de plus. Cette entrée ne dit pas que les crons sont vérifiés en production.*
+
+- **Variable** : `CRON_SECRET` créée en production le 24 novembre 2026. Sa valeur n'est pas consignée.
+- **Refus sans secret** : le déploiement en ligne, `dpl_CwoNKvVD9pJerVmkyzVnbFsQSHZa` (commit `36f3f6e`), répond **`401`** sans secret sur les trois routes cron. Constaté par l'agent le 24 novembre.
+- **Acceptation du vrai secret** : un **Run** sur `calendar-channel-renewal` a répondu **`200`**. Ce Run a été lancé par le porteur du projet sur le **déploiement précédent**, `dpl_HHRwrtnSNBpwNjfGWttzKvmBQoxE` (commit `712ec92`) : il est antérieur à `dpl_CwoNK…`, créé par le push de sa propre consignation. **Il n'a pas été refait sur `dpl_CwoNK…`.** Les deux déploiements portent le même code de route et ont été construits après la création de la variable ; cela reste une déduction, pas une observation.
+- **Appels planifiés** : **aucun n'a été vérifié.** Les logs de l'offre Hobby ne conservent qu'une heure, et les appels des 22 au 24 novembre n'ont aucune trace consultable. La vérification d'un créneau planifié est **reportée, sans date**.
+- **`process-scheduled-publications`** n'a jamais été appelée avec le vrai secret, volontairement : elle publie réellement sur Instagram.
+
 ---
 
 ## Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/` — TERMINÉ

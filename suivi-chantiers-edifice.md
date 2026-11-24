@@ -259,6 +259,8 @@ Dès que ce point est tranché, la déclaration devient « audit clos » à la d
 - **Appels planifiés** : **aucun n'a été vérifié.** Les logs de l'offre Hobby ne conservent qu'une heure, et les appels des 22 au 24 novembre n'ont aucune trace consultable. La vérification d'un créneau planifié est **reportée, sans date**.
 - **`process-scheduled-publications`** n'a jamais été appelée avec le vrai secret, volontairement : elle publie réellement sur Instagram.
 
+**Constat ajouté le 24 novembre 2026, même jour** : un **Run** sur `calendar-channel-renewal`, avec le vrai secret envoyé par Vercel, répond **`200`** sur le déploiement en ligne `dpl_CwoNKvVD9pJerVmkyzVnbFsQSHZa` (commit `36f3f6e`). Run lancé par le porteur du projet, résultat transmis à l'agent. Ce constat ne couvre que `calendar-channel-renewal` : les deux autres routes cron ne sont pas testées avec le vrai secret, et les appels planifiés restent non vérifiés.
+
 ---
 
 ## Chantier 5 — Mise en conformité DEC-007 sur `/api/personal/` — TERMINÉ

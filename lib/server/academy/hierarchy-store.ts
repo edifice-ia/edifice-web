@@ -18,7 +18,6 @@ import {
   type AcademyRawProgram,
   type AcademyRawSubject,
   type AcademyRawUnit,
-  type AcademyTreeNode,
 } from "@/lib/academy/hierarchy";
 
 // Store de la hiérarchie pédagogique d'Academy (étape 2a du chantier 8).
@@ -364,21 +363,22 @@ export async function getLiveLesson(
 
 // --- Niveaux enfants -------------------------------------------------------------------
 
+// Une leçon porte un contenu et pas de description ; les autres niveaux, une
+// description et pas de contenu. Aucun champ inexistant n'est renvoyé à null.
 function mapChild(level: AcademyChildLevel, row: Record<string, unknown>) {
-  const node: AcademyTreeNode & { content?: string | null } = {
+  const base = {
     id: row.id as string,
     title: row.title as string,
-    description: level === "lesson" ? null : ((row.description as string | null) ?? null),
     position: (row.position as number) ?? 0,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
 
   if (level === "lesson") {
-    node.content = (row.content as string | null) ?? null;
+    return { ...base, content: (row.content as string | null) ?? null };
   }
 
-  return node;
+  return { ...base, description: (row.description as string | null) ?? null };
 }
 
 function childColumns(level: AcademyChildLevel) {

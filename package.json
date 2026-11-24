@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "academy:hierarchy:check": "node scripts/academy-hierarchy-check.mjs",
+    "academy:routes:check": "node scripts/academy-routes-check.mjs",
     "costs:check": "node scripts/cost-tracking-check.mjs",
     "cron:auth:check": "node scripts/cron-auth-check.mjs",
     "docs:pdf": "node scripts/generate-strategic-pdf.mjs",

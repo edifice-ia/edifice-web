@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-24 (Academy : routes API de la hiérarchie)](#2026-11-24-academy--routes-api-de-la-hiérarchie)
 - [2026-11-24 (Academy : validation et store de la hiérarchie)](#2026-11-24-academy--validation-et-store-de-la-hiérarchie)
 - [2026-11-24 (Academy : migration 2a appliquée en base)](#2026-11-24-academy--migration-2a-appliquée-en-base)
 - [2026-11-24 (Academy : migration 2a, hiérarchie pédagogique)](#2026-11-24-academy--migration-2a-hiérarchie-pédagogique)
@@ -77,6 +78,26 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-24 (Academy : routes API de la hiérarchie)
+
+Type : produit, sécurité
+
+Résumé : routes API de la hiérarchie pédagogique — **15 fichiers, 23 handlers** sous `app/api/academy/` (programmes, matières, modules, chapitres, leçons : création, lecture, mise à jour, archivage, restauration, arbre, contenu d'une leçon). **Sans interface.**
+
+- Chaque handler : `authorizeCockpitApiAccess()` en premier appel ; UUID d'URL validé avant le store ; JSON illisible en `400` ; toute exception en `500` générique, détail aux journaux ; même `404` pour inexistant, autre compte, archivé ou masqué.
+- `lib/academy/http.ts` (pur, source unique des messages, sans accents) et `lib/server/academy/route-reply.ts` (`NextResponse`, journalisation).
+- Store : `description: null` retiré des leçons dans `mapChild`.
+- `npm run academy:routes:check` : analyse statique des routes et tests de la traduction ; une mutation volontaire a bien été détectée.
+
+**Non testé** : contrat et isolation des routes, à faire à la main sur le serveur local après accord, avec deux sessions de deux comptes distincts.
+
+Fichiers liés :
+
+- `app/api/academy/**/route.ts` (15), `lib/academy/http.ts`, `lib/server/academy/route-reply.ts`, `lib/server/academy/hierarchy-store.ts`, `scripts/academy-routes-check.mjs`, `package.json`
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : nouvelles routes privées, gardées, non appelées par l'interface. Commit local seulement : code qui décide de qui peut lire quoi.
 
 ## 2026-11-24 (Academy : validation et store de la hiérarchie)
 

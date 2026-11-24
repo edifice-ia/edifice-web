@@ -702,9 +702,19 @@ Fichiers :
 - `lib/server/academy/hierarchy-store.ts` — **client de session uniquement** (`src/lib/supabase/server.ts`), jamais la clé service-role : les policies `*_own` sont le garde réel, et chaque requête filtre en plus sur `user_id`. Une table de configuration interne, `LEVEL_CONFIG`, résout chaque niveau en table et colonne parent ; **aucun nom de table ne vient de l'extérieur**. `resolveLiveChain(niveau, id)` remonte la chaîne jusqu'au programme et répond « introuvable » si un maillon est absent, appartient à un autre compte ou est archivé. Opérations : liste des programmes vivants et archivés, création, mise à jour, lecture de l'arbre (sans le contenu des leçons), lecture d'une leçon, création d'un enfant (position calculée en fin de liste si absente), mise à jour, archivage, restauration (**refusée si un ancêtre est archivé**). **Erreurs** : le store renvoie `ok`, `invalid` ou `not_found`, jamais l'erreur brute de la base ; une panne inattendue lève `AcademyStoreError`, au message générique, le détail allant aux seuls journaux du serveur.
 - Tests : `npm run academy:hierarchy:check` (`scripts/academy-hierarchy-check.mjs`), sans base — limites, champs requis, `kind`, position, UUID, cas limites, et masquage par `filterLiveTree` à chaque niveau. **Le store lui-même n'est pas testé** : il demande une base, et aucune route ne l'appelle encore.
 
-**À venir** : routes API (`app/api/academy/...`, `authorizeCockpitApiAccess()`, validation UUID) et interface (pages Programmes et Leçon).
+**Étape 2a, suite — routes API écrites (2026-11-24, commit local)**, sans interface :
 
-**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation et store écrits en local, routes et interface à venir ; étape 2b (objectifs, ressources) à faire.
+- **15 fichiers, 23 handlers** sous `app/api/academy/` : `programs` (`GET` liste, `?archived=true` ; `POST`), `programs/[id]` (`GET` arbre sans contenu de leçon, `PATCH`, `DELETE` = archivage), `programs/[id]/restore` (`POST`) ; pour `subjects`, `units`, `chapters`, `lessons` : `POST` (création sous un parent vivant), `[id]` (`PATCH`, `DELETE` ; plus `GET` du contenu pour les leçons), `[id]/restore` (`POST`).
+- **Patron commun** : `runtime = "nodejs"` ; `authorizeCockpitApiAccess()` en **premier appel** de chaque handler ; identifiant d'URL validé en UUID **avant** tout appel au store (`404` sinon), l'UUID du parent étant validé par le parser à la création ; JSON illisible : `400` « Requete invalide: JSON attendu. » ; **toute exception** interceptée : `500` « Operation Academy indisponible. », le détail allant aux seuls journaux. Inexistant, d'un autre compte, archivé ou masqué par un ancêtre archivé : **même `404`**.
+- `lib/academy/http.ts` — traduction **pure** d'un résultat du store en réponse (statut, corps) ; **source unique des messages**, sans accents. `lib/server/academy/route-reply.ts` — passage à `NextResponse` et journalisation des pannes. Aucune route n'écrit un message elle-même ni ne lit `.message`.
+- Store : les leçons ne portent plus de champ `description: null` dans les réponses de création et de mise à jour.
+- `npm run academy:routes:check` (`scripts/academy-routes-check.mjs`) : analyse statique des 15 fichiers — garde en premier, UUID avant le store, `try`/`catch` générique, aucun `.message`, imports limités au module Academy et à la garde — et tests de la traduction des résultats. Une mutation volontaire (garde déplacée après la lecture des paramètres) a été détectée.
+
+**Non testé** : aucun test de contrat ni d'isolation sur les routes. Ils se feront à la main, sur le serveur local, après accord : contrat (`401`, `404`, `400`, `201`, masquage) et isolation entre deux sessions de deux comptes distincts, sans réutiliser le compte des tests d'effacement. L'isolation côté base n'est éprouvée que sur `academy_programs` et la clé composite de `academy_subjects`.
+
+**À venir** : interface (pages Programmes et Leçon).
+
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation et store poussés, routes écrites en local, interface à venir ; étape 2b (objectifs, ressources) à faire.
 
 ## Service renderer
 

@@ -15,8 +15,8 @@ import { requirePrivateCockpitAccess } from "@/src/lib/auth/guards";
 // Server Component : lit directement le store avec l'utilisateur de la session,
 // comme la page Programmes. Identifiant malformé, programme inexistant, archivé
 // ou appartenant à un autre compte : même 404 (notFound), sans distinction.
-// Les leçons n'apparaissent que par leur titre, sans lien ni contenu : la page
-// Leçon viendra ensuite.
+// Les leçons n'apparaissent que par leur titre, sans contenu ; chaque titre mène
+// à la page Leçon (lecons/[id]/page.tsx).
 
 type AcademyProgramTreePageProps = {
   params: Promise<{ id: string }>;
@@ -92,7 +92,12 @@ function ProgramTree({ tree }: { tree: AcademyProgramTree }) {
                             >
                               {chapter.lessons.map((lesson) => (
                                 <li key={lesson.id} className="text-sm text-[#A7B0C0]">
-                                  {lesson.title}
+                                  <Link
+                                    href={`/interface/academy/lecons/${lesson.id}`}
+                                    className="hover:text-[#39E6D0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                  >
+                                    {lesson.title}
+                                  </Link>
                                 </li>
                               ))}
                             </ul>

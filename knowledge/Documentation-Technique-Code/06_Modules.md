@@ -13,7 +13,7 @@ Dernière mise à jour : 2026-11-24
 - [Modules de publication](#modules-de-publication)
 - [Modules d'observation](#modules-dobservation)
 - [Modules personnels](#modules-personnels)
-- [Espace Academy — squelette, programmes et arbre en lecture seule](#espace-academy--squelette-programmes-et-arbre-en-lecture-seule)
+- [Espace Academy — squelette, programmes, arbre et leçon en lecture seule](#espace-academy--squelette-programmes-arbre-et-leçon-en-lecture-seule)
 - [Service renderer](#service-renderer)
 - [Liens utiles](#liens-utiles)
 - [À mettre à jour](#à-mettre-à-jour)
@@ -650,7 +650,7 @@ Branchée le 2026-09-19. Objectifs est une **table unique**, comme Notes et Tâc
 >
 > **Limites** : l'isolation entre comptes n'a pas été re-testée — établie par construction, non par un test à deux comptes — ; et `personal_data_erasure_log` ne compte qu'une seule entrée pour ce compte, explication vraisemblable liée aux recréations successives du compte, **non vérifiée**. Voir le changelog, entrée « module Objectifs : suppression physique ».
 
-## Espace Academy — squelette, programmes et arbre en lecture seule
+## Espace Academy — squelette, programmes, arbre et leçon en lecture seule
 
 Troisième espace de la plateforme, priorité de développement depuis le 2026-11-22 : voir [Décisions](./03_Decisions.md) DEC-014 et DEC-015, et la cible dans [22-espaces-et-marques.md](../Documentation-Strategique/Markdown/22-espaces-et-marques.md).
 
@@ -664,7 +664,8 @@ Fichiers :
 - `app/interface/academy/AcademyPrimitives.tsx` — `AcademyHeader` et `AcademyNotBuilt`, primitives propres à Academy, sans import de Personnel ni du cockpit ;
 - `app/interface/academy/page.tsx` — tableau de bord ; `app/interface/academy/[section]/page.tsx` — une seule page pour les sections encore à construire, `404` pour tout segment absent de la liste ;
 - `app/interface/academy/programmes/page.tsx` — **page Programmes, en lecture seule** (étape 2a, 2026-11-25), servie avant le segment dynamique `[section]` ; chaque titre mène à l'arbre du programme. Voir plus bas ;
-- `app/interface/academy/programmes/[id]/page.tsx` — **arbre d'un programme, en lecture seule** (étape 2a, 2026-11-25). Voir plus bas ;
+- `app/interface/academy/programmes/[id]/page.tsx` — **arbre d'un programme, en lecture seule** (étape 2a, 2026-11-25) ; chaque titre de leçon mène à la page Leçon. Voir plus bas ;
+- `app/interface/academy/lecons/[id]/page.tsx` — **page Leçon, en lecture seule** (étape 2a, 2026-11-25). Voir plus bas ;
 - `lib/cockpit/navigation.ts` et `lib/cockpit/modules.ts` — entrée `academy`, **même identifiant dans les deux**, statut `En cours`. L'entrée du menu principal n'a pas d'enfants.
 
 **Ce que chaque page encore à construire affiche** : « Pas encore construit », le fait qu'aucune donnée n'y est enregistrée ni calculée, ce que la section fera, et l'étape du plan qui la construira. Aucune donnée d'exemple, aucun contenu qui ressemble à du réel.
@@ -732,14 +733,23 @@ Validé par Vincent dans le navigateur le 2026-11-25. Commit `cbfe08d`.
 - `app/interface/academy/programmes/[id]/page.tsx`, Server Component : garde `requirePrivateCockpitAccess()` d'abord, puis identifiant validé par `isUuid` (celui de `lib/academy/hierarchy.ts`, pas de nouvelle copie) **avant** tout appel au store, puis `getLiveProgramTree(user.id, id)` directement ;
 - identifiant malformé, programme inexistant, archivé ou d'un autre compte : **même `404`** (`notFound()`), sans distinction ; `AcademyStoreError` : `ACADEMY_MESSAGES.unavailable`, sans détail technique ; toute autre exception remonte à la frontière d'erreur ;
 - rendu : titre et type du programme, puis matières, modules, chapitres et leçons en listes imbriquées, dans l'ordre du store (`position`, puis `created_at`) ; un niveau vide affiche « Aucune matière pour l'instant. », « Aucun module… », « Aucun chapitre… », « Aucune leçon… » ;
-- les leçons n'apparaissent que par leur **titre, sans lien ni contenu** : l'arbre du store ne porte pas le contenu des leçons ; la page Leçon est l'étape suivante ;
+- les leçons n'apparaissent que par leur **titre, sans contenu** : l'arbre du store ne porte pas le contenu des leçons. *À la livraison de l'arbre, les titres étaient aussi sans lien ; depuis la page Leçon (2026-11-25, ci-dessous), chaque titre mène à `/interface/academy/lecons/[id]`* ;
 - la page Programmes fait de chaque titre un lien vers `/interface/academy/programmes/[id]`.
 
 Validé par Vincent dans le navigateur le 2026-11-25.
 
-**À venir** : page Leçon.
+**Étape 2a, interface — page Leçon en lecture seule (2026-11-25)** :
 
-**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes et arbre d'un programme en lecture seule écrits, page Leçon à venir ; étape 2b (objectifs, ressources) à faire.
+- `app/interface/academy/lecons/[id]/page.tsx`, Server Component, sur le modèle de l'arbre : garde `requirePrivateCockpitAccess()` d'abord, puis `isUuid` (de `lib/academy/hierarchy.ts`) **avant** tout appel au store, puis `getLiveLesson(user.id, id)` directement ;
+- identifiant malformé, leçon inexistante, archivée, masquée par un ancêtre archivé ou d'un autre compte : **même `404`** (`notFound()`, appelé hors du `try`) ; `AcademyStoreError` : `ACADEMY_MESSAGES.unavailable`, sans détail technique ; toute autre exception remonte à la frontière d'erreur ;
+- rendu : titre, puis contenu en **texte brut** dans un bloc `whitespace-pre-wrap` — ni HTML, ni Markdown, ni `dangerouslySetInnerHTML` ; contenu vide : « Cette leçon n'a pas encore de contenu. » ;
+- **lien de retour vers la liste des programmes**, pas vers le programme : `AcademyLesson` porte `chapterId` mais pas l'identifiant du programme, et le store n'expose pas de lecture qui le donne ;
+- `lecons/[id]` est une route à deux segments : elle ne recouvre pas `[section]`, qui reste servie pour `/interface/academy/lecons` (« Pas encore construit ») ;
+- l'arbre fait de chaque titre de leçon un lien vers `/interface/academy/lecons/[id]`.
+
+**Non vérifié** : le rendu de la page Leçon avec une session et des données réelles.
+
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits, page Leçon à contrôler à la main ; étape 2b (objectifs, ressources) à faire.
 
 ## Service renderer
 

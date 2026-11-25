@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-25 (Academy : page Leçon en lecture seule)](#2026-11-25-academy--page-leçon-en-lecture-seule)
 - [2026-11-25 (Academy : arbre d'un programme en lecture seule)](#2026-11-25-academy--arbre-dun-programme-en-lecture-seule)
 - [2026-11-25 (Academy : page Programmes en lecture seule)](#2026-11-25-academy--page-programmes-en-lecture-seule)
 - [2026-11-25 (Academy : modification côté base des programmes et matières)](#2026-11-25-academy--modification-côté-base-des-programmes-et-matières)
@@ -84,6 +85,24 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-25 (Academy : page Leçon en lecture seule)
+
+Type : produit
+
+Résumé : `app/interface/academy/lecons/[id]/page.tsx`, Server Component, lit `getLiveLesson(user.id, id)` directement et affiche le titre et le contenu d'une leçon. Lecture seule.
+
+- Garde `requirePrivateCockpitAccess()`, puis `isUuid` avant le store ; malformé, inexistant, archivé, masqué par un ancêtre archivé ou d'un autre compte : même `404` ; `AcademyStoreError` : « Operation Academy indisponible. », sans détail.
+- Contenu en texte brut (`whitespace-pre-wrap`), sans HTML, Markdown ni `dangerouslySetInnerHTML` ; contenu vide : phrase explicite.
+- Retour vers la liste des programmes : `AcademyLesson` ne porte pas l'identifiant du programme.
+- Arbre d'un programme : chaque titre de leçon devient un lien vers la page Leçon.
+
+Fichiers liés :
+
+- `app/interface/academy/lecons/[id]/page.tsx`, `app/interface/academy/programmes/[id]/page.tsx`
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : aucune route, aucun store, aucun schéma modifiés. Non vérifié : le rendu avec une session et des données réelles.
 
 ## 2026-11-25 (Academy : arbre d'un programme en lecture seule)
 

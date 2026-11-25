@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-25 (Academy : modification côté base et cascade)](#2026-11-25-academy--modification-côté-base-et-cascade)
 - [2026-11-24 (Academy : isolation côté base des modules, chapitres et leçons)](#2026-11-24-academy--isolation-côté-base-des-modules-chapitres-et-leçons)
 - [2026-11-24 (Academy : routes testées à la main)](#2026-11-24-academy--routes-testées-à-la-main)
 - [2026-11-24 (Academy : routes API de la hiérarchie)](#2026-11-24-academy--routes-api-de-la-hiérarchie)
@@ -80,6 +81,26 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-25 (Academy : modification côté base et cascade)
+
+Type : sécurité
+
+Résumé : test SQL de la modification (`update`) sur `academy_units`, `academy_chapters` et `academy_lessons`, exécuté par Vincent dans le SQL Editor sous `postgres`, **conforme**. L'agent a écrit le script et consigné les résultats ; il n'a exécuté aucune requête.
+
+- (a) B rattache sa ligne au parent de A : `23503` sur les trois tables (`academy_units_subject_fk`, `academy_chapters_unit_fk`, `academy_lessons_chapter_fk`).
+- (b) B modifie une ligne de A : `0` ligne affectée.
+- (c) B passe le `user_id` de sa ligne à A : `42501`, refus par la règle d'accès.
+- Lignes de A et de B intactes ; `rollback`, contrôle après coup à `0` partout.
+
+**Cascade, point clos** : constat en base transmis par Vincent le 2026-11-25 : les quatre clés composites (`academy_subjects_program_fk`, `academy_units_subject_fk`, `academy_chapters_unit_fk`, `academy_lessons_chapter_fk`) sont en cascade (`confdeltype = 'c'`), et `service_role` a `DELETE` sur les cinq tables ; `authenticated` ne l'a pas (migration). La requête de ce constat n'est pas consignée dans `MANUAL_ACTIONS.md`. Les points « non couvert » des entrées du 2026-11-24 (modification côté base, cascade à l'usage) sont ainsi traités ; ces entrées, datées, restent inchangées.
+
+Fichiers liés :
+
+- `MANUAL_ACTIONS.md` — entrée archivée « Tester la modification (update) de l'isolation SQL sur academy_units, academy_chapters et academy_lessons »
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : aucun sur le code. Prochaine étape : interface de l'étape 2a, sur demande explicite.
 
 ## 2026-11-24 (Academy : isolation côté base des modules, chapitres et leçons)
 

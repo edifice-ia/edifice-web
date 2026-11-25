@@ -53,13 +53,51 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
-### 2026-11-24 — Tester la modification (update) de l'isolation SQL sur academy_units, academy_chapters et academy_lessons
+### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
 
+**Pourquoi c'est manuel** : l'état d'avancement d'une app review TikTok ne se lit que dans le portail développeur TikTok, derrière une authentification interactive. Rien dans le dépôt ne l'indique — recherche faite le 2026-08-01 : aucun ticket, aucune date de soumission, aucun statut, ni dans le code, ni dans `knowledge/`, ni dans l'historique git. Le seul repère est la date d'introduction de l'exception, le 2026-07-28 (`2cf9316`), et celle de la mise en place de l'accès reviewer, entre le 2026-05-20 et le 2026-05-31.
+
+**Bloque** : rien de fonctionnel. C'est une exception de sécurité sans date d'expiration — le risque est qu'elle survive à sa raison d'être et devienne un écart inexpliqué.
+
+**Déclencheur** : relancer la demande de revue TikTok lors de la reprise du module de création de contenu (Atelier de contenu). Noter ici la date de la relance.
+
+**Ce que l'exception autorise exactement** — mesuré le 2026-08-01, pour que la décision se prenne sur des faits et non sur le mot « exception » :
+
+- **Aucun accès anonyme.** Sans session, la route répond `403`, et le middleware redirige déjà vers `/login`. Le compromis ne porte que sur le filtre de rôle.
+- `canAccessPrivateCockpit(user)` vaut `getUserRole(user) !== "reviewer"` (`src/lib/auth/roles.ts`). L'écart entre ce garde et le garde strict est donc **exactement un rôle** : celui de `reviewer@edificeia.com`, compte créé et contrôlé par le projet.
+- La réponse ne contient **ni token, ni identifiant de compte, ni scope** : `{ present, storageEnabled, storageMode, expiresAt, updatedAt }`. Le reviewer voit qu'un token TikTok existe et depuis quand — strictement moins que ce que le flux OAuth et l'upload sandbox lui accordent déjà par ailleurs.
+
+**Pourquoi le durcissement ne peut pas être fait à l'aveugle** : `/tiktok-sandbox-test` rend `<TikTokConnectionControls />`, qui appelle cette route et **affiche les quatre champs**. Ajouter `canAccessPrivateCockpit` ferait répondre `403` au reviewer et casserait la « vérification du token stocké côté serveur » que la page lui annonce — pendant l'examen de cette même page.
+
+**Étapes** :
+
+1. Ouvrir le portail développeur TikTok et lire le statut de l'app review.
+2. **Si la review est terminée** (approuvée ou définitivement rejetée), appliquer le durcissement :
+   - retirer `"/api/oauth/tiktok/status"` de `reviewerAllowedPaths` dans `src/lib/supabase/proxy.ts` ;
+   - dans `app/api/oauth/tiktok/status/route.ts`, remplacer le garde par celui de `youtube/status` et `calendar/status` :
+     ```ts
+     if (!user || !canAccessPrivateCockpit(user)) {
+       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
+     }
+     ```
+     avec `import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";` ;
+   - supprimer le bloc de commentaire d'exception devenu faux, et mettre à jour `DEC-007` dans `knowledge/Documentation-Technique-Code/03_Decisions.md`, qui cite cette route comme cas particulier assumé.
+   - décider au passage du sort des trois autres chemins encore dans `reviewerAllowedPaths` (`/api/oauth/tiktok/start`, `/callback`, `/upload-test`) et du compte `reviewer@edificeia.com` lui-même.
+3. **Si la review est encore en cours**, ne rien changer et repousser la relecture ; noter la date de relecture ici.
+
+**Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
+
+## Archive (done)
+
+### 2026-11-24 — Tester la modification (update) de l'isolation SQL sur academy_units, academy_chapters et academy_lessons
+
+**Statut** : `done` — 2026-11-25. Script exécuté par Vincent, porteur du projet, dans le SQL Editor, sous le rôle `postgres` ; **résultats conformes**. L'agent n'a exécuté aucune requête.
+
 **Pourquoi c'est manuel** : seul le SQL Editor peut exécuter ce test sur la base réelle, et aucune base de test n'est disponible depuis le dépôt (ni CLI Supabase, ni `psql`, ni Docker sur cette machine). L'agent n'a pas d'accès SQL au projet. **À exécuter par Vincent, porteur du projet**, dans le SQL Editor, sous le rôle `postgres`.
 
-**Bloque** : rien d'immédiat. Ce test comble le dernier point ouvert de l'isolation côté base relevé le 2026-11-24 : la règle d'accès en **modification** sur les trois tables enfants, que le test d'insertion du même jour ne tentait pas. Côté base, elle n'est éprouvée que sur `academy_programs` ; côté routes, par les tests à la main.
+**Bloquait** : rien d'immédiat. Ce test comble le dernier point ouvert de l'isolation côté base relevé le 2026-11-24 : la règle d'accès en **modification** sur les trois tables enfants, que le test d'insertion du même jour ne tentait pas. Côté base, elle n'est éprouvée que sur `academy_programs` ; côté routes, par les tests à la main.
 
 **Ce que dit la migration** (`20261124120000_create_academy_hierarchy.sql`, relue le 2026-11-24 sans exécution) : pour chacune des trois tables, la règle `academy_<table>_update_own` est `for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid())`, et la clé composite `(parent_id, user_id)` vers `(id, user_id)` du parent ne précise pas d'`on update` : elle est donc contrôlée à chaque modification de la ligne enfant. Attendus déduits, que ce test doit confirmer :
 
@@ -75,6 +113,22 @@ Chaque tentative de B est placée dans un bloc `do` :
 - (b) compte les lignes affectées (`get diagnostics`) ; s'il y en a au moins une, le bloc lève « ECHEC DU TEST ».
 
 « ECHEC DU TEST » n'est capté par aucun bloc : il interrompt toute la transaction, annulée, et le SQL Editor l'affiche à la place de la synthèse.
+
+**Résultats obtenus** — 2026-11-25, transmis par Vincent :
+
+- **Contrôle préalable (étape 2)** : `auth.users` n'a que la colonne `id` obligatoire sans valeur par défaut ; le contrôle `pg_trigger` sur `auth.users` ne renvoie aucune ligne, donc aucun déclencheur — **conforme**.
+- **Synthèse (étape 4)** :
+  - **(a)** B rattache sa propre ligne au parent de A : refus en **`23503`** sur les trois tables, par `academy_units_subject_fk`, `academy_chapters_unit_fk` et `academy_lessons_chapter_fk` — **conforme** ;
+  - **(b)** B modifie la ligne de A : **`0` ligne affectée** sur les trois tables — **conforme** ;
+  - **(c)** B donne sa propre ligne à A (`user_id`) : refus en **`42501`** (row-level security) sur les trois tables — **conforme** : c'est bien la règle d'accès qui refuse, pas la clé étrangère ;
+  - titres de A inchangés : « Module de A / Chapitre de A / Lecon de A » — **conforme** ;
+  - lignes de B intactes, sous leurs propres parents : `1 / 1 / 1` — **conforme**.
+- **Contrôle après coup (étape 5)** : `0` compte de test et `0` ligne dans les cinq tables `academy_*` — **conforme**.
+- Le script s'est terminé par `rollback` : **aucune donnée de test n'a persisté**.
+
+**Portée** : la règle d'accès en modification et la clé composite à la modification sont éprouvées côté base sur `academy_units`, `academy_chapters` et `academy_lessons`. Avec les tests du 2026-11-24, l'isolation côté base couvre la lecture, l'insertion et la modification sur les tables enfants ; sur `academy_programs` et `academy_subjects`, la modification n'est éprouvée que pour la ligne d'un autre compte (test du 2026-11-24), pas pour le rattachement ni le changement de `user_id`.
+
+**Cascade** — point clos : constat en base transmis par Vincent le 2026-11-25 : les quatre clés composites (`academy_subjects_program_fk`, `academy_units_subject_fk`, `academy_chapters_unit_fk`, `academy_lessons_chapter_fk`) sont en cascade (`confdeltype = 'c'`), et `service_role` a `DELETE` sur les cinq tables ; `authenticated` ne l'a pas (migration). La requête de ce constat n'est pas consignée dans `MANUAL_ACTIONS.md`. La cascade elle-même n'est pas exercée par un test : son comportement relève de Postgres, et le chemin de suppression réel (étape 8, clé `service-role`, enfants avant parents) sera testé lorsqu'il sera écrit.
 
 **Étapes** :
 
@@ -331,45 +385,7 @@ rollback;
 
 **Vérification** : synthèse conforme à l'attendu ci-dessus, et contrôle de l'étape 5 à `0` partout. Si un résultat diffère, s'arrêter et le signaler. **Ne pas corriger les politiques dans la foulée.**
 
-*Écrit le 2026-11-24 par l'agent, sans exécution.*
-
-### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
-
-**Statut** : `pending`
-
-**Pourquoi c'est manuel** : l'état d'avancement d'une app review TikTok ne se lit que dans le portail développeur TikTok, derrière une authentification interactive. Rien dans le dépôt ne l'indique — recherche faite le 2026-08-01 : aucun ticket, aucune date de soumission, aucun statut, ni dans le code, ni dans `knowledge/`, ni dans l'historique git. Le seul repère est la date d'introduction de l'exception, le 2026-07-28 (`2cf9316`), et celle de la mise en place de l'accès reviewer, entre le 2026-05-20 et le 2026-05-31.
-
-**Bloque** : rien de fonctionnel. C'est une exception de sécurité sans date d'expiration — le risque est qu'elle survive à sa raison d'être et devienne un écart inexpliqué.
-
-**Déclencheur** : relancer la demande de revue TikTok lors de la reprise du module de création de contenu (Atelier de contenu). Noter ici la date de la relance.
-
-**Ce que l'exception autorise exactement** — mesuré le 2026-08-01, pour que la décision se prenne sur des faits et non sur le mot « exception » :
-
-- **Aucun accès anonyme.** Sans session, la route répond `403`, et le middleware redirige déjà vers `/login`. Le compromis ne porte que sur le filtre de rôle.
-- `canAccessPrivateCockpit(user)` vaut `getUserRole(user) !== "reviewer"` (`src/lib/auth/roles.ts`). L'écart entre ce garde et le garde strict est donc **exactement un rôle** : celui de `reviewer@edificeia.com`, compte créé et contrôlé par le projet.
-- La réponse ne contient **ni token, ni identifiant de compte, ni scope** : `{ present, storageEnabled, storageMode, expiresAt, updatedAt }`. Le reviewer voit qu'un token TikTok existe et depuis quand — strictement moins que ce que le flux OAuth et l'upload sandbox lui accordent déjà par ailleurs.
-
-**Pourquoi le durcissement ne peut pas être fait à l'aveugle** : `/tiktok-sandbox-test` rend `<TikTokConnectionControls />`, qui appelle cette route et **affiche les quatre champs**. Ajouter `canAccessPrivateCockpit` ferait répondre `403` au reviewer et casserait la « vérification du token stocké côté serveur » que la page lui annonce — pendant l'examen de cette même page.
-
-**Étapes** :
-
-1. Ouvrir le portail développeur TikTok et lire le statut de l'app review.
-2. **Si la review est terminée** (approuvée ou définitivement rejetée), appliquer le durcissement :
-   - retirer `"/api/oauth/tiktok/status"` de `reviewerAllowedPaths` dans `src/lib/supabase/proxy.ts` ;
-   - dans `app/api/oauth/tiktok/status/route.ts`, remplacer le garde par celui de `youtube/status` et `calendar/status` :
-     ```ts
-     if (!user || !canAccessPrivateCockpit(user)) {
-       return NextResponse.json({ error: "Acces refuse." }, { status: 403 });
-     }
-     ```
-     avec `import { canAccessPrivateCockpit } from "@/src/lib/auth/roles";` ;
-   - supprimer le bloc de commentaire d'exception devenu faux, et mettre à jour `DEC-007` dans `knowledge/Documentation-Technique-Code/03_Decisions.md`, qui cite cette route comme cas particulier assumé.
-   - décider au passage du sort des trois autres chemins encore dans `reviewerAllowedPaths` (`/api/oauth/tiktok/start`, `/callback`, `/upload-test`) et du compte `reviewer@edificeia.com` lui-même.
-3. **Si la review est encore en cours**, ne rien changer et repousser la relecture ; noter la date de relecture ici.
-
-**Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
-
-## Archive (done)
+*Écrit le 2026-11-24 par l'agent, sans exécution ; exécution par Vincent consignée le 2026-11-25.*
 
 ### 2026-11-24 — Tester l'isolation SQL des tables academy_units, academy_chapters et academy_lessons
 

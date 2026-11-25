@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import type { AcademyProgram, AcademyProgramKind } from "@/lib/academy/hierarchy";
 import { ACADEMY_MESSAGES } from "@/lib/academy/http";
 import { AcademyStoreError, listLivePrograms } from "@/lib/server/academy/hierarchy-store";
@@ -78,7 +79,14 @@ export default async function AcademyProgramsPage() {
               className="rounded-md border border-[#1D2A44] bg-[#0B1420] px-4 py-3"
             >
               <div className="flex flex-wrap items-center gap-3">
-                <h3 className="text-lg font-semibold text-[#F8FAFC]">{program.title}</h3>
+                <h3 className="text-lg font-semibold text-[#F8FAFC]">
+                  <Link
+                    href={`/interface/academy/programmes/${program.id}`}
+                    className="hover:text-[#39E6D0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                  >
+                    {program.title}
+                  </Link>
+                </h3>
                 <span className="rounded-md border border-[#39E6D0]/40 bg-[#39E6D0]/10 px-2 py-0.5 text-xs font-semibold text-[#39E6D0]">
                   {KIND_LABELS[program.kind]}
                 </span>

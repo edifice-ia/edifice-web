@@ -93,7 +93,7 @@ Résumé : test SQL de la modification (`update`) sur `academy_units`, `academy_
 - (c) B passe le `user_id` de sa ligne à A : `42501`, refus par la règle d'accès.
 - Lignes de A et de B intactes ; `rollback`, contrôle après coup à `0` partout.
 
-**Cascade, point clos** : constat en base transmis par Vincent le 2026-11-25 : les quatre clés composites (`academy_subjects_program_fk`, `academy_units_subject_fk`, `academy_chapters_unit_fk`, `academy_lessons_chapter_fk`) sont en cascade (`confdeltype = 'c'`), et `service_role` a `DELETE` sur les cinq tables ; `authenticated` ne l'a pas (migration). La requête de ce constat n'est pas consignée dans `MANUAL_ACTIONS.md`. Les points « non couvert » des entrées du 2026-11-24 (modification côté base, cascade à l'usage) sont ainsi traités ; ces entrées, datées, restent inchangées.
+**Cascade, point clos** : constat en base du 2026-11-25, deux requêtes en lecture seule exécutées par Vincent : les quatre clés composites (`academy_subjects_program_fk`, `academy_units_subject_fk`, `academy_chapters_unit_fk`, `academy_lessons_chapter_fk`) sont en cascade (`confdeltype = 'c'`), et `service_role` a `DELETE` sur les cinq tables ; `authenticated` ne l'a pas (migration). Requêtes et résultats consignés dans l'entrée archivée « Contrôler en base la cascade et le droit DELETE de service_role sur Academy » du 2026-11-25 de `MANUAL_ACTIONS.md`. Les points « non couvert » des entrées du 2026-11-24 (modification côté base, cascade à l'usage) sont ainsi traités ; ces entrées, datées, restent inchangées.
 
 Fichiers liés :
 

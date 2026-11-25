@@ -53,6 +53,201 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-11-25 — Tester la modification (update) de l'isolation SQL sur academy_programs et academy_subjects
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : seul le SQL Editor peut exécuter ce test sur la base réelle, et aucune base de test n'est disponible depuis le dépôt (ni CLI Supabase, ni `psql`, ni Docker sur cette machine). L'agent n'a pas d'accès SQL au projet. **À exécuter par Vincent, porteur du projet**, dans le SQL Editor, sous le rôle `postgres`.
+
+**Bloque** : rien d'immédiat. Ce test complète l'entrée archivée du 2026-11-25 sur `academy_units`, `academy_chapters` et `academy_lessons` : sur `academy_programs` et `academy_subjects`, le test du 2026-11-24 n'a éprouvé, en modification, que la ligne d'un autre compte sur les programmes — ni le rattachement d'une matière à un autre parent, ni le changement de `user_id`.
+
+**Ce que dit la migration** (`20261124120000_create_academy_hierarchy.sql`, relue sans exécution) : `academy_programs_update_own` et `academy_subjects_update_own` sont `for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid())` ; la clé composite `academy_subjects_program_fk` `(program_id, user_id)` vers `academy_programs (id, user_id)` ne précise pas d'`on update` et est donc contrôlée à chaque modification de la matière. Attendus déduits, que ce test doit confirmer :
+
+- **(a)** B rattache **sa propre matière** au programme de A (`program_id` du compte A) : la règle d'accès l'accepte, la clé composite refuse — **`23503`**, `academy_subjects_program_fk` ;
+- **(b)** B tente de modifier **la ligne de A** : la clause `using` la rend invisible à B — **0 ligne affectée**, sans erreur ;
+- **(c)** B passe le `user_id` de **sa propre ligne** à celui de A : la clause `with check` refuse — **`42501`** (row-level security). Un `23503` à cette étape serait un refus, mais pas par la règle d'accès : à signaler.
+
+**`academy_programs` n'a pas de parent** : le test (a) n'existe pas pour cette table ; **seuls (b) et (c) s'y appliquent**. `academy_subjects` reçoit les trois.
+
+**Sans effet durable** : même modèle que le test du 2026-11-25 sur les tables enfants. Le script écrit **uniquement dans une transaction terminée par `rollback`** ; les comptes fictifs `…000c` (A) et `…000d` (B) sont créés dans `auth.users` au début de la transaction, sous `postgres`, et retirés par le `rollback`. Chaque compte ne crée qu'un programme et une matière. Aucun compte réel n'est utilisé, aucune donnée existante n'est lue ni modifiée.
+
+Chaque tentative de B est placée dans un bloc `do` : (a) et (c) capturent le refus attendu et l'enregistrent, et lèvent « ECHEC DU TEST » si la modification passe — y compris sans ligne affectée ; (b) compte les lignes affectées et lève « ECHEC DU TEST » s'il y en a au moins une. « ECHEC DU TEST » n'est capté par aucun bloc : il interrompt toute la transaction, annulée, et le SQL Editor l'affiche à la place de la synthèse.
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. **Contrôle préalable, en lecture seule** — conforme les 2026-11-24 et 2026-11-25 (seule `id` obligatoire, aucun déclencheur), à relancer pour s'assurer que rien n'a changé :
+   ```sql
+   select column_name, data_type
+   from information_schema.columns
+   where table_schema = 'auth' and table_name = 'users'
+     and is_nullable = 'NO' and column_default is null
+   order by ordinal_position;
+
+   select tgname, tgenabled
+   from pg_trigger
+   where tgrelid = 'auth.users'::regclass and not tgisinternal;
+   ```
+   Attendu : `id` seul dans la première requête, aucune ligne dans la seconde. **Sinon, s'arrêter** et le transmettre à l'agent.
+3. Lancer le script ci-dessous **en une seule exécution**. Si une erreur s'affiche à la place de la synthèse (« ECHEC DU TEST », `permission denied`…), s'arrêter et transmettre le message tel quel : la transaction est annulée, rien n'est écrit.
+4. Relever le résultat de la synthèse.
+5. **Contrôle après coup, en lecture seule** :
+   ```sql
+   select
+     (select count(*) from auth.users where id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as utilisateurs_de_test_restants,
+     (select count(*) from public.academy_programs where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as programmes,
+     (select count(*) from public.academy_subjects where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as matieres,
+     (select count(*) from public.academy_units where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as modules,
+     (select count(*) from public.academy_chapters where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as chapitres,
+     (select count(*) from public.academy_lessons where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as lecons;
+   ```
+   Attendu : `0` partout.
+6. Transmettre les résultats, tels quels, à l'agent pour consignation.
+
+```sql
+begin;
+
+-- Sous le role postgres du SQL Editor : creation des deux comptes de test.
+-- Annules par le rollback final.
+insert into auth.users (id) values
+  ('00000000-0000-0000-0000-00000000000c'),
+  ('00000000-0000-0000-0000-00000000000d');
+
+-- Compte A : programme et matiere, sous son propre role (regle d'acces appliquee).
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title)
+values ('00000000-0000-0000-0000-00000000000c', 'formation', 'Programme de A');
+insert into public.academy_subjects (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'Matiere de A' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c';
+reset role;
+
+-- Compte B : son propre programme et sa propre matiere, sous son propre role.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title)
+values ('00000000-0000-0000-0000-00000000000d', 'formation', 'Programme de B');
+insert into public.academy_subjects (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000d', id, 'Matiere de B' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000d';
+reset role;
+
+-- Sous postgres (proprietaire des tables, hors regle d'acces) : releve des
+-- identifiants de A, que B va viser tels quels.
+select set_config('academy_test.program_a',
+  (select id::text from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c'), true);
+select set_config('academy_test.subject_a',
+  (select id::text from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c'), true);
+
+-- Bascule sur B : tentatives de modification.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}', true);
+set local role authenticated;
+
+-- academy_programs : pas de parent, donc pas de test (a).
+-- (b) B tente de modifier la ligne de A. Attendu : 0 ligne affectee.
+do $$
+declare
+  n integer;
+begin
+  update public.academy_programs
+  set title = 'Piratage'
+  where id = current_setting('academy_test.program_a')::uuid;
+  get diagnostics n = row_count;
+  if n <> 0 then
+    raise exception 'ECHEC DU TEST (b) : B a modifie % ligne(s) de A dans academy_programs.', n;
+  end if;
+  perform set_config('academy_test.programs_b', n::text || ' ligne affectee', true);
+end;
+$$;
+
+-- (c) B donne sa propre ligne a A (user_id). Attendu : 42501.
+do $$
+begin
+  update public.academy_programs
+  set user_id = '00000000-0000-0000-0000-00000000000c'
+  where user_id = '00000000-0000-0000-0000-00000000000d';
+  raise exception 'ECHEC DU TEST (c) : programme de B reaffecte(e) au compte A.';
+exception
+  when insufficient_privilege or foreign_key_violation then
+    perform set_config('academy_test.programs_c', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+
+-- academy_subjects
+-- (a) B rattache sa propre ligne au parent de A. Attendu : 23503.
+do $$
+begin
+  update public.academy_subjects
+  set program_id = current_setting('academy_test.program_a')::uuid
+  where user_id = '00000000-0000-0000-0000-00000000000d';
+  raise exception 'ECHEC DU TEST (a) : matiere de B rattache(e) sous le programme de A.';
+exception
+  when foreign_key_violation or insufficient_privilege then
+    perform set_config('academy_test.subjects_a', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+
+-- (b) B tente de modifier la ligne de A. Attendu : 0 ligne affectee.
+do $$
+declare
+  n integer;
+begin
+  update public.academy_subjects
+  set title = 'Piratage'
+  where id = current_setting('academy_test.subject_a')::uuid;
+  get diagnostics n = row_count;
+  if n <> 0 then
+    raise exception 'ECHEC DU TEST (b) : B a modifie % ligne(s) de A dans academy_subjects.', n;
+  end if;
+  perform set_config('academy_test.subjects_b', n::text || ' ligne affectee', true);
+end;
+$$;
+
+-- (c) B donne sa propre ligne a A (user_id). Attendu : 42501.
+do $$
+begin
+  update public.academy_subjects
+  set user_id = '00000000-0000-0000-0000-00000000000c'
+  where user_id = '00000000-0000-0000-0000-00000000000d';
+  raise exception 'ECHEC DU TEST (c) : matiere de B reaffecte(e) au compte A.';
+exception
+  when insufficient_privilege or foreign_key_violation then
+    perform set_config('academy_test.subjects_c', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+
+reset role;
+
+-- Synthese, sous postgres. Les lignes de A et de B doivent etre intactes.
+select
+  current_setting('academy_test.programs_b', true) as programme_b_ligne_de_a,
+  current_setting('academy_test.programs_c', true) as programme_c_user_id_de_a,
+  current_setting('academy_test.subjects_a', true) as matiere_a_parent_de_a,
+  current_setting('academy_test.subjects_b', true) as matiere_b_ligne_de_a,
+  current_setting('academy_test.subjects_c', true) as matiere_c_user_id_de_a,
+  format('%s / %s',
+    (select title from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c'),
+    (select title from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c')) as titres_de_a,
+  format('%s / %s',
+    (select count(*) from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000d'),
+    (select count(*) from public.academy_subjects s
+       join public.academy_programs p on p.id = s.program_id and p.user_id = s.user_id
+     where s.user_id = '00000000-0000-0000-0000-00000000000d')) as lignes_de_b_programme_matiere_sous_programme_de_b;
+
+rollback;
+```
+
+**Résultat attendu de la synthèse** :
+
+- `programme_b_ligne_de_a` et `matiere_b_ligne_de_a` : `0 ligne affectee` ;
+- `programme_c_user_id_de_a` et `matiere_c_user_id_de_a` : `42501`, « new row violates row-level security policy for table … » ;
+- `matiere_a_parent_de_a` : `23503`, avec `academy_subjects_program_fk` dans le message ;
+- `titres_de_a` : `Programme de A / Matiere de A` — inchangés ;
+- `lignes_de_b_programme_matiere_sous_programme_de_b` : `1 / 1` — le programme de B est resté à B, et sa matière sous son propre programme.
+
+**Vérification** : synthèse conforme à l'attendu ci-dessus, et contrôle de l'étape 5 à `0` partout. Si un résultat diffère, s'arrêter et le signaler. **Ne pas corriger les politiques dans la foulée.**
+
+*Écrit le 2026-11-25 par l'agent, sans exécution.*
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
@@ -91,6 +286,33 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 ## Archive (done)
 
+### 2026-11-25 — Contrôler en base la cascade et le droit DELETE de service_role sur Academy
+
+**Statut** : `done` — 2026-11-25. Deux requêtes en lecture seule exécutées par Vincent, porteur du projet, dans le SQL Editor ; **résultats conformes**. L'agent n'a exécuté aucune requête ; il consigne les requêtes et les résultats transmis.
+
+**Pourquoi c'est manuel** : seul le SQL Editor peut lire le catalogue de la base réelle ; l'agent n'a pas d'accès SQL au projet.
+
+**Bloquait** : la clôture du point « cascade à l'usage » de l'isolation Academy (chantier 8). La migration `20261124120000_create_academy_hierarchy.sql` déclare les clés en `on delete cascade`, mais elle utilise `create table if not exists` : une table déjà présente aurait gardé ses anciennes clauses. Seul le catalogue prouve l'état réel.
+
+**Étapes et résultats** :
+
+1. Requête « 2026-11-25 - Academy contrôle cascade on delete », en lecture seule :
+   ```sql
+   select conname, confdeltype from pg_constraint where conname in ('academy_subjects_program_fk', 'academy_units_subject_fk', 'academy_chapters_unit_fk', 'academy_lessons_chapter_fk');
+   ```
+   **Résultat** : quatre lignes, `confdeltype = c` (cascade) pour chacune — **conforme**.
+2. Requête « 2026-11-25 - Academy contrôle droits DELETE service_role », en lecture seule :
+   ```sql
+   select table_name, privilege_type from information_schema.table_privileges where table_schema = 'public' and table_name like 'academy_%' and grantee = 'service_role' and privilege_type = 'DELETE';
+   ```
+   **Résultat** : cinq lignes, `DELETE` sur `academy_chapters`, `academy_lessons`, `academy_programs`, `academy_subjects` et `academy_units` — **conforme** au plan de l'étape 8 (suppression physique par la clé `service-role`, DEC-013). `authenticated` n'a pas `DELETE` : la migration le lui retire et ne le lui rend pas.
+
+**Portée** : le constat porte sur la **déclaration en base** — les clés sont en cascade, et `service_role` peut supprimer. **La cascade elle-même n'a pas été exercée par un test** : son comportement relève de Postgres. Le test du chemin de suppression réel — clé `service-role`, enfants supprimés explicitement avant leurs parents, la cascade n'étant qu'un filet — est **reporté à l'étape 8**, lorsqu'il sera écrit.
+
+**Limite** : le filtre `like 'academy_%'` laisse passer le `_` comme caractère quelconque ; sans effet ici, aucune autre table ne commençant par `academy`.
+
+*Consigné le 2026-11-25 par l'agent, d'après les résultats transmis par Vincent.*
+
 ### 2026-11-24 — Tester la modification (update) de l'isolation SQL sur academy_units, academy_chapters et academy_lessons
 
 **Statut** : `done` — 2026-11-25. Script exécuté par Vincent, porteur du projet, dans le SQL Editor, sous le rôle `postgres` ; **résultats conformes**. L'agent n'a exécuté aucune requête.
@@ -128,7 +350,7 @@ Chaque tentative de B est placée dans un bloc `do` :
 
 **Portée** : la règle d'accès en modification et la clé composite à la modification sont éprouvées côté base sur `academy_units`, `academy_chapters` et `academy_lessons`. Avec les tests du 2026-11-24, l'isolation côté base couvre la lecture, l'insertion et la modification sur les tables enfants ; sur `academy_programs` et `academy_subjects`, la modification n'est éprouvée que pour la ligne d'un autre compte (test du 2026-11-24), pas pour le rattachement ni le changement de `user_id`.
 
-**Cascade** — point clos : constat en base transmis par Vincent le 2026-11-25 : les quatre clés composites (`academy_subjects_program_fk`, `academy_units_subject_fk`, `academy_chapters_unit_fk`, `academy_lessons_chapter_fk`) sont en cascade (`confdeltype = 'c'`), et `service_role` a `DELETE` sur les cinq tables ; `authenticated` ne l'a pas (migration). La requête de ce constat n'est pas consignée dans `MANUAL_ACTIONS.md`. La cascade elle-même n'est pas exercée par un test : son comportement relève de Postgres, et le chemin de suppression réel (étape 8, clé `service-role`, enfants avant parents) sera testé lorsqu'il sera écrit.
+**Cascade** — point clos : constat en base du 2026-11-25, deux requêtes en lecture seule exécutées par Vincent : les quatre clés composites (`academy_subjects_program_fk`, `academy_units_subject_fk`, `academy_chapters_unit_fk`, `academy_lessons_chapter_fk`) sont en cascade (`confdeltype = 'c'`), et `service_role` a `DELETE` sur les cinq tables ; `authenticated` ne l'a pas (migration). Requêtes et résultats consignés dans l'entrée archivée « Contrôler en base la cascade et le droit DELETE de service_role sur Academy » du 2026-11-25 de `MANUAL_ACTIONS.md`. La cascade elle-même n'est pas exercée par un test : son comportement relève de Postgres, et le chemin de suppression réel (étape 8, clé `service-role`, enfants avant parents) sera testé lorsqu'il sera écrit.
 
 **Étapes** :
 

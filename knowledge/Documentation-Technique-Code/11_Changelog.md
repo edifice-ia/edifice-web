@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-25 (Academy : modification côté base des programmes et matières)](#2026-11-25-academy--modification-côté-base-des-programmes-et-matières)
 - [2026-11-25 (Academy : modification côté base et cascade)](#2026-11-25-academy--modification-côté-base-et-cascade)
 - [2026-11-24 (Academy : isolation côté base des modules, chapitres et leçons)](#2026-11-24-academy--isolation-côté-base-des-modules-chapitres-et-leçons)
 - [2026-11-24 (Academy : routes testées à la main)](#2026-11-24-academy--routes-testées-à-la-main)
@@ -81,6 +82,25 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-25 (Academy : modification côté base des programmes et matières)
+
+Type : sécurité
+
+Résumé : test SQL de la modification (`update`) sur `academy_programs` et `academy_subjects`, exécuté par Vincent dans le SQL Editor sous `postgres`, **conforme**. L'agent a écrit le script et consigné les résultats ; il n'a exécuté aucune requête.
+
+- Programme : (b) modification de la ligne de A par B, `0` ligne affectée ; (c) changement de `user_id`, `42501`. Pas de test (a) : le programme n'a pas de parent.
+- Matière : (a) rattachement au programme de A, `23503` sur `academy_subjects_program_fk` ; (b) `0` ligne affectée ; (c) `42501`.
+- Lignes de A et de B intactes ; `rollback` ; contrôles préalable et après coup conformes selon Vincent.
+
+La modification est désormais éprouvée côté base sur les cinq tables ; le point ouvert relevé dans l'entrée « modification côté base et cascade » du même jour est clos.
+
+Fichiers liés :
+
+- `MANUAL_ACTIONS.md` — entrée archivée « Tester la modification (update) de l'isolation SQL sur academy_programs et academy_subjects »
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : aucun sur le code. Prochaine étape : interface de l'étape 2a, sur demande explicite.
 
 ## 2026-11-25 (Academy : modification côté base et cascade)
 

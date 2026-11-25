@@ -53,6 +53,107 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-11-25 — Nettoyer les données de contrôle de l'arbre Academy (test-erase@edificeia.com)
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : il n'existe pas de suppression physique dans Academy — les tables `academy_*` n'accordent pas `DELETE` à `authenticated`, et le chemin de suppression de l'étape 8 n'est pas écrit —, et seul le SQL Editor, sous le rôle `postgres`, peut supprimer ces données. L'agent n'a pas d'accès SQL au projet.
+
+**Bloque** : rien. Données créées le 2026-11-25 sous `test-erase@edificeia.com` pour contrôler à la main la page Programmes et l'arbre d'un programme dans le navigateur.
+
+**Données de contrôle à supprimer**, identifiants transmis par Vincent :
+
+- programme `49a2b15e-21b9-4509-b231-f18acc10d41d`, avec sa matière, son module, son chapitre et sa leçon `480d4d7b-71eb-48d5-9167-69e3881bcd6c` — identifiants de la matière, du module et du chapitre non relevés ;
+- programme vide `13e64a2e-6f6c-4573-8718-72631570110a`.
+
+**Portée** : à la différence du nettoyage du 2026-11-24, la suppression **ne vise pas toutes les lignes `academy_*` du compte**, mais seulement ces deux programmes et leurs descendants, rattachés par les clés `program_id`, `subject_id`, `unit_id` et `chapter_id`, sur le seul compte `test-erase@edificeia.com` — chaque `delete` filtre aussi sur ce `user_id`. Les lignes archivées sous ces programmes sont comprises. Si l'adresse ne correspond à aucun compte, aucune ligne n'est supprimée ; si elle en désigne plusieurs, la sous-requête échoue et la transaction est annulée. Les données Personnel de ce compte, qui sert aussi aux tests d'effacement, ne sont pas touchées.
+
+**Leçon du nettoyage du 2026-11-24** : une leçon de plus que prévu y avait été supprimée sans avoir été identifiée. Ici, le comptage relève à la fois les lignes visées et **toutes** les lignes Academy du compte : **tout écart arrête la procédure** tant que la ligne en trop n'est pas identifiée.
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. **Comptage, en lecture seule** :
+   ```sql
+   with u as (
+     select id from auth.users where email = 'test-erase@edificeia.com'
+   ),
+   p as (
+     select id from public.academy_programs
+     where user_id = (select id from u) and id in ('49a2b15e-21b9-4509-b231-f18acc10d41d', '13e64a2e-6f6c-4573-8718-72631570110a')
+   ),
+   s as (
+     select id from public.academy_subjects
+     where user_id = (select id from u) and program_id in (select id from p)
+   ),
+   n as (
+     select id from public.academy_units
+     where user_id = (select id from u) and subject_id in (select id from s)
+   ),
+   c as (
+     select id from public.academy_chapters
+     where user_id = (select id from u) and unit_id in (select id from n)
+   ),
+   l as (
+     select id from public.academy_lessons
+     where user_id = (select id from u) and chapter_id in (select id from c)
+   )
+   select
+     (select count(*) from u) as comptes,
+     (select count(*) from p) as programmes_vises,
+     (select count(*) from s) as matieres_visees,
+     (select count(*) from n) as modules_vises,
+     (select count(*) from c) as chapitres_vises,
+     (select count(*) from l) as lecons_visees,
+     (select count(*) from l where id = '480d4d7b-71eb-48d5-9167-69e3881bcd6c') as lecon_relevee,
+     (select count(*) from public.academy_programs where user_id = (select id from u)) as programmes_du_compte,
+     (select count(*) from public.academy_subjects where user_id = (select id from u)) as matieres_du_compte,
+     (select count(*) from public.academy_units where user_id = (select id from u)) as modules_du_compte,
+     (select count(*) from public.academy_chapters where user_id = (select id from u)) as chapitres_du_compte,
+     (select count(*) from public.academy_lessons where user_id = (select id from u)) as lecons_du_compte;
+   ```
+   Attendu :
+   - `comptes` : `1` — aucune ligne, ou plusieurs : s'arrêter et le signaler ;
+   - `programmes_vises` `2`, `matieres_visees` `1`, `modules_vises` `1`, `chapitres_vises` `1`, `lecons_visees` `1`, `lecon_relevee` `1` ;
+   - les colonnes `*_du_compte` **égales** aux colonnes `*_vises` correspondantes (2 / 1 / 1 / 1 / 1). Une valeur supérieure signale d'autres données Academy sur ce compte : elles ne seraient pas supprimées, mais **s'arrêter**, les identifier et les transmettre avant l'étape 3. Une valeur `*_vises` différente de l'attendu : s'arrêter de même.
+3. **Suppression**, seulement si le comptage est conforme — dans l'ordre inverse des dépendances, leçons d'abord, programmes en dernier, dans une seule transaction. **Action irréversible.**
+   ```sql
+   begin;
+
+   delete from public.academy_lessons
+   where user_id = (select id from auth.users where email = 'test-erase@edificeia.com')
+     and chapter_id in (
+       select id from public.academy_chapters where user_id = (select id from auth.users where email = 'test-erase@edificeia.com') and unit_id in (select id from public.academy_units where user_id = (select id from auth.users where email = 'test-erase@edificeia.com') and subject_id in (select id from public.academy_subjects where user_id = (select id from auth.users where email = 'test-erase@edificeia.com') and program_id in ('49a2b15e-21b9-4509-b231-f18acc10d41d', '13e64a2e-6f6c-4573-8718-72631570110a')))
+     );
+
+   delete from public.academy_chapters
+   where user_id = (select id from auth.users where email = 'test-erase@edificeia.com')
+     and unit_id in (
+       select id from public.academy_units where user_id = (select id from auth.users where email = 'test-erase@edificeia.com') and subject_id in (select id from public.academy_subjects where user_id = (select id from auth.users where email = 'test-erase@edificeia.com') and program_id in ('49a2b15e-21b9-4509-b231-f18acc10d41d', '13e64a2e-6f6c-4573-8718-72631570110a'))
+     );
+
+   delete from public.academy_units
+   where user_id = (select id from auth.users where email = 'test-erase@edificeia.com')
+     and subject_id in (
+       select id from public.academy_subjects where user_id = (select id from auth.users where email = 'test-erase@edificeia.com') and program_id in ('49a2b15e-21b9-4509-b231-f18acc10d41d', '13e64a2e-6f6c-4573-8718-72631570110a')
+     );
+
+   delete from public.academy_subjects
+   where user_id = (select id from auth.users where email = 'test-erase@edificeia.com')
+     and program_id in ('49a2b15e-21b9-4509-b231-f18acc10d41d', '13e64a2e-6f6c-4573-8718-72631570110a');
+
+   delete from public.academy_programs
+   where user_id = (select id from auth.users where email = 'test-erase@edificeia.com')
+     and id in ('49a2b15e-21b9-4509-b231-f18acc10d41d', '13e64a2e-6f6c-4573-8718-72631570110a');
+
+   commit;
+   ```
+4. Relancer le comptage de l'étape 2, puis transmettre les deux comptages à l'agent pour consignation.
+
+**Vérification** : le comptage relancé renvoie `1` pour `comptes` et `0` dans toutes les autres colonnes.
+
+*Écrit le 2026-11-25 par l'agent, sans exécution.*
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`

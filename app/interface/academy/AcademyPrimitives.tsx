@@ -13,13 +13,13 @@ export function AcademyHeader() {
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <h1 className="text-3xl font-semibold text-[#F8FAFC] sm:text-4xl">Academy</h1>
         <span className="rounded-md border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-2 py-1 text-xs font-semibold text-[#7DD3FC]">
-          Squelette, sans données
+          En construction
         </span>
       </div>
       <p className="mt-4 max-w-3xl leading-7 text-[#A7B0C0]">
         Environnement d&apos;apprentissage : programmes, leçons, révisions et
-        progression. Les sections ci-dessous existent comme pages ; aucune ne
-        contient encore de données.
+        progression. La section Programmes affiche les programmes enregistrés,
+        en lecture seule ; les autres sections sont encore à construire.
       </p>
     </header>
   );

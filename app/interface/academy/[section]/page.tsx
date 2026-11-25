@@ -18,8 +18,10 @@ export async function generateMetadata({
   };
 }
 
-// Une seule page pour les neuf sections : la liste vit dans lib/academy/sections.ts.
-// Un segment absent de cette liste répond 404.
+// Une seule page pour les sections encore à construire : la liste vit dans
+// lib/academy/sections.ts. Un segment absent de cette liste répond 404. La
+// section Programmes a sa propre page (programmes/page.tsx), servie avant ce
+// segment dynamique.
 export default async function AcademySectionPage({ params }: AcademySectionPageProps) {
   const { section: slug } = await params;
   const section = findAcademySectionBySlug(slug);

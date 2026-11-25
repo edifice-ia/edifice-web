@@ -13,7 +13,7 @@ Dernière mise à jour : 2026-11-24
 - [Modules de publication](#modules-de-publication)
 - [Modules d'observation](#modules-dobservation)
 - [Modules personnels](#modules-personnels)
-- [Espace Academy — squelette construit, sans données](#espace-academy--squelette-construit-sans-données)
+- [Espace Academy — squelette, page Programmes en lecture seule](#espace-academy--squelette-page-programmes-en-lecture-seule)
 - [Service renderer](#service-renderer)
 - [Liens utiles](#liens-utiles)
 - [À mettre à jour](#à-mettre-à-jour)
@@ -650,7 +650,7 @@ Branchée le 2026-09-19. Objectifs est une **table unique**, comme Notes et Tâc
 >
 > **Limites** : l'isolation entre comptes n'a pas été re-testée — établie par construction, non par un test à deux comptes — ; et `personal_data_erasure_log` ne compte qu'une seule entrée pour ce compte, explication vraisemblable liée aux recréations successives du compte, **non vérifiée**. Voir le changelog, entrée « module Objectifs : suppression physique ».
 
-## Espace Academy — squelette construit, sans données
+## Espace Academy — squelette, page Programmes en lecture seule
 
 Troisième espace de la plateforme, priorité de développement depuis le 2026-11-22 : voir [Décisions](./03_Decisions.md) DEC-014 et DEC-015, et la cible dans [22-espaces-et-marques.md](../Documentation-Strategique/Markdown/22-espaces-et-marques.md).
 
@@ -662,10 +662,11 @@ Fichiers :
 - `app/interface/academy/layout.tsx` — en-tête de l'espace et navigation intérieure. Aucun garde propre : l'accès passe par `app/interface/layout.tsx` (`requirePrivateCockpitAccess`) et par le middleware ;
 - `app/interface/academy/AcademyNav.tsx` — navigation intérieure (composant client, `usePathname`), qui marque la section active par `aria-current` ;
 - `app/interface/academy/AcademyPrimitives.tsx` — `AcademyHeader` et `AcademyNotBuilt`, primitives propres à Academy, sans import de Personnel ni du cockpit ;
-- `app/interface/academy/page.tsx` — tableau de bord ; `app/interface/academy/[section]/page.tsx` — une seule page pour les neuf autres sections, `404` pour tout segment absent de la liste ;
+- `app/interface/academy/page.tsx` — tableau de bord ; `app/interface/academy/[section]/page.tsx` — une seule page pour les sections encore à construire, `404` pour tout segment absent de la liste ;
+- `app/interface/academy/programmes/page.tsx` — **page Programmes, en lecture seule** (étape 2a, 2026-11-25), servie avant le segment dynamique `[section]`. Voir plus bas ;
 - `lib/cockpit/navigation.ts` et `lib/cockpit/modules.ts` — entrée `academy`, **même identifiant dans les deux**, statut `En cours`. L'entrée du menu principal n'a pas d'enfants.
 
-**Ce que chaque page affiche** : « Pas encore construit », le fait qu'aucune donnée n'y est enregistrée ni calculée, ce que la section fera, et l'étape du plan qui la construira. Aucune donnée d'exemple, aucun contenu qui ressemble à du réel.
+**Ce que chaque page encore à construire affiche** : « Pas encore construit », le fait qu'aucune donnée n'y est enregistrée ni calculée, ce que la section fera, et l'étape du plan qui la construira. Aucune donnée d'exemple, aucun contenu qui ressemble à du réel.
 
 **Routes** : `/interface/academy` (tableau de bord), et `/interface/academy/{calendrier,programmes,lecons,notes,evaluations,revisions,progression,ressources,professeur}`.
 
@@ -712,9 +713,22 @@ Fichiers :
 
 **Testé à la main le 2026-11-24, conforme** (serveur local, console du navigateur, par le porteur du projet) : contrat — créations en `201` aux cinq niveaux, arbre et leçon en `200`, `401` sans session ; masquage — un module archivé masque son chapitre et sa leçon, qui répondent `404` en écriture et en restauration, et sa restauration fait tout réapparaître ; isolation entre deux comptes distincts — toutes les tentatives du second compte sur les identifiants du premier en `404`, identifiant malformé en `404`, JSON invalide en `400`, aucune écriture réussie. `GET` sur `chapters/[id]` (comme sur `subjects/[id]` et `units/[id]`) répond `405` : voulu, seuls le programme et la leçon se lisent par identifiant. *Jusqu'à ces tests, ce paragraphe disait « non testé ».* **Isolation côté base** : éprouvée sur les cinq tables — `academy_programs` et la clé composite de `academy_subjects` d'abord, puis `academy_units`, `academy_chapters` et `academy_lessons` le 2026-11-24 (insertions croisées refusées en `23503` par `academy_units_subject_fk`, `academy_chapters_unit_fk`, `academy_lessons_chapter_fk` ; vues croisées à `0` dans les deux sens). **Modification côté base** : éprouvée le 2026-11-25 sur les cinq tables — les trois tables enfants, puis `academy_programs` et `academy_subjects` (pas de rattachement pour les programmes, qui n'ont pas de parent) — rattachement au parent d'un autre compte refusé en `23503`, modification d'une ligne d'un autre compte sans effet (`0` ligne), changement de `user_id` refusé en `42501` par la règle d'accès. **Cascade** : constat en base du 2026-11-25, deux requêtes en lecture seule exécutées par Vincent : les quatre clés composites (`academy_subjects_program_fk`, `academy_units_subject_fk`, `academy_chapters_unit_fk`, `academy_lessons_chapter_fk`) sont en cascade (`confdeltype = 'c'`), et `service_role` a `DELETE` sur les cinq tables ; `authenticated` ne l'a pas (migration). Requêtes et résultats consignés dans l'entrée archivée « Contrôler en base la cascade et le droit DELETE de service_role sur Academy » du 2026-11-25 de `MANUAL_ACTIONS.md` ; la cascade elle-même n'est pas exercée, le chemin de suppression de l'étape 8 le sera. *Jusqu'au 2026-11-25, ce paragraphe disait « non couvert » pour ces deux points.* Détail dans les entrées archivées de `MANUAL_ACTIONS.md`.
 
-**À venir** : interface (pages Programmes et Leçon).
+**Étape 2a, interface — page Programmes en lecture seule (2026-11-25)** :
 
-**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation et store poussés, routes écrites en local, interface à venir ; étape 2b (objectifs, ressources) à faire.
+- `app/interface/academy/programmes/page.tsx`, Server Component : appelle `requirePrivateCockpitAccess()` pour obtenir l'utilisateur — le layout `app/interface/layout.tsx` garde déjà l'accès mais ne transmet pas l'utilisateur —, puis `listLivePrograms(user.id)` **directement**, sans passer par les routes API ;
+- affiche les programmes vivants, titre et type (« Curriculum » ou « Formation »), dans l'ordre du store (`created_at` décroissant) ; les programmes archivés ne sont pas listés ;
+- liste vide : « Aucun programme enregistré pour l'instant. » ; `AcademyStoreError` : `ACADEMY_MESSAGES.unavailable` (« Operation Academy indisponible. »), sans détail technique, le détail restant dans `console.error` côté store ; toute autre exception remonte à la frontière d'erreur ;
+- rendu React standard, sans `dangerouslySetInnerHTML` ; ni création, ni modification, ni archivage dans l'interface.
+
+En-tête de l'espace (`AcademyHeader`) : le badge « Squelette, sans données » et la phrase « aucune ne contient encore de données », devenus faux, sont remplacés par « En construction » et « La section Programmes affiche les programmes enregistrés, en lecture seule ; les autres sections sont encore à construire. »
+
+`lib/academy/sections.ts` : `plannedStep` accepte `"2a"` et `"2b"` ; Programmes et Leçons passent à `"2a"`, Ressources à `"2b"` ; Leçons est décrite comme accessible par l'arbre des programmes — **aucune route de liste des leçons**.
+
+**Non vérifié** : le rendu avec une session et des données réelles.
+
+**À venir** : arbre d'un programme et page Leçon.
+
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes en lecture seule écrite, arbre et page Leçon à venir ; étape 2b (objectifs, ressources) à faire.
 
 ## Service renderer
 

@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-25 (Academy : page Programmes en lecture seule)](#2026-11-25-academy--page-programmes-en-lecture-seule)
 - [2026-11-25 (Academy : modification côté base des programmes et matières)](#2026-11-25-academy--modification-côté-base-des-programmes-et-matières)
 - [2026-11-25 (Academy : modification côté base et cascade)](#2026-11-25-academy--modification-côté-base-et-cascade)
 - [2026-11-24 (Academy : isolation côté base des modules, chapitres et leçons)](#2026-11-24-academy--isolation-côté-base-des-modules-chapitres-et-leçons)
@@ -82,6 +83,23 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-25 (Academy : page Programmes en lecture seule)
+
+Type : produit
+
+Résumé : première section d'Academy qui affiche des données. `app/interface/academy/programmes/page.tsx`, Server Component, lit `listLivePrograms(user.id)` directement, sans passer par les routes API, et affiche les programmes vivants avec leur titre et leur type. Lecture seule.
+
+- États : liste vide (« Aucun programme enregistré pour l'instant. ») ; `AcademyStoreError` (« Operation Academy indisponible. », sans détail technique) ; liste.
+- En-tête de l'espace : « Squelette, sans données » et « aucune ne contient encore de données », devenus faux, remplacés par un texte exact.
+- `lib/academy/sections.ts` : `plannedStep` accepte `"2a"` et `"2b"` ; Ressources passe à l'étape 2b ; Leçons, accessible par l'arbre des programmes, sans route de liste.
+
+Fichiers liés :
+
+- `app/interface/academy/programmes/page.tsx`, `app/interface/academy/AcademyPrimitives.tsx`, `app/interface/academy/[section]/page.tsx` (commentaire), `lib/academy/sections.ts`
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : aucune route, aucun store, aucun schéma modifiés. Non vérifié : le rendu avec une session et des données réelles.
 
 ## 2026-11-25 (Academy : modification côté base des programmes et matières)
 

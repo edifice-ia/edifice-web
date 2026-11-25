@@ -7,7 +7,10 @@
 // parallèle à tenir synchronisée.
 //
 // `plannedStep` renvoie au plan d'étapes du chantier 8 : l'étape à laquelle la
-// section recevra son contenu. Rien de ce qui est décrit ici n'est construit.
+// section recevra son contenu. L'étape 2 est découpée en 2a (hiérarchie) et 2b
+// (ressources) : ces deux sous-étapes s'écrivent en texte, les autres en nombre.
+// Seule la section Programmes affiche des données (lecture seule, étape 2a) ;
+// rien d'autre de ce qui est décrit ici n'est construit.
 
 export type AcademySection = {
   id: string;
@@ -16,7 +19,7 @@ export type AcademySection = {
   label: string;
   // Ce que la section fera une fois construite — jamais ce qu'elle fait déjà.
   purpose: string;
-  plannedStep: number;
+  plannedStep: number | "2a" | "2b";
 };
 
 export const ACADEMY_BASE_PATH = "/interface/academy";
@@ -44,14 +47,15 @@ export const academySections: AcademySection[] = [
     label: "Programmes",
     purpose:
       "Curriculums et formations indépendantes : matières, modules, chapitres et objectifs pédagogiques.",
-    plannedStep: 2,
+    plannedStep: "2a",
   },
   {
     id: "lessons",
     slug: "lecons",
     label: "Leçons",
-    purpose: "Cours et leçons rattachés aux chapitres des programmes.",
-    plannedStep: 2,
+    purpose:
+      "Cours et leçons rattachés aux chapitres des programmes, accessibles par l'arbre des programmes : pas de liste de toutes les leçons.",
+    plannedStep: "2a",
   },
   {
     id: "notes",
@@ -87,7 +91,7 @@ export const academySections: AcademySection[] = [
     slug: "ressources",
     label: "Ressources",
     purpose: "Ressources pédagogiques : liens, fichiers et textes rattachés aux programmes.",
-    plannedStep: 2,
+    plannedStep: "2b",
   },
   {
     id: "tutor",

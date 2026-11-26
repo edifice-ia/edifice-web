@@ -91,6 +91,24 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 ## Archive (done)
 
+### 2026-11-26 — Nettoyer les données de contrôle de la page Leçon
+
+**Statut** : `done` — 2026-11-26. Comptages et suppression exécutés par Vincent, porteur du projet, dans le SQL Editor, sous le rôle `postgres` ; **conforme, sans écart**. L'agent n'a exécuté aucune requête.
+
+**Pourquoi c'est manuel** : il n'existe pas de suppression physique dans Academy — les tables `academy_*` n'accordent pas `DELETE` à `authenticated`, et le chemin de suppression de l'étape 8 n'est pas écrit —, et seul le SQL Editor, sous le rôle `postgres`, peut supprimer ces données. L'agent n'a pas d'accès SQL au projet.
+
+**Contexte** : données créées pour contrôler à la main la page Leçon (leçon avec contenu, leçon sans contenu). **Aucune entrée `pending` n'avait été écrite pour ce nettoyage** : cette entrée est créée directement en `done`, d'après les résultats transmis par Vincent. Les requêtes exécutées ne sont pas reproduites ici ; les colonnes transmises sont celles du comptage de l'entrée archivée « Nettoyer les données de contrôle de l'arbre Academy (test-erase@edificeia.com) » du 2026-11-25 (lignes visées et totaux du compte). **Adresse du compte non transmise.**
+
+**Exécution** — 2026-11-26, résultats transmis par Vincent :
+
+- **Comptage avant suppression** : `comptes = 1` ; programme visé `1` (`1c2588af-c05f-44b3-b214-c2ab09e04202`), matières `1`, modules `1`, chapitres `1`, leçons `2` ; les totaux du compte égalent les totaux visés (`1 / 1 / 1 / 1 / 2`) — **conforme** : aucune autre donnée Academy sur ce compte.
+- **Suppression** : bloc `begin` … `commit` exécuté en entier, sans erreur signalée.
+- **Comptage après suppression** : `comptes = 1`, toutes les autres colonnes à `0` — **conforme**.
+
+**Supprimés** : le programme « Programme leçon de contrôle » (`1c2588af-c05f-44b3-b214-c2ab09e04202`) et ses descendants — une matière, un module, un chapitre et les deux leçons de contrôle, l'une avec contenu, l'autre sans. Identifiants de la matière, du module, du chapitre et des leçons non relevés.
+
+*Consigné le 2026-11-26 par l'agent, d'après les résultats transmis par Vincent.*
+
 ### 2026-11-25 — Nettoyer les données de contrôle de l'arbre Academy (test-erase@edificeia.com)
 
 **Statut** : `done` — 2026-11-25. Comptages et suppression exécutés par Vincent, porteur du projet, dans le SQL Editor, sous le rôle `postgres` ; **conforme, sans écart**. L'agent n'a exécuté aucune requête.

@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-26 (Academy : l'onglet Leçons renvoie vers les programmes)](#2026-11-26-academy--longlet-leçons-renvoie-vers-les-programmes)
 - [2026-11-25 (Academy : page Leçon en lecture seule)](#2026-11-25-academy--page-leçon-en-lecture-seule)
 - [2026-11-25 (Academy : arbre d'un programme en lecture seule)](#2026-11-25-academy--arbre-dun-programme-en-lecture-seule)
 - [2026-11-25 (Academy : page Programmes en lecture seule)](#2026-11-25-academy--page-programmes-en-lecture-seule)
@@ -85,6 +86,22 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-26 (Academy : l'onglet Leçons renvoie vers les programmes)
+
+Type : produit
+
+Résumé : `app/interface/academy/lecons/page.tsx` remplace, pour `/interface/academy/lecons`, la page provisoire de `[section]`, qui disait « Cette section n'affiche encore aucune donnée » sans indiquer comment accéder aux leçons. La page affiche un titre, une phrase qui renvoie à l'arbre de chaque programme, et un lien « Voir les programmes ». Aucune liste globale des leçons, aucun appel au store.
+
+- Segment statique `lecons`, servi avant le segment dynamique `[section]`.
+- `lib/academy/sections.ts` et `[section]/page.tsx` inchangés.
+
+Fichiers liés :
+
+- `app/interface/academy/lecons/page.tsx`
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : aucune route API, aucun store, aucun schéma modifiés. Non vérifié : le rendu avec une session.
 
 ## 2026-11-25 (Academy : page Leçon en lecture seule)
 

@@ -666,6 +666,7 @@ Fichiers :
 - `app/interface/academy/programmes/page.tsx` — **page Programmes, en lecture seule** (étape 2a, 2026-11-25), servie avant le segment dynamique `[section]` ; chaque titre mène à l'arbre du programme. Voir plus bas ;
 - `app/interface/academy/programmes/[id]/page.tsx` — **arbre d'un programme, en lecture seule** (étape 2a, 2026-11-25) ; chaque titre de leçon mène à la page Leçon. Voir plus bas ;
 - `app/interface/academy/lecons/[id]/page.tsx` — **page Leçon, en lecture seule** (étape 2a, 2026-11-25). Voir plus bas ;
+- `app/interface/academy/lecons/page.tsx` — **onglet Leçons** (2026-11-26) : renvoie vers les programmes, sans lire de donnée ; servi avant le segment dynamique `[section]`. Voir plus bas ;
 - `lib/cockpit/navigation.ts` et `lib/cockpit/modules.ts` — entrée `academy`, **même identifiant dans les deux**, statut `En cours`. L'entrée du menu principal n'a pas d'enfants.
 
 **Ce que chaque page encore à construire affiche** : « Pas encore construit », le fait qu'aucune donnée n'y est enregistrée ni calculée, ce que la section fera, et l'étape du plan qui la construira. Aucune donnée d'exemple, aucun contenu qui ressemble à du réel.
@@ -744,10 +745,19 @@ Validé par Vincent dans le navigateur le 2026-11-25.
 - identifiant malformé, leçon inexistante, archivée, masquée par un ancêtre archivé ou d'un autre compte : **même `404`** (`notFound()`, appelé hors du `try`) ; `AcademyStoreError` : `ACADEMY_MESSAGES.unavailable`, sans détail technique ; toute autre exception remonte à la frontière d'erreur ;
 - rendu : titre, puis contenu en **texte brut** dans un bloc `whitespace-pre-wrap` — ni HTML, ni Markdown, ni `dangerouslySetInnerHTML` ; contenu vide : « Cette leçon n'a pas encore de contenu. » ;
 - **lien de retour vers la liste des programmes**, pas vers le programme : `AcademyLesson` porte `chapterId` mais pas l'identifiant du programme, et le store n'expose pas de lecture qui le donne ;
-- `lecons/[id]` est une route à deux segments : elle ne recouvre pas `[section]`, qui reste servie pour `/interface/academy/lecons` (« Pas encore construit ») ;
+- `lecons/[id]` est une route à deux segments : elle ne recouvre pas `[section]`. *À la livraison de la page Leçon, `/interface/academy/lecons` restait servie par `[section]` (« Pas encore construit ») ; depuis le 2026-11-26, elle a sa propre page (ci-dessous)* ;
 - l'arbre fait de chaque titre de leçon un lien vers `/interface/academy/lecons/[id]`.
 
 **Non vérifié** : le rendu de la page Leçon avec une session et des données réelles.
+
+**Étape 2a, interface — onglet Leçons (2026-11-26)** :
+
+- `app/interface/academy/lecons/page.tsx` : l'onglet Leçons n'est plus la page provisoire de `[section]` (« Pas encore construit », « Cette section n'affiche encore aucune donnée ») ; le segment statique `lecons` est servi avant `[section]` ;
+- contenu : titre « Leçons », une phrase qui dit que les leçons se consultent depuis l'arbre de chaque programme, et un lien « Voir les programmes » vers `/interface/academy/programmes` ;
+- **aucune liste globale des leçons, aucun appel au store** ; l'accès passe par la garde du layout `app/interface/layout.tsx` ;
+- `lib/academy/sections.ts` et `[section]/page.tsx` sont inchangés : la section Leçons y reste inscrite (étape `"2a"`), et `[section]` répondrait encore pour elle si la page dédiée disparaissait.
+
+**Non vérifié** : le rendu de l'onglet Leçons avec une session.
 
 **Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits, page Leçon à contrôler à la main ; étape 2b (objectifs, ressources) à faire.
 

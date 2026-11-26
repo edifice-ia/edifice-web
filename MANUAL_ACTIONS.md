@@ -116,7 +116,7 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 ### 2026-11-26 — Tester l'isolation SQL de la lecture des éléments archivés d'un programme
 
-**Statut** : `done` — 2026-11-26. Script exécuté par Vincent, porteur du projet, dans le SQL Editor, sous le rôle `postgres` ; **résultats conformes selon Vincent**. L'agent n'a exécuté aucune requête.
+**Statut** : `done` — 2026-11-26. Script exécuté par Vincent, porteur du projet, dans le SQL Editor, sous le rôle `postgres` ; **résultats conformes**. L'agent n'a exécuté aucune requête.
 
 **Pourquoi c'est manuel** : seul le SQL Editor peut exécuter ce test sur la base réelle, et aucune base de test n'est disponible depuis le dépôt (ni CLI Supabase, ni `psql`, ni Docker sur cette machine). L'agent n'a pas d'accès SQL au projet. **À exécuter par Vincent, porteur du projet**, dans le SQL Editor, sous le rôle `postgres`.
 
@@ -132,9 +132,19 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 **Sans effet durable** : même modèle que les tests du 2026-11-25. Le script écrit **uniquement dans une transaction terminée par `rollback`** ; les comptes fictifs `…000c` (A) et `…000d` (B) sont créés dans `auth.users` au début de la transaction, sous `postgres`, et retirés par le `rollback`. Aucun compte réel n'est utilisé, aucune donnée existante n'est lue ni modifiée — les données de contrôle de `test-erase@edificeia.com` ne sont pas touchées.
 
-**Résultats obtenus** — 2026-11-26, transmis par Vincent : synthèse **conforme** aux attendus — aucune fuite entre comptes, aucun élément sous un ancêtre archivé dans la liste, `0` ligne archivée de A vue par B ; **contrôle après coup à `0`**. Le détail colonne par colonne n'a pas été transmis : l'agent consigne le verdict tel quel.
+**Résultats obtenus** — 2026-11-26, transmis par Vincent (tableau complet de la synthèse, cinq colonnes) :
 
-**Précision sur la dernière colonne** : le commentaire du script dit « sans filtre user_id » ; plus exactement, B interroge les lignes de A en filtrant sur l'identifiant de A, et c'est la seule règle d'accès qui les lui masque.
+| Colonne | Résultat | Attendu |
+| --- | --- | --- |
+| `archives_de_a_lues_par_a` | `C2 archive \| L1 archivee \| S2 archivee \| U2 archive` | idem — **conforme** : ni `U3`, ni `C3`, sous un ancêtre archivé |
+| `archives_de_b_lues_par_a` | `(aucun)` | idem — **conforme** : aucune fuite de B vers A |
+| `archives_de_a_lues_par_b` | `(aucun)` | idem — **conforme** : aucune fuite de A vers B |
+| `archives_de_b_lues_par_b` | `SB archivee` | idem — **conforme** |
+| `lignes_archivees_de_a_vues_par_b` | `0` | idem — **conforme** |
+
+**Contrôle après coup** : `0` partout — **conforme**.
+
+**Précision sur la dernière colonne** : le commentaire du script dit « sans filtre user_id » ; plus exactement, B interroge les lignes de A en filtrant sur l'identifiant de A. Cette requête est exécutée après `select set_config('request.jwt.claims', '{"sub":"…000d","role":"authenticated"}', true);` puis `set local role authenticated;`, et avant `reset role;` — vérifié dans le script le 2026-11-26 : c'est donc **la règle d'accès qui masque** à B les lignes de A.
 
 **Étapes** :
 
@@ -327,7 +337,7 @@ rollback;
 
 **Vérification** : synthèse conforme à l'attendu ci-dessus, et contrôle de l'étape 5 à `0` partout. Si un résultat diffère, s'arrêter et le signaler. **Ne pas corriger les politiques ni le store dans la foulée.**
 
-*Écrit le 2026-11-26 par l'agent, sans exécution ; exécution par Vincent consignée le même jour.*
+*Écrit le 2026-11-26 par l'agent, sans exécution ; exécution par Vincent consignée le même jour, puis corrigée : le tableau complet avait été transmis.*
 
 ### 2026-11-26 — Nettoyer les données de contrôle de la page Leçon
 

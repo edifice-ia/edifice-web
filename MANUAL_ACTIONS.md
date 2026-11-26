@@ -91,6 +91,29 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 ## Archive (done)
 
+### 2026-11-26 — Contrôler à la main la création de programmes et de matières
+
+**Statut** : `done` — 2026-11-26. Contrôle validé par Vincent, porteur du projet, dans le navigateur, sur le serveur local (`localhost:3000`), avec le compte `test-erase@edificeia.com`, après le commit `a3457d5`. L'agent n'a rien exécuté.
+
+**Pourquoi c'est manuel** : le contrôle demande une session authentifiée du porteur du projet dans le navigateur, et l'agent ne saisit pas d'identifiants.
+
+**Bloquait** : la validation de l'étape d'édition 1 (création d'un programme et d'une matière depuis l'interface).
+
+**Aucune entrée `pending` n'avait été écrite pour ce contrôle** : cette entrée est créée directement en `done`, d'après la validation de Vincent.
+
+**Points couverts** — chacun **conforme selon Vincent**, sans détail transmis :
+
+1. Création d'un programme (formulaire « Nouveau programme » de la page Programmes) — conforme selon Vincent.
+2. Création d'une matière (formulaire « Nouvelle matière » de l'arbre d'un programme) — conforme selon Vincent.
+3. Message de refus pour un titre vide — conforme selon Vincent.
+4. Message de refus pour un titre trop long — conforme selon Vincent.
+
+Les messages de validation affichés étaient ceux de la traduction française (« Le titre ne peut pas être vide. », « Le titre ne doit pas dépasser 200 caractères. »).
+
+**Données de contrôle** : elles restent sur `test-erase@edificeia.com` ; aucun nettoyage n'est demandé.
+
+*Consigné le 2026-11-26 par l'agent, d'après la validation de Vincent.*
+
 ### 2026-11-26 — Contrôler à la main la création de modules, chapitres et leçons dans l'arbre
 
 **Statut** : `done` — 2026-11-26. Contrôle exécuté par Vincent, porteur du projet, dans le navigateur, sur le serveur local (`localhost:3000`), avec le compte `test-erase@edificeia.com`, après le commit `b2c21b4` ; **jugé conforme par Vincent**. L'agent n'a rien exécuté.

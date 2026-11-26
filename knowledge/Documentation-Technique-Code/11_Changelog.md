@@ -145,7 +145,7 @@ Fichiers liés :
 - `app/interface/academy/AcademyCreateForms.tsx`, `app/interface/academy/programmes/page.tsx`, `app/interface/academy/programmes/[id]/page.tsx`, `app/interface/academy/AcademyPrimitives.tsx`
 - `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
 
-Impact : aucune route, aucun store, aucun schéma modifiés. Non vérifié : le rendu et l'envoi avec une session.
+Impact : aucune route, aucun store, aucun schéma modifiés. Contrôle : contrôlé à la main le 26 novembre 2026, conforme selon Vincent.
 
 ## 2026-11-26 (Academy : l'onglet Leçons renvoie vers les programmes)
 

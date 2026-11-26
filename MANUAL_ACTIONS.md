@@ -91,6 +91,16 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 ## Archive (done)
 
+### 2026-11-26 — Vérifier le déploiement Vercel de l'Academy en navigation privée
+
+**Statut** : `done` — 2026-11-26. Vérification faite par Vincent, porteur du projet, en navigation privée, sur la production (`www.edificeia.com`), après le push des étapes d'édition. L'agent n'a rien exécuté.
+
+**Pourquoi c'est manuel** : la vérification se fait dans le navigateur du porteur du projet, en navigation privée, sur le site de production.
+
+**Résultat observé par Vincent** : `https://www.edificeia.com/interface/academy/programmes` redirige vers `/login` — **conforme** : sans session, la page Programmes n'est pas accessible.
+
+*Consigné le 2026-11-26 par l'agent, d'après le résultat transmis par Vincent.*
+
 ### 2026-11-26 — Contrôler à la main la création de programmes et de matières
 
 **Statut** : `done` — 2026-11-26. Contrôle validé par Vincent, porteur du projet, dans le navigateur, sur le serveur local (`localhost:3000`), avec le compte `test-erase@edificeia.com`, après le commit `a3457d5`. L'agent n'a rien exécuté.

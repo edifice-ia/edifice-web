@@ -119,7 +119,7 @@ Fichiers liés :
 - `app/interface/academy/lecons/[id]/page.tsx`, `app/interface/academy/programmes/[id]/page.tsx`
 - `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
 
-Impact : aucune route, aucun store, aucun schéma modifiés. Non vérifié : le rendu avec une session et des données réelles.
+Impact : aucune route, aucun store, aucun schéma modifiés. Validé par Vincent dans le navigateur le 2026-11-26.
 
 ## 2026-11-25 (Academy : arbre d'un programme en lecture seule)
 

@@ -748,7 +748,7 @@ Validé par Vincent dans le navigateur le 2026-11-25.
 - `lecons/[id]` est une route à deux segments : elle ne recouvre pas `[section]`. *À la livraison de la page Leçon, `/interface/academy/lecons` restait servie par `[section]` (« Pas encore construit ») ; depuis le 2026-11-26, elle a sa propre page (ci-dessous)* ;
 - l'arbre fait de chaque titre de leçon un lien vers `/interface/academy/lecons/[id]`.
 
-**Non vérifié** : le rendu de la page Leçon avec une session et des données réelles.
+Validé par Vincent dans le navigateur le 2026-11-26.
 
 **Étape 2a, interface — onglet Leçons (2026-11-26)** :
 
@@ -759,7 +759,7 @@ Validé par Vincent dans le navigateur le 2026-11-25.
 
 **Non vérifié** : le rendu de l'onglet Leçons avec une session.
 
-**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits, page Leçon à contrôler à la main ; étape 2b (objectifs, ressources) à faire.
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; étape 2b (objectifs, ressources) à faire.
 
 ## Service renderer
 

@@ -53,29 +53,6 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
-### 2026-11-26 — Contrôler à la main l'archivage et la restauration dans l'interface Academy
-
-**Statut** : `pending`
-
-**Pourquoi c'est manuel** : le contrôle demande une session authentifiée du porteur du projet dans le navigateur, et l'agent ne saisit pas d'identifiants.
-
-**Bloque** : la validation de l'étape d'édition 3 ; à faire avec le test SQL d'isolation du même jour.
-
-**Compte** : `test-erase@edificeia.com`, sur les données de contrôle créées le 2026-11-26, **conservées pour ce test** — ne pas les supprimer avant la fin du contrôle.
-
-**Étapes** :
-
-1. Page Programmes : archiver un programme (« Archiver », puis « Confirmer l'archivage ») ; il disparaît de la liste et apparaît dans « Programmes archivés » ; le restaurer : il revient, avec tout son contenu.
-2. « Annuler » après « Archiver » : rien n'est archivé.
-3. Dans l'arbre d'un programme : archiver une leçon, puis un chapitre ; chacun disparaît de l'arbre et apparaît dans « Éléments archivés de ce programme » ; les restaurer.
-4. **Cas imposé** : archiver un **chapitre**, puis **son module** ; vérifier que la section n'affiche que le module (le chapitre, sous un ancêtre archivé, n'y figure pas) ; **restaurer le module** ; vérifier que le module revient dans l'arbre, que le **chapitre reste archivé** — absent de l'arbre — et qu'il **apparaît maintenant dans la section**, restaurable ; le restaurer.
-5. Page d'une leçon archivée, ou sous un ancêtre archivé : `404`.
-6. Relever les identifiants de toute donnée créée pendant le contrôle, pour le nettoyage.
-
-**Vérification** : chaque étape conforme ; transmettre les écarts tels quels à l'agent.
-
-*Écrit le 2026-11-26 par l'agent, sans exécution.*
-
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
@@ -113,6 +90,41 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 **Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
 
 ## Archive (done)
+
+### 2026-11-26 — Contrôler à la main l'archivage et la restauration dans l'interface Academy
+
+**Statut** : `done` — 2026-11-26. Contrôle exécuté par Vincent, porteur du projet, dans le navigateur, sur le serveur local (`localhost:3000`), avec le compte `test-erase@edificeia.com` ; **conforme aux sept étapes**. L'agent n'a rien exécuté.
+
+**Pourquoi c'est manuel** : le contrôle demande une session authentifiée du porteur du projet dans le navigateur, et l'agent ne saisit pas d'identifiants.
+
+**Bloquait** : la validation de l'étape d'édition 3 ; à faire avec le test SQL d'isolation du même jour.
+
+**Compte** : `test-erase@edificeia.com`, sur les données de contrôle créées le 2026-11-26, **conservées pour ce test** — ne pas les supprimer avant la fin du contrôle.
+
+**Résultats** — 2026-11-26, transmis par Vincent, sur les sept étapes du contrôle préparé le même jour :
+
+1. **Annuler** : après « Archiver » puis « Annuler », le programme reste dans la liste ; « Programmes archivés » est vide — **conforme**.
+2. **Archiver un programme** : il disparaît de la liste et apparaît dans « Programmes archivés » ; sa page répond `404` — **conforme**.
+3. **Restaurer le programme** : il revient avec son arbre complet — **conforme**.
+4. **Archiver une leçon, un chapitre, un module, une matière** : chacun disparaît de l'arbre avec ses descendants ; « Éléments archivés de ce programme » ne montre que les éléments dont les ancêtres sont vivants ; la page d'une leçon archivée, ou sous un élément archivé, répond `404` — **conforme**.
+5. **Chapitre, puis module, puis restauration du module** : le chapitre reste archivé, absent de l'arbre, et réapparaît dans la section, restaurable — **conforme**.
+6. **Refus à deux onglets** (« Restaurer » sur un chapitre dont le module a été archivé dans l'autre onglet) : `404`, message « Cet élément a changé entre-temps. La page a été actualisée. » **visible** — **conforme**.
+7. **Remise en état** : effectuée.
+
+**Données de contrôle** : elles restent sur `test-erase@edificeia.com` ; aucun nettoyage n'est demandé.
+
+**Étapes prévues** (telles qu'écrites avant l'exécution ; le contrôle réellement exécuté est celui, en sept étapes, consigné ci-dessus) :
+
+1. Page Programmes : archiver un programme (« Archiver », puis « Confirmer l'archivage ») ; il disparaît de la liste et apparaît dans « Programmes archivés » ; le restaurer : il revient, avec tout son contenu.
+2. « Annuler » après « Archiver » : rien n'est archivé.
+3. Dans l'arbre d'un programme : archiver une leçon, puis un chapitre ; chacun disparaît de l'arbre et apparaît dans « Éléments archivés de ce programme » ; les restaurer.
+4. **Cas imposé** : archiver un **chapitre**, puis **son module** ; vérifier que la section n'affiche que le module (le chapitre, sous un ancêtre archivé, n'y figure pas) ; **restaurer le module** ; vérifier que le module revient dans l'arbre, que le **chapitre reste archivé** — absent de l'arbre — et qu'il **apparaît maintenant dans la section**, restaurable ; le restaurer.
+5. Page d'une leçon archivée, ou sous un ancêtre archivé : `404`.
+6. Relever les identifiants de toute donnée créée pendant le contrôle, pour le nettoyage.
+
+**Vérification** : chaque étape conforme ; transmettre les écarts tels quels à l'agent.
+
+*Écrit le 2026-11-26 par l'agent, sans exécution ; exécution par Vincent consignée le même jour.*
 
 ### 2026-11-26 — Tester l'isolation SQL de la lecture des éléments archivés d'un programme
 

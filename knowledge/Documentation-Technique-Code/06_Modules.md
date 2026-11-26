@@ -801,9 +801,9 @@ Validé par Vincent dans le navigateur le 2026-11-26.
 
 **Isolation côté base de `listArchivedDescendants`** : test SQL validé par Vincent le 2026-11-26 — aucune fuite entre comptes, aucun élément sous un ancêtre archivé, contrôle après coup à `0` (entrée archivée de `MANUAL_ACTIONS.md`). Le test éprouve une requête SQL équivalente à la fonction, non le code TypeScript lui-même.
 
-**Non vérifié** : le rendu et le comportement avec une session, dont le cas chapitre archivé puis module archivé puis module restauré — contrôle à la main écrit, entrée `pending` du 2026-11-26.
+**Contrôlé à la main par Vincent le 2026-11-26, conforme** (serveur local, compte `test-erase@edificeia.com`) : annulation, archivage et restauration d'un programme (`404` sur sa page une fois archivé), archivage des quatre niveaux enfants, cas chapitre puis module puis restauration du module (le chapitre reste archivé et réapparaît dans la section), refus à deux onglets (`404`, message visible). Détail dans l'entrée archivée de `MANUAL_ACTIONS.md`.
 
-**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création des cinq niveaux depuis l'interface écrite (programme et matière, puis module, chapitre et leçon), non vérifiée avec session ; archivage et restauration depuis l'interface écrits, non vérifiés ; étape 2b (objectifs, ressources) à faire.
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création des cinq niveaux depuis l'interface écrite (programme et matière, puis module, chapitre et leçon), non vérifiée avec session ; archivage et restauration depuis l'interface écrits, isolation validée en base et contrôle à la main conforme le 2026-11-26 ; étape 2b (objectifs, ressources) à faire.
 
 ## Service renderer
 

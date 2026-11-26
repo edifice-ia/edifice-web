@@ -105,10 +105,10 @@ Résumé : l'interface d'Academy permet d'archiver et de restaurer programmes, m
 Fichiers liés :
 
 - `app/interface/academy/AcademyArchiveControls.tsx`, `app/interface/academy/programmes/page.tsx`, `app/interface/academy/programmes/[id]/page.tsx`, `app/interface/academy/AcademyPrimitives.tsx`, `lib/server/academy/hierarchy-store.ts`, `lib/academy/hierarchy.ts` (type `AcademyArchivedNode`)
-- `MANUAL_ACTIONS.md` — test SQL d'isolation de `listArchivedDescendants` (validé, archivé) ; contrôle à la main (`pending`)
+- `MANUAL_ACTIONS.md` — test SQL d'isolation de `listArchivedDescendants` (validé, archivé) ; contrôle à la main (conforme, archivé)
 - `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
 
-Impact : nouvelle lecture dans le store. Test SQL d'isolation de `listArchivedDescendants` validé par Vincent le 2026-11-26 (aucune fuite, aucun élément sous un ancêtre archivé, contrôle après coup à `0`). Non vérifié : rendu et comportement avec une session.
+Impact : nouvelle lecture dans le store. Test SQL d'isolation de `listArchivedDescendants` validé par Vincent le 2026-11-26 (aucune fuite, aucun élément sous un ancêtre archivé, contrôle après coup à `0`). Contrôle à la main par Vincent le 2026-11-26, conforme aux sept étapes, dont le cas chapitre puis module puis restauration du module.
 
 ## 2026-11-26 (Academy : création de modules, chapitres et leçons)
 

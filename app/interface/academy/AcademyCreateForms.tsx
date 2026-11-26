@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useId, useState, type FormEvent } from "react";
 import {
+  ACADEMY_CONTENT_MAX_LENGTH,
+  ACADEMY_PARENT_FIELD,
   ACADEMY_PROGRAM_KINDS,
   ACADEMY_TITLE_MAX_LENGTH,
   parseChildCreatePayload,
@@ -11,10 +13,11 @@ import {
 } from "@/lib/academy/hierarchy";
 import { ACADEMY_MESSAGES } from "@/lib/academy/http";
 
-// Formulaires de création d'Academy — seuls éléments client de l'interface.
+// Formulaires de création d'Academy — composants client, comme AcademyNav.tsx ;
+// les pages qui les accueillent restent des Server Components.
 //
-// Ils appellent les routes existantes (POST /api/academy/programs et
-// POST /api/academy/subjects), sans route ni store nouveaux. La validation
+// Ils appellent les routes existantes (POST /api/academy/programs, subjects,
+// units, chapters et lessons), sans route ni store nouveaux. La validation
 // avant envoi réutilise les parsers purs de lib/academy/hierarchy.ts, ceux que
 // les routes appliquent : le refus local et le refus du serveur ne peuvent pas
 // diverger, et le serveur reste la référence. Un 400 du serveur affiche son
@@ -32,6 +35,14 @@ const KIND_LABELS: Record<AcademyProgramKind, string> = {
   formation: "Formation",
 };
 
+// Limite du contenu écrite à la française (« 100 000 »), avec une espace
+// insécable. Formatée à la main plutôt que par toLocaleString, dont le résultat
+// peut différer entre le serveur et le navigateur et casser l'hydratation.
+const CONTENT_MAX_LABEL = String(ACADEMY_CONTENT_MAX_LENGTH).replace(
+  /\B(?=(\d{3})+(?!\d))/g,
+  "\u00a0",
+);
+
 // Messages exacts des parsers de lib/academy/hierarchy.ts, atteignables depuis
 // ces formulaires. À tenir alignés si les parsers changent.
 const LOCAL_VALIDATION_MESSAGES: Record<string, string> = {
@@ -39,6 +50,8 @@ const LOCAL_VALIDATION_MESSAGES: Record<string, string> = {
   [`title depasse la longueur maximale de ${ACADEMY_TITLE_MAX_LENGTH} caracteres.`]:
     `Le titre ne doit pas dépasser ${ACADEMY_TITLE_MAX_LENGTH} caractères.`,
   "kind doit valoir curriculum ou formation.": "Choisis un type de programme dans la liste.",
+  [`content depasse la longueur maximale de ${ACADEMY_CONTENT_MAX_LENGTH} caracteres.`]:
+    `Le contenu ne doit pas dépasser ${CONTENT_MAX_LABEL} caractères.`,
 };
 
 function localValidationMessage(parserError: string) {
@@ -252,5 +265,136 @@ export function AcademySubjectCreateForm({ programId }: { programId: string }) {
       </button>
       <FormError id={errorId} error={error} />
     </form>
+  );
+}
+
+// --- Module, chapitre, leçon -----------------------------------------------------
+
+type ChildFormLevel = "unit" | "chapter" | "lesson";
+
+const CHILD_FORM_CONFIG: Record<
+  ChildFormLevel,
+  { endpoint: string; summary: string; submit: string }
+> = {
+  unit: { endpoint: "/api/academy/units", summary: "Nouveau module", submit: "Ajouter le module" },
+  chapter: {
+    endpoint: "/api/academy/chapters",
+    summary: "Nouveau chapitre",
+    submit: "Ajouter le chapitre",
+  },
+  lesson: {
+    endpoint: "/api/academy/lessons",
+    summary: "Nouvelle leçon",
+    submit: "Ajouter la leçon",
+  },
+};
+
+// Formulaire replié (<details>) placé sous un nœud de l'arbre : module sous une
+// matière, chapitre sous un module, leçon sous un chapitre. La leçon reçoit en
+// plus un contenu facultatif, rendu en texte brut sur la page Leçon.
+export function AcademyChildCreateForm({
+  level,
+  parentId,
+}: {
+  level: ChildFormLevel;
+  parentId: string;
+}) {
+  const router = useRouter();
+  const ids = useId();
+  const config = CHILD_FORM_CONFIG[level];
+  const parentField = ACADEMY_PARENT_FIELD[level];
+  const withContent = level === "lesson";
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+
+    const payload: Record<string, unknown> = { [parentField]: parentId, title };
+
+    if (withContent) {
+      payload.content = content;
+    }
+
+    const parsed = parseChildCreatePayload(level, payload);
+
+    if (!parsed.ok) {
+      setError(localValidationMessage(parsed.error));
+      return;
+    }
+
+    const body: Record<string, unknown> = { [parentField]: parentId, title: parsed.title };
+
+    if (withContent) {
+      body.content = parsed.text;
+    }
+
+    setPending(true);
+    const result = await postJson(config.endpoint, body);
+    setPending(false);
+
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+
+    setTitle("");
+    setContent("");
+    router.refresh();
+  }
+
+  const errorId = `${ids}-error`;
+
+  return (
+    <details className="mt-2 text-sm">
+      <summary className="cursor-pointer text-[#7DD3FC] hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+        {config.summary}
+      </summary>
+      <form
+        onSubmit={onSubmit}
+        aria-label={config.summary}
+        className="mt-2 rounded-md border border-[#1D2A44] bg-[#0B1420]/60 p-3"
+        noValidate
+      >
+        <label className="block text-sm text-[#D8DEE8]">
+          Titre
+          <input
+            type="text"
+            name="title"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            required
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
+            className={inputClass}
+          />
+          <span className="mt-1 block text-xs text-[#A7B0C0]">
+            {`Obligatoire, ${ACADEMY_TITLE_MAX_LENGTH} caractères au plus.`}
+          </span>
+        </label>
+        {withContent ? (
+          <label className="mt-3 block text-sm text-[#D8DEE8]">
+            Contenu
+            <textarea
+              name="content"
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              rows={6}
+              className={inputClass}
+            />
+            <span className="mt-1 block text-xs text-[#A7B0C0]">
+              {`Facultatif, en texte brut, ${CONTENT_MAX_LABEL} caractères au plus.`}
+            </span>
+          </label>
+        ) : null}
+        <button type="submit" disabled={pending} className={`mt-3 ${buttonClass}`}>
+          {pending ? "Création en cours…" : config.submit}
+        </button>
+        <FormError id={errorId} error={error} />
+      </form>
+    </details>
   );
 }

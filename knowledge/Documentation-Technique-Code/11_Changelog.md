@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-26 (Academy : création de modules, chapitres et leçons)](#2026-11-26-academy--création-de-modules-chapitres-et-leçons)
 - [2026-11-26 (Academy : création de programmes et de matières)](#2026-11-26-academy--création-de-programmes-et-de-matières)
 - [2026-11-26 (Academy : l'onglet Leçons renvoie vers les programmes)](#2026-11-26-academy--longlet-leçons-renvoie-vers-les-programmes)
 - [2026-11-25 (Academy : page Leçon en lecture seule)](#2026-11-25-academy--page-leçon-en-lecture-seule)
@@ -87,6 +88,24 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-26 (Academy : création de modules, chapitres et leçons)
+
+Type : produit
+
+Résumé : l'arbre d'un programme permet de créer un module sous chaque matière, un chapitre sous chaque module et une leçon sous chaque chapitre. `AcademyChildCreateForm`, dans `app/interface/academy/AcademyCreateForms.tsx`, place sous chaque nœud un formulaire replié par défaut (`<details>`) et appelle les routes existantes `POST /api/academy/units`, `chapters` et `lessons`.
+
+- Validation avant envoi par `parseChildCreatePayload` ; refus traduits en français par `LOCAL_VALIDATION_MESSAGES`, avec un message nouveau pour un contenu de leçon trop long ; les messages de l'API restent ceux du serveur.
+- Leçon : champ Contenu facultatif, rendu en texte brut sur la page Leçon.
+- Après création : formulaire vidé et `router.refresh()`.
+- Tout le reste reste en lecture seule : ni modification, ni archivage, ni restauration.
+
+Fichiers liés :
+
+- `app/interface/academy/AcademyCreateForms.tsx`, `app/interface/academy/programmes/[id]/page.tsx`
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : aucune route, aucun store, aucun schéma modifiés. Non vérifié : le rendu et l'envoi avec une session.
 
 ## 2026-11-26 (Academy : création de programmes et de matières)
 

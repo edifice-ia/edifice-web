@@ -9,10 +9,11 @@ import {
 import { ACADEMY_MESSAGES } from "@/lib/academy/http";
 import { AcademyStoreError, getLiveProgramTree } from "@/lib/server/academy/hierarchy-store";
 import { requirePrivateCockpitAccess } from "@/src/lib/auth/guards";
-import { AcademySubjectCreateForm } from "../../AcademyCreateForms";
+import { AcademyChildCreateForm, AcademySubjectCreateForm } from "../../AcademyCreateForms";
 
-// Arbre d'un programme — interface de l'étape 2a : arbre en lecture, création
-// d'une matière par AcademySubjectCreateForm (seul élément client).
+// Arbre d'un programme — interface de l'étape 2a : arbre en lecture. La page
+// place des formulaires de création (matière, module, chapitre, leçon), rangés
+// dans AcademyCreateForms.tsx.
 //
 // Server Component : lit directement le store avec l'utilisateur de la session,
 // comme la page Programmes. Identifiant malformé, programme inexistant, archivé
@@ -104,14 +105,17 @@ function ProgramTree({ tree }: { tree: AcademyProgramTree }) {
                               ))}
                             </ul>
                           )}
+                          <AcademyChildCreateForm level="lesson" parentId={chapter.id} />
                         </li>
                       ))}
                     </ul>
                   )}
+                  <AcademyChildCreateForm level="chapter" parentId={unit.id} />
                 </li>
               ))}
             </ul>
           )}
+          <AcademyChildCreateForm level="unit" parentId={subject.id} />
         </li>
       ))}
     </ul>

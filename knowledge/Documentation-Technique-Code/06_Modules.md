@@ -13,7 +13,7 @@ Dernière mise à jour : 2026-11-24
 - [Modules de publication](#modules-de-publication)
 - [Modules d'observation](#modules-dobservation)
 - [Modules personnels](#modules-personnels)
-- [Espace Academy — squelette, programmes, arbre et leçon ; création de programmes et de matières](#espace-academy--squelette-programmes-arbre-et-leçon--création-de-programmes-et-de-matières)
+- [Espace Academy — squelette, programmes, arbre et leçon ; création des cinq niveaux](#espace-academy--squelette-programmes-arbre-et-leçon--création-des-cinq-niveaux)
 - [Service renderer](#service-renderer)
 - [Liens utiles](#liens-utiles)
 - [À mettre à jour](#à-mettre-à-jour)
@@ -650,7 +650,7 @@ Branchée le 2026-09-19. Objectifs est une **table unique**, comme Notes et Tâc
 >
 > **Limites** : l'isolation entre comptes n'a pas été re-testée — établie par construction, non par un test à deux comptes — ; et `personal_data_erasure_log` ne compte qu'une seule entrée pour ce compte, explication vraisemblable liée aux recréations successives du compte, **non vérifiée**. Voir le changelog, entrée « module Objectifs : suppression physique ».
 
-## Espace Academy — squelette, programmes, arbre et leçon ; création de programmes et de matières
+## Espace Academy — squelette, programmes, arbre et leçon ; création des cinq niveaux
 
 Troisième espace de la plateforme, priorité de développement depuis le 2026-11-22 : voir [Décisions](./03_Decisions.md) DEC-014 et DEC-015, et la cible dans [22-espaces-et-marques.md](../Documentation-Strategique/Markdown/22-espaces-et-marques.md).
 
@@ -667,7 +667,7 @@ Fichiers :
 - `app/interface/academy/programmes/[id]/page.tsx` — **arbre d'un programme, en lecture seule** (étape 2a, 2026-11-25) ; chaque titre de leçon mène à la page Leçon. Voir plus bas ;
 - `app/interface/academy/lecons/[id]/page.tsx` — **page Leçon, en lecture seule** (étape 2a, 2026-11-25). Voir plus bas ;
 - `app/interface/academy/lecons/page.tsx` — **onglet Leçons** (2026-11-26) : renvoie vers les programmes, sans lire de donnée ; servi avant le segment dynamique `[section]`. Voir plus bas ;
-- `app/interface/academy/AcademyCreateForms.tsx` — **formulaires de création** (composant client, 2026-11-26) : programme et matière. Seul élément client de l'interface avec `AcademyNav`. Voir plus bas ;
+- `app/interface/academy/AcademyCreateForms.tsx` — **formulaires de création** (composant client, 2026-11-26) : programme et matière, puis module, chapitre et leçon. Seul élément client de l'interface avec `AcademyNav`. Voir plus bas ;
 - `lib/cockpit/navigation.ts` et `lib/cockpit/modules.ts` — entrée `academy`, **même identifiant dans les deux**, statut `En cours`. L'entrée du menu principal n'a pas d'enfants.
 
 **Ce que chaque page encore à construire affiche** : « Pas encore construit », le fait qu'aucune donnée n'y est enregistrée ni calculée, ce que la section fera, et l'étape du plan qui la construira. Aucune donnée d'exemple, aucun contenu qui ressemble à du réel.
@@ -771,11 +771,23 @@ Validé par Vincent dans le navigateur le 2026-11-26.
 - chaque champ a un label visible ;
 - le formulaire de matière n'apparaît que si l'arbre a été lu ; celui de programme, dans tous les états de la page ;
 - textes devenus faux corrigés dans le même changement : « en lecture seule » sur les pages Programmes et Arbre, et la phrase d'en-tête de `AcademyHeader` ;
-- **tout le reste reste en lecture seule** : ni modification, ni archivage, ni restauration ; pas de création de module, de chapitre ni de leçon depuis l'interface.
+- *à la livraison de l'étape d'édition 1, l'interface ne permettait de créer ni module, ni chapitre, ni leçon : voir l'étape d'édition 2 ci-dessous.*
 
 **Non vérifié** : le rendu et l'envoi des formulaires avec une session.
 
-**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création d'un programme et d'une matière depuis l'interface écrite, non vérifiée avec session ; étape 2b (objectifs, ressources) à faire.
+**Étape d'édition 2 — création d'un module, d'un chapitre et d'une leçon (2026-11-26)** :
+
+- même composant client, `AcademyChildCreateForm` dans `AcademyCreateForms.tsx`, un formulaire par nœud de l'arbre, **replié par défaut** dans un `<details>` : « Nouveau module » sous chaque matière, « Nouveau chapitre » sous chaque module, « Nouvelle leçon » sous chaque chapitre ; chaque instance a ses propres identifiants (`useId`) et des labels visibles ;
+- routes existantes `POST /api/academy/units` (`subjectId`, `title`), `POST /api/academy/chapters` (`unitId`, `title`), `POST /api/academy/lessons` (`chapterId`, `title`, `content` facultatif) — aucune route, aucun store, aucun schéma modifié ;
+- validation avant envoi par `parseChildCreatePayload(level, …)` ; refus traduits par la même table `LOCAL_VALIDATION_MESSAGES` : titre vide, titre trop long, et, nouveau, contenu trop long (« Le contenu ne doit pas dépasser 100 000 caractères. ») ; les autres refus du parser — objet JSON, identifiant du parent non UUID, titre ou texte non textuels, description, position — ne sont pas atteignables depuis ces formulaires et restent bruts ;
+- la leçon reçoit un champ **Contenu** facultatif (zone de texte) : vide ou fait d'espaces, il est enregistré comme `null` ; il est rendu en texte brut sur la page Leçon ;
+- après création : formulaire vidé, `router.refresh()` ; la page de l'arbre ne change que par l'ajout de ces formulaires sous les nœuds.
+
+**Ce que l'interface permet de créer** : programme, matière, module, chapitre, leçon. **Tout le reste reste en lecture seule** : ni modification, ni archivage, ni restauration depuis l'interface.
+
+**Non vérifié** : le rendu et l'envoi des formulaires de module, de chapitre et de leçon avec une session.
+
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création des cinq niveaux depuis l'interface écrite (programme et matière, puis module, chapitre et leçon), non vérifiée avec session ; étape 2b (objectifs, ressources) à faire.
 
 ## Service renderer
 

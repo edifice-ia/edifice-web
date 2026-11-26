@@ -76,15 +76,17 @@ const LESSON_DETAIL_COLUMNS =
 const CHECK_VIOLATION = "23514";
 const FOREIGN_KEY_VIOLATION = "23503";
 
-type DbError = { code?: string; message?: string } | null;
+export type DbError = { code?: string; message?: string } | null;
 
-function fail(context: string, error: DbError): never {
+// Exportée pour objectives-store.ts (étape 2b-1), sans changement de comportement.
+export function fail(context: string, error: DbError): never {
   // Le détail reste côté serveur ; l'appelant ne reçoit qu'un message générique.
   console.error("[academy-store]", context, error?.code ?? "", error?.message ?? "");
   throw new AcademyStoreError();
 }
 
-async function getClient() {
+// Exportée pour objectives-store.ts (étape 2b-1), sans changement de comportement.
+export async function getClient() {
   const supabase = await createClient();
 
   if (!supabase) {

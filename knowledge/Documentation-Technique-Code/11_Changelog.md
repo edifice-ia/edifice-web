@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-26 (Academy : objectifs pédagogiques, création, archivage, restauration)](#2026-11-26-academy--objectifs-pédagogiques-création-archivage-restauration)
 - [2026-11-26 (Academy : migration des objectifs pédagogiques)](#2026-11-26-academy--migration-des-objectifs-pédagogiques)
 - [2026-11-26 (Academy : archivage et restauration depuis l'interface)](#2026-11-26-academy--archivage-et-restauration-depuis-linterface)
 - [2026-11-26 (Academy : création de modules, chapitres et leçons)](#2026-11-26-academy--création-de-modules-chapitres-et-leçons)
@@ -90,6 +91,26 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-26 (Academy : objectifs pédagogiques, création, archivage, restauration)
+
+Type : produit, sécurité
+
+Résumé : code de l'étape 2b-1. Les objectifs pédagogiques se créent, s'archivent et se restaurent depuis l'arbre d'un programme, rattachés au programme, à une matière, à un module ou à un chapitre.
+
+- `parseObjectiveCreatePayload` : exactement un parent, titre 200, description 2 000 facultative ; pas de mise à jour.
+- `lib/server/academy/objectives-store.ts` : création sous un parent vivant, listes des vivants et des archivés restaurables par les seuls niveaux vivants, archivage, restauration refusée sous un ancêtre archivé ; client de session, `user_id` partout. `getClient`, `fail` et `DbError` exportés de `hierarchy-store.ts`, sans changement.
+- Routes : `POST /api/academy/objectives`, `DELETE /api/academy/objectives/[id]`, `POST /api/academy/objectives/[id]/restore` ; « Objectif introuvable. ».
+- Arbre : liste d'objectifs et formulaire replié sous chaque niveau rattachable ; archivés dans la section existante.
+- `academy:routes:check` : 18 fichiers, 26 handlers ; `academy:hierarchy:check` : tests du parseur d'objectifs.
+
+Fichiers liés :
+
+- `lib/academy/hierarchy.ts`, `lib/academy/http.ts`, `lib/server/academy/objectives-store.ts`, `lib/server/academy/hierarchy-store.ts`, `app/api/academy/objectives/**`, `app/interface/academy/AcademyCreateForms.tsx`, `app/interface/academy/AcademyArchiveControls.tsx`, `app/interface/academy/programmes/[id]/page.tsx`, `scripts/academy-routes-check.mjs`, `scripts/academy-hierarchy-check.mjs`
+- `MANUAL_ACTIONS.md` — deux entrées `pending` : test SQL d'isolation des objectifs, contrôle à la main
+- `knowledge/Documentation-Technique-Code/05_Database.md`, `06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : nouvelle lecture et écriture d'une table par compte — commit local, push après le test SQL et sur confirmation. Non vérifié : isolation côté base, rendu avec une session.
 
 ## 2026-11-26 (Academy : migration des objectifs pédagogiques)
 

@@ -4,11 +4,15 @@ import { useRouter } from "next/navigation";
 import { useId, useState, type FormEvent } from "react";
 import {
   ACADEMY_CONTENT_MAX_LENGTH,
+  ACADEMY_DESCRIPTION_MAX_LENGTH,
+  ACADEMY_OBJECTIVE_PARENT_FIELD,
   ACADEMY_PARENT_FIELD,
   ACADEMY_PROGRAM_KINDS,
   ACADEMY_TITLE_MAX_LENGTH,
   parseChildCreatePayload,
+  parseObjectiveCreatePayload,
   parseProgramCreatePayload,
+  type AcademyObjectiveParentLevel,
   type AcademyProgramKind,
 } from "@/lib/academy/hierarchy";
 import { ACADEMY_MESSAGES } from "@/lib/academy/http";
@@ -17,7 +21,7 @@ import { ACADEMY_MESSAGES } from "@/lib/academy/http";
 // les pages qui les accueillent restent des Server Components.
 //
 // Ils appellent les routes existantes (POST /api/academy/programs, subjects,
-// units, chapters et lessons), sans route ni store nouveaux. La validation
+// units, chapters, lessons et, depuis l'étape 2b-1, objectives). La validation
 // avant envoi réutilise les parsers purs de lib/academy/hierarchy.ts, ceux que
 // les routes appliquent : le refus local et le refus du serveur ne peuvent pas
 // diverger, et le serveur reste la référence. Un 400 du serveur affiche son
@@ -35,13 +39,15 @@ const KIND_LABELS: Record<AcademyProgramKind, string> = {
   formation: "Formation",
 };
 
-// Limite du contenu écrite à la française (« 100 000 »), avec une espace
-// insécable. Formatée à la main plutôt que par toLocaleString, dont le résultat
+// Limites écrites à la française (« 100 000 », « 2 000 »), avec une espace
+// insécable. Formatées à la main plutôt que par toLocaleString, dont le résultat
 // peut différer entre le serveur et le navigateur et casser l'hydratation.
-const CONTENT_MAX_LABEL = String(ACADEMY_CONTENT_MAX_LENGTH).replace(
-  /\B(?=(\d{3})+(?!\d))/g,
-  "\u00a0",
-);
+function frenchNumber(value: number) {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, "\u00a0");
+}
+
+const CONTENT_MAX_LABEL = frenchNumber(ACADEMY_CONTENT_MAX_LENGTH);
+const DESCRIPTION_MAX_LABEL = frenchNumber(ACADEMY_DESCRIPTION_MAX_LENGTH);
 
 // Messages exacts des parsers de lib/academy/hierarchy.ts, atteignables depuis
 // ces formulaires. À tenir alignés si les parsers changent.
@@ -52,6 +58,8 @@ const LOCAL_VALIDATION_MESSAGES: Record<string, string> = {
   "kind doit valoir curriculum ou formation.": "Choisis un type de programme dans la liste.",
   [`content depasse la longueur maximale de ${ACADEMY_CONTENT_MAX_LENGTH} caracteres.`]:
     `Le contenu ne doit pas dépasser ${CONTENT_MAX_LABEL} caractères.`,
+  [`description depasse la longueur maximale de ${ACADEMY_DESCRIPTION_MAX_LENGTH} caracteres.`]:
+    `La description ne doit pas dépasser ${DESCRIPTION_MAX_LABEL} caractères.`,
 };
 
 function localValidationMessage(parserError: string) {
@@ -392,6 +400,106 @@ export function AcademyChildCreateForm({
         ) : null}
         <button type="submit" disabled={pending} className={`mt-3 ${buttonClass}`}>
           {pending ? "Création en cours…" : config.submit}
+        </button>
+        <FormError id={errorId} error={error} />
+      </form>
+    </details>
+  );
+}
+
+// --- Objectif pédagogique (étape 2b-1) ------------------------------------------------
+
+// Formulaire replié (<details>) placé sous le programme, une matière, un module
+// ou un chapitre de l'arbre. Titre obligatoire, description facultative. Pas de
+// modification ensuite : un objectif se crée, s'archive et se restaure.
+export function AcademyObjectiveCreateForm({
+  parentLevel,
+  parentId,
+}: {
+  parentLevel: AcademyObjectiveParentLevel;
+  parentId: string;
+}) {
+  const router = useRouter();
+  const ids = useId();
+  const parentField = ACADEMY_OBJECTIVE_PARENT_FIELD[parentLevel];
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+
+    const parsed = parseObjectiveCreatePayload({ [parentField]: parentId, title, description });
+
+    if (!parsed.ok) {
+      setError(localValidationMessage(parsed.error));
+      return;
+    }
+
+    setPending(true);
+    const result = await postJson("/api/academy/objectives", {
+      [parentField]: parentId,
+      title: parsed.title,
+      description: parsed.description,
+    });
+    setPending(false);
+
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+
+    setTitle("");
+    setDescription("");
+    router.refresh();
+  }
+
+  const errorId = `${ids}-error`;
+
+  return (
+    <details className="mt-1 text-sm">
+      <summary className="cursor-pointer text-[#7DD3FC] hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+        Nouvel objectif
+      </summary>
+      <form
+        onSubmit={onSubmit}
+        aria-label="Nouvel objectif"
+        className="mt-2 rounded-md border border-[#1D2A44] bg-[#0B1420]/60 p-3"
+        noValidate
+      >
+        <label className="block text-sm text-[#D8DEE8]">
+          Titre
+          <input
+            type="text"
+            name="title"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            required
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
+            className={inputClass}
+          />
+          <span className="mt-1 block text-xs text-[#A7B0C0]">
+            {`Obligatoire, ${ACADEMY_TITLE_MAX_LENGTH} caractères au plus.`}
+          </span>
+        </label>
+        <label className="mt-3 block text-sm text-[#D8DEE8]">
+          Description
+          <textarea
+            name="description"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            rows={3}
+            className={inputClass}
+          />
+          <span className="mt-1 block text-xs text-[#A7B0C0]">
+            {`Facultative, ${DESCRIPTION_MAX_LABEL} caractères au plus.`}
+          </span>
+        </label>
+        <button type="submit" disabled={pending} className={`mt-3 ${buttonClass}`}>
+          {pending ? "Création en cours…" : "Ajouter l'objectif"}
         </button>
         <FormError id={errorId} error={error} />
       </form>

@@ -18,6 +18,10 @@
 
 import type { AcademyLevel } from "./hierarchy";
 
+// Niveaux d'un 404 : les cinq niveaux de la hiérarchie, plus l'objectif
+// pédagogique (étape 2b-1).
+export type AcademyNotFoundLevel = AcademyLevel | "objective";
+
 export type AcademyHttpReply = {
   status: number;
   body: Record<string, unknown>;
@@ -39,10 +43,11 @@ export const ACADEMY_MESSAGES = {
     unit: "Module introuvable.",
     chapter: "Chapitre introuvable.",
     lesson: "Lecon introuvable.",
-  } satisfies Record<AcademyLevel, string>,
+    objective: "Objectif introuvable.",
+  } satisfies Record<AcademyNotFoundLevel, string>,
 } as const;
 
-export function academyNotFound(level: AcademyLevel): AcademyHttpReply {
+export function academyNotFound(level: AcademyNotFoundLevel): AcademyHttpReply {
   return { status: 404, body: { error: ACADEMY_MESSAGES.notFound[level] } };
 }
 
@@ -70,7 +75,7 @@ export function academyOk(body: Record<string, unknown>, status = 200): AcademyH
 // le niveau du parent pour une création.
 export function academyStoreResultToReply<T>(
   result: AcademyResultLike<T>,
-  options: { key: string | null; notFoundLevel: AcademyLevel; okStatus?: number },
+  options: { key: string | null; notFoundLevel: AcademyNotFoundLevel; okStatus?: number },
 ): AcademyHttpReply {
   if (result.status === "ok") {
     return academyOk(options.key ? { [options.key]: result.value } : {}, options.okStatus ?? 200);

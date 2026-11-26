@@ -183,7 +183,7 @@ Droits : RLS activée ; `revoke all … from anon, authenticated` **avant** le `
 
 Hors de cette migration, étape 2b : `academy_objectives` et `academy_resources`.
 
-**`academy_objectives` — objectifs pédagogiques, migration appliquée en base le 2026-11-26, contrôles structurels conformes** — `supabase/migrations/20261126120000_create_academy_objectives.sql`, appliquée à la main dans le SQL Editor (entrée archivée du même jour dans `MANUAL_ACTIONS.md`). **Aucun code ne lit ni n'écrit encore cette table** : store, routes et interface de l'étape 2b-1 restent à écrire.
+**`academy_objectives` — objectifs pédagogiques, migration appliquée en base le 2026-11-26, contrôles structurels conformes** — `supabase/migrations/20261126120000_create_academy_objectives.sql`, appliquée à la main dans le SQL Editor (entrée archivée du même jour dans `MANUAL_ACTIONS.md`). Lue et écrite depuis le 2026-11-26 par `lib/server/academy/objectives-store.ts`, au **client de session**, avec un filtre `user_id` sur chaque requête, comme le store de la hiérarchie (voir `06_Modules.md`). *Jusqu'à ce code, cette phrase disait « aucun code ne lit ni n'écrit encore cette table ».* Isolation côté base : test SQL écrit, entrée `pending` de `MANUAL_ACTIONS.md`, non exécuté.
 
 | Colonne | Rôle |
 |---|---|

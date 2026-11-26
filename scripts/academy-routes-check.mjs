@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 register("./lib/alias-loader.mjs", import.meta.url);
 
 // Vérifie les routes Academy (app/api/academy) sans base ni serveur :
-// 1. analyse statique des 15 fichiers de route — garde en premier appel,
+// 1. analyse statique des 18 fichiers de route (15 de la hiérarchie, 3 des
+//    objectifs pédagogiques, étape 2b-1) — garde en premier appel,
 //    validation UUID avant le store, aucun message d'erreur renvoyé, imports
 //    limités, runtime nodejs ;
 // 2. tests de lib/academy/http.ts, la traduction commune des résultats.
@@ -34,16 +35,22 @@ const EXPECTED = [
     `${segment}/[id]/route.ts`,
     `${segment}/[id]/restore/route.ts`,
   ]),
+  // Objectifs pédagogiques (étape 2b-1) : création, archivage, restauration ;
+  // ni GET ni PATCH.
+  "objectives/route.ts",
+  "objectives/[id]/route.ts",
+  "objectives/[id]/restore/route.ts",
 ].sort();
 
 const files = listRouteFiles(routesDir);
 const found = files.map((file) => relative(routesDir, file).split(sep).join("/")).sort();
-assert.deepEqual(found, EXPECTED, "exactement les 15 fichiers de route attendus");
+assert.deepEqual(found, EXPECTED, "exactement les 18 fichiers de route attendus");
 
 const ALLOWED_IMPORTS = new Set([
   "@/lib/academy/hierarchy",
   "@/lib/academy/http",
   "@/lib/server/academy/hierarchy-store",
+  "@/lib/server/academy/objectives-store",
   "@/lib/server/academy/route-reply",
   "@/src/lib/auth/api-guards",
 ]);
@@ -59,6 +66,9 @@ const STORE_CALLS = [
   "updateChild",
   "archiveNode",
   "restoreNode",
+  "createObjective",
+  "archiveObjective",
+  "restoreObjective",
 ];
 
 let handlers = 0;
@@ -111,8 +121,10 @@ for (const file of files) {
       assert.ok(uuidCheck > firstAwait, `${label} : validation UUID apres la garde`);
       assert.ok(uuidCheck < firstStore, `${label} : validation UUID avant le store`);
     } else if (method === "POST" && !name.startsWith("programs/")) {
-      // Création d'un enfant : l'UUID du parent est validé par le parser.
-      const parse = chunk.indexOf("parseChildCreatePayload(");
+      // Création d'un enfant ou d'un objectif : l'UUID du parent est validé par
+      // le parser.
+      const parser = name.startsWith("objectives/") ? "parseObjectiveCreatePayload(" : "parseChildCreatePayload(";
+      const parse = chunk.indexOf(parser);
       assert.ok(parse > firstAwait && parse < firstStore, `${label} : parser (UUID du parent) avant le store`);
     }
 
@@ -123,7 +135,7 @@ for (const file of files) {
   }
 }
 
-assert.equal(handlers, 23, "23 handlers : 6 pour les programmes, 17 pour les quatre niveaux enfants");
+assert.equal(handlers, 26, "26 handlers : 6 pour les programmes, 17 pour les quatre niveaux enfants, 3 pour les objectifs");
 
 // --- lib/academy/http.ts ---------------------------------------------------------------
 const http = await import("../lib/academy/http.ts");
@@ -132,7 +144,8 @@ const M = http.ACADEMY_MESSAGES;
 for (const text of [M.invalidJson, M.unavailable, ...Object.values(M.notFound)]) {
   assert.doesNotMatch(text, /[À-ÿ]/, `message sans accent : ${text}`);
 }
-assert.deepEqual(Object.keys(M.notFound).sort(), ["chapter", "lesson", "program", "subject", "unit"]);
+assert.deepEqual(Object.keys(M.notFound).sort(), ["chapter", "lesson", "objective", "program", "subject", "unit"]);
+assert.deepEqual(http.academyNotFound("objective"), { status: 404, body: { error: "Objectif introuvable." } });
 
 assert.deepEqual(http.academyInvalidJson(), { status: 400, body: { error: "Requete invalide: JSON attendu." } });
 assert.deepEqual(http.academyUnavailable(), { status: 500, body: { error: "Operation Academy indisponible." } });

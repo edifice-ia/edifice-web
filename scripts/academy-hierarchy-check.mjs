@@ -168,4 +168,66 @@ assert.equal("content" in lessonNode, false, "pas de contenu dans l'arbre");
 assert.equal("description" in lessonNode, false, "pas de description sur une leçon");
 checks += 2;
 
-console.log(`academy-hierarchy checks passed (${checks} verifications) : validation des cinq niveaux, limites, UUID, masquage des descendants archives.`);
+// --- Objectifs pédagogiques (étape 2b-1) --------------------------------------------
+{
+  const P = UUID;
+  const Q = "22222222-3333-4444-8555-666666666666";
+  const created = ok(
+    h.parseObjectiveCreatePayload({ programId: P, title: "  Comprendre  ", description: "  " }),
+    "objectif de programme accepté",
+  );
+  assert.equal(created.parentLevel, "program");
+  assert.equal(created.parentId, P);
+  assert.equal(created.title, "Comprendre", "titre rogné");
+  assert.equal(created.description, null, "description vide devient null");
+  checks += 4;
+
+  for (const [field, level] of [
+    ["subjectId", "subject"],
+    ["unitId", "unit"],
+    ["chapterId", "chapter"],
+  ]) {
+    const r = ok(h.parseObjectiveCreatePayload({ [field]: P, title: "T" }), `objectif de ${level} accepté`);
+    assert.equal(r.parentLevel, level);
+    checks += 1;
+  }
+
+  // Un seul parent.
+  ko(h.parseObjectiveCreatePayload({ title: "T" }), "aucun parent refusé");
+  ko(h.parseObjectiveCreatePayload({ programId: null, title: "T" }), "parent nul seul refusé");
+  ko(h.parseObjectiveCreatePayload({ programId: P, subjectId: Q, title: "T" }), "deux parents refusés");
+  ko(h.parseObjectiveCreatePayload({ unitId: P, chapterId: Q, title: "T" }), "deux parents enfants refusés");
+  ko(h.parseObjectiveCreatePayload({ lessonId: P, title: "T" }), "leçon non rattachable");
+  ko(h.parseObjectiveCreatePayload({ programId: "abc", title: "T" }), "parent non UUID refusé");
+  ok(h.parseObjectiveCreatePayload({ programId: P, subjectId: null, title: "T" }), "parent nul supplémentaire ignoré");
+  assert.equal(
+    h.parseObjectiveCreatePayload({ programId: P, unitId: Q, title: "T" }).error,
+    h.ACADEMY_OBJECTIVE_ONE_PARENT_ERROR,
+  );
+  checks += 1;
+
+  // Titre.
+  ko(h.parseObjectiveCreatePayload({ programId: P }), "titre absent refusé");
+  ko(h.parseObjectiveCreatePayload({ programId: P, title: "   " }), "titre vide refusé");
+  ok(h.parseObjectiveCreatePayload({ programId: P, title: "é".repeat(200) }), "titre de 200 caractères accepté");
+  ko(h.parseObjectiveCreatePayload({ programId: P, title: "é".repeat(201) }), "titre de 201 caractères refusé");
+
+  // Description.
+  ok(h.parseObjectiveCreatePayload({ programId: P, title: "T", description: "d".repeat(2000) }), "description de 2 000 acceptée");
+  ko(h.parseObjectiveCreatePayload({ programId: P, title: "T", description: "d".repeat(2001) }), "description de 2 001 refusée");
+  ko(h.parseObjectiveCreatePayload({ programId: P, title: "T", description: 42 }), "description non textuelle refusée");
+  assert.equal(
+    h.parseObjectiveCreatePayload({ programId: P, title: "T", description: null }).description,
+    null,
+  );
+  checks += 1;
+
+  // Pas de changement de parent : aucun parseur de mise à jour des objectifs.
+  assert.equal("parseObjectiveUpdatePayload" in h, false, "pas de parseur de mise à jour des objectifs");
+  checks += 1;
+
+  ko(h.parseObjectiveCreatePayload(null), "corps non objet refusé");
+  ko(h.parseObjectiveCreatePayload([P]), "tableau refusé");
+}
+
+console.log(`academy-hierarchy checks passed (${checks} verifications) : validation des cinq niveaux, objectifs pedagogiques (un seul parent), limites, UUID, masquage des descendants archives.`);

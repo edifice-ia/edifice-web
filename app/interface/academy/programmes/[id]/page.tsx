@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import {
   isUuid,
   type AcademyArchivedNode,
-  type AcademyChildLevel,
+  type AcademyObjective,
+  type AcademyObjectiveParentLevel,
   type AcademyProgramKind,
   type AcademyProgramTree,
 } from "@/lib/academy/hierarchy";
@@ -14,14 +15,24 @@ import {
   getLiveProgramTree,
   listArchivedDescendants,
 } from "@/lib/server/academy/hierarchy-store";
+import {
+  listArchivedObjectives,
+  listLiveObjectives,
+} from "@/lib/server/academy/objectives-store";
 import { requirePrivateCockpitAccess } from "@/src/lib/auth/guards";
 import { AcademyArchiveButton, AcademyRestoreButton } from "../../AcademyArchiveControls";
-import { AcademyChildCreateForm, AcademySubjectCreateForm } from "../../AcademyCreateForms";
+import {
+  AcademyChildCreateForm,
+  AcademyObjectiveCreateForm,
+  AcademySubjectCreateForm,
+} from "../../AcademyCreateForms";
 
 // Arbre d'un programme — interface de l'étape 2a : arbre en lecture. La page
 // place des formulaires de création (matière, module, chapitre, leçon), rangés
 // dans AcademyCreateForms.tsx, et des boutons d'archivage et de restauration,
-// rangés dans AcademyArchiveControls.tsx.
+// rangés dans AcademyArchiveControls.tsx. Depuis l'étape 2b-1, chaque programme,
+// matière, module et chapitre affiche ses objectifs pédagogiques vivants, avec
+// un formulaire replié « Nouvel objectif » (objectives-store.ts).
 //
 // Server Component : lit directement le store avec l'utilisateur de la session,
 // comme la page Programmes. Identifiant malformé, programme inexistant, archivé
@@ -69,10 +80,16 @@ type ArchivedState =
 
 async function readArchived(userId: string, programId: string): Promise<ArchivedState> {
   try {
-    const result = await listArchivedDescendants(userId, programId);
+    const nodes = await listArchivedDescendants(userId, programId);
+    const objectives = await listArchivedObjectives(userId, programId);
 
-    // not_found : le programme a été archivé entre les deux lectures ; rien à lister.
-    return { status: "ok", items: result.status === "ok" ? result.value : [] };
+    // not_found : le programme a été archivé entre les lectures ; rien à lister.
+    const items = [
+      ...(nodes.status === "ok" ? nodes.value : []),
+      ...(objectives.status === "ok" ? objectives.value : []),
+    ].sort((a, b) => (a.archivedAt < b.archivedAt ? 1 : a.archivedAt > b.archivedAt ? -1 : 0));
+
+    return { status: "ok", items };
   } catch (error) {
     if (error instanceof AcademyStoreError) {
       return { status: "unavailable" };
@@ -82,12 +99,81 @@ async function readArchived(userId: string, programId: string): Promise<Archived
   }
 }
 
-const LEVEL_LABELS: Record<AcademyChildLevel, string> = {
+const LEVEL_LABELS: Record<AcademyArchivedNode["level"], string> = {
   subject: "Matière",
   unit: "Module",
   chapter: "Chapitre",
   lesson: "Leçon",
+  objective: "Objectif",
 };
+
+// Objectifs vivants du programme, groupés par identifiant du niveau parent.
+// null : lecture indisponible.
+type ObjectivesByParent = Map<string, AcademyObjective[]> | null;
+
+async function readObjectives(userId: string, programId: string): Promise<ObjectivesByParent> {
+  try {
+    const result = await listLiveObjectives(userId, programId);
+    const byParent = new Map<string, AcademyObjective[]>();
+
+    for (const objective of result.status === "ok" ? result.value : []) {
+      byParent.set(objective.parentId, [...(byParent.get(objective.parentId) ?? []), objective]);
+    }
+
+    return byParent;
+  } catch (error) {
+    if (error instanceof AcademyStoreError) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+// Objectifs d'un niveau, avec leur bouton d'archivage, puis le formulaire replié
+// « Nouvel objectif ». Rien n'est affiché si la lecture est indisponible : le
+// message est donné une fois, sous le titre du programme.
+function ObjectiveList({
+  objectives,
+  parentLevel,
+  parentId,
+}: {
+  objectives: ObjectivesByParent;
+  parentLevel: AcademyObjectiveParentLevel;
+  parentId: string;
+}) {
+  if (!objectives) {
+    return null;
+  }
+
+  const list = objectives.get(parentId) ?? [];
+
+  return (
+    <div className="mt-2">
+      {list.length > 0 ? (
+        <ul className="grid gap-1" aria-label="Objectifs">
+          {list.map((objective) => (
+            <li key={objective.id} className="text-sm text-[#D8DEE8]">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[#7DD3FC]">
+                  Objectif
+                </span>
+                <span>{objective.title}</span>
+                <AcademyArchiveButton level="objective" id={objective.id} title={objective.title} />
+              </div>
+              {objective.description ? (
+                <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-[#A7B0C0]">
+                  {objective.description}
+                </p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <AcademyObjectiveCreateForm parentLevel={parentLevel} parentId={parentId} />
+    </div>
+  );
+}
 
 // Date d'archivage, rendue côté serveur uniquement (Server Component) : pas de
 // risque d'écart d'hydratation.
@@ -136,7 +222,13 @@ function EmptyLevel({ children }: { children: React.ReactNode }) {
   return <p className="mt-2 text-sm italic text-[#A7B0C0]">{children}</p>;
 }
 
-function ProgramTree({ tree }: { tree: AcademyProgramTree }) {
+function ProgramTree({
+  tree,
+  objectives,
+}: {
+  tree: AcademyProgramTree;
+  objectives: ObjectivesByParent;
+}) {
   if (tree.subjects.length === 0) {
     return <EmptyLevel>Aucune matière pour l&apos;instant.</EmptyLevel>;
   }
@@ -149,6 +241,7 @@ function ProgramTree({ tree }: { tree: AcademyProgramTree }) {
             <h3 className="text-lg font-semibold text-[#F8FAFC]">{subject.title}</h3>
             <AcademyArchiveButton level="subject" id={subject.id} title={subject.title} />
           </div>
+          <ObjectiveList objectives={objectives} parentLevel="subject" parentId={subject.id} />
           {subject.units.length === 0 ? (
             <EmptyLevel>Aucun module pour l&apos;instant.</EmptyLevel>
           ) : (
@@ -159,6 +252,7 @@ function ProgramTree({ tree }: { tree: AcademyProgramTree }) {
                     <h4 className="font-semibold text-[#D8DEE8]">{unit.title}</h4>
                     <AcademyArchiveButton level="unit" id={unit.id} title={unit.title} />
                   </div>
+                  <ObjectiveList objectives={objectives} parentLevel="unit" parentId={unit.id} />
                   {unit.chapters.length === 0 ? (
                     <EmptyLevel>Aucun chapitre pour l&apos;instant.</EmptyLevel>
                   ) : (
@@ -172,6 +266,7 @@ function ProgramTree({ tree }: { tree: AcademyProgramTree }) {
                             <h5 className="text-sm font-semibold text-[#D8DEE8]">{chapter.title}</h5>
                             <AcademyArchiveButton level="chapter" id={chapter.id} title={chapter.title} />
                           </div>
+                          <ObjectiveList objectives={objectives} parentLevel="chapter" parentId={chapter.id} />
                           {chapter.lessons.length === 0 ? (
                             <EmptyLevel>Aucune leçon pour l&apos;instant.</EmptyLevel>
                           ) : (
@@ -229,6 +324,8 @@ export default async function AcademyProgramTreePage({ params }: AcademyProgramT
 
   const archived: ArchivedState =
     state.status === "ok" ? await readArchived(user.id, id) : { status: "ok", items: [] };
+  const objectives: ObjectivesByParent =
+    state.status === "ok" ? await readObjectives(user.id, id) : new Map();
 
   return (
     <section
@@ -267,7 +364,13 @@ export default async function AcademyProgramTreePage({ params }: AcademyProgramT
           <p className="mt-3 max-w-3xl leading-7 text-[#A7B0C0]">
             Matières, modules, chapitres et leçons de ce programme.
           </p>
-          <ProgramTree tree={state.tree} />
+          {objectives === null ? (
+            <p role="alert" className="mt-3 text-sm text-[#FCA5A5]">
+              {`Objectifs : ${ACADEMY_MESSAGES.unavailable}`}
+            </p>
+          ) : null}
+          <ObjectiveList objectives={objectives} parentLevel="program" parentId={state.tree.id} />
+          <ProgramTree tree={state.tree} objectives={objectives} />
           <AcademySubjectCreateForm programId={state.tree.id} />
           <ArchivedList state={archived} />
         </>

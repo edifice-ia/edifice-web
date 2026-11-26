@@ -53,6 +53,245 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-11-26 — Contrôler à la main les objectifs pédagogiques dans l'arbre
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : le contrôle demande une session authentifiée du porteur du projet dans le navigateur, et l'agent ne saisit pas d'identifiants.
+
+**Bloque** : la validation du code de l'étape 2b-1.
+
+**Compte** : `test-erase@edificeia.com`, sur le serveur local (`localhost:3000`) — le serveur n'est relancé par l'agent que sur demande.
+
+**Étapes** :
+
+1. Dans l'arbre d'un programme, sous le titre du programme, puis sous une matière, un module et un chapitre : déplier « Nouvel objectif », créer un objectif avec description, puis un sans ; chacun apparaît sous son niveau, étiqueté « Objectif », la description en texte brut.
+2. Refus en français : titre vide (« Le titre ne peut pas être vide. »), titre trop long (« Le titre ne doit pas dépasser 200 caractères. »), description trop longue (« La description ne doit pas dépasser 2 000 caractères. »).
+3. Archiver un objectif (« Archiver », puis « Confirmer l'archivage ») : il disparaît et apparaît dans « Éléments archivés de ce programme », étiqueté « Objectif », avec le titre de son niveau ; le restaurer.
+4. Archiver un module qui porte un objectif : l'objectif disparaît avec le module et n'est **pas** listé dans la section ; restaurer le module : l'objectif revient.
+5. Aucune leçon ne propose « Nouvel objectif ».
+6. Relever les identifiants des données créées, pour le nettoyage.
+
+**Vérification** : chaque étape conforme ; transmettre les écarts tels quels à l'agent.
+
+*Écrit le 2026-11-26 par l'agent, sans exécution.*
+
+### 2026-11-26 — Tester l'isolation SQL des objectifs pédagogiques
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : seul le SQL Editor peut exécuter ce test sur la base réelle, et aucune base de test n'est disponible depuis le dépôt. L'agent n'a pas d'accès SQL au projet. **À exécuter par Vincent, porteur du projet**, dans le SQL Editor, sous le rôle `postgres`.
+
+**Bloque** : le push du code de l'étape 2b-1 (`objectives-store.ts`, routes `/api/academy/objectives`), qui lit et écrit `academy_objectives`.
+
+**Ce que le test contrôle**, en réécrivant en SQL les lectures de `listLiveObjectives` et `listArchivedObjectives` (programme vivant, puis matières, modules et chapitres vivants sous des parents vivants, et `user_id` sur chaque requête), exécutées sous le rôle `authenticated` de chaque compte :
+
+1. **pas de fuite entre comptes** : B ne lit aucun objectif du programme de A, A aucun de celui de B ; B ne voit aucune ligne de A, par la règle d'accès seule ;
+2. **pas d'objectif sous un parent d'un autre compte** : B tente un objectif sous l'identifiant exact du programme de A — refus attendu en `23503` (clé composite) ;
+3. **aucun objectif listé sous un ancêtre archivé** : `OU` et `OY`, rattachés au module archivé `UA`, ne figurent ni dans les vivants ni dans les archivés restaurables ;
+4. en plus : un objectif à **deux parents** est refusé en `23514` (contrainte `academy_objectives_one_parent`).
+
+**Limite** : c'est la requête SQL équivalente qui est éprouvée, pas le code TypeScript lui-même ; le contrôle à la main (entrée du même jour) éprouve le code réel.
+
+**Sans effet durable** : transaction terminée par `rollback`, comptes fictifs `…000c` (A) et `…000d` (B) créés puis retirés ; aucun compte réel, aucune donnée existante touchée.
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. **Contrôle préalable, en lecture seule** :
+   ```sql
+   select column_name, data_type
+   from information_schema.columns
+   where table_schema = 'auth' and table_name = 'users'
+     and is_nullable = 'NO' and column_default is null
+   order by ordinal_position;
+
+   select tgname, tgenabled
+   from pg_trigger
+   where tgrelid = 'auth.users'::regclass and not tgisinternal;
+   ```
+   Attendu : `id` seul dans la première requête, aucune ligne dans la seconde. **Sinon, s'arrêter.**
+3. Lancer le script ci-dessous **en une seule exécution**. Si une erreur s'affiche à la place de la synthèse (« ECHEC DU TEST », `permission denied`…), s'arrêter et transmettre le message : la transaction est annulée.
+4. Relever le résultat de la synthèse.
+5. **Contrôle après coup, en lecture seule** :
+   ```sql
+   select
+     (select count(*) from auth.users where id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as utilisateurs_de_test_restants,
+     (select count(*) from public.academy_programs where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as programmes,
+     (select count(*) from public.academy_subjects where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as matieres,
+     (select count(*) from public.academy_units where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as modules,
+     (select count(*) from public.academy_objectives where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as objectifs;
+   ```
+   Attendu : `0` partout.
+6. Transmettre les résultats, tels quels, à l'agent pour consignation.
+
+```sql
+begin;
+
+-- Sous le role postgres du SQL Editor : creation des deux comptes de test.
+-- Annules par le rollback final.
+insert into auth.users (id) values
+  ('00000000-0000-0000-0000-00000000000c'),
+  ('00000000-0000-0000-0000-00000000000d');
+
+-- Compte A, sous son propre role :
+--   PA programme ; SA matiere vivante ; UA module ARCHIVE sous SA.
+--   Objectifs : OP sur PA (vivant), OS sur SA (vivant), OX sur SA (archive),
+--   OU sur UA (vivant, mais sous un module archive), OY sur UA (archive, sous un module archive).
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title) values ('00000000-0000-0000-0000-00000000000c', 'formation', 'PA');
+insert into public.academy_subjects (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'SA' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_units (user_id, subject_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'UA' from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_objectives (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'OP' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_objectives (user_id, subject_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, t from public.academy_subjects, (values ('OS'), ('OX')) v(t) where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_objectives (user_id, unit_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, t from public.academy_units, (values ('OU'), ('OY')) v(t) where user_id = '00000000-0000-0000-0000-00000000000c';
+update public.academy_objectives set deleted_at = now() where user_id = '00000000-0000-0000-0000-00000000000c' and title in ('OX', 'OY');
+update public.academy_units set deleted_at = now() where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'UA';
+
+-- Contrainte "exactement un parent" : A tente un objectif a deux parents. Attendu : 23514.
+do $$
+begin
+  insert into public.academy_objectives (user_id, program_id, subject_id, title)
+  select '00000000-0000-0000-0000-00000000000c', p.id, s.id, 'Deux parents'
+  from public.academy_programs p join public.academy_subjects s on s.program_id = p.id
+  where p.user_id = '00000000-0000-0000-0000-00000000000c';
+  raise exception 'ECHEC DU TEST : objectif a deux parents accepte.';
+exception
+  when check_violation then
+    perform set_config('academy_test.deux_parents', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+reset role;
+
+-- Compte B : son propre programme PB, avec un objectif OB.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title) values ('00000000-0000-0000-0000-00000000000d', 'formation', 'PB');
+insert into public.academy_objectives (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000d', id, 'OB' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000d';
+reset role;
+
+-- Sous postgres : releve des identifiants des deux programmes.
+select set_config('academy_test.program_a',
+  (select id::text from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c'), true);
+select set_config('academy_test.program_b',
+  (select id::text from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000d'), true);
+
+-- B tente un objectif sous le programme de A, identifiant exact. Attendu : 23503.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}', true);
+set local role authenticated;
+do $$
+begin
+  insert into public.academy_objectives (user_id, program_id, title)
+  values ('00000000-0000-0000-0000-00000000000d', current_setting('academy_test.program_a')::uuid, 'Intrusion');
+  raise exception 'ECHEC DU TEST : objectif de B accepte sous le programme de A.';
+exception
+  when foreign_key_violation or insufficient_privilege then
+    perform set_config('academy_test.b_sous_a', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+-- B lit les objectifs vivants du programme de A. Attendu : (aucun)
+select set_config('academy_test.b_vivants_a', (with p as (
+    select id from public.academy_programs
+    where id = current_setting('academy_test.program_a')::uuid and user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null
+  ),
+  ls as (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and program_id in (select id from p)),
+  lu as (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and subject_id in (select id from ls)),
+  lc as (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and unit_id in (select id from lu)),
+  obj as (
+    select title from public.academy_objectives
+    where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null
+      and (program_id in (select id from p) or subject_id in (select id from ls)
+           or unit_id in (select id from lu) or chapter_id in (select id from lc))
+  )
+  select coalesce(string_agg(title, ' | ' order by title), '(aucun)') from obj), true);
+-- B lit directement les objectifs de A, regle d'acces seule. Attendu : 0
+select set_config('academy_test.b_voit_a',
+  (select count(*) from public.academy_objectives where user_id = '00000000-0000-0000-0000-00000000000c')::text, true);
+reset role;
+
+-- A lit ses objectifs. Attendu : vivants OP | OS ; archives restaurables OX ; rien sur PB.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', true);
+set local role authenticated;
+select set_config('academy_test.a_vivants_a', (with p as (
+    select id from public.academy_programs
+    where id = current_setting('academy_test.program_a')::uuid and user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null
+  ),
+  ls as (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and program_id in (select id from p)),
+  lu as (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and subject_id in (select id from ls)),
+  lc as (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and unit_id in (select id from lu)),
+  obj as (
+    select title from public.academy_objectives
+    where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null
+      and (program_id in (select id from p) or subject_id in (select id from ls)
+           or unit_id in (select id from lu) or chapter_id in (select id from lc))
+  )
+  select coalesce(string_agg(title, ' | ' order by title), '(aucun)') from obj), true);
+select set_config('academy_test.a_archives_a', (with p as (
+    select id from public.academy_programs
+    where id = current_setting('academy_test.program_a')::uuid and user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null
+  ),
+  ls as (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and program_id in (select id from p)),
+  lu as (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and subject_id in (select id from ls)),
+  lc as (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and unit_id in (select id from lu)),
+  obj as (
+    select title from public.academy_objectives
+    where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null
+      and (program_id in (select id from p) or subject_id in (select id from ls)
+           or unit_id in (select id from lu) or chapter_id in (select id from lc))
+  )
+  select coalesce(string_agg(title, ' | ' order by title), '(aucun)') from obj), true);
+select set_config('academy_test.a_vivants_b', (with p as (
+    select id from public.academy_programs
+    where id = current_setting('academy_test.program_b')::uuid and user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null
+  ),
+  ls as (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and program_id in (select id from p)),
+  lu as (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and subject_id in (select id from ls)),
+  lc as (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and unit_id in (select id from lu)),
+  obj as (
+    select title from public.academy_objectives
+    where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null
+      and (program_id in (select id from p) or subject_id in (select id from ls)
+           or unit_id in (select id from lu) or chapter_id in (select id from lc))
+  )
+  select coalesce(string_agg(title, ' | ' order by title), '(aucun)') from obj), true);
+reset role;
+
+-- Synthese, sous postgres.
+select
+  current_setting('academy_test.a_vivants_a', true) as objectifs_vivants_de_a,
+  current_setting('academy_test.a_archives_a', true) as objectifs_archives_restaurables_de_a,
+  current_setting('academy_test.a_vivants_b', true) as objectifs_de_b_lus_par_a,
+  current_setting('academy_test.b_vivants_a', true) as objectifs_de_a_lus_par_b,
+  current_setting('academy_test.b_voit_a', true) as lignes_de_a_vues_par_b,
+  current_setting('academy_test.b_sous_a', true) as objectif_de_b_sous_programme_de_a,
+  current_setting('academy_test.deux_parents', true) as objectif_a_deux_parents;
+
+rollback;
+```
+
+**Résultat attendu de la synthèse** :
+
+| Colonne | Attendu |
+| --- | --- |
+| `objectifs_vivants_de_a` | `OP \| OS` — ni `OU`, sous un module archivé |
+| `objectifs_archives_restaurables_de_a` | `OX` — ni `OY`, sous un module archivé |
+| `objectifs_de_b_lus_par_a` | `(aucun)` |
+| `objectifs_de_a_lus_par_b` | `(aucun)` |
+| `lignes_de_a_vues_par_b` | `0` |
+| `objectif_de_b_sous_programme_de_a` | `23503`, `academy_objectives_program_fk` dans le message |
+| `objectif_a_deux_parents` | `23514`, `academy_objectives_one_parent` dans le message |
+
+**Vérification** : synthèse conforme, contrôle après coup à `0` partout. Si un résultat diffère, s'arrêter et le signaler. **Ne pas corriger les politiques ni le store dans la foulée.**
+
+*Écrit le 2026-11-26 par l'agent, sans exécution.*
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`

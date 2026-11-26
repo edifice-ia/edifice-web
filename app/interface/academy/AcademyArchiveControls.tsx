@@ -15,12 +15,17 @@ import { ACADEMY_MESSAGES } from "@/lib/academy/http";
 // réponse, ou une panne réseau, affiche le message générique. Après réussite :
 // router.refresh().
 
-const LEVEL_SEGMENT: Record<AcademyLevel, string> = {
+// Niveaux archivables : les cinq de la hiérarchie et l'objectif pédagogique
+// (étape 2b-1).
+type ArchivableLevel = AcademyLevel | "objective";
+
+const LEVEL_SEGMENT: Record<ArchivableLevel, string> = {
   program: "programs",
   subject: "subjects",
   unit: "units",
   chapter: "chapters",
   lesson: "lessons",
+  objective: "objectives",
 };
 
 const CHANGED_MESSAGE = "Cet élément a changé entre-temps. La page a été actualisée.";
@@ -88,7 +93,7 @@ export function AcademyArchiveButton({
   id,
   title,
 }: {
-  level: AcademyLevel;
+  level: ArchivableLevel;
   id: string;
   title: string;
 }) {
@@ -142,7 +147,7 @@ export function AcademyRestoreButton({
   id,
   title,
 }: {
-  level: AcademyLevel;
+  level: ArchivableLevel;
   id: string;
   title: string;
 }) {

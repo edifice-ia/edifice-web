@@ -84,9 +84,10 @@ export type AcademyLesson = AcademyTreeLesson & {
 };
 
 // Élément archivé d'un programme, restaurable : sa chaîne d'ancêtres est vivante.
-// Pas de contenu de leçon.
+// Pas de contenu de leçon. Niveau "objective" : objectif pédagogique (étape 2b-1),
+// dont parentTitle est le titre du niveau auquel il est rattaché.
 export type AcademyArchivedNode = {
-  level: AcademyChildLevel;
+  level: AcademyChildLevel | "objective";
   id: string;
   title: string;
   parentTitle: string;
@@ -422,6 +423,99 @@ export function parseChildUpdatePayload(
   }
 
   return { ok: true, updates };
+}
+
+// --- Objectifs pédagogiques (étape 2b-1) --------------------------------------------
+
+// Niveaux auxquels un objectif peut être rattaché : pas la leçon (choix du
+// 2026-11-26). Table : academy_objectives, migration 20261126120000.
+export type AcademyObjectiveParentLevel = "program" | "subject" | "unit" | "chapter";
+
+export const ACADEMY_OBJECTIVE_PARENT_LEVELS: AcademyObjectiveParentLevel[] = [
+  "program",
+  "subject",
+  "unit",
+  "chapter",
+];
+
+// Champ du corps de requête qui porte l'identifiant du parent, par niveau.
+export const ACADEMY_OBJECTIVE_PARENT_FIELD: Record<AcademyObjectiveParentLevel, string> = {
+  program: "programId",
+  subject: "subjectId",
+  unit: "unitId",
+  chapter: "chapterId",
+};
+
+export type AcademyObjectiveCreate = {
+  parentLevel: AcademyObjectiveParentLevel;
+  parentId: string;
+  title: string;
+  description: string | null;
+};
+
+export type AcademyObjective = {
+  id: string;
+  parentLevel: AcademyObjectiveParentLevel;
+  parentId: string;
+  title: string;
+  description: string | null;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const ACADEMY_OBJECTIVE_ONE_PARENT_ERROR =
+  "Un objectif doit avoir exactement un parent : programId, subjectId, unitId ou chapterId.";
+
+// Création d'un objectif : EXACTEMENT un parent parmi programId, subjectId,
+// unitId et chapterId (UUID), comme la contrainte academy_objectives_one_parent.
+// Un champ parent nul ou absent ne compte pas. La position n'est pas lue : le
+// store place l'objectif en fin de liste (choix du 2026-11-26, position non
+// modifiable). Pas de mise à jour : il n'existe pas de parseur de mise à jour
+// des objectifs, et un objectif ne change pas de parent.
+export function parseObjectiveCreatePayload(
+  payload: unknown,
+): ({ ok: true } & AcademyObjectiveCreate) | { ok: false; error: string } {
+  const record = asRecord(payload);
+
+  if (!record) {
+    return { ok: false, error: NOT_AN_OBJECT };
+  }
+
+  const present = ACADEMY_OBJECTIVE_PARENT_LEVELS.filter((level) => {
+    const value = record[ACADEMY_OBJECTIVE_PARENT_FIELD[level]];
+    return value !== undefined && value !== null;
+  });
+
+  if (present.length !== 1) {
+    return { ok: false, error: ACADEMY_OBJECTIVE_ONE_PARENT_ERROR };
+  }
+
+  const parentLevel = present[0];
+  const parentField = ACADEMY_OBJECTIVE_PARENT_FIELD[parentLevel];
+  const parentId = record[parentField];
+
+  if (!isUuid(parentId)) {
+    return { ok: false, error: `${parentField} doit etre un identifiant UUID.` };
+  }
+
+  const title = parseTitle(record.title);
+
+  if (!title.ok) {
+    return title;
+  }
+
+  const description = parseOptionalText(
+    record.description,
+    "description",
+    ACADEMY_DESCRIPTION_MAX_LENGTH,
+  );
+
+  if (!description.ok) {
+    return description;
+  }
+
+  return { ok: true, parentLevel, parentId, title: title.value, description: description.value };
 }
 
 // --- Masquage : filterLiveTree ---------------------------------------------------

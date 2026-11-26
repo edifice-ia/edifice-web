@@ -13,7 +13,7 @@ Dernière mise à jour : 2026-11-24
 - [Modules de publication](#modules-de-publication)
 - [Modules d'observation](#modules-dobservation)
 - [Modules personnels](#modules-personnels)
-- [Espace Academy — squelette, programmes, arbre et leçon ; création, archivage et restauration](#espace-academy--squelette-programmes-arbre-et-leçon--création-archivage-et-restauration)
+- [Espace Academy — squelette, programmes, arbre et leçon ; création, archivage et restauration ; objectifs pédagogiques](#espace-academy--squelette-programmes-arbre-et-leçon--création-archivage-et-restauration--objectifs-pédagogiques)
 - [Service renderer](#service-renderer)
 - [Liens utiles](#liens-utiles)
 - [À mettre à jour](#à-mettre-à-jour)
@@ -650,7 +650,7 @@ Branchée le 2026-09-19. Objectifs est une **table unique**, comme Notes et Tâc
 >
 > **Limites** : l'isolation entre comptes n'a pas été re-testée — établie par construction, non par un test à deux comptes — ; et `personal_data_erasure_log` ne compte qu'une seule entrée pour ce compte, explication vraisemblable liée aux recréations successives du compte, **non vérifiée**. Voir le changelog, entrée « module Objectifs : suppression physique ».
 
-## Espace Academy — squelette, programmes, arbre et leçon ; création, archivage et restauration
+## Espace Academy — squelette, programmes, arbre et leçon ; création, archivage et restauration ; objectifs pédagogiques
 
 Troisième espace de la plateforme, priorité de développement depuis le 2026-11-22 : voir [Décisions](./03_Decisions.md) DEC-014 et DEC-015, et la cible dans [22-espaces-et-marques.md](../Documentation-Strategique/Markdown/22-espaces-et-marques.md).
 
@@ -669,6 +669,7 @@ Fichiers :
 - `app/interface/academy/lecons/page.tsx` — **onglet Leçons** (2026-11-26) : renvoie vers les programmes, sans lire de donnée ; servi avant le segment dynamique `[section]`. Voir plus bas ;
 - `app/interface/academy/AcademyCreateForms.tsx` — **formulaires de création** (composant client, 2026-11-26) : programme et matière, puis module, chapitre et leçon. Voir plus bas ;
 - `app/interface/academy/AcademyArchiveControls.tsx` — **boutons d'archivage et de restauration** (composant client, 2026-11-26), pour les cinq niveaux. Avec `AcademyNav` et `AcademyCreateForms`, ce sont les seuls composants client de l'interface. Voir plus bas ;
+- `lib/server/academy/objectives-store.ts` et `app/api/academy/objectives/**` — **objectifs pédagogiques** (étape 2b-1, 2026-11-26). Voir plus bas ;
 - `lib/cockpit/navigation.ts` et `lib/cockpit/modules.ts` — entrée `academy`, **même identifiant dans les deux**, statut `En cours`. L'entrée du menu principal n'a pas d'enfants.
 
 **Ce que chaque page encore à construire affiche** : « Pas encore construit », le fait qu'aucune donnée n'y est enregistrée ni calculée, ce que la section fera, et l'étape du plan qui la construira. Aucune donnée d'exemple, aucun contenu qui ressemble à du réel.
@@ -803,7 +804,17 @@ Validé par Vincent dans le navigateur le 2026-11-26.
 
 **Contrôlé à la main par Vincent le 2026-11-26, conforme** (serveur local, compte `test-erase@edificeia.com`) : annulation, archivage et restauration d'un programme (`404` sur sa page une fois archivé), archivage des quatre niveaux enfants, cas chapitre puis module puis restauration du module (le chapitre reste archivé et réapparaît dans la section), refus à deux onglets (`404`, message visible). Détail dans l'entrée archivée de `MANUAL_ACTIONS.md`.
 
-**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création des cinq niveaux depuis l'interface écrite (programme et matière, puis module, chapitre et leçon) — création de module, chapitre et leçon contrôlée à la main, conforme selon Vincent ; création de programme et de matière contrôlé à la main le 26 novembre 2026, conforme selon Vincent ; archivage et restauration depuis l'interface écrits, isolation validée en base et contrôle à la main conforme le 2026-11-26 ; étape 2b : migration des objectifs pédagogiques (`academy_objectives`, 2b-1) appliquée et contrôlée le 2026-11-26, code de 2b-1 à écrire ; ressources (2b-2) et fichiers (2b-3) à faire.
+**Étape 2b-1 — objectifs pédagogiques, code (2026-11-26)** — table `academy_objectives`, migration `20261126120000` appliquée et contrôlée le même jour (voir [Base de données](./05_Database.md)) :
+
+- **parseur pur** `parseObjectiveCreatePayload` (`lib/academy/hierarchy.ts`) : **exactement un parent** parmi `programId`, `subjectId`, `unitId`, `chapterId` (UUID) — aucun, plusieurs, ou une leçon : refusé ; titre rogné, 200 caractères ; description facultative, 2 000, vide devenant `null` ; la position n'est pas lue. **Aucun parseur de mise à jour** : un objectif ne change ni de titre, ni de description, ni de parent ;
+- **store** `lib/server/academy/objectives-store.ts`, client de session, filtre `user_id` partout : `createObjective` (parent vérifié par `resolveLiveChain`, fin de liste, `23503` → introuvable, `23514` → invalide), `listLiveObjectives` et `listArchivedObjectives` (descente par les seuls niveaux vivants, comme `listArchivedDescendants`), `archiveObjective`, `restoreObjective` (refusée si le parent ou un ancêtre est archivé). `getClient`, `fail` et le type `DbError` sont **exportés** de `hierarchy-store.ts` pour ce fichier, sans changement de comportement ;
+- **routes** (3 fichiers, 3 handlers, même patron que la hiérarchie) : `POST /api/academy/objectives`, `DELETE /api/academy/objectives/[id]` (archivage), `POST /api/academy/objectives/[id]/restore` ; ni `GET` ni `PATCH`. Message `404` : « Objectif introuvable. » (`lib/academy/http.ts`, niveau `objective`) ;
+- **interface** (arbre d'un programme) : sous le titre du programme et sous chaque matière, module et chapitre, la liste des objectifs vivants (étiquette « Objectif », description en texte brut, bouton « Archiver ») et un formulaire replié « Nouvel objectif » (`AcademyObjectiveCreateForm`). Les objectifs archivés restaurables figurent dans « Éléments archivés de ce programme », étiquetés « Objectif » (`AcademyArchivedNode` élargi au niveau `objective`). Pas d'objectif sur les leçons, ni sur la page Programmes. Refus locaux traduits, dont « La description ne doit pas dépasser 2 000 caractères. » ;
+- **contrôles** : `academy:routes:check` couvre désormais 18 fichiers et 26 handlers ; `academy:hierarchy:check` teste le parseur d'objectifs (un seul parent, titre, description, absence de parseur de mise à jour).
+
+**Non vérifié** : l'isolation côté base des objectifs (test SQL écrit, entrée `pending` du 2026-11-26) ; le rendu et le comportement avec une session (contrôle à la main écrit, entrée `pending` du même jour).
+
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création des cinq niveaux depuis l'interface écrite (programme et matière, puis module, chapitre et leçon) — création de module, chapitre et leçon contrôlée à la main, conforme selon Vincent ; création de programme et de matière contrôlé à la main le 26 novembre 2026, conforme selon Vincent ; archivage et restauration depuis l'interface écrits, isolation validée en base et contrôle à la main conforme le 2026-11-26 ; étape 2b : migration des objectifs pédagogiques (`academy_objectives`, 2b-1) appliquée et contrôlée le 2026-11-26, code de 2b-1 écrit (création, archivage, restauration), non vérifié ; ressources (2b-2) et fichiers (2b-3) à faire.
 
 ## Service renderer
 

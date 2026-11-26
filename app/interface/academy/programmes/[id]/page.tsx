@@ -9,8 +9,10 @@ import {
 import { ACADEMY_MESSAGES } from "@/lib/academy/http";
 import { AcademyStoreError, getLiveProgramTree } from "@/lib/server/academy/hierarchy-store";
 import { requirePrivateCockpitAccess } from "@/src/lib/auth/guards";
+import { AcademySubjectCreateForm } from "../../AcademyCreateForms";
 
-// Arbre d'un programme — interface de l'étape 2a, en lecture seule.
+// Arbre d'un programme — interface de l'étape 2a : arbre en lecture, création
+// d'une matière par AcademySubjectCreateForm (seul élément client).
 //
 // Server Component : lit directement le store avec l'utilisateur de la session,
 // comme la page Programmes. Identifiant malformé, programme inexistant, archivé
@@ -166,9 +168,10 @@ export default async function AcademyProgramTreePage({ params }: AcademyProgramT
             </span>
           </div>
           <p className="mt-3 max-w-3xl leading-7 text-[#A7B0C0]">
-            Matières, modules, chapitres et leçons de ce programme, en lecture seule.
+            Matières, modules, chapitres et leçons de ce programme.
           </p>
           <ProgramTree tree={state.tree} />
+          <AcademySubjectCreateForm programId={state.tree.id} />
         </>
       )}
     </section>

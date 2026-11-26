@@ -4,8 +4,10 @@ import type { AcademyProgram, AcademyProgramKind } from "@/lib/academy/hierarchy
 import { ACADEMY_MESSAGES } from "@/lib/academy/http";
 import { AcademyStoreError, listLivePrograms } from "@/lib/server/academy/hierarchy-store";
 import { requirePrivateCockpitAccess } from "@/src/lib/auth/guards";
+import { AcademyProgramCreateForm } from "../AcademyCreateForms";
 
-// Page Programmes — interface de l'étape 2a, en lecture seule.
+// Page Programmes — interface de l'étape 2a : liste en lecture, création d'un
+// programme par AcademyProgramCreateForm (seul élément client).
 //
 // Page dédiée plutôt qu'une branche dans [section]/page.tsx : c'est la première
 // section qui lit des données, avec ses propres états (vide, erreur, liste). Le
@@ -56,7 +58,7 @@ export default async function AcademyProgramsPage() {
         Programmes
       </h2>
       <p className="mt-3 max-w-3xl leading-7 text-[#A7B0C0]">
-        Curriculums et formations enregistrés, en lecture seule. Les programmes
+        Curriculums et formations enregistrés. Les programmes
         archivés ne sont pas listés.
       </p>
 
@@ -95,6 +97,8 @@ export default async function AcademyProgramsPage() {
           ))}
         </ul>
       )}
+
+      <AcademyProgramCreateForm />
     </section>
   );
 }

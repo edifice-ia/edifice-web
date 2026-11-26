@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-26 (Academy : création de programmes et de matières)](#2026-11-26-academy--création-de-programmes-et-de-matières)
 - [2026-11-26 (Academy : l'onglet Leçons renvoie vers les programmes)](#2026-11-26-academy--longlet-leçons-renvoie-vers-les-programmes)
 - [2026-11-25 (Academy : page Leçon en lecture seule)](#2026-11-25-academy--page-leçon-en-lecture-seule)
 - [2026-11-25 (Academy : arbre d'un programme en lecture seule)](#2026-11-25-academy--arbre-dun-programme-en-lecture-seule)
@@ -86,6 +87,25 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-26 (Academy : création de programmes et de matières)
+
+Type : produit
+
+Résumé : première édition depuis l'interface d'Academy. `app/interface/academy/AcademyCreateForms.tsx`, composant client, ajoute « Nouveau programme » à la page Programmes et « Nouvelle matière » à l'arbre d'un programme. Les formulaires appellent les routes existantes `POST /api/academy/programs` et `POST /api/academy/subjects`.
+
+- Validation avant envoi par les parsers purs de `lib/academy/hierarchy.ts`, les mêmes que les routes : titre non vide, 200 caractères au plus.
+- `400` : message de l'API ; autre réponse ou panne réseau : « Operation Academy indisponible. », sans détail.
+- Envoi : bouton désactivé ; erreur en `role="alert"` ; réussite : formulaire vidé et `router.refresh()`.
+- Textes « en lecture seule » des pages Programmes et Arbre, et phrase d'en-tête, corrigés.
+- Le reste reste en lecture seule : pas de modification, d'archivage, ni de création de module, chapitre ou leçon.
+
+Fichiers liés :
+
+- `app/interface/academy/AcademyCreateForms.tsx`, `app/interface/academy/programmes/page.tsx`, `app/interface/academy/programmes/[id]/page.tsx`, `app/interface/academy/AcademyPrimitives.tsx`
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : aucune route, aucun store, aucun schéma modifiés. Non vérifié : le rendu et l'envoi avec une session.
 
 ## 2026-11-26 (Academy : l'onglet Leçons renvoie vers les programmes)
 

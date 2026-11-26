@@ -13,7 +13,7 @@ Dernière mise à jour : 2026-11-24
 - [Modules de publication](#modules-de-publication)
 - [Modules d'observation](#modules-dobservation)
 - [Modules personnels](#modules-personnels)
-- [Espace Academy — squelette, programmes, arbre et leçon en lecture seule](#espace-academy--squelette-programmes-arbre-et-leçon-en-lecture-seule)
+- [Espace Academy — squelette, programmes, arbre et leçon ; création de programmes et de matières](#espace-academy--squelette-programmes-arbre-et-leçon--création-de-programmes-et-de-matières)
 - [Service renderer](#service-renderer)
 - [Liens utiles](#liens-utiles)
 - [À mettre à jour](#à-mettre-à-jour)
@@ -650,7 +650,7 @@ Branchée le 2026-09-19. Objectifs est une **table unique**, comme Notes et Tâc
 >
 > **Limites** : l'isolation entre comptes n'a pas été re-testée — établie par construction, non par un test à deux comptes — ; et `personal_data_erasure_log` ne compte qu'une seule entrée pour ce compte, explication vraisemblable liée aux recréations successives du compte, **non vérifiée**. Voir le changelog, entrée « module Objectifs : suppression physique ».
 
-## Espace Academy — squelette, programmes, arbre et leçon en lecture seule
+## Espace Academy — squelette, programmes, arbre et leçon ; création de programmes et de matières
 
 Troisième espace de la plateforme, priorité de développement depuis le 2026-11-22 : voir [Décisions](./03_Decisions.md) DEC-014 et DEC-015, et la cible dans [22-espaces-et-marques.md](../Documentation-Strategique/Markdown/22-espaces-et-marques.md).
 
@@ -667,6 +667,7 @@ Fichiers :
 - `app/interface/academy/programmes/[id]/page.tsx` — **arbre d'un programme, en lecture seule** (étape 2a, 2026-11-25) ; chaque titre de leçon mène à la page Leçon. Voir plus bas ;
 - `app/interface/academy/lecons/[id]/page.tsx` — **page Leçon, en lecture seule** (étape 2a, 2026-11-25). Voir plus bas ;
 - `app/interface/academy/lecons/page.tsx` — **onglet Leçons** (2026-11-26) : renvoie vers les programmes, sans lire de donnée ; servi avant le segment dynamique `[section]`. Voir plus bas ;
+- `app/interface/academy/AcademyCreateForms.tsx` — **formulaires de création** (composant client, 2026-11-26) : programme et matière. Seul élément client de l'interface avec `AcademyNav`. Voir plus bas ;
 - `lib/cockpit/navigation.ts` et `lib/cockpit/modules.ts` — entrée `academy`, **même identifiant dans les deux**, statut `En cours`. L'entrée du menu principal n'a pas d'enfants.
 
 **Ce que chaque page encore à construire affiche** : « Pas encore construit », le fait qu'aucune donnée n'y est enregistrée ni calculée, ce que la section fera, et l'étape du plan qui la construira. Aucune donnée d'exemple, aucun contenu qui ressemble à du réel.
@@ -721,9 +722,9 @@ Fichiers :
 - `app/interface/academy/programmes/page.tsx`, Server Component : appelle `requirePrivateCockpitAccess()` pour obtenir l'utilisateur — le layout `app/interface/layout.tsx` garde déjà l'accès mais ne transmet pas l'utilisateur —, puis `listLivePrograms(user.id)` **directement**, sans passer par les routes API ;
 - affiche les programmes vivants, titre et type (« Curriculum » ou « Formation »), dans l'ordre du store (`created_at` décroissant) ; les programmes archivés ne sont pas listés ;
 - liste vide : « Aucun programme enregistré pour l'instant. » ; `AcademyStoreError` : `ACADEMY_MESSAGES.unavailable` (« Operation Academy indisponible. »), sans détail technique, le détail restant dans `console.error` côté store ; toute autre exception remonte à la frontière d'erreur ;
-- rendu React standard, sans `dangerouslySetInnerHTML` ; ni création, ni modification, ni archivage dans l'interface.
+- rendu React standard, sans `dangerouslySetInnerHTML`. *À sa livraison, la page ne permettait ni création, ni modification, ni archivage ; depuis le 2026-11-26, elle permet de créer un programme (voir plus bas).*
 
-En-tête de l'espace (`AcademyHeader`) : le badge « Squelette, sans données » et la phrase « aucune ne contient encore de données », devenus faux, sont remplacés par « En construction » et « La section Programmes affiche les programmes enregistrés, en lecture seule ; les autres sections sont encore à construire. »
+En-tête de l'espace (`AcademyHeader`) : le badge « Squelette, sans données » et la phrase « aucune ne contient encore de données », devenus faux, sont remplacés par « En construction » et « La section Programmes affiche les programmes enregistrés, en lecture seule ; les autres sections sont encore à construire. » *Depuis le 2026-11-26 : « La section Programmes permet de créer un programme et une matière, et de consulter leur arbre. La section Leçons renvoie vers les programmes. Les autres sections sont encore à construire. »*
 
 `lib/academy/sections.ts` : `plannedStep` accepte `"2a"` et `"2b"` ; Programmes et Leçons passent à `"2a"`, Ressources à `"2b"` ; Leçons est décrite comme accessible par l'arbre des programmes — **aucune route de liste des leçons**.
 
@@ -759,7 +760,21 @@ Validé par Vincent dans le navigateur le 2026-11-26.
 
 **Non vérifié** : le rendu de l'onglet Leçons avec une session.
 
-**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; étape 2b (objectifs, ressources) à faire.
+**Étape d'édition 1 — création d'un programme et d'une matière (2026-11-26)** :
+
+- `app/interface/academy/AcademyCreateForms.tsx`, composant client (`"use client"`), deux formulaires : « Nouveau programme » (titre, type curriculum ou formation) sur la page Programmes, « Nouvelle matière » (titre) sur l'arbre d'un programme, avec l'identifiant du programme de la page ;
+- ils appellent les **routes existantes** `POST /api/academy/programs` et `POST /api/academy/subjects` — aucune route, aucun store, aucun schéma nouveau ou modifié ; les pages restent des Server Components ;
+- validation avant envoi par les **parsers purs** de `lib/academy/hierarchy.ts` (`parseProgramCreatePayload`, `parseChildCreatePayload("subject", …)`), ceux que les routes appliquent : titre non vide, 200 caractères au plus, comptés en points de code. Le refus local et le refus du serveur ne peuvent pas diverger ; le serveur reste la référence. Les messages de refus sont donc ceux des parsers, sans accents ;
+- réponse `400` : message renvoyé par l'API ; toute autre réponse (`401`, `403`, `404`, `500`) ou panne réseau : `ACADEMY_MESSAGES.unavailable`, sans détail technique ;
+- états : bouton désactivé pendant l'envoi ; erreur sous le formulaire, en `role="alert"` ; réussite : formulaire vidé, puis `router.refresh()` relit la page ;
+- chaque champ a un label visible ;
+- le formulaire de matière n'apparaît que si l'arbre a été lu ; celui de programme, dans tous les états de la page ;
+- textes devenus faux corrigés dans le même changement : « en lecture seule » sur les pages Programmes et Arbre, et la phrase d'en-tête de `AcademyHeader` ;
+- **tout le reste reste en lecture seule** : ni modification, ni archivage, ni restauration ; pas de création de module, de chapitre ni de leçon depuis l'interface.
+
+**Non vérifié** : le rendu et l'envoi des formulaires avec une session.
+
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création d'un programme et d'une matière depuis l'interface écrite, non vérifiée avec session ; étape 2b (objectifs, ressources) à faire.
 
 ## Service renderer
 

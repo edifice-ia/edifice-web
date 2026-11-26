@@ -53,6 +53,29 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-11-26 — Contrôler à la main l'archivage et la restauration dans l'interface Academy
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : le contrôle demande une session authentifiée du porteur du projet dans le navigateur, et l'agent ne saisit pas d'identifiants.
+
+**Bloque** : la validation de l'étape d'édition 3 ; à faire avec le test SQL d'isolation du même jour.
+
+**Compte** : `test-erase@edificeia.com`, sur les données de contrôle créées le 2026-11-26, **conservées pour ce test** — ne pas les supprimer avant la fin du contrôle.
+
+**Étapes** :
+
+1. Page Programmes : archiver un programme (« Archiver », puis « Confirmer l'archivage ») ; il disparaît de la liste et apparaît dans « Programmes archivés » ; le restaurer : il revient, avec tout son contenu.
+2. « Annuler » après « Archiver » : rien n'est archivé.
+3. Dans l'arbre d'un programme : archiver une leçon, puis un chapitre ; chacun disparaît de l'arbre et apparaît dans « Éléments archivés de ce programme » ; les restaurer.
+4. **Cas imposé** : archiver un **chapitre**, puis **son module** ; vérifier que la section n'affiche que le module (le chapitre, sous un ancêtre archivé, n'y figure pas) ; **restaurer le module** ; vérifier que le module revient dans l'arbre, que le **chapitre reste archivé** — absent de l'arbre — et qu'il **apparaît maintenant dans la section**, restaurable ; le restaurer.
+5. Page d'une leçon archivée, ou sous un ancêtre archivé : `404`.
+6. Relever les identifiants de toute donnée créée pendant le contrôle, pour le nettoyage.
+
+**Vérification** : chaque étape conforme ; transmettre les écarts tels quels à l'agent.
+
+*Écrit le 2026-11-26 par l'agent, sans exécution.*
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
@@ -90,6 +113,221 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 **Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
 
 ## Archive (done)
+
+### 2026-11-26 — Tester l'isolation SQL de la lecture des éléments archivés d'un programme
+
+**Statut** : `done` — 2026-11-26. Script exécuté par Vincent, porteur du projet, dans le SQL Editor, sous le rôle `postgres` ; **résultats conformes selon Vincent**. L'agent n'a exécuté aucune requête.
+
+**Pourquoi c'est manuel** : seul le SQL Editor peut exécuter ce test sur la base réelle, et aucune base de test n'est disponible depuis le dépôt (ni CLI Supabase, ni `psql`, ni Docker sur cette machine). L'agent n'a pas d'accès SQL au projet. **À exécuter par Vincent, porteur du projet**, dans le SQL Editor, sous le rôle `postgres`.
+
+**Bloquait** : le push de l'étape d'édition 3 (archivage et restauration depuis l'interface), qui ajoute au store `listArchivedDescendants` — une nouvelle lecture, donc une nouvelle surface d'accès.
+
+**Ce que le test reproduit** : `listArchivedDescendants(userId, programId)` (`lib/server/academy/hierarchy-store.ts`) lit, sous le client de session, le programme vivant, puis à chaque niveau les enfants **vivants** (pour descendre) et **archivés** (pour la liste) des seuls parents vivants, avec `user_id = userId` sur chaque requête. Le script réécrit ces requêtes en une seule requête SQL équivalente, exécutée sous le rôle `authenticated` de chaque compte, règle d'accès appliquée. Il contrôle :
+
+1. **pas de fuite entre comptes** : B ne lit aucune archive du programme de A, et A aucune de celui de B, même en passant l'identifiant de l'autre programme ; B ne voit aucune ligne archivée de A, même sans filtre `user_id` ;
+2. **aucun élément sous un ancêtre archivé** : `U3`, sous la matière archivée `S2`, et `C3`, sous le module archivé `U2`, ne figurent pas dans la liste de A ;
+3. la liste contient bien les éléments archivés restaurables, et seulement eux.
+
+**Limite** : c'est la requête SQL équivalente qui est éprouvée, pas le code TypeScript lui-même ; l'équivalence est vérifiée à la lecture. Le contrôle manuel dans l'interface (entrée du même jour) éprouve le code réel.
+
+**Sans effet durable** : même modèle que les tests du 2026-11-25. Le script écrit **uniquement dans une transaction terminée par `rollback`** ; les comptes fictifs `…000c` (A) et `…000d` (B) sont créés dans `auth.users` au début de la transaction, sous `postgres`, et retirés par le `rollback`. Aucun compte réel n'est utilisé, aucune donnée existante n'est lue ni modifiée — les données de contrôle de `test-erase@edificeia.com` ne sont pas touchées.
+
+**Résultats obtenus** — 2026-11-26, transmis par Vincent : synthèse **conforme** aux attendus — aucune fuite entre comptes, aucun élément sous un ancêtre archivé dans la liste, `0` ligne archivée de A vue par B ; **contrôle après coup à `0`**. Le détail colonne par colonne n'a pas été transmis : l'agent consigne le verdict tel quel.
+
+**Précision sur la dernière colonne** : le commentaire du script dit « sans filtre user_id » ; plus exactement, B interroge les lignes de A en filtrant sur l'identifiant de A, et c'est la seule règle d'accès qui les lui masque.
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. **Contrôle préalable, en lecture seule** :
+   ```sql
+   select column_name, data_type
+   from information_schema.columns
+   where table_schema = 'auth' and table_name = 'users'
+     and is_nullable = 'NO' and column_default is null
+   order by ordinal_position;
+
+   select tgname, tgenabled
+   from pg_trigger
+   where tgrelid = 'auth.users'::regclass and not tgisinternal;
+   ```
+   Attendu : `id` seul dans la première requête, aucune ligne dans la seconde. **Sinon, s'arrêter** et le transmettre à l'agent.
+3. Lancer le script ci-dessous **en une seule exécution**. Si une erreur s'affiche à la place de la synthèse, s'arrêter et transmettre le message tel quel : la transaction est annulée, rien n'est écrit.
+4. Relever le résultat de la synthèse.
+5. **Contrôle après coup, en lecture seule** :
+   ```sql
+   select
+     (select count(*) from auth.users where id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as utilisateurs_de_test_restants,
+     (select count(*) from public.academy_programs where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as programmes,
+     (select count(*) from public.academy_subjects where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as matieres,
+     (select count(*) from public.academy_units where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as modules,
+     (select count(*) from public.academy_chapters where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as chapitres,
+     (select count(*) from public.academy_lessons where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as lecons;
+   ```
+   Attendu : `0` partout.
+6. Transmettre les résultats, tels quels, à l'agent pour consignation.
+
+```sql
+begin;
+
+-- Sous le role postgres du SQL Editor : creation des deux comptes de test.
+-- Annules par le rollback final.
+insert into auth.users (id) values
+  ('00000000-0000-0000-0000-00000000000c'),
+  ('00000000-0000-0000-0000-00000000000d');
+
+-- Compte A : un programme, sous son propre role.
+--   S1 matiere vivante ; S2 matiere archivee, avec U3 module archive dessous.
+--   U1 module vivant sous S1 ; U2 module archive sous S1, avec C3 chapitre archive dessous.
+--   C1 chapitre vivant sous U1 ; C2 chapitre archive sous U1.
+--   L1 lecon archivee sous C1 ; L2 lecon vivante sous C1.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title) values ('00000000-0000-0000-0000-00000000000c', 'formation', 'P de A');
+insert into public.academy_subjects (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, t from public.academy_programs, (values ('S1 vivante'), ('S2 archivee')) v(t) where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_units (user_id, subject_id, title)
+select '00000000-0000-0000-0000-00000000000c', (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'S1 vivante'), t from (values ('U1 vivant'), ('U2 archive')) v(t);
+insert into public.academy_units (user_id, subject_id, title)
+values ('00000000-0000-0000-0000-00000000000c', (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'S2 archivee'), 'U3 archive sous S2');
+insert into public.academy_chapters (user_id, unit_id, title)
+select '00000000-0000-0000-0000-00000000000c', (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'U1 vivant'), t from (values ('C1 vivant'), ('C2 archive')) v(t);
+insert into public.academy_chapters (user_id, unit_id, title)
+values ('00000000-0000-0000-0000-00000000000c', (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'U2 archive'), 'C3 archive sous U2');
+insert into public.academy_lessons (user_id, chapter_id, title)
+select '00000000-0000-0000-0000-00000000000c', (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'C1 vivant'), t from (values ('L1 archivee'), ('L2 vivante')) v(t);
+
+-- Archivage par A lui-meme (regle d'acces en modification appliquee).
+update public.academy_subjects set deleted_at = now() where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'S2 archivee';
+update public.academy_units set deleted_at = now() where user_id = '00000000-0000-0000-0000-00000000000c' and title in ('U2 archive', 'U3 archive sous S2');
+update public.academy_chapters set deleted_at = now() where user_id = '00000000-0000-0000-0000-00000000000c' and title in ('C2 archive', 'C3 archive sous U2');
+update public.academy_lessons set deleted_at = now() where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'L1 archivee';
+reset role;
+
+-- Compte B : son propre programme, avec une matiere archivee.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title) values ('00000000-0000-0000-0000-00000000000d', 'formation', 'P de B');
+insert into public.academy_subjects (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000d', id, 'SB archivee' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000d';
+update public.academy_subjects set deleted_at = now() where user_id = '00000000-0000-0000-0000-00000000000d';
+reset role;
+
+-- Sous postgres : releve des identifiants des deux programmes.
+select set_config('academy_test.program_a',
+  (select id::text from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c'), true);
+select set_config('academy_test.program_b',
+  (select id::text from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000d'), true);
+
+-- A lit les archives de son programme. Attendu : C2 archive | L1 archivee | S2 archivee | U2 archive
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', true);
+set local role authenticated;
+select set_config('academy_test.a_sur_a', (with p as (
+    select id from public.academy_programs
+    where id = current_setting('academy_test.program_a')::uuid and user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null
+  ),
+  ls as (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and program_id in (select id from p)),
+  lu as (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and subject_id in (select id from ls)),
+  lc as (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and unit_id in (select id from lu)),
+  arch as (
+    select title from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null and program_id in (select id from p)
+    union all
+    select title from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null and subject_id in (select id from ls)
+    union all
+    select title from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null and unit_id in (select id from lu)
+    union all
+    select title from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null and chapter_id in (select id from lc)
+  )
+  select coalesce(string_agg(title, ' | ' order by title), '(aucun)') from arch), true);
+-- A lit les archives du programme de B, avec son propre user_id. Attendu : (aucun)
+select set_config('academy_test.a_sur_b', (with p as (
+    select id from public.academy_programs
+    where id = current_setting('academy_test.program_b')::uuid and user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null
+  ),
+  ls as (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and program_id in (select id from p)),
+  lu as (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and subject_id in (select id from ls)),
+  lc as (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and unit_id in (select id from lu)),
+  arch as (
+    select title from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null and program_id in (select id from p)
+    union all
+    select title from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null and subject_id in (select id from ls)
+    union all
+    select title from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null and unit_id in (select id from lu)
+    union all
+    select title from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null and chapter_id in (select id from lc)
+  )
+  select coalesce(string_agg(title, ' | ' order by title), '(aucun)') from arch), true);
+reset role;
+
+-- B lit les archives du programme de A, avec son propre user_id. Attendu : (aucun)
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}', true);
+set local role authenticated;
+select set_config('academy_test.b_sur_a', (with p as (
+    select id from public.academy_programs
+    where id = current_setting('academy_test.program_a')::uuid and user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null
+  ),
+  ls as (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and program_id in (select id from p)),
+  lu as (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and subject_id in (select id from ls)),
+  lc as (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and unit_id in (select id from lu)),
+  arch as (
+    select title from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is not null and program_id in (select id from p)
+    union all
+    select title from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is not null and subject_id in (select id from ls)
+    union all
+    select title from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is not null and unit_id in (select id from lu)
+    union all
+    select title from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is not null and chapter_id in (select id from lc)
+  )
+  select coalesce(string_agg(title, ' | ' order by title), '(aucun)') from arch), true);
+-- B lit les archives de son programme. Attendu : SB archivee
+select set_config('academy_test.b_sur_b', (with p as (
+    select id from public.academy_programs
+    where id = current_setting('academy_test.program_b')::uuid and user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null
+  ),
+  ls as (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and program_id in (select id from p)),
+  lu as (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and subject_id in (select id from ls)),
+  lc as (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and unit_id in (select id from lu)),
+  arch as (
+    select title from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is not null and program_id in (select id from p)
+    union all
+    select title from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is not null and subject_id in (select id from ls)
+    union all
+    select title from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is not null and unit_id in (select id from lu)
+    union all
+    select title from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is not null and chapter_id in (select id from lc)
+  )
+  select coalesce(string_agg(title, ' | ' order by title), '(aucun)') from arch), true);
+-- B lit directement les lignes archivees de A, sans filtre user_id. Attendu : 0
+select set_config('academy_test.b_voit_archives_a', (
+  (select count(*) from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null)
+  + (select count(*) from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null)
+  + (select count(*) from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null)
+  + (select count(*) from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null)
+)::text, true);
+reset role;
+
+-- Synthese, sous postgres.
+select
+  current_setting('academy_test.a_sur_a', true) as archives_de_a_lues_par_a,
+  current_setting('academy_test.a_sur_b', true) as archives_de_b_lues_par_a,
+  current_setting('academy_test.b_sur_a', true) as archives_de_a_lues_par_b,
+  current_setting('academy_test.b_sur_b', true) as archives_de_b_lues_par_b,
+  current_setting('academy_test.b_voit_archives_a', true) as lignes_archivees_de_a_vues_par_b;
+
+rollback;
+```
+
+**Résultat attendu de la synthèse** :
+
+- `archives_de_a_lues_par_a` : `C2 archive | L1 archivee | S2 archivee | U2 archive` — ni `U3 archive sous S2`, ni `C3 archive sous U2` ;
+- `archives_de_b_lues_par_a` : `(aucun)` ;
+- `archives_de_a_lues_par_b` : `(aucun)` ;
+- `archives_de_b_lues_par_b` : `SB archivee` ;
+- `lignes_archivees_de_a_vues_par_b` : `0`.
+
+**Vérification** : synthèse conforme à l'attendu ci-dessus, et contrôle de l'étape 5 à `0` partout. Si un résultat diffère, s'arrêter et le signaler. **Ne pas corriger les politiques ni le store dans la foulée.**
+
+*Écrit le 2026-11-26 par l'agent, sans exécution ; exécution par Vincent consignée le même jour.*
 
 ### 2026-11-26 — Nettoyer les données de contrôle de la page Leçon
 

@@ -18,9 +18,10 @@ export function AcademyHeader() {
       </div>
       <p className="mt-4 max-w-3xl leading-7 text-[#A7B0C0]">
         Environnement d&apos;apprentissage : programmes, leçons, révisions et
-        progression. La section Programmes permet de créer un programme et une
-        matière, et de consulter leur arbre. La section Leçons renvoie vers les
-        programmes. Les autres sections sont encore à construire.
+        progression. La section Programmes permet de consulter l&apos;arbre de chaque
+        programme, d&apos;en créer, d&apos;archiver et de restaurer les éléments. La
+        section Leçons renvoie vers les programmes. Les autres sections sont encore
+        à construire.
       </p>
     </header>
   );

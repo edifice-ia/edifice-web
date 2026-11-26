@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-26 (Academy : archivage et restauration depuis l'interface)](#2026-11-26-academy--archivage-et-restauration-depuis-linterface)
 - [2026-11-26 (Academy : création de modules, chapitres et leçons)](#2026-11-26-academy--création-de-modules-chapitres-et-leçons)
 - [2026-11-26 (Academy : création de programmes et de matières)](#2026-11-26-academy--création-de-programmes-et-de-matières)
 - [2026-11-26 (Academy : l'onglet Leçons renvoie vers les programmes)](#2026-11-26-academy--longlet-leçons-renvoie-vers-les-programmes)
@@ -88,6 +89,26 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-26 (Academy : archivage et restauration depuis l'interface)
+
+Type : produit, sécurité
+
+Résumé : l'interface d'Academy permet d'archiver et de restaurer programmes, matières, modules, chapitres et leçons. `app/interface/academy/AcademyArchiveControls.tsx` (composants client) appelle les routes existantes `DELETE /api/academy/{niveau}/[id]` et `POST …/[id]/restore`. La page Programmes liste les programmes archivés (`listArchivedPrograms`) ; l'arbre liste les éléments archivés restaurables du programme, par une **nouvelle lecture du store**, `listArchivedDescendants`.
+
+- Archivage confirmé en deux temps dans la page ; `404` : « Cet élément a changé entre-temps. La page a été actualisée. » ; autre erreur : message générique.
+- `listArchivedDescendants` : lecture seule, client de session, filtre `user_id` sur chaque requête ; ne renvoie que les éléments archivés dont la chaîne d'ancêtres est vivante, ceux que `restoreNode` accepte.
+- Parent archivé : ses enfants sont masqués et réapparaissent avec lui ; un enfant archivé sous un ancêtre archivé n'est listé qu'après la restauration de l'ancêtre.
+- Phrase d'en-tête d'`AcademyHeader` et commentaire de la page Programmes mis à jour.
+- Aucune route, aucun schéma modifié.
+
+Fichiers liés :
+
+- `app/interface/academy/AcademyArchiveControls.tsx`, `app/interface/academy/programmes/page.tsx`, `app/interface/academy/programmes/[id]/page.tsx`, `app/interface/academy/AcademyPrimitives.tsx`, `lib/server/academy/hierarchy-store.ts`, `lib/academy/hierarchy.ts` (type `AcademyArchivedNode`)
+- `MANUAL_ACTIONS.md` — test SQL d'isolation de `listArchivedDescendants` (validé, archivé) ; contrôle à la main (`pending`)
+- `knowledge/Documentation-Technique-Code/06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : nouvelle lecture dans le store. Test SQL d'isolation de `listArchivedDescendants` validé par Vincent le 2026-11-26 (aucune fuite, aucun élément sous un ancêtre archivé, contrôle après coup à `0`). Non vérifié : rendu et comportement avec une session.
 
 ## 2026-11-26 (Academy : création de modules, chapitres et leçons)
 

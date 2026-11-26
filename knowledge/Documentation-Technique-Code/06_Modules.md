@@ -13,7 +13,7 @@ Dernière mise à jour : 2026-11-24
 - [Modules de publication](#modules-de-publication)
 - [Modules d'observation](#modules-dobservation)
 - [Modules personnels](#modules-personnels)
-- [Espace Academy — squelette, programmes, arbre et leçon ; création des cinq niveaux](#espace-academy--squelette-programmes-arbre-et-leçon--création-des-cinq-niveaux)
+- [Espace Academy — squelette, programmes, arbre et leçon ; création, archivage et restauration](#espace-academy--squelette-programmes-arbre-et-leçon--création-archivage-et-restauration)
 - [Service renderer](#service-renderer)
 - [Liens utiles](#liens-utiles)
 - [À mettre à jour](#à-mettre-à-jour)
@@ -650,7 +650,7 @@ Branchée le 2026-09-19. Objectifs est une **table unique**, comme Notes et Tâc
 >
 > **Limites** : l'isolation entre comptes n'a pas été re-testée — établie par construction, non par un test à deux comptes — ; et `personal_data_erasure_log` ne compte qu'une seule entrée pour ce compte, explication vraisemblable liée aux recréations successives du compte, **non vérifiée**. Voir le changelog, entrée « module Objectifs : suppression physique ».
 
-## Espace Academy — squelette, programmes, arbre et leçon ; création des cinq niveaux
+## Espace Academy — squelette, programmes, arbre et leçon ; création, archivage et restauration
 
 Troisième espace de la plateforme, priorité de développement depuis le 2026-11-22 : voir [Décisions](./03_Decisions.md) DEC-014 et DEC-015, et la cible dans [22-espaces-et-marques.md](../Documentation-Strategique/Markdown/22-espaces-et-marques.md).
 
@@ -667,7 +667,8 @@ Fichiers :
 - `app/interface/academy/programmes/[id]/page.tsx` — **arbre d'un programme, en lecture seule** (étape 2a, 2026-11-25) ; chaque titre de leçon mène à la page Leçon. Voir plus bas ;
 - `app/interface/academy/lecons/[id]/page.tsx` — **page Leçon, en lecture seule** (étape 2a, 2026-11-25). Voir plus bas ;
 - `app/interface/academy/lecons/page.tsx` — **onglet Leçons** (2026-11-26) : renvoie vers les programmes, sans lire de donnée ; servi avant le segment dynamique `[section]`. Voir plus bas ;
-- `app/interface/academy/AcademyCreateForms.tsx` — **formulaires de création** (composant client, 2026-11-26) : programme et matière, puis module, chapitre et leçon. Seul élément client de l'interface avec `AcademyNav`. Voir plus bas ;
+- `app/interface/academy/AcademyCreateForms.tsx` — **formulaires de création** (composant client, 2026-11-26) : programme et matière, puis module, chapitre et leçon. Voir plus bas ;
+- `app/interface/academy/AcademyArchiveControls.tsx` — **boutons d'archivage et de restauration** (composant client, 2026-11-26), pour les cinq niveaux. Avec `AcademyNav` et `AcademyCreateForms`, ce sont les seuls composants client de l'interface. Voir plus bas ;
 - `lib/cockpit/navigation.ts` et `lib/cockpit/modules.ts` — entrée `academy`, **même identifiant dans les deux**, statut `En cours`. L'entrée du menu principal n'a pas d'enfants.
 
 **Ce que chaque page encore à construire affiche** : « Pas encore construit », le fait qu'aucune donnée n'y est enregistrée ni calculée, ce que la section fera, et l'étape du plan qui la construira. Aucune donnée d'exemple, aucun contenu qui ressemble à du réel.
@@ -704,7 +705,7 @@ Fichiers :
 **Étape 2a, suite — validation et store posés (2026-11-24, commit local)**, sans route ni interface :
 
 - `lib/academy/hierarchy.ts` — module **pur** : types, limites (titre 200, description 2 000, contenu 100 000 caractères comptés en points de code comme `length()` de Postgres, position entière de 0 à 2 147 483 647, `kind` dans `curriculum` / `formation`), fonctions de validation de création et de mise à jour pour les programmes et les quatre niveaux enfants, qui renvoient `{ ok: true, … }` ou `{ ok: false, error }`. Un titre est rogné ; une description ou un contenu blanc est normalisé en `null`. Changer de parent par une mise à jour est **refusé** explicitement. Contient `filterLiveTree`, fonction pure qui construit l'arbre vivant d'un programme et **masque tout descendant d'un élément archivé**, trié par `position` puis `created_at`. Contient aussi `isUuid`, en **copie locale** : voir les dettes du chantier 8.
-- `lib/server/academy/hierarchy-store.ts` — **client de session uniquement** (`src/lib/supabase/server.ts`), jamais la clé service-role : les policies `*_own` sont le garde réel, et chaque requête filtre en plus sur `user_id`. Une table de configuration interne, `LEVEL_CONFIG`, résout chaque niveau en table et colonne parent ; **aucun nom de table ne vient de l'extérieur**. `resolveLiveChain(niveau, id)` remonte la chaîne jusqu'au programme et répond « introuvable » si un maillon est absent, appartient à un autre compte ou est archivé. Opérations : liste des programmes vivants et archivés, création, mise à jour, lecture de l'arbre (sans le contenu des leçons), lecture d'une leçon, création d'un enfant (position calculée en fin de liste si absente), mise à jour, archivage, restauration (**refusée si un ancêtre est archivé**). **Erreurs** : le store renvoie `ok`, `invalid` ou `not_found`, jamais l'erreur brute de la base ; une panne inattendue lève `AcademyStoreError`, au message générique, le détail allant aux seuls journaux du serveur.
+- `lib/server/academy/hierarchy-store.ts` — **client de session uniquement** (`src/lib/supabase/server.ts`), jamais la clé service-role : les policies `*_own` sont le garde réel, et chaque requête filtre en plus sur `user_id`. Une table de configuration interne, `LEVEL_CONFIG`, résout chaque niveau en table et colonne parent ; **aucun nom de table ne vient de l'extérieur**. `resolveLiveChain(niveau, id)` remonte la chaîne jusqu'au programme et répond « introuvable » si un maillon est absent, appartient à un autre compte ou est archivé. Opérations : liste des programmes vivants et archivés, création, mise à jour, lecture de l'arbre (sans le contenu des leçons), lecture d'une leçon, création d'un enfant (position calculée en fin de liste si absente), mise à jour, archivage, restauration (**refusée si un ancêtre est archivé**), et, depuis le 2026-11-26, `listArchivedDescendants(userId, programId)` : liste des éléments archivés restaurables d'un programme vivant (voir l'étape d'édition 3). **Erreurs** : le store renvoie `ok`, `invalid` ou `not_found`, jamais l'erreur brute de la base ; une panne inattendue lève `AcademyStoreError`, au message générique, le détail allant aux seuls journaux du serveur.
 - Tests : `npm run academy:hierarchy:check` (`scripts/academy-hierarchy-check.mjs`), sans base — limites, champs requis, `kind`, position, UUID, cas limites, et masquage par `filterLiveTree` à chaque niveau. **Le store lui-même n'est pas testé** : il demande une base, et aucune route ne l'appelle encore.
 
 **Étape 2a, suite — routes API écrites (2026-11-24, commit local)**, sans interface :
@@ -724,7 +725,7 @@ Fichiers :
 - liste vide : « Aucun programme enregistré pour l'instant. » ; `AcademyStoreError` : `ACADEMY_MESSAGES.unavailable` (« Operation Academy indisponible. »), sans détail technique, le détail restant dans `console.error` côté store ; toute autre exception remonte à la frontière d'erreur ;
 - rendu React standard, sans `dangerouslySetInnerHTML`. *À sa livraison, la page ne permettait ni création, ni modification, ni archivage ; depuis le 2026-11-26, elle permet de créer un programme (voir plus bas).*
 
-En-tête de l'espace (`AcademyHeader`) : le badge « Squelette, sans données » et la phrase « aucune ne contient encore de données », devenus faux, sont remplacés par « En construction » et « La section Programmes affiche les programmes enregistrés, en lecture seule ; les autres sections sont encore à construire. » *Depuis le 2026-11-26 : « La section Programmes permet de créer un programme et une matière, et de consulter leur arbre. La section Leçons renvoie vers les programmes. Les autres sections sont encore à construire. »*
+En-tête de l'espace (`AcademyHeader`) : le badge « Squelette, sans données » et la phrase « aucune ne contient encore de données », devenus faux, sont remplacés par « En construction » et « La section Programmes affiche les programmes enregistrés, en lecture seule ; les autres sections sont encore à construire. » *Depuis le 2026-11-26 : « La section Programmes permet de créer un programme et une matière, et de consulter leur arbre. La section Leçons renvoie vers les programmes. Les autres sections sont encore à construire. » Puis, avec l'étape d'édition 3 : « La section Programmes permet de consulter l'arbre de chaque programme, d'en créer, d'archiver et de restaurer les éléments. La section Leçons renvoie vers les programmes. Les autres sections sont encore à construire. »*
 
 `lib/academy/sections.ts` : `plannedStep` accepte `"2a"` et `"2b"` ; Programmes et Leçons passent à `"2a"`, Ressources à `"2b"` ; Leçons est décrite comme accessible par l'arbre des programmes — **aucune route de liste des leçons**.
 
@@ -783,11 +784,26 @@ Validé par Vincent dans le navigateur le 2026-11-26.
 - la leçon reçoit un champ **Contenu** facultatif (zone de texte) : vide ou fait d'espaces, il est enregistré comme `null` ; il est rendu en texte brut sur la page Leçon ;
 - après création : formulaire vidé, `router.refresh()` ; la page de l'arbre ne change que par l'ajout de ces formulaires sous les nœuds.
 
-**Ce que l'interface permet de créer** : programme, matière, module, chapitre, leçon. **Tout le reste reste en lecture seule** : ni modification, ni archivage, ni restauration depuis l'interface.
+**Ce que l'interface permet de créer** : programme, matière, module, chapitre, leçon. *À la livraison de l'étape d'édition 2, l'interface ne permettait ni modification, ni archivage, ni restauration ; l'étape d'édition 3 ajoute l'archivage et la restauration (ci-dessous).*
 
 **Non vérifié** : le rendu et l'envoi des formulaires de module, de chapitre et de leçon avec une session.
 
-**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création des cinq niveaux depuis l'interface écrite (programme et matière, puis module, chapitre et leçon), non vérifiée avec session ; étape 2b (objectifs, ressources) à faire.
+**Étape d'édition 3 — archivage et restauration depuis l'interface (2026-11-26)** :
+
+- `app/interface/academy/AcademyArchiveControls.tsx`, composants client `AcademyArchiveButton` et `AcademyRestoreButton`, pour les cinq niveaux. Ils appellent les **routes existantes** `DELETE /api/academy/{niveau}/[id]` (archivage : `deleted_at`, aucune suppression) et `POST /api/academy/{niveau}/[id]/restore` ;
+- archiver demande une **confirmation en deux temps, dans la page** (« Archiver », puis « Confirmer l'archivage » ou « Annuler ») ; pas de `window.confirm` ;
+- `404` : l'état a changé entre-temps (déjà archivé, déjà restauré, ancêtre archivé) — message « Cet élément a changé entre-temps. La page a été actualisée. » et `router.refresh()` ; autre réponse ou panne : `ACADEMY_MESSAGES.unavailable` ; réussite : `router.refresh()` ;
+- **page Programmes** : un bouton « Archiver » sur chaque programme ; section repliée « Programmes archivés », lue par `listArchivedPrograms` directement depuis le Server Component, avec la date d'archivage et un bouton « Restaurer » ;
+- **arbre d'un programme** : un bouton « Archiver » à côté du titre de chaque matière, module, chapitre et leçon ; section repliée « Éléments archivés de ce programme », lue par la **nouvelle fonction de store** `listArchivedDescendants(userId, programId)` ;
+- `listArchivedDescendants` : lecture seule, client de session, filtre `user_id` sur chaque requête. Elle lit le programme vivant, puis, niveau par niveau, les enfants vivants (pour descendre) et archivés (pour la liste) des **seuls parents vivants** : elle renvoie exactement les éléments que `restoreNode` accepte — niveau, identifiant, titre, titre du parent, date d'archivage, sans contenu de leçon. Programme inexistant, archivé ou d'un autre compte : `not_found` ;
+- **parent archivé, enfant vivant** : l'enfant est masqué avec son parent ; seul le parent figure dans la section ; restaurer le parent fait réapparaître l'enfant. Un enfant archivé **sous** un ancêtre archivé n'est pas listé — sa restauration serait refusée — et le devient quand l'ancêtre est restauré ;
+- aucune route, aucun schéma modifié ; le store gagne une fonction de lecture, sans modification de l'existant.
+
+**Isolation côté base de `listArchivedDescendants`** : test SQL validé par Vincent le 2026-11-26 — aucune fuite entre comptes, aucun élément sous un ancêtre archivé, contrôle après coup à `0` (entrée archivée de `MANUAL_ACTIONS.md`). Le test éprouve une requête SQL équivalente à la fonction, non le code TypeScript lui-même.
+
+**Non vérifié** : le rendu et le comportement avec une session, dont le cas chapitre archivé puis module archivé puis module restauré — contrôle à la main écrit, entrée `pending` du 2026-11-26.
+
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création des cinq niveaux depuis l'interface écrite (programme et matière, puis module, chapitre et leçon), non vérifiée avec session ; archivage et restauration depuis l'interface écrits, non vérifiés ; étape 2b (objectifs, ressources) à faire.
 
 ## Service renderer
 

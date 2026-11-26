@@ -3,17 +3,25 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   isUuid,
+  type AcademyArchivedNode,
+  type AcademyChildLevel,
   type AcademyProgramKind,
   type AcademyProgramTree,
 } from "@/lib/academy/hierarchy";
 import { ACADEMY_MESSAGES } from "@/lib/academy/http";
-import { AcademyStoreError, getLiveProgramTree } from "@/lib/server/academy/hierarchy-store";
+import {
+  AcademyStoreError,
+  getLiveProgramTree,
+  listArchivedDescendants,
+} from "@/lib/server/academy/hierarchy-store";
 import { requirePrivateCockpitAccess } from "@/src/lib/auth/guards";
+import { AcademyArchiveButton, AcademyRestoreButton } from "../../AcademyArchiveControls";
 import { AcademyChildCreateForm, AcademySubjectCreateForm } from "../../AcademyCreateForms";
 
 // Arbre d'un programme — interface de l'étape 2a : arbre en lecture. La page
 // place des formulaires de création (matière, module, chapitre, leçon), rangés
-// dans AcademyCreateForms.tsx.
+// dans AcademyCreateForms.tsx, et des boutons d'archivage et de restauration,
+// rangés dans AcademyArchiveControls.tsx.
 //
 // Server Component : lit directement le store avec l'utilisateur de la session,
 // comme la page Programmes. Identifiant malformé, programme inexistant, archivé
@@ -55,6 +63,75 @@ async function readTree(userId: string, programId: string): Promise<TreeState> {
   }
 }
 
+type ArchivedState =
+  | { status: "ok"; items: AcademyArchivedNode[] }
+  | { status: "unavailable" };
+
+async function readArchived(userId: string, programId: string): Promise<ArchivedState> {
+  try {
+    const result = await listArchivedDescendants(userId, programId);
+
+    // not_found : le programme a été archivé entre les deux lectures ; rien à lister.
+    return { status: "ok", items: result.status === "ok" ? result.value : [] };
+  } catch (error) {
+    if (error instanceof AcademyStoreError) {
+      return { status: "unavailable" };
+    }
+
+    throw error;
+  }
+}
+
+const LEVEL_LABELS: Record<AcademyChildLevel, string> = {
+  subject: "Matière",
+  unit: "Module",
+  chapter: "Chapitre",
+  lesson: "Leçon",
+};
+
+// Date d'archivage, rendue côté serveur uniquement (Server Component) : pas de
+// risque d'écart d'hydratation.
+const ARCHIVED_AT = new Intl.DateTimeFormat("fr-FR", {
+  dateStyle: "long",
+  timeZone: "Europe/Paris",
+});
+
+function ArchivedList({ state }: { state: ArchivedState }) {
+  return (
+    <details className="mt-6 rounded-md border border-[#1D2A44] bg-[#0B1420]/60 p-4">
+      <summary className="cursor-pointer font-semibold text-[#D8DEE8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+        Éléments archivés de ce programme
+      </summary>
+      <p className="mt-2 text-sm text-[#A7B0C0]">
+        Seuls les éléments restaurables sont listés. Les éléments contenus dans un élément archivé
+        réapparaissent avec lui quand il est restauré.
+      </p>
+      {state.status === "unavailable" ? (
+        <p role="alert" className="mt-3 text-sm text-[#FCA5A5]">
+          {ACADEMY_MESSAGES.unavailable}
+        </p>
+      ) : state.items.length === 0 ? (
+        <p className="mt-3 text-sm italic text-[#A7B0C0]">Aucun élément archivé.</p>
+      ) : (
+        <ul className="mt-3 grid gap-2" aria-label="Éléments archivés">
+          {state.items.map((item) => (
+            <li key={item.id} className="flex flex-wrap items-center gap-3 text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[#7DD3FC]">
+                {LEVEL_LABELS[item.level]}
+              </span>
+              <span className="font-semibold text-[#D8DEE8]">{item.title}</span>
+              <span className="text-xs text-[#A7B0C0]">
+                {`dans « ${item.parentTitle} », archivé le ${ARCHIVED_AT.format(new Date(item.archivedAt))}`}
+              </span>
+              <AcademyRestoreButton level={item.level} id={item.id} title={item.title} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
+  );
+}
+
 function EmptyLevel({ children }: { children: React.ReactNode }) {
   return <p className="mt-2 text-sm italic text-[#A7B0C0]">{children}</p>;
 }
@@ -68,14 +145,20 @@ function ProgramTree({ tree }: { tree: AcademyProgramTree }) {
     <ul className="mt-4 grid gap-4" aria-label="Matières">
       {tree.subjects.map((subject) => (
         <li key={subject.id} className="rounded-md border border-[#1D2A44] bg-[#0B1420] px-4 py-3">
-          <h3 className="text-lg font-semibold text-[#F8FAFC]">{subject.title}</h3>
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className="text-lg font-semibold text-[#F8FAFC]">{subject.title}</h3>
+            <AcademyArchiveButton level="subject" id={subject.id} title={subject.title} />
+          </div>
           {subject.units.length === 0 ? (
             <EmptyLevel>Aucun module pour l&apos;instant.</EmptyLevel>
           ) : (
             <ul className="mt-3 grid gap-3 border-l border-[#1D2A44] pl-4" aria-label="Modules">
               {subject.units.map((unit) => (
                 <li key={unit.id}>
-                  <h4 className="font-semibold text-[#D8DEE8]">{unit.title}</h4>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h4 className="font-semibold text-[#D8DEE8]">{unit.title}</h4>
+                    <AcademyArchiveButton level="unit" id={unit.id} title={unit.title} />
+                  </div>
                   {unit.chapters.length === 0 ? (
                     <EmptyLevel>Aucun chapitre pour l&apos;instant.</EmptyLevel>
                   ) : (
@@ -85,7 +168,10 @@ function ProgramTree({ tree }: { tree: AcademyProgramTree }) {
                     >
                       {unit.chapters.map((chapter) => (
                         <li key={chapter.id}>
-                          <h5 className="text-sm font-semibold text-[#D8DEE8]">{chapter.title}</h5>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <h5 className="text-sm font-semibold text-[#D8DEE8]">{chapter.title}</h5>
+                            <AcademyArchiveButton level="chapter" id={chapter.id} title={chapter.title} />
+                          </div>
                           {chapter.lessons.length === 0 ? (
                             <EmptyLevel>Aucune leçon pour l&apos;instant.</EmptyLevel>
                           ) : (
@@ -94,13 +180,17 @@ function ProgramTree({ tree }: { tree: AcademyProgramTree }) {
                               aria-label="Leçons"
                             >
                               {chapter.lessons.map((lesson) => (
-                                <li key={lesson.id} className="text-sm text-[#A7B0C0]">
+                                <li
+                                  key={lesson.id}
+                                  className="flex flex-wrap items-center gap-3 text-sm text-[#A7B0C0]"
+                                >
                                   <Link
                                     href={`/interface/academy/lecons/${lesson.id}`}
                                     className="hover:text-[#39E6D0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                                   >
                                     {lesson.title}
                                   </Link>
+                                  <AcademyArchiveButton level="lesson" id={lesson.id} title={lesson.title} />
                                 </li>
                               ))}
                             </ul>
@@ -136,6 +226,9 @@ export default async function AcademyProgramTreePage({ params }: AcademyProgramT
   if (state.status === "not_found") {
     notFound();
   }
+
+  const archived: ArchivedState =
+    state.status === "ok" ? await readArchived(user.id, id) : { status: "ok", items: [] };
 
   return (
     <section
@@ -176,6 +269,7 @@ export default async function AcademyProgramTreePage({ params }: AcademyProgramT
           </p>
           <ProgramTree tree={state.tree} />
           <AcademySubjectCreateForm programId={state.tree.id} />
+          <ArchivedList state={archived} />
         </>
       )}
     </section>

@@ -83,6 +83,16 @@ export type AcademyLesson = AcademyTreeLesson & {
   content: string | null;
 };
 
+// Élément archivé d'un programme, restaurable : sa chaîne d'ancêtres est vivante.
+// Pas de contenu de leçon.
+export type AcademyArchivedNode = {
+  level: AcademyChildLevel;
+  id: string;
+  title: string;
+  parentTitle: string;
+  archivedAt: string;
+};
+
 // --- Primitives de validation ------------------------------------------------
 
 // Copie locale de isUuid, la quatrième du dépôt (goals.ts,

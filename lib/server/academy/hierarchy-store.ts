@@ -2,6 +2,7 @@ import { createClient } from "@/src/lib/supabase/server";
 import {
   ACADEMY_PARENT_LEVEL,
   filterLiveTree,
+  type AcademyArchivedNode,
   type AcademyArchivedProgram,
   type AcademyChildCreate,
   type AcademyChildLevel,
@@ -569,4 +570,100 @@ export async function restoreNode(
   }
 
   return data ? { status: "ok", value: null } : { status: "not_found" };
+}
+
+// --- Éléments archivés d'un programme --------------------------------------------------
+
+type ArchivedRow = { id: string; title: string; deleted_at: string; parent: string };
+
+// Liste les matières, modules, chapitres et leçons ARCHIVÉS d'un programme vivant,
+// dont toute la chaîne d'ancêtres est vivante : exactement ceux que restoreNode
+// accepte. Un élément archivé sous un ancêtre archivé n'y figure pas — il
+// redeviendra visible ici quand l'ancêtre sera restauré. Lecture seule, client
+// de session, filtre user_id sur chaque requête, comme le reste du store. Pas de
+// contenu de leçon. Programme inexistant, archivé ou d'un autre compte : not_found.
+export async function listArchivedDescendants(
+  userId: string,
+  programId: string,
+): Promise<AcademyStoreResult<AcademyArchivedNode[]>> {
+  const supabase = await getClient();
+
+  const { data: program, error: programError } = await supabase
+    .from(LEVEL_CONFIG.program.table)
+    .select("id, title")
+    .eq("id", programId)
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .maybeSingle<{ id: string; title: string }>();
+
+  if (programError) {
+    fail("listArchivedDescendants program", programError);
+  }
+
+  if (!program) {
+    return { status: "not_found" };
+  }
+
+  // Enfants d'un niveau sous des parents vivants donnés : vivants (pour descendre)
+  // ou archivés (pour la liste).
+  async function readChildren(
+    level: AcademyChildLevel,
+    parentIds: string[],
+    archived: boolean,
+  ): Promise<ArchivedRow[]> {
+    if (parentIds.length === 0) {
+      return [];
+    }
+
+    const config = LEVEL_CONFIG[level];
+    const query = supabase!
+      .from(config.table)
+      .select(`id, title, deleted_at, parent:${config.parentColumn}`)
+      .eq("user_id", userId)
+      .in(config.parentColumn as string, parentIds);
+    const { data, error } = await (archived
+      ? query.not("deleted_at", "is", null)
+      : query.is("deleted_at", null)
+    ).returns<ArchivedRow[]>();
+
+    if (error) {
+      fail(`listArchivedDescendants ${level}`, error);
+    }
+
+    return data ?? [];
+  }
+
+  const titles = new Map<string, string>([[programId, program.title]]);
+  const items: AcademyArchivedNode[] = [];
+  let liveParents = [programId];
+
+  for (const level of ["subject", "unit", "chapter", "lesson"] as const) {
+    const archivedRows = await readChildren(level, liveParents, true);
+
+    for (const row of archivedRows) {
+      items.push({
+        level,
+        id: row.id,
+        title: row.title,
+        parentTitle: titles.get(row.parent) ?? "",
+        archivedAt: row.deleted_at,
+      });
+    }
+
+    if (level === "lesson") {
+      break;
+    }
+
+    const liveRows = await readChildren(level, liveParents, false);
+
+    for (const row of liveRows) {
+      titles.set(row.id, row.title);
+    }
+
+    liveParents = liveRows.map((row) => row.id);
+  }
+
+  items.sort((a, b) => (a.archivedAt < b.archivedAt ? 1 : a.archivedAt > b.archivedAt ? -1 : 0));
+
+  return { status: "ok", value: items };
 }

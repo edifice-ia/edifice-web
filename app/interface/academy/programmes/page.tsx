@@ -1,13 +1,23 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import type { AcademyProgram, AcademyProgramKind } from "@/lib/academy/hierarchy";
+import type {
+  AcademyArchivedProgram,
+  AcademyProgram,
+  AcademyProgramKind,
+} from "@/lib/academy/hierarchy";
 import { ACADEMY_MESSAGES } from "@/lib/academy/http";
-import { AcademyStoreError, listLivePrograms } from "@/lib/server/academy/hierarchy-store";
+import {
+  AcademyStoreError,
+  listArchivedPrograms,
+  listLivePrograms,
+} from "@/lib/server/academy/hierarchy-store";
 import { requirePrivateCockpitAccess } from "@/src/lib/auth/guards";
+import { AcademyArchiveButton, AcademyRestoreButton } from "../AcademyArchiveControls";
 import { AcademyProgramCreateForm } from "../AcademyCreateForms";
 
 // Page Programmes — interface de l'étape 2a : liste en lecture, création d'un
-// programme par AcademyProgramCreateForm (seul élément client).
+// programme (AcademyCreateForms.tsx), archivage et restauration
+// (AcademyArchiveControls.tsx) ; ces composants client sont les seuls de la page.
 //
 // Page dédiée plutôt qu'une branche dans [section]/page.tsx : c'est la première
 // section qui lit des données, avec ses propres états (vide, erreur, liste). Le
@@ -31,6 +41,17 @@ type ProgramsState =
   | { status: "ok"; programs: AcademyProgram[] }
   | { status: "unavailable" };
 
+type ArchivedProgramsState =
+  | { status: "ok"; programs: AcademyArchivedProgram[] }
+  | { status: "unavailable" };
+
+// Date d'archivage, rendue côté serveur uniquement (Server Component) : pas de
+// risque d'écart d'hydratation.
+const ARCHIVED_AT = new Intl.DateTimeFormat("fr-FR", {
+  dateStyle: "long",
+  timeZone: "Europe/Paris",
+});
+
 async function readPrograms(userId: string): Promise<ProgramsState> {
   try {
     return { status: "ok", programs: await listLivePrograms(userId) };
@@ -45,9 +66,22 @@ async function readPrograms(userId: string): Promise<ProgramsState> {
   }
 }
 
+async function readArchivedPrograms(userId: string): Promise<ArchivedProgramsState> {
+  try {
+    return { status: "ok", programs: await listArchivedPrograms(userId) };
+  } catch (error) {
+    if (error instanceof AcademyStoreError) {
+      return { status: "unavailable" };
+    }
+
+    throw error;
+  }
+}
+
 export default async function AcademyProgramsPage() {
   const user = await requirePrivateCockpitAccess();
   const state = await readPrograms(user.id);
+  const archived = await readArchivedPrograms(user.id);
 
   return (
     <section
@@ -92,6 +126,7 @@ export default async function AcademyProgramsPage() {
                 <span className="rounded-md border border-[#39E6D0]/40 bg-[#39E6D0]/10 px-2 py-0.5 text-xs font-semibold text-[#39E6D0]">
                   {KIND_LABELS[program.kind]}
                 </span>
+                <AcademyArchiveButton level="program" id={program.id} title={program.title} />
               </div>
             </li>
           ))}
@@ -99,6 +134,35 @@ export default async function AcademyProgramsPage() {
       )}
 
       <AcademyProgramCreateForm />
+
+      <details className="mt-6 rounded-md border border-[#1D2A44] bg-[#0B1420]/60 p-4">
+        <summary className="cursor-pointer font-semibold text-[#D8DEE8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+          Programmes archivés
+        </summary>
+        <p className="mt-2 text-sm text-[#A7B0C0]">
+          Un programme archivé n&apos;est pas supprimé : le restaurer fait réapparaître tout son
+          contenu.
+        </p>
+        {archived.status === "unavailable" ? (
+          <p role="alert" className="mt-3 text-sm text-[#FCA5A5]">
+            {ACADEMY_MESSAGES.unavailable}
+          </p>
+        ) : archived.programs.length === 0 ? (
+          <p className="mt-3 text-sm italic text-[#A7B0C0]">Aucun programme archivé.</p>
+        ) : (
+          <ul className="mt-3 grid gap-2" aria-label="Programmes archivés">
+            {archived.programs.map((program) => (
+              <li key={program.id} className="flex flex-wrap items-center gap-3 text-sm">
+                <span className="font-semibold text-[#D8DEE8]">{program.title}</span>
+                <span className="text-xs text-[#A7B0C0]">
+                  {`${KIND_LABELS[program.kind]}, archivé le ${ARCHIVED_AT.format(new Date(program.archivedAt))}`}
+                </span>
+                <AcademyRestoreButton level="program" id={program.id} title={program.title} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </details>
     </section>
   );
 }

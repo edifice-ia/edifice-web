@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-26 (Academy : migration des objectifs pédagogiques)](#2026-11-26-academy--migration-des-objectifs-pédagogiques)
 - [2026-11-26 (Academy : archivage et restauration depuis l'interface)](#2026-11-26-academy--archivage-et-restauration-depuis-linterface)
 - [2026-11-26 (Academy : création de modules, chapitres et leçons)](#2026-11-26-academy--création-de-modules-chapitres-et-leçons)
 - [2026-11-26 (Academy : création de programmes et de matières)](#2026-11-26-academy--création-de-programmes-et-de-matières)
@@ -89,6 +90,24 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-26 (Academy : migration des objectifs pédagogiques)
+
+Type : base de données, sécurité
+
+Résumé : étape 2b-1, migration seule. `supabase/migrations/20261126120000_create_academy_objectives.sql` crée `academy_objectives`, appliquée par Vincent dans le SQL Editor le 2026-11-26 ; synthèse de contrôle conforme (table présente, RLS active, contrainte « exactement un parent », 4 clés composites en cascade, `INSERT, SELECT, UPDATE` à `authenticated`, rien à `anon`, aucun `DELETE`, trois règles d'accès).
+
+- Un parent et un seul parmi programme, matière, module, chapitre (`num_nonnulls(...) = 1`) ; une colonne et une clé composite par niveau ; pas de leçon.
+- `title` (200), `description` (2 000, facultative), `position` ; pas de statut « atteint ».
+- Socle habituel : RLS par propriétaire, `revoke all` avant `grant`, aucun `DELETE`.
+
+Fichiers liés :
+
+- `supabase/migrations/20261126120000_create_academy_objectives.sql`
+- `MANUAL_ACTIONS.md` — entrée archivée « Appliquer la migration des objectifs pédagogiques »
+- `knowledge/Documentation-Technique-Code/05_Database.md`, `06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : nouvelle table, encore lue ni écrite par aucun code. Code de 2b-1 (store, routes, interface) à écrire.
 
 ## 2026-11-26 (Academy : archivage et restauration depuis l'interface)
 

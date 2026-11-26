@@ -183,6 +183,19 @@ Droits : RLS activée ; `revoke all … from anon, authenticated` **avant** le `
 
 Hors de cette migration, étape 2b : `academy_objectives` et `academy_resources`.
 
+**`academy_objectives` — objectifs pédagogiques, migration appliquée en base le 2026-11-26, contrôles structurels conformes** — `supabase/migrations/20261126120000_create_academy_objectives.sql`, appliquée à la main dans le SQL Editor (entrée archivée du même jour dans `MANUAL_ACTIONS.md`). **Aucun code ne lit ni n'écrit encore cette table** : store, routes et interface de l'étape 2b-1 restent à écrire.
+
+| Colonne | Rôle |
+|---|---|
+| `program_id`, `subject_id`, `unit_id`, `chapter_id` | parent, **un et un seul** (contrainte `academy_objectives_one_parent`, `num_nonnulls(...) = 1`) ; chacun par une clé composite `academy_objectives_<niveau>_fk`, `(x_id, user_id)` → `(id, user_id)`, en `on delete cascade`. Pas de rattachement à une leçon. |
+| `title` | non vide, au plus 200 caractères |
+| `description` | nulle ou non vide, au plus 2 000 caractères |
+| `position` | `>= 0`, sans unicité |
+
+Colonnes communes et droits identiques à la hiérarchie : `id`, `user_id`, `created_at`, `updated_at` (déclencheur `academy_objectives_set_updated_at`), `deleted_at` ; `unique (id, user_id)` ; RLS ; `revoke all` avant le `grant` de `SELECT`, `INSERT`, `UPDATE` à `authenticated`, aucun `DELETE` ; trois policies `*_own`. Pas de statut « atteint » : la progression se calculera à l'étape 6. Index partiels `(parent_id, position) where deleted_at is null and parent_id is not null`, un par colonne de parent. Entité pédagogique, sans lien avec `personal_goals` ni `trajectoire_objectives` (DEC-014).
+
+`academy_resources` (étape 2b-2) : pas encore de migration.
+
 ## Privilèges des tables accédées par la seule clé service-role
 
 Neuf tables ne sont lues et écrites que par des clients service-role — vérifié par lecture du code le 2026-09-28, noms de table dynamiques compris : `personal_calendar_events`, `personal_calendar_sync_state`, `content_drafts`, `content_draft_asset_links`, `content_draft_media_plans`, `content_draft_visual_scenes`, `trajectoire_projects`, `trajectoire_objectives`, `trajectoire_actions`. Aucun client de session ni client navigateur ne les cite. **Pour elles, RLS est une défense en profondeur, pas le garde réel** — l'inverse des huit tables du pôle Personnel dont les stores utilisent le client de session.

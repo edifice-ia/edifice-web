@@ -91,6 +91,77 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 ## Archive (done)
 
+### 2026-11-26 — Appliquer la migration des objectifs pédagogiques
+
+**Statut** : `done` — 2026-11-26. Migration appliquée par Vincent, porteur du projet, dans le SQL Editor ; contrôles en lecture seule **conformes**. L'agent n'a exécuté aucune requête.
+
+**Pourquoi c'est manuel** : l'agent n'a pas d'accès SQL au projet ; seul le SQL Editor peut appliquer une migration sur la base réelle.
+
+**Bloquait** : le code de l'étape 2b-1 (store, routes et interface des objectifs pédagogiques).
+
+**Migration** : `supabase/migrations/20261126120000_create_academy_objectives.sql` — table `academy_objectives`, un parent et un seul parmi programme, matière, module, chapitre, clés composites en cascade, RLS par propriétaire, `select`, `insert`, `update` à `authenticated`, aucun `DELETE`.
+
+**Étapes et résultats** :
+
+1. **Requête 0, témoin avant application**, en lecture seule :
+   ```sql
+   select to_regclass('public.academy_objectives') as table_avant_application;
+   ```
+   Résultat : `null` — la table n'existait pas — **conforme**.
+2. **Application** de la migration, en une exécution, dans le SQL Editor.
+3. **Requête 1, synthèse après application**, en lecture seule :
+   ```sql
+   select
+     to_regclass('public.academy_objectives') is not null as table_existe,
+     (select relrowsecurity from pg_class
+      where oid = 'public.academy_objectives'::regclass) as rls_active,
+     exists (
+       select 1 from pg_constraint
+       where conrelid = 'public.academy_objectives'::regclass
+         and conname = 'academy_objectives_one_parent'
+         and pg_get_constraintdef(oid) ilike '%num_nonnulls(program_id, subject_id, unit_id, chapter_id) = 1%'
+     ) as contrainte_un_parent,
+     (select count(*) from pg_constraint
+      where conrelid = 'public.academy_objectives'::regclass
+        and contype = 'f' and confdeltype = 'c'
+        and conname in ('academy_objectives_program_fk', 'academy_objectives_subject_fk',
+                        'academy_objectives_unit_fk', 'academy_objectives_chapter_fk')) as cles_composites_en_cascade,
+     (select coalesce(string_agg(privilege_type, ', ' order by privilege_type), '(aucun)')
+      from information_schema.role_table_grants
+      where table_schema = 'public' and table_name = 'academy_objectives'
+        and grantee = 'authenticated') as droits_authenticated,
+     (select coalesce(string_agg(privilege_type, ', ' order by privilege_type), '(aucun)')
+      from information_schema.role_table_grants
+      where table_schema = 'public' and table_name = 'academy_objectives'
+        and grantee = 'anon') as droits_anon,
+     exists (
+       select 1 from information_schema.role_table_grants
+       where table_schema = 'public' and table_name = 'academy_objectives'
+         and grantee in ('anon', 'authenticated') and privilege_type = 'DELETE'
+     ) as delete_accorde,
+     (select string_agg(policyname || ' (' || cmd || ')', ', ' order by policyname)
+      from pg_policies
+      where schemaname = 'public' and tablename = 'academy_objectives') as regles_d_acces;
+   ```
+   **Résultat** — **conforme** :
+
+   | Colonne | Résultat |
+   | --- | --- |
+   | `table_existe` | `true` |
+   | `rls_active` | `true` |
+   | `contrainte_un_parent` | `true` |
+   | `cles_composites_en_cascade` | `4` |
+   | `droits_authenticated` | `INSERT, SELECT, UPDATE` |
+   | `droits_anon` | `(aucun)` |
+   | `delete_accorde` | `false` |
+   | `regles_d_acces` | trois règles : `academy_objectives_insert_own`, `academy_objectives_select_own`, `academy_objectives_update_own` |
+
+**Note** : une première exécution de la requête 1 a échoué, la table n'existant pas encore — c'était **avant l'application** ; c'est conforme, et la requête a réussi une fois la migration appliquée.
+
+**Non fait** : la requête facultative de détail des contraintes (requête 2) n'a pas été rapportée ; aucun test fonctionnel ni d'isolation sur cette table — le code de 2b-1 reste à écrire.
+
+*Consigné le 2026-11-26 par l'agent, d'après les résultats transmis par Vincent.*
+
 ### 2026-11-26 — Vérifier le déploiement Vercel de l'Academy en navigation privée
 
 **Statut** : `done` — 2026-11-26. Vérification faite par Vincent, porteur du projet, en navigation privée, sur la production (`www.edificeia.com`), après le push des étapes d'édition. L'agent n'a rien exécuté.

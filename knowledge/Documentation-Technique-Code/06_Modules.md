@@ -786,7 +786,7 @@ Validé par Vincent dans le navigateur le 2026-11-26.
 
 **Ce que l'interface permet de créer** : programme, matière, module, chapitre, leçon. *À la livraison de l'étape d'édition 2, l'interface ne permettait ni modification, ni archivage, ni restauration ; l'étape d'édition 3 ajoute l'archivage et la restauration (ci-dessous).*
 
-**Non vérifié** : le rendu et l'envoi des formulaires de module, de chapitre et de leçon avec une session.
+**Contrôlé à la main par Vincent le 2026-11-26, conforme selon Vincent** (serveur local, compte `test-erase@edificeia.com`, après le commit `b2c21b4`) : formulaires repliés, création de chaque niveau, leçon avec et sans contenu, contenu affiché sur la page Leçon, messages de refus en français. Détail point par point non transmis ; entrée archivée de `MANUAL_ACTIONS.md`.
 
 **Étape d'édition 3 — archivage et restauration depuis l'interface (2026-11-26)** :
 
@@ -803,7 +803,7 @@ Validé par Vincent dans le navigateur le 2026-11-26.
 
 **Contrôlé à la main par Vincent le 2026-11-26, conforme** (serveur local, compte `test-erase@edificeia.com`) : annulation, archivage et restauration d'un programme (`404` sur sa page une fois archivé), archivage des quatre niveaux enfants, cas chapitre puis module puis restauration du module (le chapitre reste archivé et réapparaît dans la section), refus à deux onglets (`404`, message visible). Détail dans l'entrée archivée de `MANUAL_ACTIONS.md`.
 
-**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création des cinq niveaux depuis l'interface écrite (programme et matière, puis module, chapitre et leçon), non vérifiée avec session ; archivage et restauration depuis l'interface écrits, isolation validée en base et contrôle à la main conforme le 2026-11-26 ; étape 2b (objectifs, ressources) à faire.
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création des cinq niveaux depuis l'interface écrite (programme et matière, puis module, chapitre et leçon) — création de module, chapitre et leçon contrôlée à la main, conforme selon Vincent ; création de programme et de matière non consignée à part ; archivage et restauration depuis l'interface écrits, isolation validée en base et contrôle à la main conforme le 2026-11-26 ; étape 2b (objectifs, ressources) à faire.
 
 ## Service renderer
 

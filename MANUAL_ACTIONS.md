@@ -91,6 +91,28 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 ## Archive (done)
 
+### 2026-11-26 — Contrôler à la main la création de modules, chapitres et leçons dans l'arbre
+
+**Statut** : `done` — 2026-11-26. Contrôle exécuté par Vincent, porteur du projet, dans le navigateur, sur le serveur local (`localhost:3000`), avec le compte `test-erase@edificeia.com`, après le commit `b2c21b4` ; **jugé conforme par Vincent**. L'agent n'a rien exécuté.
+
+**Pourquoi c'est manuel** : le contrôle demande une session authentifiée du porteur du projet dans le navigateur, et l'agent ne saisit pas d'identifiants.
+
+**Bloquait** : la validation de l'étape d'édition 2 (création d'un module, d'un chapitre et d'une leçon depuis l'arbre d'un programme).
+
+**Aucune entrée `pending` n'avait été écrite pour ce contrôle** : cette entrée est créée directement en `done`, d'après la confirmation de Vincent.
+
+**Points couverts**, tels que prévus pour l'étape d'édition 2. Le détail point par point n'a pas été transmis : chacun est consigné **conforme selon Vincent**, sans résultat inventé.
+
+1. Ouverture et fermeture des formulaires repliés (`<details>`) « Nouveau module », « Nouveau chapitre », « Nouvelle leçon » sous les nœuds de l'arbre — conforme selon Vincent.
+2. Création d'un module, d'un chapitre et d'une leçon ; chacun apparaît dans l'arbre après création — conforme selon Vincent.
+3. Leçon **avec** contenu et leçon **sans** contenu — conforme selon Vincent.
+4. Affichage du contenu sur la page Leçon (`/interface/academy/lecons/[id]`), en texte brut ; leçon sans contenu : « Cette leçon n'a pas encore de contenu. » — conforme selon Vincent.
+5. Messages de refus en français : titre vide (« Le titre ne peut pas être vide. »), titre trop long (« Le titre ne doit pas dépasser 200 caractères. »), contenu trop long (« Le contenu ne doit pas dépasser 100 000 caractères. ») — conforme selon Vincent.
+
+**Données de contrôle** : elles restent sur `test-erase@edificeia.com` ; aucun nettoyage n'est demandé.
+
+*Consigné le 2026-11-26 par l'agent, d'après la confirmation de Vincent.*
+
 ### 2026-11-26 — Contrôler à la main l'archivage et la restauration dans l'interface Academy
 
 **Statut** : `done` — 2026-11-26. Contrôle exécuté par Vincent, porteur du projet, dans le navigateur, sur le serveur local (`localhost:3000`), avec le compte `test-erase@edificeia.com` ; **conforme aux sept étapes**. L'agent n'a rien exécuté.

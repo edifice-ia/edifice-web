@@ -97,7 +97,9 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 **Pourquoi c'est manuel** : il n'existe pas de suppression physique dans Academy — les tables `academy_*` n'accordent pas `DELETE` à `authenticated`, et le chemin de suppression de l'étape 8 n'est pas écrit —, et seul le SQL Editor, sous le rôle `postgres`, peut supprimer ces données. L'agent n'a pas d'accès SQL au projet.
 
-**Contexte** : données créées pour contrôler à la main la page Leçon (leçon avec contenu, leçon sans contenu). **Aucune entrée `pending` n'avait été écrite pour ce nettoyage** : cette entrée est créée directement en `done`, d'après les résultats transmis par Vincent. Les requêtes exécutées ne sont pas reproduites ici ; les colonnes transmises sont celles du comptage de l'entrée archivée « Nettoyer les données de contrôle de l'arbre Academy (test-erase@edificeia.com) » du 2026-11-25 (lignes visées et totaux du compte). **Adresse du compte non transmise.**
+**Contexte** : données créées pour contrôler à la main la page Leçon (leçon avec contenu, leçon sans contenu). **Aucune entrée `pending` n'avait été écrite pour ce nettoyage** : cette entrée est créée directement en `done`, d'après les résultats transmis par Vincent. Les requêtes exécutées ne sont pas reproduites ici ; les colonnes transmises sont celles du comptage de l'entrée archivée « Nettoyer les données de contrôle de l'arbre Academy (test-erase@edificeia.com) » du 2026-11-25 (lignes visées et totaux du compte).
+
+**Compte** : `test-erase@edificeia.com` — adresse utilisée par le comptage avant et après suppression, transmise par Vincent le 2026-11-26. *Jusqu'à cette précision, l'entrée indiquait « adresse du compte non transmise ».*
 
 **Exécution** — 2026-11-26, résultats transmis par Vincent :
 

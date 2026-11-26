@@ -21,11 +21,29 @@ import { ACADEMY_MESSAGES } from "@/lib/academy/http";
 // message ; toute autre réponse, ou une panne réseau, affiche le message
 // générique, sans détail technique. Après création : formulaire vidé, puis
 // router.refresh() relit les Server Components de la page.
+//
+// Les refus de la validation locale sont traduits en français par
+// LOCAL_VALIDATION_MESSAGES, sans toucher aux parsers : leurs messages restent
+// ceux de l'API (réponses 400). Seuls les refus atteignables depuis ces deux
+// formulaires sont traduits ; un refus inattendu garde le message du parser.
 
 const KIND_LABELS: Record<AcademyProgramKind, string> = {
   curriculum: "Curriculum",
   formation: "Formation",
 };
+
+// Messages exacts des parsers de lib/academy/hierarchy.ts, atteignables depuis
+// ces formulaires. À tenir alignés si les parsers changent.
+const LOCAL_VALIDATION_MESSAGES: Record<string, string> = {
+  "title ne peut pas etre vide.": "Le titre ne peut pas être vide.",
+  [`title depasse la longueur maximale de ${ACADEMY_TITLE_MAX_LENGTH} caracteres.`]:
+    `Le titre ne doit pas dépasser ${ACADEMY_TITLE_MAX_LENGTH} caractères.`,
+  "kind doit valoir curriculum ou formation.": "Choisis un type de programme dans la liste.",
+};
+
+function localValidationMessage(parserError: string) {
+  return LOCAL_VALIDATION_MESSAGES[parserError] ?? parserError;
+}
 
 type SubmitResult = { ok: true } | { ok: false; error: string };
 
@@ -93,7 +111,7 @@ export function AcademyProgramCreateForm() {
     const parsed = parseProgramCreatePayload({ kind, title });
 
     if (!parsed.ok) {
-      setError(parsed.error);
+      setError(localValidationMessage(parsed.error));
       return;
     }
 
@@ -181,7 +199,7 @@ export function AcademySubjectCreateForm({ programId }: { programId: string }) {
     const parsed = parseChildCreatePayload("subject", { programId, title });
 
     if (!parsed.ok) {
-      setError(parsed.error);
+      setError(localValidationMessage(parsed.error));
       return;
     }
 

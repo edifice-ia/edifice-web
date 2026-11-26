@@ -94,7 +94,7 @@ Type : produit
 
 Résumé : première édition depuis l'interface d'Academy. `app/interface/academy/AcademyCreateForms.tsx`, composant client, ajoute « Nouveau programme » à la page Programmes et « Nouvelle matière » à l'arbre d'un programme. Les formulaires appellent les routes existantes `POST /api/academy/programs` et `POST /api/academy/subjects`.
 
-- Validation avant envoi par les parsers purs de `lib/academy/hierarchy.ts`, les mêmes que les routes : titre non vide, 200 caractères au plus.
+- Validation avant envoi par les parsers purs de `lib/academy/hierarchy.ts`, les mêmes que les routes : titre non vide, 200 caractères au plus. Messages de validation locale traduits en français (titre vide, titre trop long, type inconnu), parsers inchangés ; les messages de l'API restent ceux du serveur.
 - `400` : message de l'API ; autre réponse ou panne réseau : « Operation Academy indisponible. », sans détail.
 - Envoi : bouton désactivé ; erreur en `role="alert"` ; réussite : formulaire vidé et `router.refresh()`.
 - Textes « en lecture seule » des pages Programmes et Arbre, et phrase d'en-tête, corrigés.

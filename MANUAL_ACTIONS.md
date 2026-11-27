@@ -91,6 +91,80 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 ## Archive (done)
 
+### 2026-11-27 — Appliquer la migration des ressources pédagogiques
+
+**Statut** : `done` — 2026-11-27. Migration appliquée par Vincent, porteur du projet, dans le SQL Editor ; contrôles en lecture seule **conformes**. L'agent n'a exécuté aucune requête.
+
+**Pourquoi c'est manuel** : l'agent n'a pas d'accès SQL au projet ; seul le SQL Editor peut appliquer une migration sur la base réelle.
+
+**Bloquait** : le code de l'étape 2b-2 (store, routes et interface des ressources pédagogiques).
+
+**Migration** : `supabase/migrations/20261127120000_create_academy_resources.sql` — table `academy_resources`, un parent et un seul parmi programme et leçon, clés composites en cascade, `kind` lien ou texte avec cohérence `url`/`body`, URL `http`/`https` sans identifiants, RLS par propriétaire, `select`, `insert`, `update` à `authenticated`, aucun `DELETE`.
+
+**Étapes et résultats** — valeurs **obtenues** par Vincent, et non recopiées des attendus :
+
+1. **Requête 0, témoin avant application**, en lecture seule :
+   ```sql
+   select to_regclass('public.academy_resources') as table_avant_application;
+   ```
+   Résultat obtenu : `null` — **conforme**.
+2. **Application** de la migration, dans le SQL Editor.
+3. **Requête 1, synthèse après application**, en lecture seule :
+   ```sql
+   select
+     to_regclass('public.academy_resources') is not null as table_existe,
+     (select relrowsecurity from pg_class
+      where oid = 'public.academy_resources'::regclass) as rls_active,
+     exists (
+       select 1 from pg_constraint
+       where conrelid = 'public.academy_resources'::regclass
+         and conname = 'academy_resources_one_parent'
+         and pg_get_constraintdef(oid) ilike '%num_nonnulls(program_id, lesson_id) = 1%'
+     ) as contrainte_un_parent,
+     (select count(*) from pg_constraint
+      where conrelid = 'public.academy_resources'::regclass
+        and contype = 'f' and confdeltype = 'c'
+        and conname in ('academy_resources_program_fk', 'academy_resources_lesson_fk')) as cles_composites_en_cascade,
+     exists (
+       select 1 from pg_constraint
+       where conrelid = 'public.academy_resources'::regclass
+         and conname = 'academy_resources_url_no_credentials'
+     ) as contrainte_sans_identifiants,
+     (select coalesce(string_agg(privilege_type, ', ' order by privilege_type), '(aucun)')
+      from information_schema.role_table_grants
+      where table_schema = 'public' and table_name = 'academy_resources'
+        and grantee = 'authenticated') as droits_authenticated,
+     (select coalesce(string_agg(privilege_type, ', ' order by privilege_type), '(aucun)')
+      from information_schema.role_table_grants
+      where table_schema = 'public' and table_name = 'academy_resources'
+        and grantee = 'anon') as droits_anon,
+     exists (
+       select 1 from information_schema.role_table_grants
+       where table_schema = 'public' and table_name = 'academy_resources'
+         and grantee in ('anon', 'authenticated') and privilege_type = 'DELETE'
+     ) as delete_accorde,
+     (select string_agg(policyname || ' (' || cmd || ')', ', ' order by policyname)
+      from pg_policies
+      where schemaname = 'public' and tablename = 'academy_resources') as regles_d_acces;
+   ```
+   **Résultat obtenu** — **conforme** :
+
+   | Colonne | Résultat |
+   | --- | --- |
+   | `table_existe` | `true` |
+   | `rls_active` | `true` |
+   | `contrainte_un_parent` | `true` |
+   | `cles_composites_en_cascade` | `2` |
+   | `contrainte_sans_identifiants` | `true` |
+   | `droits_authenticated` | `INSERT, SELECT, UPDATE` |
+   | `droits_anon` | `(aucun)` |
+   | `delete_accorde` | `false` |
+   | `regles_d_acces` | trois règles : `academy_resources_insert_own`, `academy_resources_select_own`, `academy_resources_update_own` |
+
+**Non fait** : la requête facultative de détail des contraintes (requête 2) n'a pas été rapportée — la définition de `academy_resources_url_no_credentials` (`'^https?://[^/?#]*@'`) n'est donc pas lue en base, seulement son existence ; aucun test fonctionnel ni d'isolation sur cette table — le code de 2b-2 reste à écrire.
+
+*Consigné le 2026-11-27 par l'agent, d'après les résultats transmis par Vincent.*
+
 ### 2026-11-26 — Contrôler à la main les objectifs pédagogiques dans l'arbre
 
 **Statut** : `done` — consigné le 2026-11-27. Contrôle exécuté par Vincent, porteur du projet, dans le navigateur, sur le serveur local (`localhost:3000`), avec le compte `test-erase@edificeia.com`, après le commit `47ddf74` ; **jugé conforme par Vincent**. L'agent n'a rien exécuté.

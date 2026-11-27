@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-27 (Academy : migration des ressources pédagogiques)](#2026-11-27-academy--migration-des-ressources-pédagogiques)
 - [2026-11-26 (Academy : objectifs pédagogiques, création, archivage, restauration)](#2026-11-26-academy--objectifs-pédagogiques-création-archivage-restauration)
 - [2026-11-26 (Academy : migration des objectifs pédagogiques)](#2026-11-26-academy--migration-des-objectifs-pédagogiques)
 - [2026-11-26 (Academy : archivage et restauration depuis l'interface)](#2026-11-26-academy--archivage-et-restauration-depuis-linterface)
@@ -91,6 +92,25 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-27 (Academy : migration des ressources pédagogiques)
+
+Type : base de données, sécurité
+
+Résumé : étape 2b-2, migration seule. `supabase/migrations/20261127120000_create_academy_resources.sql` crée `academy_resources`, appliquée par Vincent dans le SQL Editor le 2026-11-27 ; synthèse de contrôle conforme (table présente, RLS active, contrainte « exactement un parent », 2 clés composites en cascade, contrainte « sans identifiants » présente, `INSERT, SELECT, UPDATE` à `authenticated`, rien à `anon`, aucun `DELETE`, trois règles d'accès).
+
+- Un parent et un seul parmi programme et leçon (`num_nonnulls(program_id, lesson_id) = 1`).
+- `kind` lien ou texte, avec cohérence : un lien a une `url` et pas de `body`, un texte l'inverse.
+- `url` : `http` ou `https`, sans espace, 2 048 caractères, sans identifiants avant l'hôte ; `body` : 20 000 caractères ; `title` : 200.
+- Socle habituel : RLS par propriétaire, `revoke all` avant `grant`, aucun `DELETE`.
+
+Fichiers liés :
+
+- `supabase/migrations/20261127120000_create_academy_resources.sql`
+- `MANUAL_ACTIONS.md` — entrée archivée « Appliquer la migration des ressources pédagogiques »
+- `knowledge/Documentation-Technique-Code/05_Database.md`, `06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : nouvelle table, encore lue ni écrite par aucun code. Code de 2b-2 (store, routes, interface) à écrire.
 
 ## 2026-11-26 (Academy : objectifs pédagogiques, création, archivage, restauration)
 

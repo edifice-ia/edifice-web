@@ -85,9 +85,10 @@ export type AcademyLesson = AcademyTreeLesson & {
 
 // Élément archivé d'un programme, restaurable : sa chaîne d'ancêtres est vivante.
 // Pas de contenu de leçon. Niveau "objective" : objectif pédagogique (étape 2b-1),
-// dont parentTitle est le titre du niveau auquel il est rattaché.
+// niveau "resource" : ressource pédagogique (étape 2b-2) ; parentTitle est alors
+// le titre du niveau auquel l'élément est rattaché.
 export type AcademyArchivedNode = {
-  level: AcademyChildLevel | "objective";
+  level: AcademyChildLevel | "objective" | "resource";
   id: string;
   title: string;
   parentTitle: string;
@@ -516,6 +517,217 @@ export function parseObjectiveCreatePayload(
   }
 
   return { ok: true, parentLevel, parentId, title: title.value, description: description.value };
+}
+
+// --- Ressources pédagogiques (étape 2b-2) --------------------------------------------
+
+// Niveaux auxquels une ressource peut être rattachée : le programme et la leçon
+// (choix du 2026-11-27). Table : academy_resources, migration 20261127120000.
+export type AcademyResourceParentLevel = "program" | "lesson";
+
+export const ACADEMY_RESOURCE_PARENT_LEVELS: AcademyResourceParentLevel[] = ["program", "lesson"];
+
+export const ACADEMY_RESOURCE_PARENT_FIELD: Record<AcademyResourceParentLevel, string> = {
+  program: "programId",
+  lesson: "lessonId",
+};
+
+// Lien ou texte. Pas de fichier : étape 2b-3.
+export type AcademyResourceKind = "link" | "text";
+
+export const ACADEMY_RESOURCE_KINDS: AcademyResourceKind[] = ["link", "text"];
+
+export const ACADEMY_RESOURCE_URL_MAX_LENGTH = 2048;
+export const ACADEMY_RESOURCE_BODY_MAX_LENGTH = 20000;
+
+export type AcademyResourceCreate = {
+  parentLevel: AcademyResourceParentLevel;
+  parentId: string;
+  kind: AcademyResourceKind;
+  title: string;
+  url: string | null;
+  body: string | null;
+};
+
+export type AcademyResource = {
+  id: string;
+  parentLevel: AcademyResourceParentLevel;
+  parentId: string;
+  kind: AcademyResourceKind;
+  title: string;
+  url: string | null;
+  body: string | null;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const ACADEMY_RESOURCE_ONE_PARENT_ERROR =
+  "Une ressource doit avoir exactement un parent : programId ou lessonId.";
+
+// Mêmes motifs que les contraintes academy_resources_url_http et
+// academy_resources_url_no_credentials de la migration : appliqués à la chaîne
+// brute, ils garantissent qu'une URL acceptée ici ne sera pas refusée en base.
+const RESOURCE_URL_PATTERN = /^https?:\/\/[^\s]+$/i;
+const RESOURCE_URL_CREDENTIALS_PATTERN = /^https?:\/\/[^/?#]*@/i;
+
+// URL d'un lien, rognée : http ou https uniquement, nom d'hôte, sans espace,
+// sans identifiants, ACADEMY_RESOURCE_URL_MAX_LENGTH caractères au plus. La
+// chaîne enregistrée est celle saisie, rognée, et non la forme normalisée par
+// URL : ce que l'on contrôle est ce que l'on stocke.
+function parseResourceUrl(value: unknown): FieldResult<string> {
+  if (value === undefined || value === null) {
+    return { ok: false, error: "url est obligatoire pour un lien." };
+  }
+
+  if (typeof value !== "string") {
+    return { ok: false, error: "url doit etre une chaine de caracteres." };
+  }
+
+  const url = value.trim();
+
+  if (url.length === 0) {
+    return { ok: false, error: "url est obligatoire pour un lien." };
+  }
+
+  if (charLength(url) > ACADEMY_RESOURCE_URL_MAX_LENGTH) {
+    return {
+      ok: false,
+      error: `url depasse la longueur maximale de ${ACADEMY_RESOURCE_URL_MAX_LENGTH} caracteres.`,
+    };
+  }
+
+  if (/\s/.test(url)) {
+    return { ok: false, error: "url ne doit pas contenir d'espace." };
+  }
+
+  let parsed: URL;
+
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { ok: false, error: "url doit etre une adresse http ou https valide." };
+  }
+
+  if (
+    (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+    parsed.hostname.length === 0 ||
+    !RESOURCE_URL_PATTERN.test(url)
+  ) {
+    return { ok: false, error: "url doit etre une adresse http ou https valide." };
+  }
+
+  if (parsed.username || parsed.password || RESOURCE_URL_CREDENTIALS_PATTERN.test(url)) {
+    return { ok: false, error: "url ne doit pas contenir d'identifiants." };
+  }
+
+  return { ok: true, value: url };
+}
+
+// Texte d'une ressource : non vide, ACADEMY_RESOURCE_BODY_MAX_LENGTH caractères
+// au plus, conservé tel quel (non rogné), comme le contenu d'une leçon.
+function parseResourceBody(value: unknown): FieldResult<string> {
+  if (value === undefined || value === null) {
+    return { ok: false, error: "body est obligatoire pour un texte." };
+  }
+
+  if (typeof value !== "string") {
+    return { ok: false, error: "body doit etre une chaine de caracteres." };
+  }
+
+  if (value.trim().length === 0) {
+    return { ok: false, error: "body ne peut pas etre vide." };
+  }
+
+  if (charLength(value) > ACADEMY_RESOURCE_BODY_MAX_LENGTH) {
+    return {
+      ok: false,
+      error: `body depasse la longueur maximale de ${ACADEMY_RESOURCE_BODY_MAX_LENGTH} caracteres.`,
+    };
+  }
+
+  return { ok: true, value };
+}
+
+function isPresent(value: unknown) {
+  return value !== undefined && value !== null;
+}
+
+// Création d'une ressource : EXACTEMENT un parent parmi programId et lessonId
+// (UUID), comme academy_resources_one_parent ; kind link ou text ; titre
+// rogné ; pour un lien, une url et pas de body ; pour un texte, un body et pas
+// d'url (academy_resources_kind_fields). La position n'est pas lue : le store
+// place la ressource en fin de liste. Pas de parseur de mise à jour.
+export function parseResourceCreatePayload(
+  payload: unknown,
+): ({ ok: true } & AcademyResourceCreate) | { ok: false; error: string } {
+  const record = asRecord(payload);
+
+  if (!record) {
+    return { ok: false, error: NOT_AN_OBJECT };
+  }
+
+  const present = ACADEMY_RESOURCE_PARENT_LEVELS.filter((level) =>
+    isPresent(record[ACADEMY_RESOURCE_PARENT_FIELD[level]]),
+  );
+
+  if (present.length !== 1) {
+    return { ok: false, error: ACADEMY_RESOURCE_ONE_PARENT_ERROR };
+  }
+
+  const parentLevel = present[0];
+  const parentField = ACADEMY_RESOURCE_PARENT_FIELD[parentLevel];
+  const parentId = record[parentField];
+
+  if (!isUuid(parentId)) {
+    return { ok: false, error: `${parentField} doit etre un identifiant UUID.` };
+  }
+
+  const kind = record.kind;
+
+  if (!ACADEMY_RESOURCE_KINDS.includes(kind as AcademyResourceKind)) {
+    return { ok: false, error: "kind doit valoir link ou text." };
+  }
+
+  const title = parseTitle(record.title);
+
+  if (!title.ok) {
+    return title;
+  }
+
+  if (kind === "link") {
+    if (isPresent(record.body)) {
+      return { ok: false, error: "body n'existe pas pour un lien." };
+    }
+
+    const url = parseResourceUrl(record.url);
+
+    if (!url.ok) {
+      return url;
+    }
+
+    return { ok: true, parentLevel, parentId, kind, title: title.value, url: url.value, body: null };
+  }
+
+  if (isPresent(record.url)) {
+    return { ok: false, error: "url n'existe pas pour un texte." };
+  }
+
+  const body = parseResourceBody(record.body);
+
+  if (!body.ok) {
+    return body;
+  }
+
+  return {
+    ok: true,
+    parentLevel,
+    parentId,
+    kind: "text",
+    title: title.value,
+    url: null,
+    body: body.value,
+  };
 }
 
 // --- Masquage : filterLiveTree ---------------------------------------------------

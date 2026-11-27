@@ -230,4 +230,101 @@ checks += 2;
   ko(h.parseObjectiveCreatePayload([P]), "tableau refusé");
 }
 
-console.log(`academy-hierarchy checks passed (${checks} verifications) : validation des cinq niveaux, objectifs pedagogiques (un seul parent), limites, UUID, masquage des descendants archives.`);
+// --- Ressources pédagogiques (étape 2b-2) --------------------------------------------
+{
+  const P = UUID;
+  const L = "33333333-4444-4555-8666-777777777777";
+  const link = ok(
+    h.parseResourceCreatePayload({ programId: P, kind: "link", title: "  Doc  ", url: "  https://exemple.fr/page?x=1  " }),
+    "lien valide accepté",
+  );
+  assert.equal(link.parentLevel, "program");
+  assert.equal(link.title, "Doc", "titre rogné");
+  assert.equal(link.url, "https://exemple.fr/page?x=1", "url rognée, non normalisée");
+  assert.equal(link.body, null);
+  checks += 4;
+
+  const text = ok(
+    h.parseResourceCreatePayload({ lessonId: L, kind: "text", title: "Note", body: "  ligne 1\nligne 2  " }),
+    "texte valide accepté",
+  );
+  assert.equal(text.parentLevel, "lesson");
+  assert.equal(text.body, "  ligne 1\nligne 2  ", "texte conservé tel quel");
+  assert.equal(text.url, null);
+  checks += 3;
+
+  ok(h.parseResourceCreatePayload({ programId: P, kind: "link", title: "T", url: "http://exemple.fr" }), "http accepté");
+  ok(h.parseResourceCreatePayload({ programId: P, kind: "link", title: "T", url: "HTTPS://EXEMPLE.FR" }), "majuscules acceptées");
+  ok(
+    h.parseResourceCreatePayload({ programId: P, kind: "link", title: "T", url: "https://exemple.fr?contact=a@b.fr" }),
+    "@ après ? accepté",
+  );
+
+  // Identifiants refusés.
+  for (const url of ["https://user@exemple.fr", "https://user:mdp@exemple.fr/x", "http://a@b"]) {
+    ko(h.parseResourceCreatePayload({ programId: P, kind: "link", title: "T", url }), `identifiants refusés : ${url}`);
+  }
+
+  // Protocoles et formes refusés.
+  for (const url of [
+    "javascript:alert(1)",
+    "JavaScript:alert(1)",
+    "data:text/html,x",
+    "file:///etc/passwd",
+    "ftp://exemple.fr",
+    "exemple.fr",
+    "https:/exemple.fr",
+    "https://",
+    "https://exemple .fr",
+    "   ",
+  ]) {
+    ko(h.parseResourceCreatePayload({ programId: P, kind: "link", title: "T", url }), `url refusée : ${url}`);
+  }
+  ko(
+    h.parseResourceCreatePayload({ programId: P, kind: "link", title: "T", url: `https://e.fr/${"a".repeat(2040)}` }),
+    "url de plus de 2 048 caractères refusée",
+  );
+
+  // Incohérences type / champs.
+  ko(h.parseResourceCreatePayload({ programId: P, kind: "link", title: "T" }), "lien sans url refusé");
+  ko(
+    h.parseResourceCreatePayload({ programId: P, kind: "link", title: "T", url: "https://e.fr", body: "x" }),
+    "lien avec body refusé",
+  );
+  ko(h.parseResourceCreatePayload({ programId: P, kind: "text", title: "T" }), "texte sans body refusé");
+  ko(h.parseResourceCreatePayload({ programId: P, kind: "text", title: "T", body: "   " }), "texte vide refusé");
+  ko(
+    h.parseResourceCreatePayload({ programId: P, kind: "text", title: "T", body: "x", url: "https://e.fr" }),
+    "texte avec url refusé",
+  );
+  ok(h.parseResourceCreatePayload({ programId: P, kind: "text", title: "T", body: "é".repeat(20000) }), "texte de 20 000 accepté");
+  ko(h.parseResourceCreatePayload({ programId: P, kind: "text", title: "T", body: "é".repeat(20001) }), "texte de 20 001 refusé");
+  ko(h.parseResourceCreatePayload({ programId: P, kind: "file", title: "T" }), "kind inconnu refusé");
+  ko(h.parseResourceCreatePayload({ programId: P, title: "T", url: "https://e.fr" }), "kind absent refusé");
+
+  // Un seul parent.
+  ko(h.parseResourceCreatePayload({ kind: "link", title: "T", url: "https://e.fr" }), "aucun parent refusé");
+  ko(
+    h.parseResourceCreatePayload({ programId: P, lessonId: L, kind: "link", title: "T", url: "https://e.fr" }),
+    "deux parents refusés",
+  );
+  ko(
+    h.parseResourceCreatePayload({ chapterId: P, kind: "link", title: "T", url: "https://e.fr" }),
+    "chapitre non rattachable",
+  );
+  ko(h.parseResourceCreatePayload({ programId: "abc", kind: "link", title: "T", url: "https://e.fr" }), "parent non UUID refusé");
+  assert.equal(
+    h.parseResourceCreatePayload({ programId: P, lessonId: L, kind: "text", title: "T", body: "x" }).error,
+    h.ACADEMY_RESOURCE_ONE_PARENT_ERROR,
+  );
+  checks += 1;
+
+  // Titre.
+  ko(h.parseResourceCreatePayload({ programId: P, kind: "text", title: "  ", body: "x" }), "titre vide refusé");
+  ko(h.parseResourceCreatePayload({ programId: P, kind: "text", title: "é".repeat(201), body: "x" }), "titre de 201 refusé");
+
+  assert.equal("parseResourceUpdatePayload" in h, false, "pas de parseur de mise à jour des ressources");
+  checks += 1;
+}
+
+console.log(`academy-hierarchy checks passed (${checks} verifications) : validation des cinq niveaux, objectifs et ressources pedagogiques (un seul parent, URL http/https sans identifiants), limites, UUID, masquage des descendants archives.`);

@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { isUuid, type AcademyLesson } from "@/lib/academy/hierarchy";
+import { isUuid, type AcademyLesson, type AcademyResource } from "@/lib/academy/hierarchy";
 import { ACADEMY_MESSAGES } from "@/lib/academy/http";
 import { AcademyStoreError, getLiveLesson } from "@/lib/server/academy/hierarchy-store";
+import { listLiveLessonResources } from "@/lib/server/academy/resources-store";
 import { requirePrivateCockpitAccess } from "@/src/lib/auth/guards";
+import { AcademyResourceCreateForm } from "../../AcademyCreateForms";
+import { AcademyResourceList } from "../../AcademyResourceList";
 
 // Page Leçon — interface de l'étape 2a, en lecture seule.
 //
@@ -19,6 +22,10 @@ import { requirePrivateCockpitAccess } from "@/src/lib/auth/guards";
 // Lien de retour vers la liste des programmes, et non vers le programme :
 // AcademyLesson porte chapterId, mais pas l'identifiant du programme, et la
 // retrouver demanderait une lecture de plus que le store n'expose pas.
+//
+// Depuis l'étape 2b-2, la page affiche sous le contenu les ressources
+// pédagogiques de la leçon, avec un formulaire replié « Nouvelle ressource »
+// (resources-store.ts, AcademyResourceList.tsx).
 
 type AcademyLessonPageProps = {
   params: Promise<{ id: string }>;
@@ -32,6 +39,24 @@ type LessonState =
   | { status: "ok"; lesson: AcademyLesson }
   | { status: "not_found" }
   | { status: "unavailable" };
+
+// Ressources de la leçon. null : lecture indisponible.
+async function readLessonResources(
+  userId: string,
+  lessonId: string,
+): Promise<AcademyResource[] | null> {
+  try {
+    const result = await listLiveLessonResources(userId, lessonId);
+
+    return result.status === "ok" ? result.value : [];
+  } catch (error) {
+    if (error instanceof AcademyStoreError) {
+      return null;
+    }
+
+    throw error;
+  }
+}
 
 async function readLesson(userId: string, lessonId: string): Promise<LessonState> {
   try {
@@ -65,6 +90,8 @@ export default async function AcademyLessonPage({ params }: AcademyLessonPagePro
   if (state.status === "not_found") {
     notFound();
   }
+
+  const resources = state.status === "ok" ? await readLessonResources(user.id, id) : [];
 
   return (
     <section
@@ -104,6 +131,22 @@ export default async function AcademyLessonPage({ params }: AcademyLessonPagePro
               Cette leçon n&apos;a pas encore de contenu.
             </p>
           )}
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-[#D8DEE8]">Ressources de la leçon</h3>
+            {resources === null ? (
+              <p role="alert" className="mt-2 text-sm text-[#FCA5A5]">
+                {`Ressources : ${ACADEMY_MESSAGES.unavailable}`}
+              </p>
+            ) : (
+              <>
+                <AcademyResourceList
+                  resources={resources}
+                  emptyLabel="Aucune ressource pour l'instant."
+                />
+                <AcademyResourceCreateForm parentLevel="lesson" parentId={state.lesson.id} />
+              </>
+            )}
+          </div>
         </>
       )}
     </section>

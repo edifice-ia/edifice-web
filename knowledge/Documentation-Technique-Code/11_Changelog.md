@@ -7,6 +7,7 @@ Dernière mise à jour : 2026-11-24
 
 - [Rôle du document](#rôle-du-document)
 - [Format](#format)
+- [2026-11-27 (Academy : ressources pédagogiques, création, archivage, restauration)](#2026-11-27-academy--ressources-pédagogiques-création-archivage-restauration)
 - [2026-11-27 (Academy : migration des ressources pédagogiques)](#2026-11-27-academy--migration-des-ressources-pédagogiques)
 - [2026-11-26 (Academy : objectifs pédagogiques, création, archivage, restauration)](#2026-11-26-academy--objectifs-pédagogiques-création-archivage-restauration)
 - [2026-11-26 (Academy : migration des objectifs pédagogiques)](#2026-11-26-academy--migration-des-objectifs-pédagogiques)
@@ -92,6 +93,26 @@ Chaque entrée devrait préciser :
 - fichiers liés ;
 - impact ;
 - action de suivi si nécessaire.
+
+## 2026-11-27 (Academy : ressources pédagogiques, création, archivage, restauration)
+
+Type : produit, sécurité
+
+Résumé : code de l'étape 2b-2. Les ressources pédagogiques — liens et textes — se créent depuis l'arbre (ressources du programme) et la page Leçon, se listent sur la nouvelle page Ressources, s'archivent et se restaurent.
+
+- `parseResourceCreatePayload` : un parent parmi programme et leçon ; lien `http`/`https` sans identifiants ni espace, 2 048 caractères, mêmes motifs que la base ; texte de 20 000 caractères ; cohérence type et champs ; pas de mise à jour.
+- `lib/server/academy/resources-store.ts` : création sous un parent vivant (chaîne complète pour une leçon), listes par programme, pour l'arbre, pour une leçon et pour les archivées restaurables ; archivage ; restauration refusée sous un ancêtre archivé ; client de session, `user_id` partout.
+- Routes : `POST /api/academy/resources`, `DELETE /api/academy/resources/[id]`, `POST /api/academy/resources/[id]/restore` ; « Ressource introuvable. ».
+- Interface : page Ressources (liste et archivage, sans création), ressources du programme dans l'arbre, ressources de la leçon sur sa page ; liens en `rel="noopener noreferrer"`, textes en texte brut ; archivées dans la section existante.
+- `academy:routes:check` : 21 fichiers, 29 handlers ; `academy:hierarchy:check` : tests du parseur de ressources.
+
+Fichiers liés :
+
+- `lib/academy/hierarchy.ts`, `lib/academy/http.ts`, `lib/academy/sections.ts`, `lib/server/academy/resources-store.ts`, `app/api/academy/resources/**`, `app/interface/academy/AcademyResourceList.tsx`, `app/interface/academy/ressources/page.tsx`, `app/interface/academy/AcademyCreateForms.tsx`, `app/interface/academy/AcademyArchiveControls.tsx`, `app/interface/academy/AcademyPrimitives.tsx`, `app/interface/academy/programmes/[id]/page.tsx`, `app/interface/academy/lecons/[id]/page.tsx`, `scripts/academy-routes-check.mjs`, `scripts/academy-hierarchy-check.mjs`
+- `MANUAL_ACTIONS.md` — deux entrées `pending` : test SQL d'isolation des ressources, contrôle à la main
+- `knowledge/Documentation-Technique-Code/05_Database.md`, `06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
+
+Impact : nouvelle lecture et écriture d'une table par compte — commit local, push après le test SQL et sur confirmation. Non vérifié : isolation côté base, rendu avec une session.
 
 ## 2026-11-27 (Academy : migration des ressources pédagogiques)
 

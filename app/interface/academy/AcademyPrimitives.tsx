@@ -20,8 +20,9 @@ export function AcademyHeader() {
         Environnement d&apos;apprentissage : programmes, leçons, révisions et
         progression. La section Programmes permet de consulter l&apos;arbre de chaque
         programme, d&apos;en créer, d&apos;archiver et de restaurer les éléments. La
-        section Leçons renvoie vers les programmes. Les autres sections sont encore
-        à construire.
+        section Leçons renvoie vers les programmes. La section Ressources liste les
+        liens et les textes de chaque programme et de ses leçons. Les autres
+        sections sont encore à construire.
       </p>
     </header>
   );

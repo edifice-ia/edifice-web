@@ -19,8 +19,8 @@
 import type { AcademyLevel } from "./hierarchy";
 
 // Niveaux d'un 404 : les cinq niveaux de la hiérarchie, plus l'objectif
-// pédagogique (étape 2b-1).
-export type AcademyNotFoundLevel = AcademyLevel | "objective";
+// pédagogique (étape 2b-1) et la ressource pédagogique (étape 2b-2).
+export type AcademyNotFoundLevel = AcademyLevel | "objective" | "resource";
 
 export type AcademyHttpReply = {
   status: number;
@@ -44,6 +44,7 @@ export const ACADEMY_MESSAGES = {
     chapter: "Chapitre introuvable.",
     lesson: "Lecon introuvable.",
     objective: "Objectif introuvable.",
+    resource: "Ressource introuvable.",
   } satisfies Record<AcademyNotFoundLevel, string>,
 } as const;
 

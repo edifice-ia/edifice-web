@@ -194,7 +194,7 @@ Hors de cette migration, étape 2b : `academy_objectives` et `academy_resources`
 
 Colonnes communes et droits identiques à la hiérarchie : `id`, `user_id`, `created_at`, `updated_at` (déclencheur `academy_objectives_set_updated_at`), `deleted_at` ; `unique (id, user_id)` ; RLS ; `revoke all` avant le `grant` de `SELECT`, `INSERT`, `UPDATE` à `authenticated`, aucun `DELETE` ; trois policies `*_own`. Pas de statut « atteint » : la progression se calculera à l'étape 6. Index partiels `(parent_id, position) where deleted_at is null and parent_id is not null`, un par colonne de parent. Entité pédagogique, sans lien avec `personal_goals` ni `trajectoire_objectives` (DEC-014).
 
-**`academy_resources` — ressources pédagogiques, migration appliquée en base le 2026-11-27, contrôles structurels conformes** — `supabase/migrations/20261127120000_create_academy_resources.sql`, appliquée à la main dans le SQL Editor (entrée archivée du même jour dans `MANUAL_ACTIONS.md`). **Aucun code ne lit ni n'écrit encore cette table** : store, routes et interface de l'étape 2b-2 restent à écrire.
+**`academy_resources` — ressources pédagogiques, migration appliquée en base le 2026-11-27, contrôles structurels conformes** — `supabase/migrations/20261127120000_create_academy_resources.sql`, appliquée à la main dans le SQL Editor (entrée archivée du même jour dans `MANUAL_ACTIONS.md`). Lue et écrite depuis le 2026-11-27 par `lib/server/academy/resources-store.ts`, au **client de session**, avec un filtre `user_id` sur chaque requête (voir `06_Modules.md`). *Jusqu'à ce code, cette phrase disait « aucun code ne lit ni n'écrit encore cette table ».* Isolation côté base : test SQL écrit, entrée `pending` de `MANUAL_ACTIONS.md`, non exécuté.
 
 | Colonne | Rôle |
 |---|---|

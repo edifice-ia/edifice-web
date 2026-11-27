@@ -13,7 +13,7 @@ Dernière mise à jour : 2026-11-24
 - [Modules de publication](#modules-de-publication)
 - [Modules d'observation](#modules-dobservation)
 - [Modules personnels](#modules-personnels)
-- [Espace Academy — squelette, programmes, arbre et leçon ; création, archivage et restauration ; objectifs pédagogiques](#espace-academy--squelette-programmes-arbre-et-leçon--création-archivage-et-restauration--objectifs-pédagogiques)
+- [Espace Academy — squelette, programmes, arbre et leçon ; création, archivage et restauration ; objectifs et ressources pédagogiques](#espace-academy--squelette-programmes-arbre-et-leçon--création-archivage-et-restauration--objectifs-et-ressources-pédagogiques)
 - [Service renderer](#service-renderer)
 - [Liens utiles](#liens-utiles)
 - [À mettre à jour](#à-mettre-à-jour)
@@ -650,7 +650,7 @@ Branchée le 2026-09-19. Objectifs est une **table unique**, comme Notes et Tâc
 >
 > **Limites** : l'isolation entre comptes n'a pas été re-testée — établie par construction, non par un test à deux comptes — ; et `personal_data_erasure_log` ne compte qu'une seule entrée pour ce compte, explication vraisemblable liée aux recréations successives du compte, **non vérifiée**. Voir le changelog, entrée « module Objectifs : suppression physique ».
 
-## Espace Academy — squelette, programmes, arbre et leçon ; création, archivage et restauration ; objectifs pédagogiques
+## Espace Academy — squelette, programmes, arbre et leçon ; création, archivage et restauration ; objectifs et ressources pédagogiques
 
 Troisième espace de la plateforme, priorité de développement depuis le 2026-11-22 : voir [Décisions](./03_Decisions.md) DEC-014 et DEC-015, et la cible dans [22-espaces-et-marques.md](../Documentation-Strategique/Markdown/22-espaces-et-marques.md).
 
@@ -670,6 +670,7 @@ Fichiers :
 - `app/interface/academy/AcademyCreateForms.tsx` — **formulaires de création** (composant client, 2026-11-26) : programme et matière, puis module, chapitre et leçon. Voir plus bas ;
 - `app/interface/academy/AcademyArchiveControls.tsx` — **boutons d'archivage et de restauration** (composant client, 2026-11-26), pour les cinq niveaux. Avec `AcademyNav` et `AcademyCreateForms`, ce sont les seuls composants client de l'interface. Voir plus bas ;
 - `lib/server/academy/objectives-store.ts` et `app/api/academy/objectives/**` — **objectifs pédagogiques** (étape 2b-1, 2026-11-26). Voir plus bas ;
+- `lib/server/academy/resources-store.ts`, `app/api/academy/resources/**`, `app/interface/academy/AcademyResourceList.tsx` et `app/interface/academy/ressources/page.tsx` — **ressources pédagogiques** (étape 2b-2, 2026-11-27). Voir plus bas ;
 - `lib/cockpit/navigation.ts` et `lib/cockpit/modules.ts` — entrée `academy`, **même identifiant dans les deux**, statut `En cours`. L'entrée du menu principal n'a pas d'enfants.
 
 **Ce que chaque page encore à construire affiche** : « Pas encore construit », le fait qu'aucune donnée n'y est enregistrée ni calculée, ce que la section fera, et l'étape du plan qui la construira. Aucune donnée d'exemple, aucun contenu qui ressemble à du réel.
@@ -816,7 +817,23 @@ Validé par Vincent dans le navigateur le 2026-11-26.
 
 **Contrôle à la main** : contrôlé à la main par Vincent après `47ddf74`, conforme selon Vincent (dix points : création à chaque niveau, description vide et en texte brut, refus en français, annulation, archivage et section « Éléments archivés », restauration, parent archivé, refus à deux onglets ; consigné le 2026-11-27) ; entrée archivée de `MANUAL_ACTIONS.md`.
 
-**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création des cinq niveaux depuis l'interface écrite (programme et matière, puis module, chapitre et leçon) — création de module, chapitre et leçon contrôlée à la main, conforme selon Vincent ; création de programme et de matière contrôlé à la main le 26 novembre 2026, conforme selon Vincent ; archivage et restauration depuis l'interface écrits, isolation validée en base et contrôle à la main conforme le 2026-11-26 ; étape 2b : migration des objectifs pédagogiques (`academy_objectives`, 2b-1) appliquée et contrôlée le 2026-11-26, code de 2b-1 écrit (création, archivage, restauration), isolation validée en base, contrôle à la main conforme selon Vincent ; ressources pédagogiques (2b-2) : migration `academy_resources` appliquée et contrôlée le 2026-11-27, code à écrire ; fichiers (2b-3) à faire.
+**Étape 2b-2 — ressources pédagogiques, code (2026-11-27)** — table `academy_resources`, migration `20261127120000` appliquée et contrôlée le même jour (voir [Base de données](./05_Database.md)) :
+
+- **parseur pur** `parseResourceCreatePayload` (`lib/academy/hierarchy.ts`) : **exactement un parent** parmi `programId` et `lessonId` (UUID) ; `kind` `link` ou `text` ; titre rogné, 200 caractères. Pour un **lien** : `url` obligatoire, `body` interdit ; URL rognée, `new URL()` doit réussir, protocole `http:` ou `https:`, nom d'hôte, sans espace, sans identifiants, 2 048 caractères au plus — et la chaîne brute doit passer les **mêmes motifs que les contraintes en base** (`^https?://[^\s]+$`, et pas `^https?://[^/?#]*@`), pour qu'une URL acceptée ici ne soit pas refusée par la base. Pour un **texte** : `body` obligatoire, non vide, 20 000 caractères, conservé tel quel ; `url` interdite. L'URL enregistrée est la chaîne saisie, rognée, non normalisée. **Aucun parseur de mise à jour** ;
+- **store** `lib/server/academy/resources-store.ts`, client de session, filtre `user_id` partout : `createResource` (parent vérifié par `resolveLiveChain`, chaîne complète jusqu'au programme pour une leçon ; fin de liste ; `23503` → introuvable, `23514` → invalide), `listLiveResourcesByProgram` (page Ressources : programmes vivants, ressources du programme puis de ses leçons vivantes), `listLiveProgramResources` (arbre), `listLiveLessonResources` (page Leçon, leçon vérifiée vivante), `listArchivedResources` (section « Éléments archivés »), `archiveResource`, `restoreResource` (refusée si le parent ou un ancêtre est archivé) ;
+- **routes** (3 fichiers, 3 handlers, patron des objectifs) : `POST /api/academy/resources`, `DELETE /api/academy/resources/[id]` (archivage), `POST /api/academy/resources/[id]/restore` ; ni `GET` ni `PATCH`. Message `404` : « Ressource introuvable. » (niveau `resource` de `lib/academy/http.ts`) ;
+- **interface** :
+  - **page Ressources** (`app/interface/academy/ressources/page.tsx`, segment statique servi avant `[section]`) : pour chaque programme vivant, son titre en lien vers l'arbre, ses ressources puis celles de ses leçons (lien vers la leçon), un bouton « Archiver » par ressource, « Aucune ressource. » si vide ; **pas de création** ;
+  - **arbre** : « Ressources du programme » sous le titre du programme, avec un formulaire replié « Nouvelle ressource » (Lien ou Texte, titre, adresse ou texte) ; **les ressources des leçons n'y figurent pas** ;
+  - **page Leçon** : « Ressources de la leçon » sous le contenu, avec formulaire et « Archiver » ;
+  - affichage commun (`AcademyResourceList.tsx`, rendu serveur) : un lien en `<a target="_blank" rel="noopener noreferrer">` avec son nom de domaine, rendu en lien seulement si son URL est `http` ou `https` (troisième barrière, après le parseur et la base) ; un texte en `whitespace-pre-wrap`, en texte brut, sans `dangerouslySetInnerHTML` ;
+  - archivées restaurables dans « Éléments archivés de ce programme », étiquetées « Ressource » (`AcademyArchivedNode` élargi au niveau `resource`) ; refus locaux traduits dans `LOCAL_VALIDATION_MESSAGES` ;
+  - phrase d'en-tête et description de la section Ressources mises à jour (`sections.ts` : liens et textes, fichiers à l'étape 2b-3) ; le commentaire de `sections.ts` qui disait « seule la section Programmes affiche des données », inexact depuis la page Leçon, est corrigé ;
+- **contrôles** : `academy:routes:check` couvre 21 fichiers et 29 handlers ; `academy:hierarchy:check` teste le parseur de ressources (lien et texte valides, identifiants, `javascript:` et autres protocoles refusés, incohérences type et champs, un seul parent).
+
+**Non vérifié** : l'isolation côté base des ressources (test SQL écrit, entrée `pending` du 2026-11-27) ; le rendu et le comportement avec une session (contrôle à la main écrit, entrée `pending` du même jour).
+
+**Plan d'étapes** : voir le chantier 8 de `suivi-chantiers-edifice.md`. Étape 1 faite ; étape 2a : migration appliquée, validation, store et routes poussés, isolation côté base close, page Programmes, arbre d'un programme et page Leçon en lecture seule écrits et validés dans le navigateur ; création des cinq niveaux depuis l'interface écrite (programme et matière, puis module, chapitre et leçon) — création de module, chapitre et leçon contrôlée à la main, conforme selon Vincent ; création de programme et de matière contrôlé à la main le 26 novembre 2026, conforme selon Vincent ; archivage et restauration depuis l'interface écrits, isolation validée en base et contrôle à la main conforme le 2026-11-26 ; étape 2b : migration des objectifs pédagogiques (`academy_objectives`, 2b-1) appliquée et contrôlée le 2026-11-26, code de 2b-1 écrit (création, archivage, restauration), isolation validée en base, contrôle à la main conforme selon Vincent ; ressources pédagogiques (2b-2) : migration `academy_resources` appliquée et contrôlée le 2026-11-27, code écrit le même jour (création, archivage, restauration, page Ressources), non vérifié ; fichiers (2b-3) à faire.
 
 ## Service renderer
 

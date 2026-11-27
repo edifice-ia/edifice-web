@@ -9,8 +9,9 @@
 // `plannedStep` renvoie au plan d'étapes du chantier 8 : l'étape à laquelle la
 // section recevra son contenu. L'étape 2 est découpée en 2a (hiérarchie) et 2b
 // (ressources) : ces deux sous-étapes s'écrivent en texte, les autres en nombre.
-// Seule la section Programmes affiche des données (lecture seule, étape 2a) ;
-// rien d'autre de ce qui est décrit ici n'est construit.
+// Les sections Programmes, Leçons et Ressources ont leur propre page
+// (app/interface/academy/{programmes,lecons,ressources}) ; les autres sont
+// servies par la page provisoire [section] et ne sont pas construites.
 
 export type AcademySection = {
   id: string;
@@ -90,7 +91,8 @@ export const academySections: AcademySection[] = [
     id: "resources",
     slug: "ressources",
     label: "Ressources",
-    purpose: "Ressources pédagogiques : liens, fichiers et textes rattachés aux programmes.",
+    purpose:
+      "Ressources pédagogiques : liens et textes rattachés aux programmes et aux leçons ; les fichiers viendront à l'étape 2b-3.",
     plannedStep: "2b",
   },
   {

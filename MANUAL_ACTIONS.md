@@ -53,6 +53,323 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
+### 2026-11-27 — Contrôler à la main les ressources pédagogiques
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : le contrôle demande une session authentifiée du porteur du projet dans le navigateur, et l'agent ne saisit pas d'identifiants.
+
+**Bloque** : la validation du code de l'étape 2b-2.
+
+**Compte** : `test-erase@edificeia.com`, sur le serveur local (`localhost:3000`) — le serveur n'est relancé par l'agent que sur demande.
+
+**Étapes** :
+
+1. Dans l'arbre d'un programme, sous « Ressources du programme » : déplier « Nouvelle ressource », créer un **lien** (`https://…`), puis un **texte** ; le lien s'ouvre dans un nouvel onglet et affiche son nom de domaine, le texte s'affiche en texte brut, retours à la ligne compris.
+2. Sur la page d'une leçon, sous « Ressources de la leçon » : créer un lien et un texte ; ils n'apparaissent **pas** dans l'arbre.
+3. Refus en français : titre vide ; adresse vide ; `javascript:alert(1)` et `exemple.fr` (« L'adresse doit être une adresse web valide… ») ; `https://u:p@exemple.fr` (« L'adresse ne doit contenir ni identifiant ni mot de passe. ») ; texte vide.
+4. Page **Ressources** (`/interface/academy/ressources`) : chaque programme, en lien vers son arbre, avec ses ressources puis celles de ses leçons (lien vers la leçon) ; « Aucune ressource. » pour un programme sans ressource ; aucun formulaire de création.
+5. Archiver une ressource depuis la page Ressources, puis depuis l'arbre ou la page Leçon : elle disparaît et apparaît dans « Éléments archivés de ce programme », étiquetée « Ressource », avec le titre de son parent ; la restaurer.
+6. Archiver le chapitre d'une leçon qui porte une ressource : la ressource disparaît de la page Ressources et n'est **pas** listée dans la section ; restaurer le chapitre : elle revient.
+7. Relever les identifiants des données créées, pour le nettoyage.
+
+**Vérification** : chaque étape conforme ; transmettre les écarts tels quels à l'agent.
+
+*Écrit le 2026-11-27 par l'agent, sans exécution.*
+
+### 2026-11-27 — Tester l'isolation SQL des ressources pédagogiques
+
+**Statut** : `pending`
+
+**Pourquoi c'est manuel** : seul le SQL Editor peut exécuter ce test sur la base réelle, et aucune base de test n'est disponible depuis le dépôt. L'agent n'a pas d'accès SQL au projet. **À exécuter par Vincent, porteur du projet**, dans le SQL Editor, sous le rôle `postgres`.
+
+**Bloque** : le push du code de l'étape 2b-2 (`resources-store.ts`, routes `/api/academy/resources`), qui lit et écrit `academy_resources`.
+
+**Ce que le test contrôle**, en réécrivant en SQL les lectures du store (programme vivant, puis matières, modules, chapitres et leçons vivants sous des parents vivants, et `user_id` sur chaque requête), exécutées sous le rôle `authenticated` de chaque compte :
+
+1. **pas de fuite entre comptes** : B ne lit aucune ressource du programme de A, A aucune de celui de B ; B ne voit aucune ligne de A, par la règle d'accès seule ;
+2. **pas de ressource sous le parent d'un autre compte** : B tente une ressource sous le programme de A, puis sous une leçon de A — refus attendu en `23503` (clé composite) ;
+3. **rien sous un ancêtre archivé** : `RU` et `RY`, rattachées à la leçon `LX` sous le chapitre archivé `CX`, ne figurent ni dans les vivantes ni dans les archivées restaurables ;
+4. **URL `javascript:` refusée** en `23514` ; URL avec identifiants refusée en `23514` ;
+5. **incohérence entre `kind` et les champs refusée** en `23514` : lien avec `body`, texte avec `url` ;
+6. en plus : une ressource à **deux parents** est refusée en `23514`.
+
+**Limite** : c'est la requête SQL équivalente qui est éprouvée, pas le code TypeScript lui-même ; le contrôle à la main (entrée du même jour) éprouve le code réel.
+
+**Sans effet durable** : transaction terminée par `rollback`, comptes fictifs `…000c` (A) et `…000d` (B) créés puis retirés ; aucun compte réel, aucune donnée existante touchée.
+
+**Étapes** :
+
+1. Ouvrir le SQL Editor du projet Supabase.
+2. **Contrôle préalable, en lecture seule** :
+   ```sql
+   select column_name, data_type
+   from information_schema.columns
+   where table_schema = 'auth' and table_name = 'users'
+     and is_nullable = 'NO' and column_default is null
+   order by ordinal_position;
+
+   select tgname, tgenabled
+   from pg_trigger
+   where tgrelid = 'auth.users'::regclass and not tgisinternal;
+   ```
+   Attendu : `id` seul dans la première requête, aucune ligne dans la seconde. **Sinon, s'arrêter.**
+3. Lancer le script ci-dessous **en une seule exécution**. Si une erreur s'affiche à la place de la synthèse (« ECHEC DU TEST », `permission denied`…), s'arrêter et transmettre le message : la transaction est annulée.
+4. Relever le résultat de la synthèse.
+5. **Contrôle après coup, en lecture seule** :
+   ```sql
+   select
+     (select count(*) from auth.users where id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as utilisateurs_de_test_restants,
+     (select count(*) from public.academy_programs where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as programmes,
+     (select count(*) from public.academy_subjects where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as matieres,
+     (select count(*) from public.academy_units where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as modules,
+     (select count(*) from public.academy_chapters where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as chapitres,
+     (select count(*) from public.academy_lessons where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as lecons,
+     (select count(*) from public.academy_resources where user_id in ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-00000000000d')) as ressources;
+   ```
+   Attendu : `0` partout.
+6. Transmettre les résultats, tels quels, à l'agent pour consignation.
+
+```sql
+begin;
+
+-- Sous le role postgres du SQL Editor : creation des deux comptes de test.
+-- Annules par le rollback final.
+insert into auth.users (id) values
+  ('00000000-0000-0000-0000-00000000000c'),
+  ('00000000-0000-0000-0000-00000000000d');
+
+-- Compte A, sous son propre role :
+--   PA programme > SA matiere > UA module > CA chapitre > LA lecon (tous vivants) ;
+--   UA > CX chapitre ARCHIVE > LX lecon (vivante, mais sous un chapitre archive).
+--   Ressources : RP lien sur PA (vivant), RL texte sur LA (vivant), RX lien sur LA (archive),
+--   RU texte sur LX (vivant, sous un chapitre archive), RY lien sur LX (archive, sous un chapitre archive).
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title) values ('00000000-0000-0000-0000-00000000000c', 'formation', 'PA');
+insert into public.academy_subjects (user_id, program_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'SA' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_units (user_id, subject_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'UA' from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_chapters (user_id, unit_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, t from public.academy_units, (values ('CA'), ('CX')) v(t) where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_lessons (user_id, chapter_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'LA' from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'CA';
+insert into public.academy_lessons (user_id, chapter_id, title)
+select '00000000-0000-0000-0000-00000000000c', id, 'LX' from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'CX';
+insert into public.academy_resources (user_id, program_id, kind, title, url)
+select '00000000-0000-0000-0000-00000000000c', id, 'link', 'RP', 'https://exemple.fr/rp' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c';
+insert into public.academy_resources (user_id, lesson_id, kind, title, body)
+select '00000000-0000-0000-0000-00000000000c', id, 'text', 'RL', 'Texte RL' from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'LA';
+insert into public.academy_resources (user_id, lesson_id, kind, title, url)
+select '00000000-0000-0000-0000-00000000000c', id, 'link', 'RX', 'https://exemple.fr/rx' from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'LA';
+insert into public.academy_resources (user_id, lesson_id, kind, title, body)
+select '00000000-0000-0000-0000-00000000000c', id, 'text', 'RU', 'Texte RU' from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'LX';
+insert into public.academy_resources (user_id, lesson_id, kind, title, url)
+select '00000000-0000-0000-0000-00000000000c', id, 'link', 'RY', 'https://exemple.fr/ry' from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'LX';
+update public.academy_resources set deleted_at = now() where user_id = '00000000-0000-0000-0000-00000000000c' and title in ('RX', 'RY');
+update public.academy_chapters set deleted_at = now() where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'CX';
+
+-- Contraintes de la table, sous le role de A. Attendu : 23514 a chaque fois.
+do $$
+begin
+  insert into public.academy_resources (user_id, program_id, kind, title, url)
+  select '00000000-0000-0000-0000-00000000000c', id, 'link', 'Script', 'javascript:alert(1)' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c';
+  raise exception 'ECHEC DU TEST : url javascript: accepte(e).';
+exception
+  when check_violation then
+    perform set_config('academy_test.javascript', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+do $$
+begin
+  insert into public.academy_resources (user_id, program_id, kind, title, url)
+  select '00000000-0000-0000-0000-00000000000c', id, 'link', 'Identifiants', 'https://u:p@exemple.fr' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c';
+  raise exception 'ECHEC DU TEST : url avec identifiants accepte(e).';
+exception
+  when check_violation then
+    perform set_config('academy_test.identifiants', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+do $$
+begin
+  insert into public.academy_resources (user_id, program_id, kind, title, url, body)
+  select '00000000-0000-0000-0000-00000000000c', id, 'link', 'Incoherent', 'https://exemple.fr', 'texte' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c';
+  raise exception 'ECHEC DU TEST : lien avec body accepte(e).';
+exception
+  when check_violation then
+    perform set_config('academy_test.lien_avec_body', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+do $$
+begin
+  insert into public.academy_resources (user_id, program_id, kind, title, url, body)
+  select '00000000-0000-0000-0000-00000000000c', id, 'text', 'Incoherent', 'https://exemple.fr', 'texte' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c';
+  raise exception 'ECHEC DU TEST : texte avec url accepte(e).';
+exception
+  when check_violation then
+    perform set_config('academy_test.texte_avec_url', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+do $$
+begin
+  insert into public.academy_resources (user_id, program_id, lesson_id, kind, title, url)
+  select '00000000-0000-0000-0000-00000000000c', p.id, l.id, 'link', 'Deux parents', 'https://exemple.fr'
+  from public.academy_programs p, public.academy_lessons l
+  where p.user_id = '00000000-0000-0000-0000-00000000000c' and l.user_id = '00000000-0000-0000-0000-00000000000c' and l.title = 'LA';
+  raise exception 'ECHEC DU TEST : ressource a deux parents accepte(e).';
+exception
+  when check_violation then
+    perform set_config('academy_test.deux_parents', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+reset role;
+
+-- Compte B : son propre programme PB, avec une ressource RB.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}', true);
+set local role authenticated;
+insert into public.academy_programs (user_id, kind, title) values ('00000000-0000-0000-0000-00000000000d', 'formation', 'PB');
+insert into public.academy_resources (user_id, program_id, kind, title, url)
+select '00000000-0000-0000-0000-00000000000d', id, 'link', 'RB', 'https://exemple.fr/rb' from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000d';
+reset role;
+
+-- Sous postgres : releve des identifiants des deux programmes et de la lecon LA.
+select set_config('academy_test.program_a',
+  (select id::text from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000c'), true);
+select set_config('academy_test.program_b',
+  (select id::text from public.academy_programs where user_id = '00000000-0000-0000-0000-00000000000d'), true);
+select set_config('academy_test.lesson_a',
+  (select id::text from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c' and title = 'LA'), true);
+
+-- B tente une ressource sous le programme de A, puis sous la lecon de A. Attendu : 23503.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000d","role":"authenticated"}', true);
+set local role authenticated;
+do $$
+begin
+  insert into public.academy_resources (user_id, program_id, kind, title, url)
+  values ('00000000-0000-0000-0000-00000000000d', current_setting('academy_test.program_a')::uuid, 'link', 'Intrusion', 'https://exemple.fr');
+  raise exception 'ECHEC DU TEST : ressource de B acceptee sous le programme de A.';
+exception
+  when foreign_key_violation or insufficient_privilege then
+    perform set_config('academy_test.b_sous_programme_a', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+do $$
+begin
+  insert into public.academy_resources (user_id, lesson_id, kind, title, body)
+  values ('00000000-0000-0000-0000-00000000000d', current_setting('academy_test.lesson_a')::uuid, 'text', 'Intrusion', 'x');
+  raise exception 'ECHEC DU TEST : ressource de B acceptee sous la lecon de A.';
+exception
+  when foreign_key_violation or insufficient_privilege then
+    perform set_config('academy_test.b_sous_lecon_a', sqlstate || ' ' || sqlerrm, true);
+end;
+$$;
+-- B lit les ressources vivantes du programme de A. Attendu : (aucun)
+select set_config('academy_test.b_vivantes_a', (with p as (
+    select id from public.academy_programs
+    where id = current_setting('academy_test.program_a')::uuid and user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null
+  ),
+  ls as (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and program_id in (select id from p)),
+  lu as (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and subject_id in (select id from ls)),
+  lc as (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and unit_id in (select id from lu)),
+  ll as (select id from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null and chapter_id in (select id from lc)),
+  res as (
+    select title from public.academy_resources
+    where user_id = '00000000-0000-0000-0000-00000000000d' and deleted_at is null
+      and (program_id in (select id from p) or lesson_id in (select id from ll))
+  )
+  select coalesce(string_agg(title, ' | ' order by title), '(aucun)') from res), true);
+-- B lit directement les ressources de A, regle d'acces seule. Attendu : 0
+select set_config('academy_test.b_voit_a',
+  (select count(*) from public.academy_resources where user_id = '00000000-0000-0000-0000-00000000000c')::text, true);
+reset role;
+
+-- A lit ses ressources. Attendu : vivantes RL | RP ; archivees restaurables RX ; rien sur PB.
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', true);
+set local role authenticated;
+select set_config('academy_test.a_vivantes_a', (with p as (
+    select id from public.academy_programs
+    where id = current_setting('academy_test.program_a')::uuid and user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null
+  ),
+  ls as (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and program_id in (select id from p)),
+  lu as (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and subject_id in (select id from ls)),
+  lc as (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and unit_id in (select id from lu)),
+  ll as (select id from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and chapter_id in (select id from lc)),
+  res as (
+    select title from public.academy_resources
+    where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null
+      and (program_id in (select id from p) or lesson_id in (select id from ll))
+  )
+  select coalesce(string_agg(title, ' | ' order by title), '(aucun)') from res), true);
+select set_config('academy_test.a_archivees_a', (with p as (
+    select id from public.academy_programs
+    where id = current_setting('academy_test.program_a')::uuid and user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null
+  ),
+  ls as (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and program_id in (select id from p)),
+  lu as (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and subject_id in (select id from ls)),
+  lc as (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and unit_id in (select id from lu)),
+  ll as (select id from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and chapter_id in (select id from lc)),
+  res as (
+    select title from public.academy_resources
+    where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is not null
+      and (program_id in (select id from p) or lesson_id in (select id from ll))
+  )
+  select coalesce(string_agg(title, ' | ' order by title), '(aucun)') from res), true);
+select set_config('academy_test.a_vivantes_b', (with p as (
+    select id from public.academy_programs
+    where id = current_setting('academy_test.program_b')::uuid and user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null
+  ),
+  ls as (select id from public.academy_subjects where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and program_id in (select id from p)),
+  lu as (select id from public.academy_units where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and subject_id in (select id from ls)),
+  lc as (select id from public.academy_chapters where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and unit_id in (select id from lu)),
+  ll as (select id from public.academy_lessons where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null and chapter_id in (select id from lc)),
+  res as (
+    select title from public.academy_resources
+    where user_id = '00000000-0000-0000-0000-00000000000c' and deleted_at is null
+      and (program_id in (select id from p) or lesson_id in (select id from ll))
+  )
+  select coalesce(string_agg(title, ' | ' order by title), '(aucun)') from res), true);
+reset role;
+
+-- Synthese, sous postgres.
+select
+  current_setting('academy_test.a_vivantes_a', true) as ressources_vivantes_de_a,
+  current_setting('academy_test.a_archivees_a', true) as ressources_archivees_restaurables_de_a,
+  current_setting('academy_test.a_vivantes_b', true) as ressources_de_b_lues_par_a,
+  current_setting('academy_test.b_vivantes_a', true) as ressources_de_a_lues_par_b,
+  current_setting('academy_test.b_voit_a', true) as lignes_de_a_vues_par_b,
+  current_setting('academy_test.b_sous_programme_a', true) as ressource_de_b_sous_programme_de_a,
+  current_setting('academy_test.b_sous_lecon_a', true) as ressource_de_b_sous_lecon_de_a,
+  current_setting('academy_test.javascript', true) as url_javascript,
+  current_setting('academy_test.identifiants', true) as url_avec_identifiants,
+  current_setting('academy_test.lien_avec_body', true) as lien_avec_body,
+  current_setting('academy_test.texte_avec_url', true) as texte_avec_url,
+  current_setting('academy_test.deux_parents', true) as ressource_a_deux_parents;
+
+rollback;
+```
+
+**Résultat attendu de la synthèse** :
+
+| Colonne | Attendu |
+| --- | --- |
+| `ressources_vivantes_de_a` | `RL \| RP` — ni `RU`, sous un chapitre archivé |
+| `ressources_archivees_restaurables_de_a` | `RX` — ni `RY`, sous un chapitre archivé |
+| `ressources_de_b_lues_par_a` | `(aucun)` |
+| `ressources_de_a_lues_par_b` | `(aucun)` |
+| `lignes_de_a_vues_par_b` | `0` |
+| `ressource_de_b_sous_programme_de_a` | `23503`, `academy_resources_program_fk` dans le message |
+| `ressource_de_b_sous_lecon_de_a` | `23503`, `academy_resources_lesson_fk` dans le message |
+| `url_javascript` | `23514`, `academy_resources_url_http` dans le message |
+| `url_avec_identifiants` | `23514`, `academy_resources_url_no_credentials` dans le message |
+| `lien_avec_body` | `23514`, `academy_resources_kind_fields` dans le message |
+| `texte_avec_url` | `23514`, `academy_resources_kind_fields` dans le message |
+| `ressource_a_deux_parents` | `23514`, `academy_resources_one_parent` dans le message |
+
+**Vérification** : synthèse conforme, contrôle après coup à `0` partout. Si un résultat diffère, s'arrêter et le signaler. **Ne pas corriger les politiques ni le store dans la foulée.**
+
+*Écrit le 2026-11-27 par l'agent, sans exécution.*
+
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`

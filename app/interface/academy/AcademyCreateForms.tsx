@@ -8,12 +8,18 @@ import {
   ACADEMY_OBJECTIVE_PARENT_FIELD,
   ACADEMY_PARENT_FIELD,
   ACADEMY_PROGRAM_KINDS,
+  ACADEMY_RESOURCE_BODY_MAX_LENGTH,
+  ACADEMY_RESOURCE_PARENT_FIELD,
+  ACADEMY_RESOURCE_URL_MAX_LENGTH,
   ACADEMY_TITLE_MAX_LENGTH,
   parseChildCreatePayload,
   parseObjectiveCreatePayload,
   parseProgramCreatePayload,
+  parseResourceCreatePayload,
   type AcademyObjectiveParentLevel,
   type AcademyProgramKind,
+  type AcademyResourceKind,
+  type AcademyResourceParentLevel,
 } from "@/lib/academy/hierarchy";
 import { ACADEMY_MESSAGES } from "@/lib/academy/http";
 
@@ -48,6 +54,8 @@ function frenchNumber(value: number) {
 
 const CONTENT_MAX_LABEL = frenchNumber(ACADEMY_CONTENT_MAX_LENGTH);
 const DESCRIPTION_MAX_LABEL = frenchNumber(ACADEMY_DESCRIPTION_MAX_LENGTH);
+const URL_MAX_LABEL = frenchNumber(ACADEMY_RESOURCE_URL_MAX_LENGTH);
+const BODY_MAX_LABEL = frenchNumber(ACADEMY_RESOURCE_BODY_MAX_LENGTH);
 
 // Messages exacts des parsers de lib/academy/hierarchy.ts, atteignables depuis
 // ces formulaires. À tenir alignés si les parsers changent.
@@ -60,6 +68,20 @@ const LOCAL_VALIDATION_MESSAGES: Record<string, string> = {
     `Le contenu ne doit pas dépasser ${CONTENT_MAX_LABEL} caractères.`,
   [`description depasse la longueur maximale de ${ACADEMY_DESCRIPTION_MAX_LENGTH} caracteres.`]:
     `La description ne doit pas dépasser ${DESCRIPTION_MAX_LABEL} caractères.`,
+  // Ressources pédagogiques (étape 2b-2).
+  "kind doit valoir link ou text.": "Choisis Lien ou Texte.",
+  "url est obligatoire pour un lien.": "L'adresse du lien est obligatoire.",
+  [`url depasse la longueur maximale de ${ACADEMY_RESOURCE_URL_MAX_LENGTH} caracteres.`]:
+    `L'adresse ne doit pas dépasser ${URL_MAX_LABEL} caractères.`,
+  "url ne doit pas contenir d'espace.": "L'adresse ne doit pas contenir d'espace.",
+  "url doit etre une adresse http ou https valide.":
+    "L'adresse doit être une adresse web valide, commençant par http:// ou https://.",
+  "url ne doit pas contenir d'identifiants.":
+    "L'adresse ne doit contenir ni identifiant ni mot de passe.",
+  "body est obligatoire pour un texte.": "Le texte est obligatoire.",
+  "body ne peut pas etre vide.": "Le texte ne peut pas être vide.",
+  [`body depasse la longueur maximale de ${ACADEMY_RESOURCE_BODY_MAX_LENGTH} caracteres.`]:
+    `Le texte ne doit pas dépasser ${BODY_MAX_LABEL} caractères.`,
 };
 
 function localValidationMessage(parserError: string) {
@@ -500,6 +522,170 @@ export function AcademyObjectiveCreateForm({
         </label>
         <button type="submit" disabled={pending} className={`mt-3 ${buttonClass}`}>
           {pending ? "Création en cours…" : "Ajouter l'objectif"}
+        </button>
+        <FormError id={errorId} error={error} />
+      </form>
+    </details>
+  );
+}
+
+// --- Ressource pédagogique (étape 2b-2) ------------------------------------------------
+
+const RESOURCE_KIND_LABELS: Record<AcademyResourceKind, string> = {
+  link: "Lien",
+  text: "Texte",
+};
+
+// Formulaire replié (<details>) placé sous le titre d'un programme (arbre) ou
+// sous le contenu d'une leçon (page Leçon). Choix Lien ou Texte, titre, puis
+// l'adresse ou le texte. Seul le champ du type choisi est envoyé.
+export function AcademyResourceCreateForm({
+  parentLevel,
+  parentId,
+}: {
+  parentLevel: AcademyResourceParentLevel;
+  parentId: string;
+}) {
+  const router = useRouter();
+  const ids = useId();
+  const parentField = ACADEMY_RESOURCE_PARENT_FIELD[parentLevel];
+  const [kind, setKind] = useState<AcademyResourceKind>("link");
+  const [title, setTitle] = useState("");
+  const [url, setUrl] = useState("");
+  const [body, setBody] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+
+    const payload: Record<string, unknown> = { [parentField]: parentId, kind, title };
+
+    if (kind === "link") {
+      payload.url = url;
+    } else {
+      payload.body = body;
+    }
+
+    const parsed = parseResourceCreatePayload(payload);
+
+    if (!parsed.ok) {
+      setError(localValidationMessage(parsed.error));
+      return;
+    }
+
+    const request: Record<string, unknown> = {
+      [parentField]: parentId,
+      kind: parsed.kind,
+      title: parsed.title,
+    };
+
+    if (parsed.kind === "link") {
+      request.url = parsed.url;
+    } else {
+      request.body = parsed.body;
+    }
+
+    setPending(true);
+    const result = await postJson("/api/academy/resources", request);
+    setPending(false);
+
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+
+    setTitle("");
+    setUrl("");
+    setBody("");
+    router.refresh();
+  }
+
+  const errorId = `${ids}-error`;
+
+  return (
+    <details className="mt-1 text-sm">
+      <summary className="cursor-pointer text-[#7DD3FC] hover:text-[#F8FAFC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+        Nouvelle ressource
+      </summary>
+      <form
+        onSubmit={onSubmit}
+        aria-label="Nouvelle ressource"
+        className="mt-2 rounded-md border border-[#1D2A44] bg-[#0B1420]/60 p-3"
+        noValidate
+      >
+        <fieldset>
+          <legend className="text-sm text-[#D8DEE8]">Type</legend>
+          <div className="mt-1 flex gap-4">
+            {(["link", "text"] as const).map((value) => (
+              <label key={value} className="flex items-center gap-2 text-sm text-[#D8DEE8]">
+                <input
+                  type="radio"
+                  name={`${ids}-kind`}
+                  value={value}
+                  checked={kind === value}
+                  onChange={() => setKind(value)}
+                />
+                {RESOURCE_KIND_LABELS[value]}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <label className="mt-3 block text-sm text-[#D8DEE8]">
+          Titre
+          <input
+            type="text"
+            name="title"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            required
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
+            className={inputClass}
+          />
+          <span className="mt-1 block text-xs text-[#A7B0C0]">
+            {`Obligatoire, ${ACADEMY_TITLE_MAX_LENGTH} caractères au plus.`}
+          </span>
+        </label>
+        {kind === "link" ? (
+          <label className="mt-3 block text-sm text-[#D8DEE8]">
+            Adresse
+            <input
+              type="url"
+              name="url"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              required
+              placeholder="https://"
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? errorId : undefined}
+              className={inputClass}
+            />
+            <span className="mt-1 block text-xs text-[#A7B0C0]">
+              {`Obligatoire, http:// ou https://, sans identifiant, ${URL_MAX_LABEL} caractères au plus.`}
+            </span>
+          </label>
+        ) : (
+          <label className="mt-3 block text-sm text-[#D8DEE8]">
+            Texte
+            <textarea
+              name="body"
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              rows={5}
+              required
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? errorId : undefined}
+              className={inputClass}
+            />
+            <span className="mt-1 block text-xs text-[#A7B0C0]">
+              {`Obligatoire, en texte brut, ${BODY_MAX_LABEL} caractères au plus.`}
+            </span>
+          </label>
+        )}
+        <button type="submit" disabled={pending} className={`mt-3 ${buttonClass}`}>
+          {pending ? "Création en cours…" : "Ajouter la ressource"}
         </button>
         <FormError id={errorId} error={error} />
       </form>

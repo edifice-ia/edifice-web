@@ -15,9 +15,9 @@ import { ACADEMY_MESSAGES } from "@/lib/academy/http";
 // réponse, ou une panne réseau, affiche le message générique. Après réussite :
 // router.refresh().
 
-// Niveaux archivables : les cinq de la hiérarchie et l'objectif pédagogique
-// (étape 2b-1).
-type ArchivableLevel = AcademyLevel | "objective";
+// Niveaux archivables : les cinq de la hiérarchie, l'objectif pédagogique
+// (étape 2b-1) et la ressource pédagogique (étape 2b-2).
+type ArchivableLevel = AcademyLevel | "objective" | "resource";
 
 const LEVEL_SEGMENT: Record<ArchivableLevel, string> = {
   program: "programs",
@@ -26,6 +26,7 @@ const LEVEL_SEGMENT: Record<ArchivableLevel, string> = {
   chapter: "chapters",
   lesson: "lessons",
   objective: "objectives",
+  resource: "resources",
 };
 
 const CHANGED_MESSAGE = "Cet élément a changé entre-temps. La page a été actualisée.";

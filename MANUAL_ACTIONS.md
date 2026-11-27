@@ -53,30 +53,6 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
-### 2026-11-27 — Contrôler à la main les ressources pédagogiques
-
-**Statut** : `pending`
-
-**Pourquoi c'est manuel** : le contrôle demande une session authentifiée du porteur du projet dans le navigateur, et l'agent ne saisit pas d'identifiants.
-
-**Bloque** : la validation du code de l'étape 2b-2.
-
-**Compte** : `test-erase@edificeia.com`, sur le serveur local (`localhost:3000`) — le serveur n'est relancé par l'agent que sur demande.
-
-**Étapes** :
-
-1. Dans l'arbre d'un programme, sous « Ressources du programme » : déplier « Nouvelle ressource », créer un **lien** (`https://…`), puis un **texte** ; le lien s'ouvre dans un nouvel onglet et affiche son nom de domaine, le texte s'affiche en texte brut, retours à la ligne compris.
-2. Sur la page d'une leçon, sous « Ressources de la leçon » : créer un lien et un texte ; ils n'apparaissent **pas** dans l'arbre.
-3. Refus en français : titre vide ; adresse vide ; `javascript:alert(1)` et `exemple.fr` (« L'adresse doit être une adresse web valide… ») ; `https://u:p@exemple.fr` (« L'adresse ne doit contenir ni identifiant ni mot de passe. ») ; texte vide.
-4. Page **Ressources** (`/interface/academy/ressources`) : chaque programme, en lien vers son arbre, avec ses ressources puis celles de ses leçons (lien vers la leçon) ; « Aucune ressource. » pour un programme sans ressource ; aucun formulaire de création.
-5. Archiver une ressource depuis la page Ressources, puis depuis l'arbre ou la page Leçon : elle disparaît et apparaît dans « Éléments archivés de ce programme », étiquetée « Ressource », avec le titre de son parent ; la restaurer.
-6. Archiver le chapitre d'une leçon qui porte une ressource : la ressource disparaît de la page Ressources et n'est **pas** listée dans la section ; restaurer le chapitre : elle revient.
-7. Relever les identifiants des données créées, pour le nettoyage.
-
-**Vérification** : chaque étape conforme ; transmettre les écarts tels quels à l'agent.
-
-*Écrit le 2026-11-27 par l'agent, sans exécution.*
-
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
@@ -114,6 +90,50 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 **Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
 
 ## Archive (done)
+
+### 2026-11-27 — Contrôler à la main les ressources pédagogiques
+
+**Statut** : `done` — consigné le 2026-11-27. Contrôle exécuté par Vincent, porteur du projet, dans le navigateur, sur le serveur local (`localhost:3000`), avec le compte `test-erase@edificeia.com`, après le commit `9240352` ; **jugé conforme par Vincent**. L'agent n'a rien exécuté.
+
+**Pourquoi c'est manuel** : le contrôle demande une session authentifiée du porteur du projet dans le navigateur, et l'agent ne saisit pas d'identifiants.
+
+**Bloquait** : la validation du code de l'étape 2b-2.
+
+**Compte** : `test-erase@edificeia.com`, sur le serveur local (`localhost:3000`) — le serveur n'est relancé par l'agent que sur demande.
+
+**Résultats** — les onze points contrôlés par Vincent, chacun **conforme selon Vincent**, sans détail transmis point par point :
+
+1. Ressource de programme — conforme selon Vincent.
+2. Lien ouvert dans un nouvel onglet — conforme selon Vincent.
+3. Ressource de texte (texte brut, sauts de ligne) — conforme selon Vincent.
+4. Ressource sur la page Leçon — conforme selon Vincent.
+5. Page Ressources — conforme selon Vincent.
+6. Refus : titre vide, `javascript:`, identifiants, lien avec texte — conforme selon Vincent.
+7. Archivage, et présence dans la section « Éléments archivés de ce programme » — conforme selon Vincent.
+8. Annulation de l'archivage — conforme selon Vincent.
+9. Restauration — conforme selon Vincent.
+10. Parent archivé (chapitre) — conforme selon Vincent.
+11. Refus à deux onglets — conforme selon Vincent.
+
+Ces onze points, transmis par Vincent, ne recoupent pas exactement les étapes prévues ci-dessous : ce sont eux qui ont été exécutés.
+
+**URL de test** : selon Vincent, celles fournies dans le chat ; elles ne sont pas recopiées ici.
+
+**Données de contrôle** : elles restent sur `test-erase@edificeia.com` ; aucun nettoyage n'est demandé.
+
+**Étapes prévues** (telles qu'écrites avant l'exécution) :
+
+1. Dans l'arbre d'un programme, sous « Ressources du programme » : déplier « Nouvelle ressource », créer un **lien** (`https://…`), puis un **texte** ; le lien s'ouvre dans un nouvel onglet et affiche son nom de domaine, le texte s'affiche en texte brut, retours à la ligne compris.
+2. Sur la page d'une leçon, sous « Ressources de la leçon » : créer un lien et un texte ; ils n'apparaissent **pas** dans l'arbre.
+3. Refus en français : titre vide ; adresse vide ; `javascript:alert(1)` et `exemple.fr` (« L'adresse doit être une adresse web valide… ») ; `https://u:p@exemple.fr` (« L'adresse ne doit contenir ni identifiant ni mot de passe. ») ; texte vide.
+4. Page **Ressources** (`/interface/academy/ressources`) : chaque programme, en lien vers son arbre, avec ses ressources puis celles de ses leçons (lien vers la leçon) ; « Aucune ressource. » pour un programme sans ressource ; aucun formulaire de création.
+5. Archiver une ressource depuis la page Ressources, puis depuis l'arbre ou la page Leçon : elle disparaît et apparaît dans « Éléments archivés de ce programme », étiquetée « Ressource », avec le titre de son parent ; la restaurer.
+6. Archiver le chapitre d'une leçon qui porte une ressource : la ressource disparaît de la page Ressources et n'est **pas** listée dans la section ; restaurer le chapitre : elle revient.
+7. Relever les identifiants des données créées, pour le nettoyage.
+
+**Vérification** : chaque étape conforme ; transmettre les écarts tels quels à l'agent.
+
+*Écrit le 2026-11-27 par l'agent, sans exécution ; exécution par Vincent consignée le 2026-11-27.*
 
 ### 2026-11-27 — Tester l'isolation SQL des ressources pédagogiques
 

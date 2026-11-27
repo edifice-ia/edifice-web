@@ -109,10 +109,10 @@ Résumé : code de l'étape 2b-2. Les ressources pédagogiques — liens et text
 Fichiers liés :
 
 - `lib/academy/hierarchy.ts`, `lib/academy/http.ts`, `lib/academy/sections.ts`, `lib/server/academy/resources-store.ts`, `app/api/academy/resources/**`, `app/interface/academy/AcademyResourceList.tsx`, `app/interface/academy/ressources/page.tsx`, `app/interface/academy/AcademyCreateForms.tsx`, `app/interface/academy/AcademyArchiveControls.tsx`, `app/interface/academy/AcademyPrimitives.tsx`, `app/interface/academy/programmes/[id]/page.tsx`, `app/interface/academy/lecons/[id]/page.tsx`, `scripts/academy-routes-check.mjs`, `scripts/academy-hierarchy-check.mjs`
-- `MANUAL_ACTIONS.md` — deux entrées `pending` : test SQL d'isolation des ressources, contrôle à la main
+- `MANUAL_ACTIONS.md` — test SQL d'isolation des ressources et contrôle à la main (tous deux validés, archivés)
 - `knowledge/Documentation-Technique-Code/05_Database.md`, `06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
 
-Impact : nouvelle lecture et écriture d'une table par compte — commit local, push sur confirmation. Isolation côté base : test SQL d'isolation des ressources validé (résultats transmis par Vincent le 2026-11-27 : aucune fuite entre comptes, `23503` sous le programme et sous la leçon d'un autre compte, rien sous un ancêtre archivé, `23514` sur `javascript:`, sur une URL avec identifiants, sur l'incohérence entre type et champs et à deux parents, contrôle après coup à `0`). Non vérifié : rendu avec une session.
+Impact : nouvelle lecture et écriture d'une table par compte — commit local, push sur confirmation. Isolation côté base : test SQL d'isolation des ressources validé (résultats transmis par Vincent le 2026-11-27 : aucune fuite entre comptes, `23503` sous le programme et sous la leçon d'un autre compte, rien sous un ancêtre archivé, `23514` sur `javascript:`, sur une URL avec identifiants, sur l'incohérence entre type et champs et à deux parents, contrôle après coup à `0`). Contrôle à la main : contrôlé à la main par Vincent après `9240352`, conforme selon Vincent (onze points : ressource de programme, lien ouvert dans un nouvel onglet, texte brut avec sauts de ligne, ressource sur la page Leçon, page Ressources, refus, archivage et section « Éléments archivés », annulation, restauration, parent archivé, refus à deux onglets ; consigné le 2026-11-27).
 
 ## 2026-11-27 (Academy : migration des ressources pédagogiques)
 

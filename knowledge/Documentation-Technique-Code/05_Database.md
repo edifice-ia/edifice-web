@@ -183,7 +183,7 @@ Droits : RLS activée ; `revoke all … from anon, authenticated` **avant** le `
 
 Hors de cette migration, étape 2b : `academy_objectives` et `academy_resources`.
 
-**`academy_objectives` — objectifs pédagogiques, migration appliquée en base le 2026-11-26, contrôles structurels conformes** — `supabase/migrations/20261126120000_create_academy_objectives.sql`, appliquée à la main dans le SQL Editor (entrée archivée du même jour dans `MANUAL_ACTIONS.md`). Lue et écrite depuis le 2026-11-26 par `lib/server/academy/objectives-store.ts`, au **client de session**, avec un filtre `user_id` sur chaque requête, comme le store de la hiérarchie (voir `06_Modules.md`). *Jusqu'à ce code, cette phrase disait « aucun code ne lit ni n'écrit encore cette table ».* Isolation côté base : test SQL écrit, entrée `pending` de `MANUAL_ACTIONS.md`, non exécuté.
+**`academy_objectives` — objectifs pédagogiques, migration appliquée en base le 2026-11-26, contrôles structurels conformes** — `supabase/migrations/20261126120000_create_academy_objectives.sql`, appliquée à la main dans le SQL Editor (entrée archivée du même jour dans `MANUAL_ACTIONS.md`). Lue et écrite depuis le 2026-11-26 par `lib/server/academy/objectives-store.ts`, au **client de session**, avec un filtre `user_id` sur chaque requête, comme le store de la hiérarchie (voir `06_Modules.md`). *Jusqu'à ce code, cette phrase disait « aucun code ne lit ni n'écrit encore cette table ».* Isolation côté base : test SQL d'isolation des objectifs validé (résultats transmis par Vincent le 2026-11-27 : aucune fuite entre comptes, `23503` sous le parent d'un autre compte, rien sous un ancêtre archivé, `23514` à deux parents, contrôle après coup à `0`) ; entrée archivée de `MANUAL_ACTIONS.md`.
 
 | Colonne | Rôle |
 |---|---|

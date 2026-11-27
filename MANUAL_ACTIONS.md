@@ -53,29 +53,6 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 
 <!-- Les entrées `pending` vont ici, les plus récentes en haut. -->
 
-### 2026-11-26 — Contrôler à la main les objectifs pédagogiques dans l'arbre
-
-**Statut** : `pending`
-
-**Pourquoi c'est manuel** : le contrôle demande une session authentifiée du porteur du projet dans le navigateur, et l'agent ne saisit pas d'identifiants.
-
-**Bloque** : la validation du code de l'étape 2b-1.
-
-**Compte** : `test-erase@edificeia.com`, sur le serveur local (`localhost:3000`) — le serveur n'est relancé par l'agent que sur demande.
-
-**Étapes** :
-
-1. Dans l'arbre d'un programme, sous le titre du programme, puis sous une matière, un module et un chapitre : déplier « Nouvel objectif », créer un objectif avec description, puis un sans ; chacun apparaît sous son niveau, étiqueté « Objectif », la description en texte brut.
-2. Refus en français : titre vide (« Le titre ne peut pas être vide. »), titre trop long (« Le titre ne doit pas dépasser 200 caractères. »), description trop longue (« La description ne doit pas dépasser 2 000 caractères. »).
-3. Archiver un objectif (« Archiver », puis « Confirmer l'archivage ») : il disparaît et apparaît dans « Éléments archivés de ce programme », étiqueté « Objectif », avec le titre de son niveau ; le restaurer.
-4. Archiver un module qui porte un objectif : l'objectif disparaît avec le module et n'est **pas** listé dans la section ; restaurer le module : l'objectif revient.
-5. Aucune leçon ne propose « Nouvel objectif ».
-6. Relever les identifiants des données créées, pour le nettoyage.
-
-**Vérification** : chaque étape conforme ; transmettre les écarts tels quels à l'agent.
-
-*Écrit le 2026-11-26 par l'agent, sans exécution.*
-
 ### 2026-08-01 — Vérifier si la review TikTok est terminée, et durcir `/api/oauth/tiktok/status` si oui
 
 **Statut** : `pending`
@@ -113,6 +90,46 @@ Exemple de rédaction du champ « Pourquoi c'est manuel » (formulations attendu
 **Vérification** : connecté avec un compte non-reviewer, `/api/oauth/tiktok/status` doit continuer de répondre `200`. Avec le compte reviewer, elle doit répondre `403` une fois le durcissement appliqué. Et `grep -rn "tiktok/status" src/lib/supabase/proxy.ts` ne doit plus rien renvoyer.
 
 ## Archive (done)
+
+### 2026-11-26 — Contrôler à la main les objectifs pédagogiques dans l'arbre
+
+**Statut** : `done` — consigné le 2026-11-27. Contrôle exécuté par Vincent, porteur du projet, dans le navigateur, sur le serveur local (`localhost:3000`), avec le compte `test-erase@edificeia.com`, après le commit `47ddf74` ; **jugé conforme par Vincent**. L'agent n'a rien exécuté.
+
+**Pourquoi c'est manuel** : le contrôle demande une session authentifiée du porteur du projet dans le navigateur, et l'agent ne saisit pas d'identifiants.
+
+**Bloquait** : la validation du code de l'étape 2b-1.
+
+**Compte** : `test-erase@edificeia.com`, sur le serveur local (`localhost:3000`) — le serveur n'est relancé par l'agent que sur demande.
+
+**Résultats** — les dix points contrôlés par Vincent, chacun **conforme selon Vincent**, sans détail transmis point par point :
+
+1. Création d'un objectif au niveau du programme — conforme selon Vincent.
+2. Création aux autres niveaux (matière, module, chapitre) — conforme selon Vincent.
+3. Objectif sans description — conforme selon Vincent.
+4. Description affichée en texte brut — conforme selon Vincent.
+5. Refus en français : titre vide, titre trop long, description trop longue — conforme selon Vincent.
+6. Annulation de l'archivage (« Annuler ») — conforme selon Vincent.
+7. Archivage, et présence dans la section « Éléments archivés de ce programme » — conforme selon Vincent.
+8. Restauration — conforme selon Vincent.
+9. Parent archivé (chapitre, puis module) — conforme selon Vincent.
+10. Refus à deux onglets — conforme selon Vincent.
+
+Ces dix points, transmis par Vincent, ne recoupent pas exactement les étapes prévues ci-dessous : ce sont eux qui ont été exécutés.
+
+**Données de contrôle** : elles restent sur `test-erase@edificeia.com` ; aucun nettoyage n'est demandé.
+
+**Étapes prévues** (telles qu'écrites avant l'exécution) :
+
+1. Dans l'arbre d'un programme, sous le titre du programme, puis sous une matière, un module et un chapitre : déplier « Nouvel objectif », créer un objectif avec description, puis un sans ; chacun apparaît sous son niveau, étiqueté « Objectif », la description en texte brut.
+2. Refus en français : titre vide (« Le titre ne peut pas être vide. »), titre trop long (« Le titre ne doit pas dépasser 200 caractères. »), description trop longue (« La description ne doit pas dépasser 2 000 caractères. »).
+3. Archiver un objectif (« Archiver », puis « Confirmer l'archivage ») : il disparaît et apparaît dans « Éléments archivés de ce programme », étiqueté « Objectif », avec le titre de son niveau ; le restaurer.
+4. Archiver un module qui porte un objectif : l'objectif disparaît avec le module et n'est **pas** listé dans la section ; restaurer le module : l'objectif revient.
+5. Aucune leçon ne propose « Nouvel objectif ».
+6. Relever les identifiants des données créées, pour le nettoyage.
+
+**Vérification** : chaque étape conforme ; transmettre les écarts tels quels à l'agent.
+
+*Écrit le 2026-11-26 par l'agent, sans exécution ; exécution par Vincent consignée le 2026-11-27.*
 
 ### 2026-11-26 — Tester l'isolation SQL des objectifs pédagogiques
 

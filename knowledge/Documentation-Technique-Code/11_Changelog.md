@@ -107,10 +107,10 @@ Résumé : code de l'étape 2b-1. Les objectifs pédagogiques se créent, s'arch
 Fichiers liés :
 
 - `lib/academy/hierarchy.ts`, `lib/academy/http.ts`, `lib/server/academy/objectives-store.ts`, `lib/server/academy/hierarchy-store.ts`, `app/api/academy/objectives/**`, `app/interface/academy/AcademyCreateForms.tsx`, `app/interface/academy/AcademyArchiveControls.tsx`, `app/interface/academy/programmes/[id]/page.tsx`, `scripts/academy-routes-check.mjs`, `scripts/academy-hierarchy-check.mjs`
-- `MANUAL_ACTIONS.md` — test SQL d'isolation des objectifs (validé, archivé) ; contrôle à la main (`pending`)
+- `MANUAL_ACTIONS.md` — test SQL d'isolation des objectifs (validé, archivé) ; contrôle à la main (conforme selon Vincent, archivé)
 - `knowledge/Documentation-Technique-Code/05_Database.md`, `06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
 
-Impact : nouvelle lecture et écriture d'une table par compte — commit local, push sur confirmation. Isolation côté base : test SQL d'isolation des objectifs validé (résultats transmis par Vincent le 2026-11-27 : aucune fuite entre comptes, `23503` sous le parent d'un autre compte, rien sous un ancêtre archivé, `23514` à deux parents, contrôle après coup à `0`). Non vérifié : rendu avec une session.
+Impact : nouvelle lecture et écriture d'une table par compte — commit local, push sur confirmation. Isolation côté base : test SQL d'isolation des objectifs validé (résultats transmis par Vincent le 2026-11-27 : aucune fuite entre comptes, `23503` sous le parent d'un autre compte, rien sous un ancêtre archivé, `23514` à deux parents, contrôle après coup à `0`). Contrôle à la main : contrôlé à la main par Vincent après `47ddf74`, conforme selon Vincent (dix points : création à chaque niveau, description vide et en texte brut, refus en français, annulation, archivage et section « Éléments archivés », restauration, parent archivé, refus à deux onglets ; consigné le 2026-11-27).
 
 ## 2026-11-26 (Academy : migration des objectifs pédagogiques)
 

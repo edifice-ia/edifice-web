@@ -112,7 +112,7 @@ Fichiers liés :
 - `MANUAL_ACTIONS.md` — deux entrées `pending` : test SQL d'isolation des ressources, contrôle à la main
 - `knowledge/Documentation-Technique-Code/05_Database.md`, `06_Modules.md`, `suivi-chantiers-edifice.md` — chantier 8
 
-Impact : nouvelle lecture et écriture d'une table par compte — commit local, push après le test SQL et sur confirmation. Non vérifié : isolation côté base, rendu avec une session.
+Impact : nouvelle lecture et écriture d'une table par compte — commit local, push sur confirmation. Isolation côté base : test SQL d'isolation des ressources validé (résultats transmis par Vincent le 2026-11-27 : aucune fuite entre comptes, `23503` sous le programme et sous la leçon d'un autre compte, rien sous un ancêtre archivé, `23514` sur `javascript:`, sur une URL avec identifiants, sur l'incohérence entre type et champs et à deux parents, contrôle après coup à `0`). Non vérifié : rendu avec une session.
 
 ## 2026-11-27 (Academy : migration des ressources pédagogiques)
 
